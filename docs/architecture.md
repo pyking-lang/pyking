@@ -529,26 +529,26 @@ pages it links to; what follows is the shape of the mechanism.
 
 | target | files written | `print` goes to |
 |---|---|---|
-| `python14` | `foo.py` | Python's own `print` |
-| `node24` | `foo.js`, `pyk-runtime.js`, `package.json` | `console.log` — `node foo.js` |
-| `web24` | those, plus `foo.html` and `io_external.js` | the `io` library's browser implementation, which writes to the console, over HTTP |
-| `iweb24` | `foo.html`, `pyking.js`, the `.pyk` sources, `io_external.js` | the same, from the interpreter |
+| `python` | `foo.py` | Python's own `print` |
+| `node` | `foo.js`, `pyk-runtime.js`, `package.json` | `console.log` — `node foo.js` |
+| `web` | those, plus `foo.html` and `io_external.js` | the `io` library's browser implementation, which writes to the console, over HTTP |
+| `iweb` | `foo.html`, `pyking.js`, the `.pyk` sources, `io_external.js` | the same, from the interpreter |
 | `c89` | `foo.c` | `printf`, from a C89-conforming file |
 | `c99` | `foo.c` | `printf`, from a C99 file |
 | `c23` | `foo.c` | `printf`, from a C23 file |
 | `java8` | `Foo.java` | `System.out.println`, `javac --release 8` |
 | `java17` | `Foo.java` | `System.out.println`, `javac --release 17` |
 | `java21` | `Foo.java` | `System.out.println`, `javac --release 21` |
-| `ocaml5.5` | `foo.ml` | `print_endline`, `ocamlopt` |
+| `ocaml` | `foo.ml` | `print_endline`, `ocamlopt` |
 
-`iweb24` is the odd one: it compiles nothing. The page ships the
+`iweb` is the odd one: it compiles nothing. The page ships the
 program's Pyking source and the compiler built to JavaScript, and
 interprets it — so it covers everything the checker accepts rather than
 one backend's subset. See [target_js.md](target_js.md), "The interpreted
 target".
 
-`node24` and `web24` emit the *same* JavaScript: ES modules printing
-with `console.log`, one `.js` per Pyking module. `web24` adds an HTML
+`node` and `web` emit the *same* JavaScript: ES modules printing
+with `console.log`, one `.js` per Pyking module. `web` adds an HTML
 file that loads the program, and nothing else.
 
 ### Naming the output
@@ -598,7 +598,7 @@ in, and clobbering it would break more than this build.
 `--stdout` prints the primary artifact only — the program's own module,
 since the files beside it exist only as files.
 
-A `web24` or `iweb24` page has to be **served**: a browser refuses a
+A `web` or `iweb` page has to be **served**: a browser refuses a
 module fetched over `file://`, and both load one. `--run` starts
 `pyk serve` on the page for that reason, which serves its directory and
 prints a link to the page itself.
@@ -672,7 +672,7 @@ being interpreted, reports
 'file' row:col-row:col Name error: ...
 'file' row:col-row:col Type error: ...
 'file' row:col-row:col Runtime error: ...
-'file' row:col-row:col Unsupported by target 'node24': ...
+'file' row:col-row:col Unsupported by target 'node22': ...
 ```
 
 to stderr and produces no output. The first six all come from one
@@ -713,9 +713,9 @@ own page:
   that fills them, and the pass that writes the answer into the
   program.
 - **[target_python.md](target_python.md)** — `python`.
-- **[target_js.md](target_js.md)** — `node24`, `web24` and `iweb24`.
+- **[target_js.md](target_js.md)** — `node`, `web` and `iweb`.
 - **[target_c.md](target_c.md)** — `c89`, `c99`, `c23`.
-- **[target_ocaml.md](target_ocaml.md)** — `ocaml5.5`. Nearly the whole
+- **[target_ocaml.md](target_ocaml.md)** — `ocaml`. Nearly the whole
   subset that type-checks, compiled with no annotations.
 - **[target_java.md](target_java.md)** — `java8`, `java17`, `java21`.
 
@@ -739,7 +739,7 @@ OCaml, `//` with Python's floor corrected, and `Math.trunc` around the
 quotient in JavaScript, whose `/` is float division. No target refuses
 it, and all of them answer `-3` for `-7 / 2`.
 
-The `ocaml5.5` target is the odd one out in a more interesting way: its
+The `ocaml` target is the odd one out in a more interesting way: its
 subset starts from the type checker's, run for real, rather than from a
 list this backend maintains. A program it accepts is one
 `typesystem.ml` accepted, which also means the subset grows when the
@@ -763,7 +763,7 @@ expected to work on:
 ```toml
 [[cases]]
 file = "while_simple.pyk"
-targets = ["python14", "node24", "web24", "iweb24"]
+targets = ["python12", "node22", "web2020", "iweb2020"]
 ```
 
 A program that imports lists the modules it imports as well, in
@@ -775,7 +775,7 @@ order to build the program at all:
 [[cases]]
 file = "module_chain.pyk"
 modules = ["module_chain_mod1.pyk", "module_chain_mod2.pyk"]
-targets = ["python", "node24", "interpret"]
+targets = ["python", "node22", "interpret"]
 ```
 
 A module listed there is not a case of its own — it is not a program,
@@ -819,7 +819,7 @@ the work was scheduled and a parallel transcript diffs cleanly against a
 serial one.
 
 `make quicktest` (`--sample PERCENT`) runs the latest version of each
-family only, and `node24`, `web24`, `c23` and `java21` on a random
+family only, and `node24`, `web2024`, `c23` and `java21` on a random
 `PERCENT` of their cases each, at least one; the seed is printed, and
 `SEED=n` repeats the choice.
 
@@ -836,9 +836,9 @@ Each target is executed the way a user would run it: `python3` on the
 generated `.py`, `node` on the generated `.js`, `cc -std=… -pedantic` and
 then the binary for `c89`/`c99`/`c23`, `javac --release <8|17|21>` and
 then `java` for `java8`/`java17`/`java21`, `ocamlopt -w +a` and then
-the binary for `ocaml5.5`. `web24` runs its page's own loader under node,
+the binary for `ocaml`. `web` runs its page's own loader under node,
 taken out of the page -- the program prints to the console, so what runs
-is the same program either way -- and `iweb24` runs its page's own glue
+is the same program either way -- and `iweb` runs its page's own glue
 with node's filesystem in place of `fetch`, which exercises the
 interpreter, the shipped sources and the external modules, `print`
 writing through the shipped `io` implementation as the page's does. The JavaScript runners pass `--no-experimental-detect-module`, so node

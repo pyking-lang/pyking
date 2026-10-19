@@ -1,7 +1,8 @@
 # The JavaScript targets
 
-**Targets in this family:** `node24`, `web24` and `iweb24`, aliased
-`node`, `web` and `iweb`.
+**Targets in this family:** `node22`, `node24`, `web2020`, `web2024`,
+`iweb2020` and `iweb2024`, aliased `node` (`node22`), `web` (`web2020`)
+and `iweb` (`iweb2020`).
 
 **Key points**
 
@@ -26,15 +27,35 @@
 
 ## The three targets
 
-| target | alias | files | what runs the program |
+| targets | alias | files | what runs the program |
 |---|---|---|---|
-| `node24` | `node` | `foo.js`, `pyk-runtime.js`, `package.json` | `node foo.js` |
-| `web24` | `web` | `foo.js`, `pyk-runtime.js`, `foo.html` | a browser, over HTTP |
-| `iweb24` | `iweb` | `foo.html`, `pyking.js`, the `.pyk` sources | a browser, over HTTP |
+| `node22`, `node24` | `node` | `foo.js`, `pyk-runtime.js`, `package.json` | `node foo.js` |
+| `web2020`, `web2024` | `web` | `foo.js`, `pyk-runtime.js`, `foo.html` | a browser, over HTTP |
+| `iweb2020`, `iweb2024` | `iweb` | `foo.html`, `pyking.js`, the `.pyk` sources | a browser, over HTTP |
 
-**`node24` and `web24` emit the same JavaScript** for a program's own
+## Two editions: ES2020 and ES2024
+
+A JavaScript target writes one of two ECMAScript editions
+(`Targets.es_edition`): `node22`, `web2020` and `iweb2020` ES2020,
+`node24`, `web2024` and `iweb2024` ES2024. A web target's version is its
+edition, and a node target's is the node release, whose edition is
+fixed here -- node 22 runs all of ES2024 and node 24 all of ES2025, so
+the choice is conservative rather than forced.
+
+A program's own modules are the same text in both: they use nothing
+past ES2020. What differs is a page's loader. It waits for the program
+(`web`) or for its sources (`iweb`) at the top level of a module script,
+which is ES2022; an ES2020 page wraps those statements in an async
+function called at once (`awaiting`).
+
+*Not optimal:* an `iweb2020` page's own script is ES2020, but the
+interpreter it ships, `pyking.js`, is js_of_ocaml's output, which uses
+`||=` (ES2021) and `Object.hasOwn` (ES2022) -- so an `iweb` page needs an
+ES2022 browser whichever edition it was compiled for.
+
+**`node` and `web` emit the same JavaScript** for a program's own
 modules. Both are ES modules, and both compile a Pyking module to a
-`.js` module of its own. They differ in the entry point -- `web24` adds
+`.js` module of its own. They differ in the entry point -- `web` adds
 an HTML file that loads the program -- and in the shared
 `pyk-runtime.js`, which is where `print` goes (see "Standard output in a
 browser" below).
@@ -85,14 +106,14 @@ from its extension first and the nearest manifest second, so `.js`
 without one means CommonJS and the `import` lines fail.
 
 A browser never reads one — a `<script type="module">` says outright
-what it is loading — so **`web24` writes no manifest**, and neither does
-`iweb24`. That matters beyond tidiness: a `package.json` saying
+what it is loading — so **`web` writes no manifest**, and neither does
+`iweb`. That matters beyond tidiness: a `package.json` saying
 `"type": "module"` governs every `.js` file *below* it, so one written
 into a directory holding other JavaScript changes how node reads that
 too. Writing one only where it is needed keeps that reach where it was
 asked for.
 
-The consequence for `web24` is worth knowing: its `.js` files are
+The consequence for `web` is worth knowing: its `.js` files are
 perfectly good ES modules, but `node foo.js` on them needs a manifest
 you supply, because the target did not assume you wanted one. Serving
 the page, which is how the target is meant to be run, needs nothing.
@@ -100,7 +121,7 @@ the page, which is how the target is meant to be run, needs nothing.
 An existing `package.json` is never overwritten — it belongs to whatever
 project the output landed in.
 
-**A `web24` program has to be served.** A browser refuses a module
+**A `web` program has to be served.** A browser refuses a module
 fetched over `file://`, and the program is a module. `pyk compile -t web
 --run` starts `pyk serve` in the output directory for exactly that
 reason, and prints the page's own address before it:
@@ -117,7 +138,7 @@ an error rather than a silent move to another one.
 
 ### The interpreted target
 
-`iweb24` compiles nothing at all. The page ships the program's Pyking
+`iweb` compiles nothing at all. The page ships the program's Pyking
 **source** and the Pyking compiler built to JavaScript, and interprets
 it in the browser:
 
@@ -150,8 +171,8 @@ removes every call to `debug` before it runs the program, as
 
 The point is coverage. A backend supports a subset; the interpreter
 supports everything `src/typesystem.ml` accepts, so `for`, `while`,
-`match`, lists and comprehensions all work in a browser under `iweb24`
-where `web24` refuses them. The price is that the program is interpreted
+`match`, lists and comprehensions all work in a browser under `iweb`
+where `web` refuses them. The price is that the program is interpreted
 rather than compiled, and that `pyking.js` (about 5 MB) ships with it.
 
 `pyking.js` is the same file the playground runs, built by `make` into
@@ -159,7 +180,7 @@ rather than compiled, and that `pyking.js` (about 5 MB) ships with it.
 what puts it there, and says so plainly if it is not:
 
 ```
-Usage error: target 'iweb24' ships the interpreter, and 'pyking.js' is
+Usage error: target 'iweb' ships the interpreter, and 'pyking.js' is
   not beside the compiler; run `make` to build it.
 ```
 
@@ -168,7 +189,7 @@ Compiling **in the directory the sources already sit in** copies each
 than reported as overwriting the input. `pyk compile -t iweb foo.pyk`
 in `foo.pyk`'s own directory is the ordinary case, and works.
 
-**Modules and external modules work exactly as they do for `web24`.**
+**Modules and external modules work exactly as they do for `web`.**
 Every module's `.pyk` file ships, including an external module's
 declaration — the module system runs in the page, reading those instead
 of a directory. An external module's *implementation* is its browser
@@ -762,13 +783,13 @@ to reach one: the implementation is imported like any other module and
 copied beside the program's output as `sys_external.js`.
 
 **A browser needs different code from node**, so a module has one
-implementation for each environment: `sys_external_node.js` for `node24`
-and `sys_external_browser.js` for `web24` and `iweb24` -- and `iweb24`
+implementation for each environment: `sys_external_node.js` for `node`
+and `sys_external_browser.js` for `web` and `iweb` -- and `iweb`
 takes `sys_external_interpreter.js` instead where a library has one, as
 tinyweb does, since there the interpreter runs the program and talks to
 its page in commands. Each is copied out as `sys_external.js`, which is
 what the generated import names; tinyweb's renderer, `tinyweb_page.js`,
-goes beside it on `iweb24`. A
+goes beside it on `iweb`. A
 standard library's browser implementation says on the console what a
 page cannot do ([libraries.md](libraries.md), "In the browser").
 
@@ -778,7 +799,7 @@ that makes that the process's status, which writes out everything
 already printed before the process ends -- `process.exit` may drop what
 is still being written to a pipe. In a browser, the page reads it.
 
-Under `iweb24` the implementation is reached from *interpreted* code:
+Under `iweb` the implementation is reached from *interpreted* code:
 the page imports it, puts it in `pykExternals`, and the interpreter
 calls through a host hook, with values crossing as JSON; an exit crosses
 back as `{"pyk_exit": code}`.

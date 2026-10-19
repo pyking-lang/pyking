@@ -28,8 +28,6 @@
 open Lexer
 open Syntax
 
-(* The one OCaml target; its name is src/targets.ml's. *)
-let target = List.hd (Targets.members Targets.Ocaml)
 let extension = ".ml"
 
 (* What a module the program imports says it exports, beside its own
@@ -626,6 +624,8 @@ type ctx = {
      type variables is printed with. *)
   datatypes : datatype SMap.t;
   shows : (string * oexpr) list;
+  (* Whether the Stdlib has `List.take` and `List.drop` (OCaml 5.3 on). *)
+  slices : bool;
 }
 
 (** What a translation accumulates. *)
@@ -1877,12 +1877,27 @@ and matcher ctx acc p used =
                 extracts
                 @ [
                     ( unread (mangle ctx bound) used,
-                      OApp
-                        ( OVar "List.take",
-                          [
-                            OBin ("-", OBin ("-", count, OInt front), OInt back);
-                            OApp (OVar "List.drop", [ OInt front; subject ]);
-                          ] ) );
+                      if ctx.slices then
+                        OApp
+                          ( OVar "List.take",
+                            [
+                              OBin ("-", OBin ("-", count, OInt front), OInt back);
+                              OApp (OVar "List.drop", [ OInt front; subject ]);
+                            ] )
+                      else
+                        (* The elements from `front` up to `back` from the
+                           end, with what OCaml 4.14 has. *)
+                        OApp
+                          ( OVar "List.filteri",
+                            [
+                              OLambda
+                                ( [ OPatName "i"; OPatName "_" ],
+                                  OBin
+                                    ( "&&",
+                                      OBin (">=", OVar "i", OInt front),
+                                      OBin ("<", OVar "i", OBin ("-", count, OInt back)) ) );
+                              subject;
+                            ] ) );
                   ]
           in
           ((name, [ OBin (">=", count, OInt (front + back)) ], extracts), acc))
@@ -3268,8 +3283,8 @@ let pprint_ocaml_interface program source =
   ^ "\n"
 
 (** The whole module: a header, the prelude if needed, and the top-level
-    items. oprogram -> string -> string *)
-let pprint_ocaml_program program source =
+    items. oprogram -> string -> string -> string *)
+let pprint_ocaml_program program target source =
   let parts =
     [
       Printf.sprintf
@@ -3287,9 +3302,9 @@ let pprint_ocaml_program program source =
     else
       [
         Printf.sprintf
-          "(* Target: ocaml5.5. The module '%s' of the program; compile it\n   \
+          "(* Target: %s. The module '%s' of the program; compile it\n   \
            before the ones that import it. *)"
-          program.program_name;
+          target program.program_name;
       ]
   in
 
@@ -3470,7 +3485,7 @@ let datatype_printers ctx acc datatypes =
     has been refused before this is called. `context` says what is true
     of the module only as part of a program.
     [stmt] -> typ IntMap.t -> Module.context -> oprogram *)
-let translate_program stmts tmap (context : Module.context) =
+let translate_program stmts tmap (context : Module.context) target =
   let own_sigmap =
     match List.assoc_opt context.context_name context.sigmaps with
     | Some sigmap -> sigmap
@@ -3577,6 +3592,7 @@ let translate_program stmts tmap (context : Module.context) =
       names;
       datatypes;
       shows = [];
+      slices = Targets.version target <> "4.14";
     }
   in
   let acc =

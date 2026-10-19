@@ -50,7 +50,7 @@ ASSETS = HERE / "assets"
 # --- what each target means to the page -----------------------------------
 
 # Which Ace mode highlights each target's output, and how (or whether) the
-# browser can execute it. `python`, `c89`/`c23`, `java*` and `ocaml` are
+# browser can execute it. `python*`, `c*`, `java*` and `ocaml*` are
 # display-only: there is no Python interpreter, C compiler, JVM or OCaml
 # runtime in a browser, which is a property of the target rather than a
 # shortcoming of the playground. Running the *program* needs none of them
@@ -60,36 +60,48 @@ PYKING_TARGET = "pyking"
 
 TARGET_MODE = {
     "pyking": "text",
+    "python12": "python",
     "python14": "python",
+    "node22": "javascript",
     "node24": "javascript",
-    "web24": "html",
-    "iweb24": "html",
+    "web2020": "html",
+    "web2024": "html",
+    "iweb2020": "html",
+    "iweb2024": "html",
     "c89": "c_cpp",
     "c99": "c_cpp",
     "c23": "c_cpp",
     "java8": "java",
     "java17": "java",
     "java21": "java",
+    "ocaml4.14": "ocaml",
     "ocaml5.5": "ocaml",
 }
 TARGET_RUN = {
-    # Both JavaScript targets emit the same ES module, so both run the
-    # same way here: inlined into a worker as a module.
+    # Every JavaScript target emits the same ES module, so all of them
+    # run the same way here: inlined into a worker as a module.
+    "node22": "module",
     "node24": "module",
-    "web24": "module",
+    "web2020": "module",
+    "web2024": "module",
 }
 TARGET_LABEL = {
     "pyking": "Pyking (the front end's own output)",
+    "python12": "Python 3.12",
     "python14": "Python 3.14",
-    "node24": "JavaScript - node 24",
-    "web24": "JavaScript - web (ES2024)",
-    "iweb24": "Pyking interpreted in the browser",
+    "node22": "JavaScript - node 22 (ES2020)",
+    "node24": "JavaScript - node 24 (ES2024)",
+    "web2020": "JavaScript - web (ES2020)",
+    "web2024": "JavaScript - web (ES2024)",
+    "iweb2020": "Pyking interpreted in the browser (ES2020)",
+    "iweb2024": "Pyking interpreted in the browser (ES2024)",
     "c89": "C89",
     "c99": "C99",
     "c23": "C23",
     "java8": "Java 8",
     "java17": "Java 17",
     "java21": "Java 21",
+    "ocaml4.14": "OCaml 4.14",
     "ocaml5.5": "OCaml 5.5",
 }
 
@@ -99,7 +111,7 @@ TARGET_LABEL = {
 # a browser can run it. This page already *is* that -- it runs the
 # interpreter -- so the target has nothing to offer here, and it could
 # not produce its own page anyway without a copy of pyking.js to ship.
-NOT_IN_THE_PAGE = {"iweb24"}
+NOT_IN_THE_PAGE = {"iweb2020", "iweb2024"}
 
 
 
@@ -183,7 +195,7 @@ const lib = process.argv[5];
 // or deliberately left out of it (NOT_IN_THE_PAGE in playground.py).
 const offered = new Set(manifest.targets.map((t) => t.name));
 const unknown = JSON.parse(pykTargets())
-  .filter((t) => !offered.has(t) && t !== "iweb24");
+  .filter((t) => !offered.has(t) && !t.startsWith("iweb"));
 if (unknown.length) {
   console.log("  FAIL target(s) " + unknown.join(", ") + " exist in the compiler "
     + "but have no entry in TARGET_MODE/TARGET_LABEL in playground.py");

@@ -185,7 +185,7 @@ check-node:
 	esac; \
 	if ! command -v node >/dev/null 2>&1; then \
 	  echo "make: node not found, and node 22.7 or above is required."; \
-	  echo "      The JavaScript targets are node24, web24 and iweb24, and"; \
+	  echo "      The JavaScript targets are node, web and iweb, and"; \
 	  echo "      the playground and tinyweb suites run under node too."; \
 	  exit 1; \
 	fi; \

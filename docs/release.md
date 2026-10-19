@@ -19,7 +19,7 @@ It is a pass rather than a flag each backend reads, for the reason the
 tail-call pass is: what comes out is ordinary Pyking, so no backend --
 and not `-t pyking`, which prints what was compiled -- knows it exists.
 The interpreter takes no `--release` and runs a program as written.
-`iweb24` compiles nothing, so its page is told to run the pass itself:
+`iweb` compiles nothing, so its page is told to run the pass itself:
 it asks the bundle for `pykRunProgram('<main>\nrelease')`.
 
 ## Which calls

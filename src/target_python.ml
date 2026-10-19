@@ -130,10 +130,17 @@ and pystmt =
       (* def name(params...): body *)
   | PyMatch of info * pyexpr * pymatchcase list
       (* match subject: case pattern: body ... *)
+  | PyDataclass of info * string * string list * (string * string) list * string option
+      (* @dataclass(frozen=True, slots=True) class Name[params]: field:
+         annotation ... -- and `_pyk_tag = 'Tag'` where the constructor's
+         Pyking name is not the class's *)
+  | PyTypeAlias of info * string * string list * string
+      (* type Name[params] = annotation *)
 
 (** A translated program: the host boilerplate (e.g. the Bool-printing
     helper; usually empty) and the translated program itself. *)
 type pyprogram = {
+  imports : pystmt list;  (* what declaring a datatype needs, first *)
   prelude : pystmt list;
   formats : bool;  (* whether the prelude holds the Bool walker *)
   floats : bool;  (* whether the prelude holds the Float formatter *)
@@ -336,11 +343,18 @@ and pprint_py_alternative p =
   | PyPOr _ | PyPAs _ -> "(" ^ pprint_py_pattern p ^ ")"
   | _ -> pprint_py_pattern p
 
+(** A class's or an alias's type parameters as PEP 695 writes them,
+    nothing where it has none. [string] -> string *)
+let type_params params =
+  if params = [] then "" else "[" ^ String.concat ", " params ^ "]"
+
 (** Renders a statement list as source lines, with a blank line around
     each nested def (never at the block's own start or end).
     [pystmt] -> int -> [string] *)
 let rec render_block stmts level =
-  let is_def s = match s with PyFunctionDef _ -> true | _ -> false in
+  let is_def s =
+    match s with PyFunctionDef _ | PyDataclass _ -> true | _ -> false
+  in
   let lines, _, _ =
     List.fold_left
       (fun (lines, index, prev_was_def) s ->
@@ -426,6 +440,21 @@ and pprint_py_stmt ?(level = 0) s =
       String.concat "\n"
         ([ Printf.sprintf "%sdef %s(%s):" pad name (String.concat ", " params) ]
         @ render_block body (level + 1))
+  | PyDataclass (info, name, params, fields, tag) ->
+      let body =
+        List.map (fun (field, annotation) -> Printf.sprintf "%s    %s: %s" pad field annotation) fields
+        @ (match tag with
+          | Some tag -> [ Printf.sprintf "%s    _pyk_tag = %s" pad (pprint_py_expr (PyString (info, tag))) ]
+          | None -> [])
+      in
+      String.concat "\n"
+        ([
+           Printf.sprintf "%s@dataclass(frozen=True, slots=True)" pad;
+           Printf.sprintf "%sclass %s%s:" pad name (type_params params);
+         ]
+        @ if body = [] then [ pad ^ "    pass" ] else body)
+  | PyTypeAlias (_, name, params, annotation) ->
+      Printf.sprintf "%stype %s%s = %s" pad name (type_params params) annotation
   | PyMatch (_, subject, cases) ->
       String.concat "\n"
         ([ Printf.sprintf "%smatch %s:" pad (pprint_py_expr subject) ]
@@ -523,25 +552,13 @@ let float_helper_def name =
    default (builtin.ml, "what a conversion reads"). *)
 
 let int_helper = "__pyk_int"
-let datatype_helper = "__pyk_datatype"
 let truncate_helper = "__pyk_trunc"
 let float_parse_helper = "__pyk_float_of"
 
 (** The text of one conversion helper. string -> string *)
 let conversion_def name =
   String.concat "\n"
-    (if name = datatype_helper then
-       [
-         Printf.sprintf "def %s(name, fields):" name;
-         "    # One class per constructor; its fields are what `match`";
-         "    # takes apart by position.";
-         "    def __init__(self, *values):";
-         "        for field, value in zip(fields, values):";
-         "            object.__setattr__(self, field, value)";
-         "    return type(name, (), {'__slots__': fields, '__match_args__': fields,";
-         "                           '__init__': __init__, '_pyk_tag': name})";
-       ]
-     else if name = int_helper then
+    (if name = int_helper then
        [
          Printf.sprintf "def %s(s):" name;
          "    digits = s[1:] if s[:1] in ('-', '+') else s";
@@ -569,7 +586,16 @@ let conversion_def name =
        ])
 
 (** program as Python source text. pyprogram -> string *)
-let pprint_py_program program =
+let rec pprint_py_program program =
+  let imports =
+    if program.imports = [] then ""
+    else String.concat "\n" (render_block program.imports 0) ^ "\n\n"
+  in
+  imports ^ pprint_py_body program
+
+(** program without its imports, as Python source text.
+    pyprogram -> string *)
+and pprint_py_body program =
   let body = String.concat "\n" (render_block program.stmts 0) in
   if program.prelude = [] && not program.floats && program.conversions = [] then body
   else
@@ -636,6 +662,15 @@ type gen = {
   (* What each name a module was imported under actually names, so that
      a qualified name can be asked which half provides it. *)
   module_aliases : (string * string) list;
+  (* Whether the host evaluates annotations lazily (3.14), so a field may
+     name a datatype declared after it without quotes; whether a
+     dataclass and a Callable annotation were emitted, which is what
+     their imports follow; and the datatypes of this module already
+     declared, which an annotation names unquoted. *)
+  deferred : bool;
+  dataclasses : bool;
+  callables : bool;
+  declared : StringSet.t;
 }
 
 (** Every identifier used anywhere in a program: what a generated name
@@ -840,6 +875,8 @@ let reserved =
       "finally"; "for"; "from"; "global"; "if"; "import"; "in"; "is";
       "lambda"; "nonlocal"; "not"; "or"; "pass"; "raise"; "return"; "try";
       "while"; "with"; "yield"; "_"; "case"; "match"; "type";
+      (* What the output imports to declare a datatype. *)
+      "dataclass"; "Callable";
     ]
 
 (** name2, or name3, ... -- the first not already used, as a Python name
@@ -1507,7 +1544,7 @@ let build_format_helper info name floats =
          fields, every field by position. *)
       PyIf
         ( info,
-          call "hasattr" [ v; text "_pyk_tag" ],
+          call "hasattr" [ v; text "__dataclass_fields__" ],
           [
             PyAssign (info, PyTargetName (info, "out"), text "");
             PyFor
@@ -1523,7 +1560,7 @@ let build_format_helper info name floats =
               ( info,
                 PyAdd
                   ( info,
-                    PyAttr (info, v, "_pyk_tag"),
+                    call "getattr" [ v; text "_pyk_tag"; PyAttr (info, call "type" [ v ], "__name__") ],
                     PyIfExp
                       ( info,
                         PyAttr (info, v, "__match_args__"),
@@ -2201,9 +2238,7 @@ let rec translate_expr e scope gen =
       (PyCall (info, callee, py_args), gen)
   | EField (info, record, name, _) ->
       let py_record, gen = translate_expr record scope gen in
-      if StringSet.mem name reserved then
-        (PyCall (info, PyVar (info, "getattr"), [ py_record; PyString (info, name) ]), gen)
-      else (PyAttr (info, py_record, name), gen)
+      (PyAttr (info, py_record, public_py_name name), gen)
   | EAdd (info, l, r, _) -> binary (fun i a b -> PyAdd (i, a, b)) info l r
   (* Python's `+` concatenates strings and lists as well as adding, so
      both Pyking operators land on the same node. *)
@@ -2833,48 +2868,63 @@ and translate_stmt s scope gen =
       in
       ([ PyMatch (info, py_subject, py_cases) ], scope, gen)
   | SFunctionSig _ -> ([], scope, gen)
-  | SDatatype (info, name, _, constructors, _, _) ->
-      (* A class per constructor, made by the prelude's
-         `__pyk_datatype`, and the datatype's own name for the tuple of
-         them -- what an import of it imports. Written at the top of the
-         program, since a datatype is in scope throughout its module. *)
-      let classes =
-        List.map
-          (fun (Constructor (ci, cname, fields, _)) ->
-            PyAssign
-              ( ci,
-                PyTargetName (ci, lookup cname scope),
-                PyCall
-                  ( ci,
-                    PyVar (ci, datatype_helper),
-                    [
-                      PyString (ci, cname);
-                      PyTuple
-                        ( ci,
-                          List.mapi
-                            (fun i (Field (fi, label, _, _, _)) ->
-                              PyString
-                                ( fi,
-                                  match label with
-                                  | Some l -> l
-                                  | None -> "_" ^ string_of_int i ))
-                            fields );
-                    ] ) ))
-          constructors
+  | SDatatype (info, name, params, constructors, sym, _) ->
+      (* A frozen dataclass per constructor, and the datatype's own name
+         a type alias for their union -- what an import of it imports.
+         Written at the top of the program, since a datatype is in scope
+         throughout its module. *)
+      let fields_of cname =
+        match IntMap.find_opt sym gen.types with
+        | Some (TData (_, Datatype (_, _, typed), _)) ->
+            Option.value (List.assoc_opt cname typed) ~default:[]
+        | _ -> []
+      in
+      let tparams = List.map public_py_name params in
+      let applied py_name =
+        if tparams = [] then py_name else py_name ^ "[" ^ String.concat ", " tparams ^ "]"
+      in
+      let classes, gen =
+        List.fold_left
+          (fun (out, gen) (Constructor (ci, cname, fields, _)) ->
+            let typed = fields_of cname in
+            let annotated, gen =
+              List.fold_left
+                (fun (annotated, gen) (i, Field (_, label, _, _, _)) ->
+                  let field =
+                    match label with
+                    | Some l -> public_py_name l
+                    | None -> "_" ^ string_of_int i
+                  in
+                  let type_ =
+                    match List.nth_opt typed i with Some (_, t) -> Some t | None -> None
+                  in
+                  let text, gen =
+                    match type_ with
+                    | Some t -> annotation t scope gen
+                    | None -> ("object", gen)
+                  in
+                  (annotated @ [ (field, text) ], gen))
+                ([], gen)
+                (List.mapi (fun i f -> (i, f)) fields)
+            in
+            let py_name = lookup cname scope in
+            let tag = if py_name = cname then None else Some cname in
+            (out @ [ PyDataclass (ci, py_name, tparams, annotated, tag) ], gen))
+          ([], gen) constructors
       in
       let own =
         if List.exists (fun (Constructor (_, n, _, _)) -> n = name) constructors
         then []
         else
           [
-            PyAssign
+            PyTypeAlias
               ( info,
-                PyTargetName (info, lookup name scope),
-                PyTuple
-                  ( info,
-                    List.map
-                      (fun (Constructor (ci, cname, _, _)) -> PyVar (ci, lookup cname scope))
-                      constructors ) );
+                lookup name scope,
+                tparams,
+                String.concat " | "
+                  (List.map
+                     (fun (Constructor (_, cname, _, _)) -> applied (lookup cname scope))
+                     constructors) );
           ]
       in
       ( [],
@@ -2882,10 +2932,62 @@ and translate_stmt s scope gen =
         {
           gen with
           pending = gen.pending @ classes @ own;
-          conversions =
-            (if List.mem datatype_helper gen.conversions then gen.conversions
-             else gen.conversions @ [ datatype_helper ]);
+          dataclasses = true;
+          declared = StringSet.add name gen.declared;
         } )
+
+(** A Pyking type as a Python annotation: quoted where it names a
+    datatype of this module not declared yet and the host does not
+    defer annotations. typ -> scope -> gen -> (string, gen) *)
+and annotation t scope gen =
+  let rec text t gen =
+    match t with
+    | TInt _ -> ("int", gen, false)
+    | TFloat _ -> ("float", gen, false)
+    | TString _ -> ("str", gen, false)
+    | TBool _ -> ("bool", gen, false)
+    | TList (_, e, _) ->
+        let e, gen, f = text e gen in
+        ("list[" ^ e ^ "]", gen, f)
+    | TTuple (_, [], _) -> ("tuple[()]", gen, false)
+    | TTuple (_, es, _) ->
+        let parts, gen, f = many es gen in
+        ("tuple[" ^ String.concat ", " parts ^ "]", gen, f)
+    | TFunction (_, ps, r, _, _, _, _) ->
+        let parts, gen, f1 = many ps gen in
+        let r, gen, f2 = text r gen in
+        ( "Callable[[" ^ String.concat ", " parts ^ "], " ^ r ^ "]",
+          { gen with callables = true },
+          f1 || f2 )
+    | TVar (_, v, _, _) -> (public_py_name v, gen, false)
+    | TForall (_, _, body, _) -> text body gen
+    | TCon (_, canonical, args, _) ->
+        let head, forward =
+          match String.rindex_opt canonical '.' with
+          | None -> (lookup canonical scope, not (StringSet.mem canonical gen.declared))
+          | Some at -> (
+              let module_ = String.sub canonical 0 at in
+              let local = String.sub canonical (at + 1) (String.length canonical - at - 1) in
+              match List.find_opt (fun (_, m) -> m = module_) gen.module_aliases with
+              | Some (alias, _) -> (lookup alias scope ^ "." ^ public_py_name local, false)
+              | None -> ("object", false))
+        in
+        if head = "object" || args = [] then (head, gen, forward)
+        else
+          let parts, gen, f = many args gen in
+          (head ^ "[" ^ String.concat ", " parts ^ "]", gen, forward || f)
+    | _ -> ("object", gen, false)
+  and many ts gen =
+    List.fold_left
+      (fun (out, gen, f) t ->
+        let x, gen, g = text t gen in
+        (out @ [ x ], gen, f || g))
+      ([], gen, false) ts
+  in
+  let written, gen, forward = text t gen in
+  if forward && not gen.deferred then
+    (pprint_py_expr (PyString (Lexer.{ file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }, written)), gen)
+  else (written, gen)
 
 (** One case arm outside a binding.
     match_case -> scope -> gen -> (pymatchcase, gen) *)
@@ -3174,7 +3276,7 @@ and translate_loop_case (MatchCase (info, pattern, guard, body, _)) py_target sc
     what decides how a print argument is formatted.
     [stmt] -> typ IntMap.t -> pyprogram *)
 let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
-    stmts tmap =
+    ?(target = Targets.default) stmts tmap =
   let used =
     StringSet.union (collect_identifiers stmts) (import_identifiers stmts)
   in
@@ -3213,6 +3315,10 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
       conversions = [];
       external_fields;
       externals;
+      deferred = Targets.version target <> "12";
+      dataclasses = false;
+      callables = false;
+      declared = StringSet.empty;
       own_module = own;
       own_external =
         Option.value (List.assoc_opt own external_fields) ~default:[];
@@ -3243,7 +3349,16 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
     else [ PyImport (Lexer.{ file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 },
                      gen.own_module ^ "_external", None) ]
   in
+  let at = Lexer.{ file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 } in
+  let datatype_imports =
+    (if gen.dataclasses then [ PyFromImport (at, "dataclasses", [ ("dataclass", "dataclass") ]) ]
+     else [])
+    @
+    if gen.callables then [ PyFromImport (at, "collections.abc", [ ("Callable", "Callable") ]) ]
+    else []
+  in
   {
+    imports = datatype_imports;
     prelude;
     formats = gen.format_def <> None;
     floats = gen.floats;

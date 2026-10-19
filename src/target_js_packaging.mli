@@ -67,6 +67,8 @@ val interpreter_module : string
     script is. `release` has the page run the program with every call to
     `debug` removed, which is what --release means for a program that is
     interpreted rather than compiled.
-    bool -> string -> [string] -> [(string, string)] -> string *)
+    `target` is the iweb target, whose edition decides how the page's
+    script waits for its sources.
+    bool -> string -> string -> [string] -> [(string, string)] -> string *)
 val interpreted_page :
-  ?release:bool -> string -> string list -> (string * string) list -> string
+  ?release:bool -> string -> string -> string list -> (string * string) list -> string

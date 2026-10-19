@@ -17,7 +17,7 @@ Then, from a directory outside the repository:
   - the standard library runs under the interpreter from the plugins
     the tree ships, compiled beside it by `build_plugins` -- none is
     compiled again into the cache;
-  - the `iweb24` target compiles, which needs share/pyking.js;
+  - the `iweb2020` target compiles, which needs share/pyking.js;
   - `pyk notebook` and `pyk playground` start and serve their pages, and
     `pyk notebook --mode test` checks a notebook;
   - `pyk example` lists the examples and saves one, and the playground
@@ -230,9 +230,9 @@ def check_stage(check, compiler):
         result = run([pyk, "use_args.pyk", "--", "2", "hi"], work, env)
         check("the example it saved runs", result.stdout == "0 hi\n1 hi\n",
               result.stdout + result.stderr)
-        result = run([pyk, "compile", "-t", "iweb24", "-o", "page", "hello.pyk"],
+        result = run([pyk, "compile", "-t", "iweb2020", "-o", "page", "hello.pyk"],
                      work, env)
-        check("share/pyking.js is found for the iweb24 target",
+        check("share/pyking.js is found for the iweb2020 target",
               result.returncode == 0 and (work / "build" / "page.html").exists()
               and (work / "build" / "pyking.js").exists(),
               result.stderr.strip())
@@ -240,7 +240,7 @@ def check_stage(check, compiler):
         # -- gets a build/ of its own, which leaves what pyk ships alone.
         shutil.copy2(work / "hello.pyk", tree / "hello.pyk")
         try:
-            for target in ["web24", "iweb24", "python14"]:
+            for target in ["web2020", "iweb2020", "python12"]:
                 result = run([pyk, "compile", "-t", target, "hello.pyk"], tree, env)
                 check(f"a {target} program compiled beside pyk builds",
                       result.returncode == 0, result.stderr.strip())
@@ -316,7 +316,7 @@ def check_stage(check, compiler):
         if check("`pyk serve` starts from the package", process is not None, printed):
             try:
                 status, body = test_notebook.fetch(port, "/build/page.html")
-                check("it serves the iweb24 page compiled above",
+                check("it serves the iweb2020 page compiled above",
                       status == 200 and body == (work / "build" / "page.html").read_bytes(),
                       f"status {status}")
             finally:

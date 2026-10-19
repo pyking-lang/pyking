@@ -8,10 +8,10 @@ to see [target_js.md](target_js.md); for the core see
 
 ## One emission, three targets
 
-`node24`, `web24` and `iweb24` share this module, and the first two share
+`node`, `web` and `iweb` share this module, and the first two share
 almost all of it: **the JavaScript they emit is identical**. Both are ES
 modules, both print with `console.log`, and both compile one Pyking
-module to one `.js` file. `web24` adds an HTML file that loads the
+module to one `.js` file. `web` adds an HTML file that loads the
 program; that is the whole of the difference.
 
 That is a recent simplification worth knowing about, because the shape
@@ -58,7 +58,7 @@ print onto itself: what a compiled program prints should be what `node
 foo.js` prints, and a reader comparing the two should not have to
 account for a difference.
 
-## `web24`: the page is a loader
+## `web`: the page is a loader
 
 ```html
 <!doctype html>
@@ -75,10 +75,10 @@ A page of ES modules must be **served** — a browser refuses a module
 fetched over `file://` — which is why `--run` starts
 `pyk serve` rather than opening the file.
 
-## `iweb24`: shipping the interpreter instead
+## `iweb`: shipping the interpreter instead
 
 `interpreted_page` is the one function here that does not package
-compiled code, because `iweb24` compiles none. The page carries the
+compiled code, because `iweb` compiles none. The page carries the
 program's Pyking **source**, the compiler built to JavaScript
 (`pyking.js`), and three lines that put them together: the sources into
 `pykSources`, the external modules into `pykExternals`, and a call to
@@ -86,7 +86,7 @@ program's Pyking **source**, the compiler built to JavaScript
 
 The point is coverage. A backend supports a subset; the interpreter
 supports everything `src/typesystem.ml` accepts, so a program using
-`for`, `while`, `match` or lists runs in a browser here where `web24`
+`for`, `while`, `match` or lists runs in a browser here where `web`
 refuses it. The price is the interpreter's size and interpreted speed.
 
 Sources are fetched rather than inlined so the page stays readable and

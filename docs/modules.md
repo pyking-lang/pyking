@@ -403,12 +403,12 @@ module's external half and never a module of its own: a name ending in
 | target | implementation | what the generated program does |
 |---|---|---|
 | `python` | `sys_external.py` | `import sys_external` |
-| `node24` | `sys_external_node.js` | `import * as sys_external from './sys_external.js'` |
+| `node` | `sys_external_node.js` | `import * as sys_external from './sys_external.js'` |
 | `c89`, `c23` | `sys_external.c` | declares `sys_loadfile` and calls it |
 | `java8`/`17`/`21` | `SysExternal.java` | `SysExternal.loadfile(...)` |
-| `ocaml5.5` | `sys_external.ml` | `Sys_external.loadfile ...` |
-| `web24`, `iweb24` | `sys_external_browser.js` | `import * as sys_external from './sys_external.js'` |
-| `iweb24`, where there is one | `sys_external_interpreter.js` | the same |
+| `ocaml` | `sys_external.ml` | `Sys_external.loadfile ...` |
+| `web`, `iweb` | `sys_external_browser.js` | `import * as sys_external from './sys_external.js'` |
+| `iweb`, where there is one | `sys_external_interpreter.js` | the same |
 | interpreter | `sys_external.ml`, as a plugin | calls it through `Pyk_plugin` |
 
 Each JavaScript implementation is copied out as `sys_external.js`, the
@@ -507,7 +507,7 @@ whether a program reads standard input or its arguments.
 The types a declaration may name are the ones the target can carry, and
 they are not the same everywhere:
 
-| Pyking | python | node24, web24, iweb24 | c89, c99, c23 | java | ocaml |
+| Pyking | python | node, web, iweb | c89, c99, c23 | java | ocaml |
 |---|---|---|---|---|---|
 | `Int` | `int` | `number` | `int` | `int` | `int` |
 | `Float` | `float` | `number` | `double` | `double` | `float` |
@@ -537,7 +537,7 @@ declared type for the same reason (`tinyweb.time` is one), and every
 compiled target carries it (`tests/external_float.pyk`).
 
 **A browser implementation differs from node's.** The `web` and `iweb`
-targets read `sys_external_browser.js` and `node24` reads
+targets read `sys_external_browser.js` and `node` reads
 `sys_external_node.js`: a page has no standard input, no filesystem and
 no process, and says so ([libraries.md](libraries.md), "In the
 browser"). `iweb`, where the interpreter runs in the page, reads
@@ -582,21 +582,21 @@ implementation cannot be polymorphic.
 
 | host | what a callback is |
 |---|---|
-| python14 | the Python function |
-| node24, web24 | the JavaScript function the program compiled to |
-| iweb24 | a JavaScript function calling `pykCallback`, which runs the closure in the page's interpreter |
-| ocaml5.5 | the OCaml function, curried |
+| python | the Python function |
+| node, web | the JavaScript function the program compiled to |
+| iweb | a JavaScript function calling `pykCallback`, which runs the closure in the page's interpreter |
+| ocaml | the OCaml function, curried |
 | interpreter | a curried OCaml function that runs the closure in a machine of its own (`Interpreter.callback`) |
 | c89/99/23 | a pointer to the C function a top-level `def` compiled to |
 | java8/17/21 | the `java.util.function` interface of its shape (`Runnable`, `Consumer<A>`, `BiConsumer<A, B>`), as a lambda calling the method |
 
-On `iweb24` a callback crosses JSON as `{"pyk_callback":id}`;
+On `iweb` a callback crosses JSON as `{"pyk_callback":id}`;
 `src/web/stub.js` turns it into a function, and its arguments come back
 through `pykCallback(id, args)`, which `pyking_web.ml` converts by the
 callback's declared parameter types. A failure in a callback goes to
 `pykOnError`, and a `sys.exit` in one to `pykOnExit`. The same declared
 types now convert a result, so an external module can return a `Float`
-on `iweb24` as well.
+on `iweb` as well.
 
 C hands a host a plain function pointer: a top-level `def`, a lambda
 capturing nothing, or the plain function a closure capturing nothing
@@ -616,7 +616,7 @@ the top level has ended (`tests/external_callback.pyk`).
 
 `pyk prog.pyk` and `pyk repl` run the AST, and what an external module
 exports has none, so the interpreter runs its OCaml implementation --
-the file the `ocaml5.5` target links -- compiled to a plugin and loaded
+the file the `ocaml` target links -- compiled to a plugin and loaded
 with Dynlink ([libraries.md](libraries.md), "How the interpreter reaches
 an OCaml implementation"). A module with no `<module>_external.ml` is
 refused there, naming the file. A program importing one therefore lists

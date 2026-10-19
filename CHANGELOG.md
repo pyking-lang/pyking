@@ -20,8 +20,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A field's default may be any expression without its type written:
   the field takes the default's type.
 
+- Targets `python12`, `node22`, `web2020`, `iweb2020` and `ocaml4.14`.
+  A web or iweb target's version is the ECMAScript edition its page is
+  written in; node22 writes ES2020 and node24 ES2024.
+- `pyk --help` explains what a version counts in each family; `pyk`
+  alone lists the unversioned names only.
+
 ### Changed
 
+- An unversioned target name now means its family's default rather than
+  its latest: `python` is `python12` (also the default target), `node`
+  `node22`, `web` `web2020`, `iweb` `iweb2020`, `c` `c99`, `java`
+  `java21`, `ocaml` `ocaml4.14`.
+- `web24` and `iweb24` are now `web2024` and `iweb2024`; the old names
+  are refused.
+- Python output declares a datatype as frozen dataclasses with a `type`
+  alias, and needs Python 3.12.
 - A default that is a literal is written at each call that leaves it
   out, rather than generated as a def.
 - C compiles a datatype of one constructor as a plain struct, Java as

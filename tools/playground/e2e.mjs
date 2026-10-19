@@ -177,7 +177,7 @@ async function main() {
   // The left Run button runs the program itself, with the interpreter,
   // whatever target is selected; the right one runs what is displayed,
   // which needs a target a browser can execute.
-  await page.selectOption('[data-r="target"]', "node24");
+  await page.selectOption('[data-r="target"]', "node22");
   await page.click('[data-r="compile"]');
   await settled(page);
   await page.waitForTimeout(500);
@@ -290,7 +290,7 @@ async function main() {
     window.pykingPlayground.setSource("print(\"from the page\", 1)\n");
   });
   await page.click('[data-r="tabCompiled"]');
-  await page.selectOption('[data-r="target"]', "web24");
+  await page.selectOption('[data-r="target"]', "web2020");
   await page.click('[data-r="compile"]');
   await settled(page);
   await page.waitForTimeout(500);

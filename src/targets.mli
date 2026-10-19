@@ -1,6 +1,6 @@
 (** The compiler's targets: every one the driver offers, which family it
     belongs to, what its output file is called, and the unversioned
-    alias that names its family's latest.
+    alias that names its family's default.
 
     A target is named once, in this module. Nothing else in the compiler
     writes a target name into a list of its own -- the backends read
@@ -21,7 +21,10 @@
       resolve name -- the canonical target a name means, if any.
       family_of target -- the family a canonical target belongs to.
       members family -- a family's targets, oldest version first.
-      extension target -- what the primary output file is called. *)
+      extension target -- what the primary output file is called.
+      version target -- the version a target's name says.
+      es_edition target -- the ECMAScript edition a JavaScript target
+        emits. *)
 
 (** Which backend compiles a target, and so which targets share an
     emission. *)
@@ -34,7 +37,7 @@ val all : string list
 (** What `pyk compile` picks when `--target` says nothing. string *)
 val default : string
 
-(** Each unversioned name and the version it means: a family's latest.
+(** Each unversioned name and the version it means: a family's default.
     [(string, string)] *)
 val aliases : (string * string) list
 
@@ -54,3 +57,12 @@ val members : family -> string list
 (** What a target's primary output file is called. Raises
     Invalid_argument for a name that is not a target. string -> string *)
 val extension : string -> string
+
+(** What a target's name says after its family's: its version, "" for
+    one without. Raises Invalid_argument for a name that is not a
+    target. string -> string *)
+val version : string -> string
+
+(** The ECMAScript edition a JavaScript target emits: 2020 or 2024.
+    string -> int *)
+val es_edition : string -> int

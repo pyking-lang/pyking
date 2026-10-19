@@ -185,21 +185,25 @@ let notebook_test document =
 
 (** The targets the page offers, in the order its menu shows them, each
     with its label, the Ace mode its output is shown in, and how the page
-    runs it, if it can. iweb24 is left out: the page already runs the
+    runs it, if it can. iweb is left out: the page already runs the
     interpreter. Kept in step with tools/playground/playground.py by
     tests/test_notebook.py. [(string, string, string, string?)] *)
 let playground_targets =
   [
     ("pyking", "Pyking (the front end's own output)", "text", None);
+    ("python12", "Python 3.12", "python", None);
     ("python14", "Python 3.14", "python", None);
-    ("node24", "JavaScript - node 24", "javascript", Some "module");
-    ("web24", "JavaScript - web (ES2024)", "html", Some "module");
+    ("node22", "JavaScript - node 22 (ES2020)", "javascript", Some "module");
+    ("node24", "JavaScript - node 24 (ES2024)", "javascript", Some "module");
+    ("web2020", "JavaScript - web (ES2020)", "html", Some "module");
+    ("web2024", "JavaScript - web (ES2024)", "html", Some "module");
     ("c89", "C89", "c_cpp", None);
     ("c99", "C99", "c_cpp", None);
     ("c23", "C23", "c_cpp", None);
     ("java8", "Java 8", "java", None);
     ("java17", "Java 17", "java", None);
     ("java21", "Java 21", "java", None);
+    ("ocaml4.14", "OCaml 4.14", "ocaml", None);
     ("ocaml5.5", "OCaml 5.5", "ocaml", None);
   ]
 

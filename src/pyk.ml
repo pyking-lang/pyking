@@ -92,6 +92,74 @@ let alias_line () =
   String.concat ", "
     (List.map (fun (alias, target) -> alias ^ " = " ^ target) Targets.aliases)
 
+(** What a version counts in each family, for --help: one row per
+    family, naming its targets. () -> string *)
+let version_table () =
+  let counts =
+    [
+      (Targets.Python, "the Python release: 3.12, 3.14");
+      (Targets.Node, "the node release; node22 writes ES2020, node ES2024");
+      (Targets.Web, "the ECMAScript edition the page's JavaScript is written in");
+      (Targets.Iweb, "the same, for the page running the interpreter");
+      (Targets.C, "the C standard");
+      (Targets.Java, "the Java release, as `javac --release` takes it");
+      (Targets.Ocaml, "the OCaml release");
+    ]
+  in
+  let rows =
+    List.map (fun (f, says) -> (String.concat ", " (Targets.members f), says)) counts
+  in
+  let column = List.fold_left (fun w (n, _) -> max w (String.length n)) 0 rows + 4 in
+  (* Each description filled to what is left of the line, its
+     continuation lines under its first word. *)
+  let fill text =
+    List.fold_left
+      (fun lines word ->
+        match lines with
+        | last :: before when String.length last + 1 + String.length word <= width - column ->
+            (last ^ " " ^ word) :: before
+        | _ -> word :: lines)
+      [] (String.split_on_char ' ' text)
+    |> List.rev
+  in
+  String.concat "\n"
+    (List.concat_map
+       (fun (names, says) ->
+         List.mapi
+           (fun i text ->
+             let left = if i = 0 then "  " ^ names else "" in
+             left ^ String.make (column - String.length left) ' ' ^ text)
+           (fill says))
+       rows)
+
+(** The commands `--run` uses, one row per family. () -> string *)
+let run_table () =
+  let rows =
+    [
+      (Targets.Python, [ "python3 prog.py" ]);
+      (Targets.Node, [ "node prog.js" ]);
+      (Targets.Web, [ "pyk serve prog.html (a page must be"; "served; the link printed opens the page)" ]);
+      (Targets.Iweb, [ "the same" ]);
+      (Targets.C, [ "cc -std=<standard> -o prog prog.c, then prog" ]);
+      (Targets.Java, [ "javac --release <version> prog.java, then"; "java prog" ]);
+      (Targets.Ocaml, [ "ocamlopt -I +unix unix.cmxa -o prog prog.ml,"; "then prog" ]);
+      (Targets.Pyking, [ "pyk prog.pyk" ]);
+    ]
+  in
+  let rows =
+    List.map (fun (f, says) -> (String.concat ", " (Targets.members f), says)) rows
+  in
+  let column = List.fold_left (fun w (n, _) -> max w (String.length n)) 0 rows + 2 in
+  String.concat "\n"
+    (List.concat_map
+       (fun (names, says) ->
+         List.mapi
+           (fun i text ->
+             let left = if i = 0 then names else "" in
+             Printf.sprintf "  %s%s%s" left (String.make (column - String.length left) ' ') text)
+           says)
+       rows)
+
 (** The Targets: block for --help: one row per group of targets sharing
     an output extension. () -> string *)
 let target_table () =
@@ -204,7 +272,10 @@ let more_options =
    --help. *)
 let usage () =
   Printf.sprintf "%s\n\nTargets:\n%s" synopsis
-    (wrap ("  " ^ String.concat ", " targets ^ "."))
+    (wrap
+       ("  " ^ String.concat ", " (List.map fst Targets.aliases @ [ "pyking" ])
+      ^ " -- each its family's default version; `pyk --help` lists the \
+         versions."))
 
 let usage_full () =
   Printf.sprintf
@@ -235,19 +306,10 @@ let usage_full () =
      the loops the tail-call pass built.\n\n\
      `--run` builds and runs what was compiled, with the commands that\n\
      target's host uses, each printed before it runs:\n\n\
-    \  python14         python3 prog.py\n\
-    \  node24           node prog.js\n\
-    \  web24, iweb24    pyk serve prog.html (a page must be\n\
-  \                   served; the link printed opens the page)\n\
-    \  c89, c99, c23    cc -std=<standard> -o prog prog.c, then prog\n\
-    \  java8, java17,   javac --release <version> prog.java, then java prog\n\
-    \  java21\n\
-    \  ocaml5.5         ocamlopt -I +unix unix.cmxa -o prog prog.ml,\n\
-  \                   then prog\n\
-    \  pyking           pyk prog.pyk\n\n\
-     $CC, $JAVAC, $JAVA and $OCAMLOPT say which tool to use where there is a\n\
-     choice. --run needs a file to run, so it cannot be combined with\n\
-     --stdout.\n\n\
+     %s\n\n\
+     $PYTHON, $NODE, $CC, $JAVAC, $JAVA and $OCAMLOPT say which tool to\n\
+     use where there is a choice. --run needs a file to run, so it cannot\n\
+     be combined with --stdout.\n\n\
      Everything after `--` is passed to the program rather than read as a\n\
      flag, which is what `sys.args()` answers with. It applies to a\n\
      program being *run*: `pyk prog.pyk -- a b`, or `pyk compile --run` for\n\
@@ -289,7 +351,7 @@ let usage_full () =
      reference and the libraries, with runnable examples -- which the\n\
      playground's Help tab shows too.\n\
      `pyk serve <dir>` serves a directory's files as they are, such as a\n\
-     page compiled for web24 or iweb24; `pyk serve <file>` serves the\n\
+     page compiled for web or iweb; `pyk serve <file>` serves the\n\
      file's directory and prints a link to the file. Without --port they start at 8000\n\
      and take the first free port, or any free port if 8000..8019 are\n\
      all taken. They listen on 127.0.0.1, or on the\n\
@@ -311,7 +373,13 @@ let usage_full () =
      it refuses to do over a file already there. The playground offers\n\
      the same examples."
     synopsis more_options (target_table ())
-    (wrap ("An unversioned name is the family's latest: " ^ alias_line () ^ "."))
+    (wrap ("An unversioned name is the family's default: " ^ alias_line () ^ ".")
+    ^ "\n\n"
+    ^ wrap
+        "A version names the oldest host the output is promised to run on, \
+         and what it counts depends on the family:"
+    ^ "\n" ^ version_table ())
+    (run_table ())
 
 (* --- what was asked for --- *)
 
@@ -882,7 +950,7 @@ let command_interpret ?(libs = []) checked arguments =
   (* The interpreter runs the AST, and an external module has none: what
      it exports is written in a target language. An interpreted program
      reaches the module's OCaml implementation, loaded as a plugin
-     (src/plugin_host.ml), which is what the ocaml5.5 target links. *)
+     (src/plugin_host.ml), which is what the ocaml targets link. *)
   let plugins =
     List.filter_map
       (fun ((unit : Module.t), _) ->
@@ -1009,7 +1077,7 @@ let compile_unit ?c_program (unit : Module.t) tmap target path options checked =
         try
           Target_python.translate_program
             ~external_fields:context.external_fields
-            ~externals:context.externals ~own:context.context_name program
+            ~externals:context.externals ~own:context.context_name ~target program
             (Option.value tmap ~default:Syntax.IntMap.empty)
         with Target_python.Unsupported (info, message) ->
           fail_unsupported target info message
@@ -1063,11 +1131,11 @@ let compile_unit ?c_program (unit : Module.t) tmap target path options checked =
         try
           Target_ocaml.translate_program program
             (Option.value tmap ~default:Syntax.IntMap.empty)
-            context
+            context target
         with Target_ocaml.Unsupported (info, message) ->
           fail_unsupported target info message
       in
-      let text = Target_ocaml.pprint_ocaml_program ocaml_program source in
+      let text = Target_ocaml.pprint_ocaml_program ocaml_program target source in
       if context.main || path = None then (text, [])
       else
         (* Nothing imports the program's own module, so it needs no
@@ -1229,7 +1297,7 @@ let compile_program checked target output_path options =
        (see docs/target_js.md, "The interpreted target"). *)
     let main_name = basename main_unit.Module.path in
     let page =
-      Target_js_packaging.interpreted_page ~release:options.release main_name
+      Target_js_packaging.interpreted_page ~release:options.release target main_name
         (* Every module's Pyking file, an external module's declaration
            included: the module system reads that to know what the
            module offers, and only the *implementation* is JavaScript. *)

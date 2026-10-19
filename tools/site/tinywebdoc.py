@@ -485,11 +485,11 @@ class Language:
 
 
 LANGUAGES = [
-    Language("python", "Python", "python", "python14", "example.py",
+    Language("python", "Python", "python", "python12", "example.py",
              ["python3 example.py"], ["python3 program.py"]),
-    Language("javascript", "JavaScript", "js", "node24", "example.js",
+    Language("javascript", "JavaScript", "js", "node22", "example.js",
              ["node example.js"], ["node program.js"]),
-    Language("ocaml", "OCaml", "ocaml", "ocaml5.5", "example.ml",
+    Language("ocaml", "OCaml", "ocaml", "ocaml4.14", "example.ml",
              ["ocamlopt -I +unix unix.cmxa tinyweb.mli tinyweb.ml example.ml -o example",
               "./example"],
              ["ocamlopt -I +unix unix.cmxa tinyweb_external.ml tinyweb.mli tinyweb.ml program.ml -o program",

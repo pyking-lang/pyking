@@ -732,7 +732,7 @@ let compile_modules main target =
               Target_python.pprint_py_program
                 (Target_python.translate_program
                    ~external_fields:context.external_fields
-                   ~externals:context.externals ~own:context.context_name
+                   ~externals:context.externals ~own:context.context_name ~target
                    (Analyses.apply_signatures unit.stmts) (types tmap))
               ^ "\n" ) ])
   | Targets.C ->
@@ -777,10 +777,10 @@ let compile_modules main target =
           let context = Module.context checked unit in
           let o =
             Target_ocaml.translate_program (Analyses.apply_signatures unit.stmts)
-              (types tmap) context
+              (types tmap) context target
           in
           let source = Filename.basename unit.Module.path in
-          (unit.name ^ Target_ocaml.extension, Target_ocaml.pprint_ocaml_program o source)
+          (unit.name ^ Target_ocaml.extension, Target_ocaml.pprint_ocaml_program o target source)
           ::
           (if context.main then []
            else
@@ -810,7 +810,7 @@ let compile_modules main target =
       files
   | Targets.Iweb ->
       [ ( main_unit.name ^ Targets.extension target,
-          Target_js_packaging.interpreted_page main
+          Target_js_packaging.interpreted_page target main
             (List.concat_map
                (fun ((unit : Module.t), _) ->
                  List.map Filename.basename (Module.source_paths unit))
@@ -914,7 +914,7 @@ let compile_source source target name =
               [
                 ( stem ^ ".py",
                   Target_python.pprint_py_program
-                    (Target_python.translate_program program tmap)
+                    (Target_python.translate_program ~target program tmap)
                   ^ "\n" );
               ]
           else if List.mem (Targets.family_of target) [ Targets.Node; Targets.Web ]
@@ -973,14 +973,14 @@ let compile_source source target name =
                   Target_java.pprint_java_program j target cls name );
                 (Target_java.runtime_file, Target_java.runtime_source [ j ] target);
               ]
-          else if target = Target_ocaml.target then
+          else if Targets.family_of target = Targets.Ocaml then
             (* The one backend that infers nothing: it reads the types
                back out of `tmap`. *)
-            let o = Target_ocaml.translate_program program tmap (lone_context ()) in
+            let o = Target_ocaml.translate_program program tmap (lone_context ()) target in
             done_
               [
                 ( stem ^ Target_ocaml.extension,
-                  Target_ocaml.pprint_ocaml_program o name );
+                  Target_ocaml.pprint_ocaml_program o target name );
               ]
           else
             json_object

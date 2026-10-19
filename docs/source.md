@@ -59,7 +59,7 @@ and which module calls which.
 | [`repl_session.ml`](#repl_sessionml) | ~700 | A REPL session: a program written one entry at a time. Shared by `pyk repl` and the playground's REPL tab. |
 | [`target_python.ml`](#target_pythonml) | ~2410 | The Python backend, and the only one that compiles the whole language. |
 | [`target_js_core.ml`](#target_js_coreml) | ~1280 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
-| [`target_js_packaging.ml`](#target_js_packagingml) | ~300 | Its packaging half: `node24`, `web24`, `iweb24`, and the JavaScript side of the runtime interface. |
+| [`target_js_packaging.ml`](#target_js_packagingml) | ~300 | Its packaging half: `node`, `web`, `iweb`, and the JavaScript side of the runtime interface. |
 | [`target_c.ml`](#target_cml) | ~1990 | The C backend, for `c89` and `c23`. Infers the types C insists on, and pins down the evaluation order C leaves open. |
 | [`target_java.ml`](#target_javaml) | ~1690 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
 | [`target_ocaml.ml`](#target_ocamlml) | ~2900 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
@@ -1592,6 +1592,11 @@ factory).
   one Pyking statement needs several (a `loop` is a variable and a
   `while`). Each `match` ends in `case _: raise NotImplementedError`,
   so a future construct without a translation fails loudly.
+- **`SDatatype`'s case and `annotation`** — a datatype as one frozen
+  dataclass per constructor (`PyDataclass`) and a `type` alias for the
+  union (`PyTypeAlias`), its fields annotated with the checker's types;
+  `annotation` quotes one naming a datatype not declared yet unless the
+  target is `python14`, whose annotations are deferred.
 - **`translate_loop` / `translate_loop_block` / `translate_loop_tail`**
   — a `loop` as `while True` over one variable: the initializer gives it
   its first value and every tail of the body assigns the next, which is
@@ -1678,9 +1683,9 @@ all three JS targets).
 ## `target_js_packaging.ml`
 
 **The JavaScript backend's packaging half**, and the JavaScript side of
-the runtime interface. `node24` and `web24` emit the same ES modules and
-both print with `console.log`; `web24` adds a page that loads the
-program, and `iweb24` compiles nothing at all and ships the interpreter
+the runtime interface. `node` and `web` emit the same ES modules and
+both print with `console.log`; `web` adds a page that loads the
+program, and `iweb` compiles nothing at all and ships the interpreter
 instead.
 
 **Design, in depth:** [target_js_packaging.md](target_js_packaging.md).
@@ -1784,9 +1789,11 @@ translation, evaluation-order fixing, mutual-recursion grouping);
 [target_ocaml.md](target_ocaml.md) (what compiles to what, and what's
 refused).
 
-- **`TARGET`** = `"ocaml5.5"`, **`EXTENSION`** = `".ml"`,
+- **`EXTENSION`** = `".ml"`,
   **`INTERFACE_EXTENSION`** = `".mli"`, and the `O*` AST.
-- **`translate_program(stmts, tmap, context=None)`** — the table comes from
+- **`translate_program stmts tmap context target`** — `target` names the
+  OCaml release: `ocaml4.14` has no `List.take`/`List.drop`, so a list
+  pattern's middle is `List.filteri` there (`ctx.slices`). The table comes from
   `src/pyk.ml`, which type-checks every program; this module fills none
   of its own. Most of
   the translation is direct
@@ -1838,6 +1845,17 @@ refused).
 
 The test harness builds this target's output with `-w +a`, so a compiler
 warning about generated code is a failing test.
+
+---
+
+## `targets.ml`
+
+**Every target, named once.** The table of targets with their family
+and extension, each family's default (what its unversioned name means),
+and `Targets.default`, the one `pyk compile` uses. `version` is what a
+target's name says after its family's; `es_edition` the ECMAScript
+edition a JavaScript target writes (2020 or 2024). See
+[targets.md](targets.md).
 
 ---
 
@@ -1927,7 +1945,7 @@ pyk serve [<dir>]       serve a directory's files (web_tools.ml)
   Ctrl+C, and this prints why when it could not.
 - **`needs_page checked` / `command_serve checked options`** — whether a
   program imports a library marked `<name>.page`, and running one: it is
-  compiled for `iweb24` into a fresh directory and served, unless
+  compiled for `iweb` into a fresh directory and served, unless
   `--headless` says to interpret it here (docs/libraries.md, "A library
   that needs a page").
 - **`command_interpret` / `command_compile`**, and `Repl.start` for the

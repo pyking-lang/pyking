@@ -1,6 +1,6 @@
 # The OCaml target
 
-**Targets in this family:** `ocaml5.5`.
+**Targets in this family:** `ocaml4.14`, `ocaml`.
 
 **Key points**
 
@@ -146,7 +146,7 @@ scoping"). The other is the `def`'s own name being used in between —
 moving it would leave that use reading a name OCaml has not bound yet.
 
 ```
-'program.pyk' 3:0-4:7 Unsupported by target 'ocaml5.5': `f` names a
+'program.pyk' 3:0-4:7 Unsupported by target 'ocaml4.14': `f` names a
   `def` written further down: OCaml binds a group of mutually
   recursive functions with `let rec ... and ...`, which has to be
   written together, and this one cannot be moved down to join it --
@@ -173,7 +173,7 @@ What is left is a definition used at two types whose body prints one of
 its parameters, and that is refused:
 
 ```
-'program.pyk' 13:17-13:18 Unsupported by target 'ocaml5.5': printing a
+'program.pyk' 13:17-13:18 Unsupported by target 'ocaml4.14': printing a
   value of type a
 ```
 
@@ -305,7 +305,7 @@ is unit — which is exactly when Pyking allows one.
 
 OCaml eliminates tail calls itself, so this target is compiled from the
 program as written: `src/opt_tailcall.ml`, which turns tail recursion
-into `loop`s for every other target, is skipped for `ocaml5.5` (see
+into `loop`s for every other target, is skipped for `ocaml` (see
 docs/optimization.md, "The target that needs none of this"). A
 tail-recursive Pyking function therefore compiles to a tail-recursive
 OCaml one --

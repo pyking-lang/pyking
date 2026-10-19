@@ -7,7 +7,7 @@ runs for every mode unless `--no-tail-call-opt` says otherwise, on
 **programs the type checker accepts** — the types are what make the
 rewrite decidable, and the gate is one rule rather than a list of
 exceptions. Everything else is compiled as written, and so is the
-`ocaml5.5` target, whose host eliminates tail calls itself (see "The target
+`ocaml` target, whose host eliminates tail calls itself (see "The target
 that needs none of this").
 
 This page is the design. What the guarantee *means* is in PYKING.md
@@ -308,7 +308,7 @@ being declined means.
 
 ## The target that needs none of this
 
-OCaml eliminates tail calls itself, so the `ocaml5.5` target is compiled
+OCaml eliminates tail calls itself, so the `ocaml` target is compiled
 from the program **as written** — the pass is skipped for it entirely.
 
 That is not a nicety. This backend compiles a `loop` into a local
@@ -342,7 +342,7 @@ in constant space — which is the same guarantee the pass gives
 everywhere else, obtained by not getting in the way.
 
 Which targets these are is one list in `src/pyk.ml`,
-`NATIVE_TAIL_CALLS = ("ocaml5.5",)`, read by `compiling_natively`. A
+`NATIVE_TAIL_CALLS`, every OCaml target, read by `compiling_natively`. A
 backend for another host with proper tail calls adds its name to it and
 needs nothing else. `tests/test_script.py` pins the arrangement from the
 other side: generated OCaml containing a `tail_group` worker is a
@@ -352,8 +352,8 @@ Three consequences worth stating plainly:
 
 - **The `pyking` target is unaffected.** It prints the Pyking AST every
   backend shares, so it prints the optimized one; only a compile for
-  `ocaml5.5` itself takes the other path.
-- **The `ocaml5.5` target checks the program as written.** Its subset is
+  `ocaml` itself takes the other path.
+- **The `ocaml` target checks the program as written.** Its subset is
   whatever `src/typesystem.ml` accepts, and what it hands the checker is
   now the original — so a `fail_tco_*` program compiles here perfectly
   well, and, in the other direction, a program that only checks *after*
@@ -417,7 +417,7 @@ compares the two files directly as well as running both.
 `tests/typecheck_tco_deep.pyk` is the one that would not run at all
 without this: twenty thousand levels, self-recursive, mutually
 recursive, and through a group of two different widths. It lists no
-`python14_notail`, because running it with the pass off is precisely the
+`python12_notail`, because running it with the pass off is precisely the
 crash the pass exists to prevent.
 
 Several tests elsewhere in the suite are tail-recursive by nature and so

@@ -1,5 +1,5 @@
 # The Python implementation of the names declared in
-# tinyweb_external.pyk, for python14.
+# tinyweb_external.pyk, for python.
 #
 # A program talks to its page in commands and the page answers in
 # events (docs/libraries.md, "tinyweb"). Where the program runs decides
@@ -905,7 +905,7 @@ _PAGE_JS = "".join([
     "// sends and reports the events its reader causes. It is the one copy of\n",
     "// that code, used wherever a program talks to its page in commands:\n",
     "//\n",
-    "//   - on an iweb24 page, where tinyweb_external_interpreter.js mounts it\n",
+    "//   - on an iweb page, where tinyweb_external_interpreter.js mounts it\n",
     "//     and calls it directly;\n",
     "//   - in the playground and the notebook, where the program runs on a\n",
     "//     worker and tools/webrun/assets/pages.js mounts it on the page;\n",
@@ -917,7 +917,7 @@ _PAGE_JS = "".join([
     "//\n",
     "// A command is a plain object such as {op: \"circle\", c, x, y, radius,\n",
     "// color}, and an event one such as {ev: \"click\", id}; see\n",
-    "// docs/libraries.md, \"tinyweb\". The web24 implementation,\n",
+    "// docs/libraries.md, \"tinyweb\". The web implementation,\n",
     "// tinyweb_external_browser.js, does what this file does without the\n",
     "// commands in between. Keep the file ASCII: it is embedded in C.\n",
     "\n",

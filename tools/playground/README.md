@@ -131,17 +131,17 @@ Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
   the reference for what a program means (`docs/interpreter.md`), and it is
   compiled into the same bundle, so this needs no host at all.
 - **▶ Run** on the Compiled code tab executes exactly what is displayed. Enabled for
-  `node24` and `web24`, which the browser can genuinely execute.
-  Disabled for `python`, `c89`/`c23`, `java*` and `ocaml5.5`, with a tooltip
+  `node` and `web`, which the browser can genuinely execute.
+  Disabled for `python`, `c89`/`c23`, `java*` and `ocaml`, with a tooltip
   saying why: there is no Python interpreter, C compiler, JVM or OCaml
   runtime in a browser. That is a property of the target, not a shortcoming
   here.
 - **Download**, on the Compiled code tab, saves the last compile as
   `playground-<target>.zip`: every file it produced, what `pyk compile`
   writes beside them -- each library's implementation for the target
-  (`<module>_external.*`, read from `lib/`), the browser's `io` on `web24`
-  and `iweb24`, the sources, page script and compiler (`pyking.js`)
-  `iweb24` needs, and the samples and pictures the program names from a
+  (`<module>_external.*`, read from `lib/`), the browser's `io` on `web`
+  and `iweb`, the sources, page script and compiler (`pyking.js`)
+  `iweb` needs, and the samples and pictures the program names from a
   library's `<module>_assets/` -- and a `Makefile`: `make` builds it,
   `make run` builds and runs it (a page is served, with `pyk serve`), and
   `make clean` removes what `make` built. `assets/download.js` holds the
@@ -282,7 +282,7 @@ the UI could recover.
 | What | Runs on | Stopped by |
 |---|---|---|
 | the source, via the interpreter | the compiler worker | `terminate()`, then a fresh worker boots |
-| `node24`, `web24` | the JavaScript worker | `terminate()` |
+| `node`, `web` | the JavaScript worker | `terminate()` |
 
 A **sandboxed iframe is not good enough** for either of them, which is why
 they moved. A same-process iframe shares the main thread, so a loop inside
@@ -291,8 +291,8 @@ happens to apply. A worker is *guaranteed* a separate thread and
 `terminate()` is *guaranteed* to end it — measured at ~5 ms, against a loop
 that was ignoring everything else.
 
-Every target now runs on a worker: `web24` emits the same ES module
-`node24` does and prints to the console, so nothing is left that needs a
+Every target now runs on a worker: `web` emits the same ES module
+`node` does and prints to the console, so nothing is left that needs a
 frame of its own.
 
 Two consequences worth knowing:
@@ -727,7 +727,7 @@ and where the target runs outside a browser the unpacked folder's
 
 ## What the page does not offer
 
-`iweb24` is missing from the target list on purpose. That target packages
+`iweb` is missing from the target list on purpose. That target packages
 a program *with* the interpreter so a browser can run it — which is what
 this page already is. It has nothing to add here, and could not build its
 own page anyway without a copy of `pyking.js` to ship.

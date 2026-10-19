@@ -190,7 +190,7 @@ too and may do neither, so the assembled list is handed to
 ## Running one with the interpreter
 
 An external module has no Pyking body, so the interpreter reaches it the
-way the `ocaml5.5` target does: through its OCaml implementation,
+way the `ocaml` target does: through its OCaml implementation,
 `<name>_external.ml`. `pyk` loads it as a **plugin**, a `.cmxs` compiled
 from that file with Dynlink, so every library -- and a program's own
 external module -- runs under `pyk prog.pyk`, `pyk repl` and every
@@ -232,7 +232,7 @@ decides how to stop there -- tinyweb's says why and exits with status 1.
 **One more file, for the interpreter alone.** A library may put
 `<name>_external_plugin.ml` beside its implementation. It is compiled
 into the plugin after the implementation and may name `Pyk_plugin`,
-which a compiled program does not have; the `ocaml5.5` target never
+which a compiled program does not have; the `ocaml` target never
 copies it. It is where the implementation is joined to the interpreter:
 
 - `Pyk_plugin.after_program f` runs `f` once the top level has ended,
@@ -262,10 +262,10 @@ starts a process and loads code, and nothing in the library half may.
 ## In the browser
 
 JavaScript runs in two environments, so every library has two
-implementations: `<name>_external_node.js` for `node24` and
-`<name>_external_browser.js` for `web24` and `iweb24`. A library may
+implementations: `<name>_external_node.js` for `node` and
+`<name>_external_browser.js` for `web` and `iweb`. A library may
 have a third, `<name>_external_interpreter.js`, for wherever the
-interpreter runs the program in a browser -- `iweb24`, the playground
+interpreter runs the program in a browser -- `iweb`, the playground
 and the notebook -- which then take it in place of the browser one;
 tinyweb is the library that does. A browser has a
 console and nothing else, so each browser implementation writes standard
@@ -338,7 +338,7 @@ afresh: every `push` closed, no transformation, shadow, blending,
 clipping or dashes, so what a late page is sent before a clear can be
 dropped. The drawing itself is the style block's `drawShape`,
 `drawText`, `canvasState`, `freshState`, `paint` and `loadPicture`, so
-the web24 page and the command page draw alike; a shape sets the alpha
+the web page and the command page draw alike; a shape sets the alpha
 it draws at and puts it back, rather than saving and restoring the
 whole context. The colour helpers, `rgb`, `rgba`, `hsl`, `palette` and
 the gradients, are Pyking with no command, in the submodule
@@ -392,10 +392,10 @@ standalone libraries publish `web_start` as `web_init`
 
 | where the program runs | the page | `web_init(port)` |
 |---|---|---|
-| a `web24` page | the page itself, drawn on directly by `tinyweb_external_browser.js` | nothing |
-| an `iweb24` page | the page itself, drawn on by `tinyweb_page.js`, which `tinyweb_external_interpreter.js` hands each command | nothing |
+| a `web` page | the page itself, drawn on directly by `tinyweb_external_browser.js` | nothing |
+| an `iweb` page | the page itself, drawn on by `tinyweb_page.js`, which `tinyweb_external_interpreter.js` hands each command | nothing |
 | the playground, a notebook | beside the program, drawn on by `tinyweb_page.js`; the interpreter runs on a worker, and the commands and events cross as messages | nothing |
-| anything else: `pyk program.pyk`, the REPL, and `python14`, `node24`, `c89`-`c23`, `java8`-`java21`, `ocaml5.5` | served by the program itself | serves the page on `port` (0 picks a free one) and prints `tinyweb: http://127.0.0.1:N/` |
+| anything else: `pyk program.pyk`, the REPL, and `python`, `node`, `c89`-`c23`, `java8`-`java21`, `ocaml` | served by the program itself | serves the page on `port` (0 picks a free one) and prints `tinyweb: http://127.0.0.1:N/` |
 
 A program on a target of the last row that calls anything before
 `web_init` is told so on standard error and ends with status 1 -- unless
@@ -405,7 +405,7 @@ interpreter that is a runtime error, so the REPL goes on.
 
 **`tinyweb_page.js` is the one page.** It carries out commands and
 reports events, and it is what every place that talks to its page in
-commands mounts: the `iweb24` page, the playground and the notebook
+commands mounts: the `iweb` page, the playground and the notebook
 (`tools/webrun/assets/pages.js`), and the page a program serves. That
 page is `tinyweb_page.html`, which mounts `tinyweb_page.js`, reads the
 commands from `GET /commands` -- server-sent events, each a batch as a
@@ -440,7 +440,7 @@ top level has run. How each host serves:
 |---|---|---|
 | `tinyweb_external.py` | `http.server` on a thread | the main thread, from `atexit` |
 | `tinyweb_external_node.js` | node's `http` | node's event loop |
-| `tinyweb_external.ml` (`ocaml5.5`, the interpreter) | one `select` loop | from `at_exit`, or the interpreter after the top level; the REPL runs the loop while it waits for a key |
+| `tinyweb_external.ml` (`ocaml`, the interpreter) | one `select` loop | from `at_exit`, or the interpreter after the top level; the REPL runs the loop while it waits for a key |
 | `tinyweb_external.c` | one `select` loop, POSIX sockets | from `atexit` |
 | `TinywebExternal.java` | the JDK's `com.sun.net.httpserver` | a thread that waits for `main` to return |
 
@@ -497,7 +497,7 @@ tests. See `tools/site/README.md`.
 A browser plays no sound before the reader has clicked or pressed a key
 on the page. In the playground and a notebook the reader has: the
 program was started with Run, or a key. A page opened from a link has
-not -- the page a program serves, a `web24` or an `iweb24` page -- and
+not -- the page a program serves, a `web` or an `iweb` page -- and
 there tinyweb shows a *splash screen* before the first sound: the whole
 window dimmed, and `Click to Start` in white in its middle. A click or
 any key dismisses it, sound starts, and the page looks as it did.
@@ -538,7 +538,7 @@ block, so the two draw the same one.
 
 ## What each library reaches
 
-| | python14 | node24 | web24 | iweb24 | c89/99/23 | java8/17/21 | ocaml5.5 | interpret |
+| | python | node | web | iweb | c89/99/23 | java8/17/21 | ocaml | interpret |
 |---|---|---|---|---|---|---|---|---|
 | `fs` | yes | yes | not supported | not supported | yes | yes | yes | yes |
 | `io` | yes | yes | output only | output only | yes | yes | yes | yes |
@@ -581,7 +581,7 @@ full. C compiles it to a `math.h` of its own, which `math_external.c`
 steps around by including the system's with angle brackets; a C program
 is linked with `-lm`, after its files ([target_c.md](target_c.md)).
 
-`io`, `sys` and `time` reach `ocaml5.5`, and `sys` and `time` need it
+`io`, `sys` and `time` reach `ocaml`, and `sys` and `time` need it
 linked with `unix`: nothing in OCaml's `Stdlib` enumerates the
 environment or reads the clock as a calendar, so `sys_external.ml` and
 `time_external.ml` need it. See [target_ocaml.md](target_ocaml.md),
@@ -592,7 +592,7 @@ properties of the libraries, and both reproduced with an ordinary user
 module and no library at all. Both are fixed:
 
 - **A module named for a CPython builtin could never be imported on
-  `python14`**, because `import time` resolves to the interpreter-frozen
+  `python`**, because `import time` resolves to the interpreter-frozen
   `time` before any sibling `time.py`. Such a module is now loaded by
   path, through a prelude helper emitted only where one is imported —
   see [target_python.md](target_python.md), "Module names Python has
@@ -687,7 +687,7 @@ play "kick1.wav" 0.000 1.000 1.000
 ```
 
 Two environment variables, each a file path, are how: where
-`PYKING_TINYWEB_LOG` is set, every implementation but the web24 one
+`PYKING_TINYWEB_LOG` is set, every implementation but the web one
 shows no page, writes each command to that file as one line, and
 delivers the events `PYKING_TINYWEB_EVENTS` lists once the top level has
 ended; `web_init` then does nothing. The harness copies the `.events`
@@ -720,8 +720,8 @@ own:
   `event_done`, and compares what arrived on `/commands` with the
   `.page` file -- the top level's part compacted the way a late page's
   is.
-- **browser**: the web24 implementation draws directly and has no log,
-  so each case is built for web24 twice -- once as it is, once with
+- **browser**: the web implementation draws directly and has no log,
+  so each case is built for web twice -- once as it is, once with
   `tinyweb_external_interpreter.js` and `tinyweb_page.js` in its place
   -- and both are run under node against a small page,
   `tests/tinyweb/dom.mjs`, that records every drawing call, every sound
@@ -732,11 +732,11 @@ own:
 - **Chromium**: where a Chromium is found -- `$PYKING_CHROME`, one on
   the `PATH`, or one Playwright downloaded -- the same is done in a real
   browser, driven over the DevTools protocol (`tests/tinyweb/chrome.mjs`
-  and `chrome_page.js`): the web24 page drawing directly, the web24 page
-  through commands, and the iweb24 page, where the interpreter runs the
+  and `chrome_page.js`): the web page drawing directly, the web page
+  through commands, and the iweb page, where the interpreter runs the
   program, must record the same; so must the page a program serves
-  itself, opened beside the web24 one, for the two kinds of server
-  (`python14`, a thread; the interpreter, a `select` loop). The clock,
+  itself, opened beside the web one, for the two kinds of server
+  (`python`, a thread; the interpreter, a `select` loop). The clock,
   animation frames and sound are stood in for so that runs repeat;
   the DOM, the canvas, events and fetching the samples are the
   browser's. Without a Chromium these are reported as skipped.

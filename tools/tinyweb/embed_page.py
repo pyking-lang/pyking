@@ -9,7 +9,7 @@ renderer the iweb page, the playground and the notebook mount -- and
 this script copies both, as string literals, into the block each
 implementation marks with `BEGIN tinyweb page` and `END tinyweb page`.
 
-The web24 implementation, tinyweb_external_browser.js, draws without
+The web implementation, tinyweb_external_browser.js, draws without
 the page script, but its look is the page's: the block of
 tinyweb_page.js between `BEGIN tinyweb style` and `END tinyweb style` is
 copied into it as it is.
@@ -25,7 +25,7 @@ Functions:
   block(language, html, js) -- the text between the two markers.
   embedded(path, html, js) -- the file with its block rewritten.
   style_block(js) -- the page script's style block, markers included.
-  with_style(path, js) -- web24's file with its style block rewritten.
+  with_style(path, js) -- web's file with its style block rewritten.
   main(argv) -- rewrites or checks every implementation.
 """
 
@@ -148,7 +148,7 @@ def style_block(js):
 
 
 def with_style(path, js):
-    """The text of web24's implementation with its style block replaced
+    """The text of web's implementation with its style block replaced
     by the page script's, or None where it has none. Path -> String -> String?"""
     text = path.read_text()
     if STYLE_BEGIN not in text or STYLE_END not in text:

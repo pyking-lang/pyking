@@ -157,8 +157,8 @@ guards" and "Exhaustiveness", is the language; this is where it lives.
   therefore treats every `match` as total, and so do the tail-call pass
   and every backend. A guarded case does not count towards covering.
   `docs/exhaustive.md` is the long form.
-- **Backends**: Python a class per constructor (`__pyk_datatype` in the
-  prelude), JavaScript a function per constructor building a tagged
+- **Backends**: Python a frozen dataclass per constructor and a `type`
+  alias for the datatype, JavaScript a function per constructor building a tagged
   object (`pykData`), OCaml its own variants plus a `pyk_show_*` printer
   per datatype, the interpreter `VData`, Java a class per constructor
   (records from java17 on, a pattern `switch` on java21) with a factory
@@ -444,9 +444,9 @@ The bootstrap is split into one module per compiler stage:
    target -- always `<module>_external.<ext>`, because `sys.js` is the
    file generated from `sys.pyk` -- and `implementation_path` checks it
    exists. JavaScript runs in two environments, so a module has one
-   implementation for each, **`<module>_external_node.js`** for `node24`
-   and **`<module>_external_browser.js`** for `web24` and `iweb24` --
-   except that `iweb24` takes **`<module>_external_interpreter.js`**
+   implementation for each, **`<module>_external_node.js`** for `node`
+   and **`<module>_external_browser.js`** for `web` and `iweb` --
+   except that `iweb` takes **`<module>_external_interpreter.js`**
    where a library has one, as tinyweb does -- and each is copied out as
    `<module>_external.js`. A file named
    `<name>_external.pyk` is always a module's external half, so a name
@@ -586,7 +586,7 @@ The bootstrap is split into one module per compiler stage:
    recursion without knowing this pass exists -- so *do not* add
    per-backend tail-call handling. The one exception runs the other way:
    a host that eliminates tail calls itself is named in `pyk.ml`'s
-   `NATIVE_TAIL_CALLS` list (today just `ocaml5.5`), and that target is
+   `NATIVE_TAIL_CALLS` list (every OCaml target), and that target is
    then compiled from the program *as written* -- because a `loop`
    becomes a local recursive function on that backend, so the pass and
    the backend would otherwise undo each other and leave a
@@ -926,10 +926,10 @@ The bootstrap is split into one module per compiler stage:
    keeps the plain `let`, so ordinary output stays ordinary. See
    `tests/loop_def_capture.pyk` and `docs/target_js.md`.
 10. **`src/target_js_packaging.ml`** — the JavaScript backend's packaging
-   half: wraps core output into `node24` (one self-contained script),
-   `web24` (the same modules plus an HTML file that loads them) and
-   `iweb24` (which compiles nothing: the page ships the Pyking source
-   and the interpreter). `node24` and `web24` emit *identical*
+   half: wraps core output into `node` (one self-contained script),
+   `web` (the same modules plus an HTML file that loads them) and
+   `iweb` (which compiles nothing: the page ships the Pyking source
+   and the interpreter). `node` and `web` emit *identical*
    JavaScript for a program's own modules, so the differences between
    them are the extra page and where `print` goes. It owns the
    JavaScript side of the runtime interface: `pyk-runtime.js`, holding
@@ -940,7 +940,7 @@ The bootstrap is split into one module per compiler stage:
    embedding the program replaces one file to own its standard output;
    `debug` is `console.error` everywhere. The web page is a loader that
    flushes what `io.write` left unfinished and reports a nonzero
-   `sys.exit`; the `iweb24` page asks the bundle for
+   `sys.exit`; the `iweb` page asks the bundle for
    `pykRunProgram('<main>\nrelease')` under `--release`.
 11. **`src/target_c.ml`** — the C backend, serving `c89`, `c99` and
    `c23`: a `C*` AST, translation, and a printer taking a `standard`
@@ -986,7 +986,7 @@ The bootstrap is split into one module per compiler stage:
    output file and its class are named in Java's own style rather than
    the source's (`default_class_name`). See `docs/target_java.md` and
    `docs/target_java_internals.md`.
-13. **`src/target_ocaml.ml`** — the OCaml backend, serving the `ocaml5.5`
+13. **`src/target_ocaml.ml`** — the OCaml backend, serving the `ocaml4.14` and `ocaml5.5`
    target: an `O*` AST, translation, and a printer. The only backend
    that infers nothing — it *runs* `typesystem.type_check` and reads the
    types back out of `tmap` (which is why `check_expr` records an entry
@@ -1338,7 +1338,7 @@ The bootstrap is split into one module per compiler stage:
    number.
 22. **`src/plugin_host.ml`** — how the interpreter reaches a module
    implemented in a target language: its OCaml implementation,
-   `<module>_external.ml` -- the file the `ocaml5.5` target links --
+   `<module>_external.ml` -- the file the OCaml targets link --
    compiled with a registration file generated from its declarations
    into a `.cmxs` and loaded with Dynlink, so `pyk` runs every external
    module without being rebuilt. The registration file records each
@@ -1984,7 +1984,7 @@ suffix to what `-t pyking` prints. The other three select what
 - `--run` runs what was compiled and built, with the commands that
   target's host uses (`src/execution.ml`), each printed before it runs
   on stderr. Cannot be combined with `--stdout`, which writes no file.
-  On `web24`/`iweb24` it runs `pyk serve` on the page, which prints a
+  On `web`/`iweb` it runs `pyk serve` on the page, which prints a
   link to the page itself.
 - `--stdout` compiles and prints the generated source: the program's own
   module, since what is written beside it exists only as files.
@@ -2012,7 +2012,7 @@ suffix to what `-t pyking` prints. The other three select what
 - With no `--output`, the executable is the source's own stem, in the
   *current* directory, and the generated file is that stem plus the
   target's extension (`extensions` in `pyk.ml`, fed by each backend) —
-  `-t node24 tests/hello.pyk` writes `./build/hello.js` and `./hello`.
+  `-t node tests/hello.pyk` writes `./build/hello.js` and `./hello`.
   Writing over the input, or into a directory that doesn't exist, is a
   usage error rather than a traceback. The Java targets are the
   exception: the generated file is Java-cased instead of the source's
@@ -2023,13 +2023,19 @@ suffix to what `-t pyking` prints. The other three select what
 its latest.** `src/targets.ml` is the one place any of them is named --
 the list, the aliases, the extensions and the families -- and `pyk.ml`,
 `module.ml`, `execution.ml`, every backend and the test harness read it
-from there. `-t c` is `-t c23`, `-t java` is `-t java21`; a version says
-the oldest host the output is promised to run on, and two versions of a
-family may emit identical text.
+from there. An unversioned name is the family's *default*: `-t c` is
+`-t c99`, `-t python` is `-t python12`, `-t ocaml` is `-t ocaml4.14`; a
+version says the oldest host the output is promised to run on -- the
+Python, node, Java or OCaml release, the C standard, and for `web` and
+`iweb` the ECMAScript edition (`node22` writes ES2020, `node` ES2024,
+`Targets.es_edition`) -- and two versions of a family may emit identical
+text. `pyk` alone lists the unversioned names, `pyk --help` every
+version.
 
-`--target`/`-t` selects the backend: `python14` (the default), `node24`,
-`web24`, `iweb24`, `c89`, `c99`, `c23`, `java8`, `java17`, `java21`,
-`ocaml5.5`, or
+`--target`/`-t` selects the backend: `python12` (the default),
+`python14`, `node22`, `node24`, `web2020`, `web2024`, `iweb2020`,
+`iweb2024`, `c89`, `c99`, `c23`, `java8`, `java17`, `java21`,
+`ocaml4.14`, `ocaml5.5`, or
 `pyking`. The last is the odd one: it compiles Pyking to Pyking, which
 is to say it prints the program the front end worked out — with the
 types the checker inferred and the loops the tail-call pass built — and
@@ -2038,10 +2044,11 @@ translation of it. `--symbols` goes with it, and nothing else does.
 The rest come in groups sharing a backend: the JavaScript three differ
 only in `src/target_js_packaging.ml`, the C two only in a `standard`
 parameter to `src/target_c.ml`'s printer, and the Java three only in a
-`version` parameter to `src/target_java.ml`'s printer; `ocaml5.5` is a
-family of one. All of them support a subset of the language, and
+`version` parameter to `src/target_java.ml`'s printer. All of them
+support a subset of the language, and
 anything outside it is refused at compile time with a source position
-rather than emitted as code that will not build. `ocaml5.5`'s subset is
+rather than emitted as code that will not build. The OCaml targets'
+subset is
 the widest: it starts from whatever `src/typesystem.ml` accepts, checked
 by running it, and takes away the handful of shapes OCaml cannot be
 given, which `docs/target_ocaml.md` lists. See `docs/architecture.md`
@@ -2056,7 +2063,7 @@ other, and the harness warns where it does not.
 
 `pyk <file>` and `pyk repl` take no target: the interpreter emits
 nothing to name. What they accept is `src/typesystem.ml`'s fragment,
-checked by running it — the same arrangement `ocaml5.5` uses, and the
+checked by running it — the same arrangement the OCaml targets use, and the
 reason a program with `for`, `while`, `match`, lists or an unannotated
 `def` is refused there with the checker's own message. A `loop`, a
 tuple, a `var` and a `:=` are all inside that fragment.
@@ -2093,9 +2100,9 @@ and so is a `TARGET` with a `SUITE` that leaves out `programs`.
 **`make quicktest`** is a random sample of `make test` (`--quick
 PERCENT` to `tests/test_all.py`, `PERCENT=10`, 5 by default). The
 programs suite runs the latest version of each family only (`c23`,
-`java21`, ...), with every case on `python14`, `iweb24`, `ocaml5.5`,
+`java21`, ...), with every case on `python14`, `iweb2024`, `ocaml5.5`,
 `interpret`, `pyking` and the `_notail`/`_nosugar` targets, and
-PERCENT of the cases on `node24`, `web24`, `c23` and `java21`
+PERCENT of the cases on `node24`, `web2024`, `c23` and `java21`
 (`quick_tasks`). Packaging, tinyweb and lsp run PERCENT of their
 checks (`--sample PERCENT`; `suite.sample`, rounding up so at least one
 of each group runs); repl, libpath, playground, notebook and site run
@@ -2127,10 +2134,11 @@ of its own. Each remains a script of its own, with its own
 The first of them is `tests/test_script.py`. It
 reads `tests/test_cases.toml`, and for every (program, target) pair the
 manifest declares, compiles the program to a temp directory, runs it the
-way a user would — `python3` on the `.py`, `node` on the `.js`, `node` on
-`cc`/`javac`/`ocamlopt` and
-then the binary for the C, Java and OCaml targets, `node` on the module a
-`web24` page loads, and, for `iweb24`, the page's own glue with node's
+way a user would — the Python of the target's version on the `.py`, the
+node of its version on the `.js`, `cc`/`javac`/the `ocamlopt` of its
+version and
+then the binary for the C, Java and OCaml targets, node on the module a
+`web` page loads, and, for `iweb`, the page's own glue with node's
 filesystem in place of `fetch` — and compares
 stdout against the sibling `.out` file. `interpret` is the one that
 compiles nothing: it runs `pyk <program>` and compares that. One
@@ -2158,8 +2166,8 @@ the status it must end with, 0 by default; and **`release = true`**
 compiles it with `--release` and holds every compiled target to writing
 nothing to standard error -- the interpreter takes no `--release` and
 runs it as written. Each runner is handed these as one `Invocation`,
-and `executed` answers an `Output` of both streams. The `web24` runner
-runs the page's own loader, taken out of the page, and the `iweb24`
+and `executed` answers an `Output` of both streams. The `web` runner
+runs the page's own loader, taken out of the page, and the `iweb`
 driver makes the request the page's script makes, with `print` writing
 through the shipped `io` implementation.
 
@@ -2262,7 +2270,7 @@ system even though the Homebrew package is built only on a Mac: it
 stages the shipped tree around *this* machine's `./pyk`, installs it into
 a temporary prefix shaped like Homebrew's (`bin/pyk` a link to a link
 into `Cellar/pyking/<version>/libexec`), and from outside the repository
-checks `pyk --version`, a program, the standard library, `iweb24`, `pyk
+checks `pyk --version`, a program, the standard library, `iweb`, `pyk
 example`, `pyk notebook`, `pyk playground` (offering the same examples),
 `pyk pykhelp` and `pyk serve` with nothing on the `PATH`,
 that the web tools ship no Python, the tree's contents, the tarball's
@@ -2301,13 +2309,13 @@ status 1 and says why; that each `lib_tinyweb_*` program, run with no
 log set, serves its page, and that what arrives on `/commands` with its
 `.events` posted to `/events` is its `.page`; that compiling one with
 no `--output` brings `tinyweb_assets/` along on every target; and that
-the web24
+the web
 implementation, which draws directly and has no log, draws what the
 command one does through `tinyweb_page.js` -- under node against a
 recording page (`tests/tinyweb/dom.mjs`), and, where a Chromium is found
 (`$PYKING_CHROME`, the `PATH`, or Playwright's download), in a real one
 driven over the DevTools protocol (`tests/tinyweb/chrome.mjs`), along
-with the iweb24 page and the page a program serves itself. Without a
+with the iweb page and the page a program serves itself. Without a
 Chromium that part says it was skipped. See `docs/libraries.md`,
 "Testing a page".
 
@@ -2373,10 +2381,10 @@ mouse, the keyboard, bitmaps and rows, what takes a list split off so C
 runs the rest, and
 `lib_random_*` for the `random` library -- `lib_tinyweb_splash*` and
 `typecheck_tinyweb_splash_module` for the splash screen and the call the
-compiler adds -- run headless on every target but web24 --
+compiler adds -- run headless on every target but web --
 `PYKING_TINYWEB_LOG` and `PYKING_TINYWEB_EVENTS` are set for every run
 -- and `external_callback_named`, callbacks the hosts call by name.
-web24 and the servers are `tests/test_tinyweb.py`'s.
+web and the servers are `tests/test_tinyweb.py`'s.
 
 **Four kinds of expected output**, two of them about the tail-call
 pass. `<name>.notail.ast.out` is what `-t pyking --no-tail-call-opt`
@@ -2384,7 +2392,7 @@ prints -- the program as *written*, where `.ast.out`
 shows what the pass built -- and `<name>.notail.out` is what it prints
 when run with the pass off, which must equal `<name>.out` exactly: the
 pass may change how much room a program needs and never what it means.
-The targets that read them are `pyking_notail` and `python14_notail`.
+The targets that read them are `pyking_notail` and `python12_notail`.
 A program the pass *declines* to rewrite has the same text in both
 `.ast.out` files, which is what being declined looks like from here.
 
@@ -2479,7 +2487,7 @@ compiler, not the tests, not a distribution -- needs them.
 Running the generated code needs `node` for
 the JavaScript targets, a C compiler (`$CC`, default `cc`) for the C
 ones, a JDK (`$JAVAC`/`$JAVA`) for the Java ones and an OCaml compiler
-(`$OCAMLOPT`, default `ocamlopt`) for `ocaml5.5` — none of them
+(`$OCAMLOPT`, default `ocamlopt`) for the OCaml ones — none of them
 is needed to *produce* the code, and none at all to run a program with
 `pyk <file>`. The OCaml cases are built with `-w +a` and linked with
 `-I +unix unix.cmxa` (an external implementation may need `unix`, and

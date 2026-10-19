@@ -1,18 +1,22 @@
 # The Python target
 
-**Targets in this family:** `python` (the default).
+**Targets in this family:** `python12` and `python14`, aliased `python`
+(`python12`, the default target).
 
 **Key points**
 
 - The **reference backend**: it compiles the entire language, and every
   other target is measured against its output.
-- Output is one `.py` file, runnable with `python3`, importing nothing.
+- Output is one `.py` file, runnable with `python3` -- Python 3.12 or
+  3.14, as the target says -- importing nothing but `dataclass` (and
+  `Callable`) where it declares a datatype.
 - Pyking's three binding forms — `=`, `var`, `:=` — all become plain
   Python assignment, because Python has no distinction to keep.
 - Where Pyking is *stricter* than Python, the difference is compiled
   away: block scoping becomes **renaming**, and refutable comprehension
   patterns become a generated **match helper**.
-- Type annotations are erased; nothing checks them at any stage.
+- Type annotations are erased, except a datatype's fields, which a
+  dataclass needs; nothing checks them at any stage.
 - Least optimal at: shadowed bindings (renamed, so generated names drift
   from the source) and refutable comprehension patterns (a helper
   function per clause, hoisted to the top of the file).
@@ -644,24 +648,47 @@ alternative.
 
 ### Datatypes
 
-A constructor is a class, made at the top of the program by the
-prelude's `__pyk_datatype(name, fields)`: its fields are its
-`__slots__` and its `__match_args__` -- a named field by its name, an
-unnamed one `_0`, `_1`, ... -- so a constructor pattern is Python's own
-class pattern, `case Leaf(v, n):`, and `x.age` is attribute access. The
-datatype's own name is bound to the tuple of its constructors, which is
-what an import of it imports. A value prints through the Bool walker,
-which knows a datatype's value by its `_pyk_tag`:
+A constructor is a frozen dataclass, `@dataclass(frozen=True,
+slots=True)`, declared at the top of the program. Its fields are the
+class's, annotated with the types the checker worked out -- a named
+field by its name, an unnamed one `_0`, `_1`, ... -- so a dataclass's
+own `__match_args__` makes a constructor pattern Python's class
+pattern, `case Leaf(v, n):`, and `x.age` is attribute access. A
+datatype's parameters are the class's PEP 695 type parameters, and the
+datatype's own name is a `type` alias for the union of its
+constructors, which is what an import of it imports -- unless a
+constructor has the datatype's name, as a `struct`'s does, and the
+class is the type. A value prints through the Bool walker, which knows
+a datatype's value by its `__dataclass_fields__`; a class whose Python
+name is not its constructor's (a reserved word renamed) carries the
+Pyking name as `_pyk_tag`.
 
 ```pyking                          # generated Python
-datatype Shape:                    Circle = __pyk_datatype('Circle', ('radius',))
-    Circle(radius: Float)          Dot = __pyk_datatype('Dot', ())
-    Dot                            Shape = (Circle, Dot)
+datatype Shape:                    @dataclass(frozen=True, slots=True)
+    Circle(radius: Float)          class Circle:
+    Dot                                radius: float
+                                   
+                                   @dataclass(frozen=True, slots=True)
+                                   class Dot:
+                                       pass
+                                   
+                                   type Shape = Circle | Dot
 ```
 
 The classes are written before anything else because a datatype is in
 scope throughout its module, where a Python class is in scope only from
-its statement on.
+its statement on. **The two versions differ here only.** Python 3.12
+evaluates a field's annotation when the class is made, so a field
+naming a datatype not declared yet -- its own, in a recursive one -- is
+quoted (`left: 'Tree[a]'`); `python14` relies on 3.14's deferred
+annotations and writes it bare. A function type is
+`collections.abc.Callable`, imported where one is used, and a datatype
+of another module is named through its plain import, or `object` where
+there is none.
+
+*Not optimal:* a datatype's printing still goes through the walker
+rather than a `__str__` of its own, so a program printing one carries
+the prelude.
 
 ### List comprehensions with refutable patterns
 

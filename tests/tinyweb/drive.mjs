@@ -1,4 +1,4 @@
-// Runs a web24 build of a tinyweb program against the page in dom.mjs
+// Runs a web build of a tinyweb program against the page in dom.mjs
 // and delivers the events of its .events file, writing what the reader
 // would have seen and heard, and what the program printed, as JSON on
 // standard output. tests/test_tinyweb.py runs it twice for each program

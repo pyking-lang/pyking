@@ -53,7 +53,7 @@ PLAYGROUND = REPO / "tools" / "playground"
 DEFAULT_BUNDLE = REPO / "share" / "pyking.js"
 # Long enough that a bundle which has gone wrong is reported rather than
 # hanging. Compiling every example takes a few seconds.
-STEP_TIMEOUT = 600
+STEP_TIMEOUT = 1200
 # Plain `node`, with no flags, which is also how
 # tools/playground/playground.py runs its own check. Elsewhere the suite
 # passes `--no-experimental-detect-module` so that node cannot guess a
@@ -151,7 +151,7 @@ check("the smoke program's output",
 //     worker reads it, from the library beside the tools.
 globalThis.pykLibraryFile = (path) =>
   fs.readFileSync(plan.lib + "/" + path, "utf8");
-const page = JSON.parse(pykCompile(plan.smoke, "web24", "smoke.pyk"));
+const page = JSON.parse(pykCompile(plan.smoke, "web2020", "smoke.pyk"));
 check("a web program ships io_external.js",
       page.ok && typeof page.files?.["io_external.js"] === "string"
         && page.files["io_external.js"].includes("export function write_line"),
@@ -476,7 +476,7 @@ def run_parity(bundle, pairs):
 # unpacked zip's `make run` prints the program's .out -- or `holds`, files
 # the zip must hold.
 DOWNLOAD_DRIVER = HERE / "playground" / "download.mjs"
-DOWNLOAD_RUNS = ["python14", "node24", "c89", "c23", "java21", "ocaml5.5"]
+DOWNLOAD_RUNS = ["python12", "node22", "c89", "c23", "java21", "ocaml4.14"]
 DOWNLOADS = (
     [{"program": "tests/lib_math_basic.pyk", "target": t, "run": True}
      for t in DOWNLOAD_RUNS]
@@ -484,11 +484,11 @@ DOWNLOADS = (
        for t in DOWNLOAD_RUNS]
     + [{"program": "tests/lib_tinyweb_image.pyk", "target": t, "run": True,
         "events": "tests/lib_tinyweb_image.events"} for t in DOWNLOAD_RUNS]
-    + [{"program": "tests/lib_tinyweb_image.pyk", "target": "web24",
+    + [{"program": "tests/lib_tinyweb_image.pyk", "target": "web2020",
         "holds": ["playground.html", "playground.js", "tinyweb.js",
                   "tinyweb_external.js", "io_external.js", "pyk-runtime.js",
                   "tinyweb_assets/ball.png", "tinyweb_assets/star.png", "Makefile"]},
-       {"program": "tests/lib_tinyweb_image.pyk", "target": "iweb24",
+       {"program": "tests/lib_tinyweb_image.pyk", "target": "iweb2020",
         "holds": ["playground.html", "playground.pyk", "pyking.js", "tinyweb.pyk",
                   "tinyweb_external.pyk", "tinyweb_external.js", "io_external.js",
                   "tinyweb_page.js", "tinyweb_assets/ball.png", "Makefile"]}])

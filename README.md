@@ -40,17 +40,17 @@ executable beside `build/` — `./hello`, or the name `--output` (`-o`)
 gives:
 
 ```sh
-./pyk c -t python  hello.pyk   # build/hello.py, and ./hello runs it   (python14; the default)
-./pyk c -t node    hello.pyk   # build/hello.js, and ./hello runs it   (node24, an ES module)
+./pyk c -t python  hello.pyk   # build/hello.py, and ./hello runs it   (python12; the default)
+./pyk c -t node    hello.pyk   # build/hello.js, and ./hello runs it   (node22, an ES module)
 ./pyk c -t web     hello.pyk   # build/hello.html + the .js files it loads
 ./pyk c -t iweb    hello.pyk   # build/hello.html + pyking.js + hello.pyk
 ./pyk c -t c89     hello.pyk   # build/hello.c, and the binary ./hello (C89)
-./pyk c -t c99     hello.pyk   # build/hello.c, and the binary ./hello (C99)
-./pyk c -t c       hello.pyk   # build/hello.c, and the binary ./hello (C23; `c` is the alias)
+./pyk c -t c       hello.pyk   # build/hello.c, and the binary ./hello (C99; `c` is the alias)
+./pyk c -t c23     hello.pyk   # build/hello.c, and the binary ./hello (C23)
 ./pyk c -t java8   hello.pyk   # build/Hello.java, and ./hello runs it (Java 8)
 ./pyk c -t java17  hello.pyk   # build/Hello.java, and ./hello runs it (Java 17)
 ./pyk c -t java    hello.pyk   # build/Hello.java, and ./hello runs it (Java 21; `java` is the alias)
-./pyk c -t ocaml   hello.pyk   # build/hello.ml, and the binary ./hello (ocaml5.5)
+./pyk c -t ocaml   hello.pyk   # build/hello.ml, and the binary ./hello (ocaml4.14)
 ./pyk c -t pyking  -o out.pyk hello.pyk   # out.pyk (Pyking, as the front end has it)
 ./pyk c -t ocaml   -o hi hello.pyk        # ./hi, and build/hi.ml
 ./pyk hello.pyk    -t ocaml               # build it in build/ and run it from there
@@ -62,9 +62,13 @@ compile` made is replaced; any other is left alone and the compile
 refused.
 
 Every target carries a **version**, and every family has an unversioned
-**alias** naming its latest: `c` is `c23`, `java` is `java21`, `node` is
-`node24`. A version says the oldest host the output is promised to run
-on. `iweb` is the odd one — it compiles nothing, shipping the Pyking
+**alias** naming its default: `python` is `python12`, `node` is
+`node22`, `web` is `web2020`, `c` is `c99`, `java` is `java21`, `ocaml`
+is `ocaml4.14`. A version says the oldest host the output is promised
+to run on: the Python, node, Java or OCaml release, the C standard, and
+for `web` and `iweb` the ECMAScript edition the page is written in
+(`node22` writes ES2020 and `node24` ES2024). `pyk --help` lists them
+all. `iweb` is the odd one — it compiles nothing, shipping the Pyking
 source and the interpreter so a browser runs the *whole* language rather
 than one backend's subset.
 
@@ -313,6 +317,6 @@ and Starlight the first time `make website` runs.
 
 Running the generated code needs `node` for the JavaScript targets, a C
 compiler for the C ones, a JDK (`javac`/`java`) for the Java ones and an
-OCaml compiler for `ocaml5.5`; producing it needs none of them, and running
+OCaml compiler for the OCaml ones; producing it needs none of them, and running
 a program with `./pyk` needs nothing at all. The compiler itself has no
 third-party dependencies.

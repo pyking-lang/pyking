@@ -1,13 +1,14 @@
 # Which targets each test program runs on, and why any it does not.
 #
-# A case runs on every target -- python14, node24, web24, iweb24, c89,
-# c99, c23, java8, java17, java21, ocaml5.5 and interpret -- and on
+# A case runs on every target -- python12, python14, node22, node24,
+# web2020, web2024, iweb2020, iweb2024, c89, c99, c23, java8, java17,
+# java21, ocaml4.14, ocaml5.5 and interpret -- and on
 # `pyking` too where it is a `typecheck_*` program. The one way to leave
 # a target out is `excluded`, a table from a target or a family (`c`,
 # `java`, `web`, ...) to the reason, which tests/test_script.py prints in
 # its summary. A `fail_typecheck_*` program, written to be refused, runs
 # on `pyking` alone. `also` adds the targets that turn a pass off
-# (`python14_notail`, `pyking_notail`, `pyking_nosugar`), and
+# (`python12_notail`, `pyking_notail`, `pyking_nosugar`), and
 # `pyking_rerun`, which runs what `pyking` printed and compares its output
 # against the `.out`.
 #
@@ -595,42 +596,42 @@ file = "typecheck_loop_unit_value.pyk"
 
 [[cases]]
 file = "typecheck_tco_accumulator.pyk"
-also = ["python14_notail", "pyking_notail"]
+also = ["python12_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_basic.pyk"
-also = ["python14_notail", "pyking_notail"]
+also = ["python12_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_declined.pyk"
-also = ["python14_notail", "pyking_notail"]
+also = ["python12_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_declined_group.pyk"
-also = ["python14_notail", "pyking_notail"]
+also = ["python12_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_deep.pyk"
 
 [[cases]]
 file = "typecheck_tco_mutual.pyk"
-also = ["python14_notail", "pyking_notail"]
+also = ["python12_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_shapes.pyk"
-also = ["python14_notail", "pyking_notail"]
+also = ["python12_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_types.pyk"
-also = ["python14_notail", "pyking_notail"]
+also = ["python12_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_widths.pyk"
-also = ["python14_notail", "pyking_notail"]
+also = ["python12_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_tco_widths_three.pyk"
-also = ["python14_notail", "pyking_notail"]
+also = ["python12_notail", "pyking_notail"]
 
 [[cases]]
 file = "typecheck_numeric_recursion.pyk"
@@ -1057,7 +1058,7 @@ modules = ["external_web_mod1_external.pyk"]
 # own `modules`, since a library never imports one of those.
 #
 # `fs` is the one library whose whole boundary is scalar -- a String and
-# a Bool cross on every target. It excludes web24/iweb24: a browser has
+# a Bool cross on every target. It excludes web/iweb: a browser has
 # no filesystem, so its browser implementation only says so on the
 # console, and there is no output to compare.
 
@@ -1163,7 +1164,7 @@ excluded = { web = "a browser page has no environment variables", iweb = "a brow
 # The io library: standard output beside `print`, and standard input.
 # A case reading its input has a sibling .in file, which is what it is
 # given on standard input. The browser has no standard input, so only
-# writing reaches web24 and iweb24, where `print` writes through `io`
+# writing reaches web and iweb, where `print` writes through `io`
 # too.
 
 [[cases]]
@@ -1550,28 +1551,28 @@ file = "fail_typecheck_str_removed.pyk"
 # tinyweb: a program building a page. Its .events file is what the page
 # delivers once the top level has ended, and its .page file the commands
 # it sends the page, written by the headless implementation every
-# target here uses (docs/libraries.md, "Testing a page"). web24 is not
+# target here uses (docs/libraries.md, "Testing a page"). web is not
 # among them: its implementation draws on a page and has no headless
 # form, and tests/test_tinyweb.py holds it to drawing what these do.
 [[cases]]
 file = "lib_tinyweb_sound_graphics1.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_frames.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_input.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_style.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 # The splash screen a sound needs before the reader has clicked: shown by
 # a sound the top level plays, turned off, and called at the end of a
@@ -1584,32 +1585,32 @@ excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py check
 [[cases]]
 file = "lib_tinyweb_shapes.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_polygons.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "lib_tinyweb_transform.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_image.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_widgets.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_choice.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
 
 # random: a generator written in Pyking, so a seed gives the same numbers
 # on every target.
@@ -1625,18 +1626,18 @@ excluded = { c = "lists need a heap, and C has no garbage collector to free one"
 [[cases]]
 file = "lib_tinyweb_splash.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_splash_off.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "typecheck_tinyweb_splash_module.pyk"
 libs = ["tinyweb"]
 modules = ["typecheck_tinyweb_splash_module_drums.pyk"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 # Datatypes and the patterns that take them apart (PYKING.md,
 # "Datatypes"); every `match` is exhaustive (docs/exhaustive.md).
@@ -1828,27 +1829,27 @@ excluded = { c = "lists need a heap, and C has no garbage collector to free one"
 [[cases]]
 file = "lib_tinyweb_pointer.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_bitmap.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_paint.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_smooth.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "lib_tinyweb_layout.pyk"
 libs = ["tinyweb"]
-excluded = { web = "a web24 page draws itself, which tests/test_tinyweb.py checks in a browser" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "return_nested_if.pyk"

@@ -60,8 +60,10 @@ the two halves cannot drift apart.
 
 How each target is executed:
 
-  python  compile to a temp .py, run it with python3, compare stdout.
-  nodejs  compile to a temp .js, run it with node, compare stdout.
+  python  compile to a temp .py, run it with the Python of the target's
+          version (python3.12, python3.14), compare stdout.
+  nodejs  compile to a temp .js, run it with the node of the target's
+          version (node 22, node 24), compare stdout.
   esm     compile to a temp .js (plus its wrappers and package.json), run
           the generated node driver -- that wrapper is what a user would
           run, so that is what gets tested.
@@ -74,7 +76,8 @@ How each target is executed:
   java17  run the class with `java`, compare stdout. All three share one
   java21  backend and differ only in how the Java is printed, the same
           reason all three run here.
-  ocaml   compile to a temp .ml, build it with `ocamlopt -w +a`,
+  ocaml   compile to a temp .ml, build it with the `ocamlopt -w +a` of the
+          target's version (4.14, 5.5),
           run the binary, compare stdout. Every warning is on: the
           target's promise is clean OCaml, so a warning is a failure.
   html    no browser is needed: the page's embedded module is extracted
@@ -159,7 +162,7 @@ FAIL_TYPECHECK_PREFIX = "fail_typecheck_"
 # means. `pyking_notail` prints the AST without it, which is where a
 # program's own shape is pinned once the pass has rewritten it.
 PYKING_NOTAIL_TARGET = "pyking_notail"
-PYTHON_NOTAIL_TARGET = "python14_notail"
+PYTHON_NOTAIL_TARGET = "python12_notail"
 NOTAIL_FLAG = "--no-tail-call-opt"
 # The target that prints the program before the argument sugar is
 # rewritten away, which is the only place that sugar's own printed form
@@ -230,8 +233,9 @@ def expected_path(source, target):
 # The compiling ones are src/targets.ml's, spelled the same way; the four
 # after them compile nothing (see the notes above each).
 TARGETS = (
-    "python14", "node24", "web24", "iweb24", "c89", "c99", "c23",
-    "java8", "java17", "java21", "ocaml5.5", INTERPRET_TARGET, PYKING_TARGET,
+    "python12", "python14", "node22", "node24", "web2020", "web2024",
+    "iweb2020", "iweb2024", "c89", "c99", "c23", "java8", "java17", "java21",
+    "ocaml4.14", "ocaml5.5", INTERPRET_TARGET, PYKING_TARGET,
     PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET, PYKING_NOSUGAR_TARGET,
     PYKING_RERUN_TARGET,
 )
@@ -240,14 +244,18 @@ TARGETS = (
 # selects every version of it, which is what a change to one backend
 # wants tested. A name that is already a target selects just that one.
 FAMILIES = {
-    "python": ["python14"],
-    "node": ["node24"],
-    "web": ["web24"],
-    "iweb": ["iweb24"],
+    "python": ["python12", "python14"],
+    "node": ["node22", "node24"],
+    "web": ["web2020", "web2024"],
+    "iweb": ["iweb2020", "iweb2024"],
     "c": ["c89", "c99", "c23"],
     "java": ["java8", "java17", "java21"],
-    "ocaml": ["ocaml5.5"],
+    "ocaml": ["ocaml4.14", "ocaml5.5"],
 }
+
+# The target the warnings below name for "a program that runs": the
+# Python family's default, which compiles the whole language.
+PYTHON_TARGET = "python12"
 
 
 # What a case runs on when the manifest says nothing else: every
@@ -255,11 +263,12 @@ FAMILIES = {
 # `typecheck_*` program, whose types are pinned. A `fail_typecheck_*`
 # program runs on `pyking` alone. A case leaves a target out only by
 # naming it -- or its family -- under `excluded`, with the reason; the
-# optional targets (`python14_notail`, `pyking_notail`, `pyking_nosugar`,
+# optional targets (`python12_notail`, `pyking_notail`, `pyking_nosugar`,
 # `pyking_rerun`) are added with `also`.
 DEFAULT_TARGETS = (
-    "python14", "node24", "web24", "iweb24", "c89", "c99", "c23",
-    "java8", "java17", "java21", "ocaml5.5", INTERPRET_TARGET,
+    "python12", "python14", "node22", "node24", "web2020", "web2024",
+    "iweb2020", "iweb2024", "c89", "c99", "c23", "java8", "java17", "java21",
+    "ocaml4.14", "ocaml5.5", INTERPRET_TARGET,
 )
 OPTIONAL_TARGETS = (PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET, PYKING_NOSUGAR_TARGET,
                     PYKING_RERUN_TARGET)
@@ -325,18 +334,96 @@ def selected_targets(name):
 # is offered and kept only if node takes it -- and a node too old for the
 # flag is also too old to guess, which is the behaviour the flag is
 # asking for in the first place.
-def node_command():
+def node_command(node):
     """`node`, with detection turned off where that is possible.
-    () -> [String]"""
+    [String] -> [String]"""
     flag = "--no-experimental-detect-module"
     try:
-        probe = subprocess.run(["node", flag, "-e", ""], capture_output=True)
-    except FileNotFoundError:
-        return ["node"]
-    return ["node", flag] if probe.returncode == 0 else ["node"]
+        probe = subprocess.run(node + [flag, "-e", ""], capture_output=True)
+    except (FileNotFoundError, PermissionError):
+        return node
+    return node + [flag] if probe.returncode == 0 else node
 
 
-NODE = node_command()
+# Each version of a target runs on a host of that version: what the
+# version promises is the oldest host its output runs on, and only that
+# host can show the promise is kept. A host is found by the variable
+# naming it, then by the usual names, each asked its version; a target
+# whose host is not found is skipped, and the summary says so.
+def find_host(variable, candidates, flag, prefix):
+    """The command running a host whose `flag` output starts with
+    `prefix`, or None where none is found. `variable` is trusted as it
+    is. String -> [String] -> String -> String -> [String]?"""
+    named = os.environ.get(variable)
+    if named:
+        return named.split()
+    for candidate in candidates:
+        command = candidate.split()
+        try:
+            probe = subprocess.run(command + [flag], capture_output=True, text=True)
+        except (FileNotFoundError, PermissionError):
+            continue
+        said = (probe.stdout + probe.stderr).strip()
+        if probe.returncode == 0 and said.startswith(prefix):
+            return command
+    return None
+
+
+# For each host: the variable naming it, the commands tried, the flag
+# asking its version and what that answers, and what the summary calls
+# it when it is missing.
+HOST_SPECS = {
+    "python3.12": ("PYTHON_3_12", ["python3.12", "python3", sys.executable],
+                   "--version", "Python 3.12", "Python 3.12"),
+    "python3.14": ("PYTHON_3_14", ["python3.14", "python3", sys.executable],
+                   "--version", "Python 3.14", "Python 3.14"),
+    "node22": ("NODE_22", ["node22", "node"], "--version", "v22.", "node 22"),
+    "node24": ("NODE_24", ["node24", "node"], "--version", "v24.", "node 24"),
+    "ocaml4.14": ("OCAMLOPT_4_14", ["ocamlopt4.14", "ocamlopt-4.14", "ocamlopt"],
+                  "-version", "4.14", "OCaml 4.14"),
+    "ocaml5.5": ("OCAMLOPT_5_5", [os.environ.get("OCAMLOPT", "ocamlopt"), "ocamlopt"],
+                 "-version", "5.5", "OCaml 5.5"),
+}
+
+# Which host each target needs. A page runs its modules under node, of
+# the edition its ES version names.
+HOST_OF = {
+    "python12": "python3.12", "python14": "python3.14",
+    PYTHON_NOTAIL_TARGET: "python3.12",
+    "node22": "node22", "node24": "node24",
+    "web2020": "node22", "web2024": "node24",
+    "iweb2020": "node22", "iweb2024": "node24",
+    "ocaml4.14": "ocaml4.14", "ocaml5.5": "ocaml5.5",
+}
+
+
+def found_hosts():
+    """Every host this machine has, by name, a node with its detection
+    turned off. () -> {String: [String]}"""
+    hosts = {}
+    for name, (variable, candidates, flag, prefix, _) in HOST_SPECS.items():
+        command = find_host(variable, candidates, flag, prefix)
+        if command is not None:
+            hosts[name] = node_command(command) if name.startswith("node") else command
+    return hosts
+
+
+HOSTS = found_hosts()
+
+
+def host(target):
+    """The command running what `target` compiled to. String -> [String]"""
+    return HOSTS[HOST_OF[target]]
+
+
+def missing_host(target):
+    """Why `target` cannot run here, or None where it can.
+    String -> String?"""
+    name = HOST_OF.get(target)
+    if name is None or name in HOSTS:
+        return None
+    variable, _, _, _, described = HOST_SPECS[name]
+    return f"no {described} found; set ${variable}"
 
 # The compiler used for the C targets; `cc` is the standard name.
 C_COMPILER = os.environ.get("CC", "cc")
@@ -346,11 +433,6 @@ C_COMPILER = os.environ.get("CC", "cc")
 JAVA_COMPILER = os.environ.get("JAVAC", "javac")
 JAVA_RUNTIME = os.environ.get("JAVA", "java")
 
-# The OCaml native compiler. Plain `ocamlopt`: a generated Pyking program
-# uses no package, so `ocamlfind` would only add a dependency on a
-# working ld.conf. The same default `src/execution.py` uses, so a machine
-# set up for one is set up for the other.
-OCAML_COMPILER = os.environ.get("OCAMLOPT", "ocamlopt").split()
 
 # Stands in for the browser: the generated page's only contact with the
 # outside world is the element it prints into, so a `document` with one
@@ -563,13 +645,13 @@ def _bracket_change(text):
     return depth
 
 
-def run_python(source, workdir, modules, invocation):
-    return _run_python(source, workdir, [], invocation)
+def run_python(source, workdir, modules, invocation, target):
+    return _run_python(source, workdir, [], invocation, target)
 
 
-def _run_python(source, workdir, flags, invocation):
+def _run_python(source, workdir, flags, invocation, target):
     generated = os.path.join(workdir, "program.py")
-    compiled = compile_to(source, "python14", generated,
+    compiled = compile_to(source, target, generated,
                           flags + invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
@@ -582,28 +664,28 @@ def _run_python(source, workdir, flags, invocation):
             "ordinary Python"
         )
     return executed(
-        run([sys.executable, generated] + invocation.arguments, cwd=workdir,
+        run(host(target) + [generated] + invocation.arguments, cwd=workdir,
             stdin=invocation.stdin),
         invocation)
 
 
-def run_node(source, workdir, modules, invocation):
+def run_node(source, workdir, modules, invocation, target):
     """Runs the compiled ES module under node.
 
     The generated package.json beside it is what makes a plain `.js` an
     ES module to node; without it the `import` lines would be read as
     CommonJS and fail, so running this exercises that too."""
     generated = os.path.join(workdir, "program.js")
-    compiled = compile_to(source, "node24", generated, invocation.flags)
+    compiled = compile_to(source, target, generated, invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     return executed(
-        run(NODE + [generated] + invocation.arguments, cwd=workdir,
+        run(host(target) + [generated] + invocation.arguments, cwd=workdir,
             stdin=invocation.stdin),
         invocation)
 
 
-def run_web(source, workdir, modules, invocation):
+def run_web(source, workdir, modules, invocation, target):
     """Compiles the page, then runs the module it loads, under node.
 
     The `web` target emits the same ES modules `node` does and prints to
@@ -612,7 +694,7 @@ def run_web(source, workdir, modules, invocation):
     module. A browser would be needed to prove it renders, and one is a
     heavy dependency for an otherwise stdlib-only repository."""
     page = os.path.join(workdir, "program.html")
-    compiled = compile_to(source, "web24", page, invocation.flags)
+    compiled = compile_to(source, target, page, invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     with open(page) as f:
@@ -634,7 +716,7 @@ def run_web(source, workdir, modules, invocation):
     with open(os.path.join(workdir, "package.json"), "w") as f:
         f.write('{\n  "type": "module"\n}\n')
     return executed(
-        page_status(run(NODE + [loader] + invocation.arguments,
+        page_status(run(host(target) + [loader] + invocation.arguments,
                         cwd=workdir, stdin=invocation.stdin)),
         invocation)
 
@@ -710,7 +792,7 @@ else if (result.exit) console.log(`exited with status ${result.exit}`);
 """
 
 
-def run_iweb(source, workdir, modules, invocation):
+def run_iweb(source, workdir, modules, invocation, target):
     """Runs an `iweb` program the way its page does, under node.
 
     Nothing is compiled for this target: the page ships the Pyking
@@ -719,14 +801,14 @@ def run_iweb(source, workdir, modules, invocation):
     language where a backend supports a subset -- and why its output is
     compared against the same `.out` as every other target."""
     page = os.path.join(workdir, "program.html")
-    compiled = compile_to(source, "iweb24", page, invocation.flags)
+    compiled = compile_to(source, target, page, invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     driver = os.path.join(workdir, "run-iweb.mjs")
     with open(driver, "w") as f:
         f.write(IWEB_DRIVER)
     return executed(
-        page_status(run(NODE + [driver, workdir, os.path.basename(source)]
+        page_status(run(host(target) + [driver, workdir, os.path.basename(source)]
                         + invocation.arguments, cwd=workdir, stdin=invocation.stdin)),
         invocation)
 
@@ -784,7 +866,7 @@ def run_java(source, workdir, modules, invocation, version):
         invocation)
 
 
-def run_ocaml(source, workdir, modules, invocation):
+def run_ocaml(source, workdir, modules, invocation, target):
     """Compiles to OCaml, builds it with `ocamlopt`, runs the binary.
 
     The bytecode compiler would do as well, but the native one is the
@@ -794,7 +876,7 @@ def run_ocaml(source, workdir, modules, invocation):
     exactly right for a translated Pyking program, where the top level's
     bindings are the program's own."""
     generated = os.path.join(workdir, "program.ml")
-    compiled = compile_to(source, "ocaml", generated, invocation.flags)
+    compiled = compile_to(source, target, generated, invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     with open(generated) as f:
@@ -822,7 +904,7 @@ def run_ocaml(source, workdir, modules, invocation):
     # path let ocamlopt reach one module by two routes, and it refuses
     # the pair as making "inconsistent assumptions" over an interface.
     built = run(
-        OCAML_COMPILER
+        host(target)
         + ["-w", "+a-70", "-I", "+unix", "unix.cmxa", "-I", workdir,
            "-o", binary]
         + sources + [generated],
@@ -931,7 +1013,7 @@ def run_python_notail(source, workdir, modules, invocation):
     compared against `.notail.out`, which must hold exactly what the
     `.out` does: the pass may make a program run in less space, never
     make it mean something else."""
-    return _run_python(source, workdir, [NOTAIL_FLAG], invocation)
+    return _run_python(source, workdir, [NOTAIL_FLAG], invocation, PYTHON_TARGET)
 
 
 def run_pyking_notail(source, _workdir, modules, invocation):
@@ -983,17 +1065,22 @@ RUNNERS = {
     PYKING_RERUN_TARGET: run_pyking_rerun,
     PYTHON_NOTAIL_TARGET: run_python_notail,
     INTERPRET_TARGET: run_interpret,
-    "python14": run_python,
-    "node24": run_node,
-    "web24": run_web,
-    "iweb24": run_iweb,
+    "python12": lambda s, w, m, a: run_python(s, w, m, a, "python12"),
+    "python14": lambda s, w, m, a: run_python(s, w, m, a, "python14"),
+    "node22": lambda s, w, m, a: run_node(s, w, m, a, "node22"),
+    "node24": lambda s, w, m, a: run_node(s, w, m, a, "node24"),
+    "web2020": lambda s, w, m, a: run_web(s, w, m, a, "web2020"),
+    "web2024": lambda s, w, m, a: run_web(s, w, m, a, "web2024"),
+    "iweb2020": lambda s, w, m, a: run_iweb(s, w, m, a, "iweb2020"),
+    "iweb2024": lambda s, w, m, a: run_iweb(s, w, m, a, "iweb2024"),
     "c89": lambda s, w, m, a: run_c(s, w, m, a, "c89"),
     "c99": lambda s, w, m, a: run_c(s, w, m, a, "c99"),
     "c23": lambda s, w, m, a: run_c(s, w, m, a, "c23"),
     "java8": lambda s, w, m, a: run_java(s, w, m, a, "java8"),
     "java17": lambda s, w, m, a: run_java(s, w, m, a, "java17"),
     "java21": lambda s, w, m, a: run_java(s, w, m, a, "java21"),
-    "ocaml5.5": run_ocaml,
+    "ocaml4.14": lambda s, w, m, a: run_ocaml(s, w, m, a, "ocaml4.14"),
+    "ocaml5.5": lambda s, w, m, a: run_ocaml(s, w, m, a, "ocaml5.5"),
 }
 
 
@@ -1075,20 +1162,20 @@ def load_cases():
         # The pass must not change what a program means, and the pair of
         # outputs is where that is checked -- so a program that runs one
         # way should run the other.
-        if PYTHON_NOTAIL_TARGET in targets and "python14" not in targets:
+        if PYTHON_NOTAIL_TARGET in targets and PYTHON_TARGET not in targets:
             print(
                 f"WARNING: {name} lists {PYTHON_NOTAIL_TARGET} but not "
-                f'"python14"; the two outputs are only worth comparing '
+                f'"{PYTHON_TARGET}"; the two outputs are only worth comparing '
                 f"together"
             )
         # A program whose types are pinned must also be a program that
         # runs: `python` compiles the whole language, so a
         # `typecheck_*` file that does not list it is describing
         # something nothing ever executes.
-        if checks and "python14" not in targets:
+        if checks and PYTHON_TARGET not in targets:
             print(
                 f"WARNING: {name} pins its types but lists no backend; add "
-                f'"python14" so the program it describes is one that runs'
+                f'"{PYTHON_TARGET}" so the program it describes is one that runs'
             )
         # The interpreter runs the checker's fragment, so a program whose
         # types are pinned is one it can run -- and the cheapest check
@@ -1400,7 +1487,15 @@ def main():
         tasks = [task for task in tasks if task[0] in only]
     if percent is not None:
         tasks = quick_tasks(tasks, percent, seed)
+    # A target whose host this machine lacks is skipped, not failed.
+    skipped = {}
+    for target in TARGETS:
+        reason = missing_host(target)
+        if reason is not None and any(task[0] == target for task in tasks):
+            skipped[target] = reason
+    tasks = [task for task in tasks if task[0] not in skipped]
     shown = TARGETS if only is None else tuple(t for t in TARGETS if t in only)
+    shown = tuple(t for t in shown if t not in skipped)
     if percent is not None:
         shown = tuple(t for t in shown if t in QUICK_TARGETS)
     passed = {target: 0 for target in shown}
@@ -1443,6 +1538,11 @@ def main():
         f"{len(shown)} target{'' if len(shown) == 1 else 's'}")
 
     print_exclusions(cases, shown)
+    if skipped:
+        print()
+        print("  skipped:")
+        for target, reason in skipped.items():
+            print(f"    {target}: {reason}")
 
     if total_failed:
         sys.exit(1)

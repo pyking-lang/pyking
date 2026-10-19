@@ -29,12 +29,15 @@ exception Unsupported of Lexer.info * string
 
 (** Translates a whole program. `tmap` is the type checker's table,
     which is what says whether a `print` argument can hold a Bool and
-    so needs formatting rather than printing as it stands.
+    so needs formatting rather than printing as it stands, and what a
+    datatype's fields are annotated with; `target` is the Python
+    version, which decides whether a forward reference is quoted.
     [stmt] -> typ IntMap.t -> pyprogram *)
 val translate_program :
   ?external_fields:(string * string list) list ->
   ?externals:string list ->
   ?own:string ->
+  ?target:string ->
   Syntax.stmt list ->
   Syntax.typ Syntax.IntMap.t ->
   pyprogram

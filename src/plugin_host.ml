@@ -3,7 +3,7 @@
     loaded into this executable with Dynlink. A compiled program links
     `<module>_external.ml` into itself; an interpreted one loads
     `<module>_external.cmxs`, built from that same file, so the
-    interpreter runs everything the ocaml5.5 target does without `pyk`
+    interpreter runs everything the ocaml targets do without `pyk`
     being rebuilt for a new library. See docs/libraries.md, "How the
     interpreter reaches an OCaml implementation".
 

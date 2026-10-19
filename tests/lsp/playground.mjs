@@ -64,7 +64,7 @@ const PAGE = `(async () => { ${HELPERS}
 
   await source("total = 1 + 2\\nprint(total)\\n");
   const target = $("[data-r=target]");
-  target.value = "python14";
+  target.value = "python12";
   target.dispatchEvent(new Event("change"));
   $("[data-r=compile]").click();
   const compiled = await until(() => app.right.getValue().includes("print"));
@@ -83,8 +83,8 @@ const PAGE = `(async () => { ${HELPERS}
   const zipped = offered[0] ? new Uint8Array(await offered[0].arrayBuffer()) : new Uint8Array();
   const listing = new TextDecoder().decode(zipped);
   check("holding the program and a Makefile", zipped[0] === 0x50 && zipped[1] === 0x4b
-    && listing.includes("playground-python14/playground.py")
-    && listing.includes("playground-python14/Makefile"), listing.slice(0, 200));
+    && listing.includes("playground-python12/playground.py")
+    && listing.includes("playground-python12/Makefile"), listing.slice(0, 200));
 
   $("[data-r=runLeft]").click();
   const ran = await until(() => /finished/.test(output()), 30000);

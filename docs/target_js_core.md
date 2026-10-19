@@ -4,7 +4,7 @@ How `src/target_js_core.ml` translates Pyking to JavaScript, and why
 its `Scope` is so much simpler than `target_python.ml`'s. For what each
 construct compiles to and where the output is not optimal, see
 [target_js.md](target_js.md); for how the three JavaScript targets
-(`node24`, `web24`, `iweb24`) are built from this module's output, see
+(`node`, `web`, `iweb`) are built from this module's output, see
 [target_js_packaging.md](target_js_packaging.md); for a one-page
 summary, see [source.md](source.md#target_js_coreml).
 

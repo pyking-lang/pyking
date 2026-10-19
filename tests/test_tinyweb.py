@@ -24,7 +24,7 @@ each target it lists, and compares the commands it logs with its
              `.mli`, `tinyweb.c` with its `.h`, ...), builds with the
              example written against it, which, run with no page, logs
              what lib_tinyweb_sound_graphics1.pyk does.
-  browser    the web24 implementation, which draws directly, does what
+  browser    the web implementation, which draws directly, does what
              the command one does through tinyweb_page.js: each program
              is run both ways against the same small DOM under node, and
              -- where a Chromium is found -- both ways in a real browser,
@@ -77,9 +77,9 @@ LIB = ROOT / "lib" / "tinyweb"
 # extension its output takes; `interpret` is `pyk <file>` itself.
 SERVED_TARGETS = {
     "interpret": None,
-    "python14": ".py",
-    "node24": ".js",
-    "ocaml5.5": ".ml",
+    "python12": ".py",
+    "node22": ".js",
+    "ocaml4.14": ".ml",
     "c23": ".c",
     "java21": ".java",
 }
@@ -514,7 +514,7 @@ STANDALONE_CASE = HERE / "lib_tinyweb_sound_graphics1"
 
 
 # Every target a program is compiled for, by one version of each family.
-DEFAULT_TARGETS = ["python14", "node24", "web24", "iweb24", "c89", "java21", "ocaml5.5"]
+DEFAULT_TARGETS = ["python12", "node22", "web2020", "iweb2020", "c89", "java21", "ocaml4.14"]
 
 
 def check_default_output(compiler, target):
@@ -614,14 +614,14 @@ def page_compiled(compiler, target, directory, stem):
 
 
 def builds(compiler, stem, workdir):
-    """The program compiled for web24 twice, into two directories: once
+    """The program compiled for web2020 twice, into two directories: once
     as the target builds it, with tinyweb_external_browser.js drawing
     directly, and once with tinyweb_external_interpreter.js and
-    tinyweb_page.js in its place -- what iweb24 and the playground run.
+    tinyweb_page.js in its place -- what iweb and the playground run.
     -> ((Path, Path)?, String?)"""
     direct, commands = Path(workdir) / "direct", Path(workdir) / "commands"
     direct.mkdir()
-    ran = page_compiled(compiler, "web24", direct, stem)
+    ran = page_compiled(compiler, "web2020", direct, stem)
     if ran.returncode != 0:
         return None, ran.stderr
     shutil.copytree(direct, commands)
@@ -672,7 +672,7 @@ CHROME_DRIVER = HERE / "tinyweb" / "chrome.mjs"
 # which `served` checks on each; in a browser, two servers stand for
 # them: one answering on a thread of its own, one from a select loop
 # once the top level has ended.
-CHROMIUM_SERVED_TARGETS = ["python14", "interpret"]
+CHROMIUM_SERVED_TARGETS = ["python12", "interpret"]
 def marked(page):
     """A page whose module script says when its program's top level has
     ended, which the driver waits for. Path -> ()"""
@@ -686,8 +686,8 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
 
 
 def check_chromium(compiler, chromium, case):
-    """One program as three pages in a real Chromium -- web24 drawing
-    directly, web24 through commands, and iweb24, where the interpreter
+    """One program as three pages in a real Chromium -- web drawing
+    directly, web through commands, and iweb, where the interpreter
     runs it -- held to one recording. -> String?"""
     stem, _, _, expected_out = case
     with tempfile.TemporaryDirectory(prefix="pyk-tinyweb-") as workdir:
@@ -696,7 +696,7 @@ def check_chromium(compiler, chromium, case):
             return problem
         interpreted = Path(workdir) / "interpreted"
         interpreted.mkdir()
-        ran = page_compiled(compiler, "iweb24", interpreted, stem)
+        ran = page_compiled(compiler, "iweb2020", interpreted, stem)
         if ran.returncode != 0:
             return ran.stderr
         pages = list(built) + [interpreted]
@@ -733,7 +733,7 @@ def check_chromium(compiler, chromium, case):
 
 def check_chromium_served(compiler, chromium, case, target):
     """One program run on `target` with its page served, the page opened
-    in a real Chromium beside the web24 page drawing directly, and both
+    in a real Chromium beside the web page drawing directly, and both
     held to one recording -- what tinyweb_page.html makes of the
     commands that reach it over HTTP. -> String?"""
     stem, _, _, _ = case
@@ -874,7 +874,7 @@ def main(argv):
                     [(c, t) for c in page_cases() for t in CHROMIUM_SERVED_TARGETS],
                     "chromium served"):
                 name = (f"{case[0].name}.pyk served on {target}, in Chromium, drawn as "
-                        f"the web24 page draws it")
+                        f"the web page draws it")
                 try:
                     problem = check_chromium_served(compiler, chromium, case, target)
                 except Exception as error:  # noqa: BLE001 -- reported, not raised

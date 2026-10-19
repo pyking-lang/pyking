@@ -74,7 +74,7 @@ than filling it. Every command needs this much; nothing past it is
 shared, and there is no branch in it at all.
 
 There used to be one. Type checking was a *mode*, and a `required` flag
-decided whose refusal counted — `pyk run`'s, the `ocaml5.5` target's, and
+decided whose refusal counted — `pyk run`'s, the `ocaml` target's, and
 `--typecheck`'s. Pyking is statically typed now, so the question is
 gone: the checker runs, and a program it refuses is refused. What
 follows from that is that the checker is also the **only** pass that
@@ -222,7 +222,7 @@ which checker runs, not how its refusal reads.
 
 `fail_unsupported` is kept separate from `format_error`'s match on
 purpose: an `Unsupported` needs to name *which target* refused the
-construct (`"Unsupported by target 'node24': ..."`), a piece of context
+construct (`"Unsupported by target 'node22': ..."`), a piece of context
 none of the front-end errors need, since they're refused by the front
 end itself rather than by one particular backend's subset.
 
@@ -395,7 +395,7 @@ implementation".
 
 A web program's `print` writes through the `io` library, so
 `compile_program` ships that library's browser implementation with every
-`web24` and `iweb24` program -- found the way an import of `io` would
+`web` and `iweb` program -- found the way an import of `io` would
 find it (`Module.found_implementation`) -- where the program does not
 import `io` itself.
 
@@ -407,7 +407,7 @@ them before `front_end` is reached. All the driver does is
 `tools/` with `src/web_server.ml` in this process until Ctrl+C, and
 prints the reason only when it could not start. `pyk serve` takes a
 directory, the current one by default, and serves its files as they
-are; `--run` uses it for a `web24` or `iweb24` page. `--port` is theirs alone and refused elsewhere, as `--`
+are; `--run` uses it for a `web` or `iweb` page. `--port` is theirs alone and refused elsewhere, as `--`
 is refused for them, and `--mode` (student, teacher or test) is the
 notebook's alone: it is handed on, and test mode refuses `--port`, since
 it serves nothing. See [build.md](build.md), "The web tools".

@@ -151,7 +151,7 @@ the browser bundle additionally needs js_of_ocaml.
 
 Running the *generated code* needs whatever that target's host needs —
 `node` for the JavaScript targets, a C compiler for `c89`/`c23`, a JDK
-for the Java ones, `ocamlopt` for `ocaml5.5` — but none of that is needed
+for the Java ones, `ocamlopt` for `ocaml` — but none of that is needed
 to *produce* the code, and none at all to run a program with
 `pyk <file>`, which is the interpreter. The one exception is a program
 importing an external module of its own: the interpreter compiles that
@@ -200,7 +200,7 @@ notebook's cells -- and `src/web_server.ml` serves it on
 image sets it to `0.0.0.0`, since a container's own 127.0.0.1 cannot be
 reached from outside it.
 `pyk serve DIR` serves a directory's files the same way, which is what
-`--run` does for a `web24` or `iweb24` page. `tools/webrun/server.py`
+`--run` does for a `web` or `iweb` page. `tools/webrun/server.py`
 and `tools/playground/playground.py` say the same layout in Python, for
 the website build and `make -C tools/playground check`, which run in a
 checkout; `tests/test_notebook.py` checks that `pyk` serves every file

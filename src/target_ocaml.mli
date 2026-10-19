@@ -37,9 +37,6 @@ exception Unsupported of Lexer.info * string
     printers, and nothing to build or inspect from outside. *)
 type oprogram
 
-(** The one OCaml target; its name is src/targets.ml's. string *)
-val target : string
-
 (** What a translated module is called. string *)
 val extension : string
 
@@ -51,18 +48,20 @@ val interface_extension : string
     the checker worked out rather than inferring any. pyk.ml runs the
     checker and hands the table here, so a program that does not check
     has been refused before this is called. `context` says what is true
-    of the module only as part of a program.
-    [stmt] -> typ IntMap.t -> Module.context -> oprogram *)
+    of the module only as part of a program, and `target` which OCaml
+    the output is for.
+    [stmt] -> typ IntMap.t -> Module.context -> string -> oprogram *)
 val translate_program :
   Syntax.stmt list ->
   Syntax.typ Syntax.IntMap.t ->
   Module.context ->
+  string ->
   oprogram
 
 (** The whole module: a header, the prelude if needed, and the top-level
-    items. `source` is the Pyking file it came from.
-    oprogram -> string -> string *)
-val pprint_ocaml_program : oprogram -> string -> string
+    items. `target` is the OCaml target named in its header, and `source`
+    the Pyking file it came from. oprogram -> string -> string -> string *)
+val pprint_ocaml_program : oprogram -> string -> string -> string
 
 (** The interface a module the program imports is seen through: one `val`
     per name it exports, and nothing else, which is what makes everything

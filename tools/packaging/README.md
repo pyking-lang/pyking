@@ -149,7 +149,7 @@ pyk                    the compiler
 LICENSE
 PYKING-TUTORIAL.md
 lib/                   the standard library
-share/pyking.js        the compiler as JavaScript: the iweb24 target and the pages
+share/pyking.js        the compiler as JavaScript: the iweb targets and the pages
 tools/webrun/          the web tools' scripts, and Ace, Monaco and KaTeX
 tools/notebook/
 tools/playground/      without examples: the playground starts with one program
@@ -564,7 +564,7 @@ stages the shipped tree around the machine's own `pyk`, then:
 - installs it into a temporary prefix shaped like Homebrew's (`bin/pyk` a
   link to a link into `Cellar/pyking/<version>/libexec`) and, from outside
   the repository, checks that `pyk --version`, a program, the standard
-  library, the `iweb24` target, `pyk notebook` and `pyk playground` all
+  library, the `iweb` targets, `pyk notebook` and `pyk playground` all
   work, that the tree holds nothing it should not, that the tarball is
   reproducible, and that the formula says what it should (and is valid
   Ruby, where `ruby` exists);

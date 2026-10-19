@@ -1,6 +1,6 @@
 (** The compiler's targets: every one the driver offers, which family it
     belongs to, what its output file is called, and the unversioned
-    alias that names its family's latest.
+    alias that names its family's default.
 
     A target is named once, here. Nothing else in the compiler writes a
     target name into a list of its own -- the backends read their own
@@ -10,7 +10,9 @@
     A *version* says the oldest host the output is guaranteed to run on.
     Two versions of one family may emit identical text: the version sets
     the header comment and the command `--run` uses, and lets a backend
-    refuse what an older host cannot do. Only C and Java differ today.
+    refuse what an older host cannot do. What a version counts depends on
+    the family: the host's release for Python, Node, Java and OCaml, the
+    ECMAScript edition for the browser pages, the standard for C.
 
     Data structures:
       family -- which backend a target belongs to.
@@ -19,6 +21,9 @@
       all -- every target, in the order the usage message lists them.
       default -- the target `pyk compile` uses when none is given.
       aliases -- each unversioned name and the version it means.
+      version target -- the version a target's name says.
+      es_edition target -- the ECMAScript edition a JavaScript target
+        emits.
       resolve name -- the canonical target a name means, if any.
       family_of target -- the family a canonical target belongs to.
       members family -- a family's targets, oldest version first.
@@ -42,18 +47,37 @@ type family =
    Pyking to Pyking rather than to a host -- last. *)
 let table =
   [
+    ("python12", Python, ".py");
     ("python14", Python, ".py");
+    ("node22", Node, ".js");
     ("node24", Node, ".js");
-    ("web24", Web, ".html");
-    ("iweb24", Iweb, ".html");
+    ("web2020", Web, ".html");
+    ("web2024", Web, ".html");
+    ("iweb2020", Iweb, ".html");
+    ("iweb2024", Iweb, ".html");
     ("c89", C, ".c");
     ("c99", C, ".c");
     ("c23", C, ".c");
     ("java8", Java, ".java");
     ("java17", Java, ".java");
     ("java21", Java, ".java");
+    ("ocaml4.14", Ocaml, ".ml");
     ("ocaml5.5", Ocaml, ".ml");
     ("pyking", Pyking, ".pyk");
+  ]
+
+(* The version each unversioned name means: the oldest a program is
+   likely to meet, rather than the newest, except where an old one costs
+   the output something (C89, Java 8). *)
+let defaults =
+  [
+    (Python, "python12");
+    (Node, "node22");
+    (Web, "web2020");
+    (Iweb, "iweb2020");
+    (C, "c99");
+    (Java, "java21");
+    (Ocaml, "ocaml4.14");
   ]
 
 (** Every target, in the order the usage message lists them.
@@ -88,14 +112,9 @@ let members f =
    matter. *)
 let versioned = [ Python; Node; Web; Iweb; C; Java; Ocaml ]
 
-(** Each unversioned name and the version it means: a family's latest,
-    which is the last one `table` lists for it. [(string, string)] *)
-let aliases =
-  List.map
-    (fun f ->
-      let group = members f in
-      (family_name f, List.nth group (List.length group - 1)))
-    versioned
+(** Each unversioned name and the version it means: a family's
+    default. [(string, string)] *)
+let aliases = List.map (fun f -> (family_name f, List.assoc f defaults)) versioned
 
 (** The canonical target a name means -- itself if it is already one, or
     what an alias points at. None for a name that is neither.
@@ -105,7 +124,18 @@ let resolve name =
 
 (* What `pyk compile` picks when `--target` says nothing. Python
    because it is the one backend that compiles the whole language. *)
-let default = "python14"
+let default = List.assoc Python defaults
+
+(** What a target's name says after its family's: its version, "" for
+    one without. string -> string *)
+let version target =
+  let f = family_name (family_of target) in
+  String.sub target (String.length f) (String.length target - String.length f)
+
+(** The ECMAScript edition a JavaScript target emits: 2020 for node22,
+    web2020 and iweb2020, 2024 for the rest. string -> int *)
+let es_edition target =
+  match target with "node22" | "web2020" | "iweb2020" -> 2020 | _ -> 2024
 
 (** What a target's primary output file is called. string -> string *)
 let extension target =

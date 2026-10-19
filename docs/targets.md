@@ -1,6 +1,6 @@
 # Compiler targets
 
-A Pyking program can be compiled for any of twelve targets, or run directly
+A Pyking program can be compiled for any of seventeen targets, or run directly
 by the interpreter. This page lists them, what each one produces, and how
 much of the language it takes. For how the compiler is put together see
 [architecture.md](architecture.md); for the code itself see
@@ -11,16 +11,33 @@ much of the language it takes. For how the compiler is put together see
 
 A target names a **family** and a **version**: `c23` is the C family at
 C23, `java8` is Java at release 8. The version says the oldest host the
-output is guaranteed to run on -- it sets the header comment, the
-command `--run` uses, and what a backend may emit.
+output is guaranteed to run on -- it sets the header comment and what a
+backend may emit. What it counts depends on the family:
 
-Every family also has an **unversioned alias**, naming its latest
-version. `-t c` is `-t c23`, `-t java` is `-t java21`. Write the alias
-when you mean "current", the version when you mean that version.
+| family | targets | the version is |
+|---|---|---|
+| Python | `python12`, `python14` | the Python release, 3.12 or 3.14 |
+| node | `node22`, `node24` | the node release; `node22` writes ES2020 and `node24` ES2024 |
+| web | `web2020`, `web2024` | the ECMAScript edition the page's JavaScript is written in |
+| iweb | `iweb2020`, `iweb2024` | the same, for the page running the interpreter |
+| C | `c89`, `c99`, `c23` | the C standard |
+| Java | `java8`, `java17`, `java21` | the Java release, as `javac --release` takes it |
+| OCaml | `ocaml4.14`, `ocaml5.5` | the OCaml release |
+
+Every family also has an **unversioned alias**, naming its default
+version: `python` is `python12`, `node` `node22`, `web` `web2020`, `iweb`
+`iweb2020`, `c` `c99`, `java` `java21`, `ocaml` `ocaml4.14`. The default
+is the oldest version a program is likely to meet, except where an old
+one costs the output something (C89, Java 8). `pyk` alone lists the
+aliases; `pyk --help` lists every version.
 
 Two versions of one family may emit identical text: the difference is
-what the output is *promised* to run on, not always what it says. Only C
-and Java differ today.
+what the output is *promised* to run on, not always what it says. C and
+Java differ in what they print; Python 3.14 leaves a forward reference
+in a datatype's field unquoted; an ES2020 page wraps its loader in an
+async function; OCaml 4.14 has no `List.take`. `--run` uses the family's
+host command (`python3`, `node`, `ocamlopt`) whatever the version, since
+a newer host runs older output.
 
 The list itself is `src/targets.ml`, and nothing else in the compiler
 names a target -- the backends, the driver, the module system and the
@@ -30,21 +47,26 @@ test harness all read it from there.
 
 | target | alias | family | writes | run it with | language coverage |
 |---|---|---|---|---|---|
-| `python14` | `python` | [Python](target_python.md) | `foo.py` | `python3 foo.py` | **everything** |
-| `node24` | `node` | [JavaScript](target_js.md) | `foo.js`, `pyk-runtime.js`, `package.json` | `node foo.js` | **everything the checker accepts** |
-| `web24` | `web` | [JavaScript](target_js.md) | `foo.html` and the same `.js` files | serve it: `--run` does, and prints the page's URL | **everything the checker accepts** |
-| `iweb24` | `iweb` | [the interpreter](target_js.md#the-interpreted-target) | `foo.html`, `pyking.js`, the `.pyk` sources | serve it: `--run` does, and prints the page's URL | **everything the checker accepts** |
+| `python12` | `python` | [Python](target_python.md) | `foo.py` | `python3 foo.py` | **everything** |
+| `python14` | | [Python](target_python.md) | `foo.py` | `python3 foo.py` | **everything** |
+| `node22` | `node` | [JavaScript](target_js.md) | `foo.js`, `pyk-runtime.js`, `package.json` | `node foo.js` | **everything the checker accepts** |
+| `node24` | | [JavaScript](target_js.md) | the same | `node foo.js` | **everything the checker accepts** |
+| `web2020` | `web` | [JavaScript](target_js.md) | `foo.html` and the same `.js` files | serve it: `--run` does, and prints the page's URL | **everything the checker accepts** |
+| `web2024` | | [JavaScript](target_js.md) | the same | the same | **everything the checker accepts** |
+| `iweb2020` | `iweb` | [the interpreter](target_js.md#the-interpreted-target) | `foo.html`, `pyking.js`, the `.pyk` sources | serve it: `--run` does, and prints the page's URL | **everything the checker accepts** |
+| `iweb2024` | | [the interpreter](target_js.md#the-interpreted-target) | the same | the same | **everything the checker accepts** |
 | `c89` | | [C](target_c.md) | `foo.c` | `cc -std=c89 foo.c && ./a.out` | everything but what needs a heap |
-| `c99` | | [C](target_c.md) | `foo.c` | `cc -std=c99 foo.c && ./a.out` | everything but what needs a heap |
-| `c23` | `c` | [C](target_c.md) | `foo.c` | `cc -std=c23 foo.c && ./a.out` | everything but what needs a heap |
+| `c99` | `c` | [C](target_c.md) | `foo.c` | `cc -std=c99 foo.c && ./a.out` | everything but what needs a heap |
+| `c23` | | [C](target_c.md) | `foo.c` | `cc -std=c23 foo.c && ./a.out` | everything but what needs a heap |
 | `java8` | | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 8 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
 | `java17` | | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 17 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
 | `java21` | `java` | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 21 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
-| `ocaml5.5` | `ocaml` | [OCaml](target_ocaml.md) | `foo.ml` | `ocamlopt foo.ml -o foo && ./foo` | **everything the checker accepts** |
+| `ocaml4.14` | `ocaml` | [OCaml](target_ocaml.md) | `foo.ml` | `ocamlopt foo.ml -o foo && ./foo` | **everything the checker accepts** |
+| `ocaml5.5` | | [OCaml](target_ocaml.md) | `foo.ml` | `ocamlopt foo.ml -o foo && ./foo` | **everything the checker accepts** |
 | `pyking` | | *(the front end itself)* | `foo.pyk` | `pyk foo.pyk` | everything |
 | *(none — `pyk foo.pyk`)* | | [the interpreter](source.md#interpreterml) | nothing | `pyk foo.pyk` | whatever type-checks |
 
-`iweb24` is the odd one and worth reading twice: it compiles nothing.
+`iweb` is the odd one and worth reading twice: it compiles nothing.
 The page ships the Pyking source and the compiler built to JavaScript,
 and interprets the program in the browser -- so it takes the whole
 fragment the checker accepts rather than one backend's subset. See
@@ -57,11 +79,11 @@ beside a `Makefile` -- builds it, and puts the executable in the current
 directory, or where `--output` says (see [pyk.md](pyk.md), "`build/`"):
 
 ```sh
-pyk compile -t python  tests/hello.pyk   # build/hello.py, ./hello runs it   (python14)
-pyk compile -t node    tests/hello.pyk   # build/hello.js, ./hello runs it   (node24)
-pyk compile -t c23     tests/hello.pyk   # build/hello.c, the binary ./hello
-pyk compile -t c       tests/hello.pyk   # the same: c is c23
-pyk compile -t ocaml   tests/hello.pyk   # build/hello.ml, the binary ./hello (ocaml5.5)
+pyk compile -t python  tests/hello.pyk   # build/hello.py, ./hello runs it   (python12)
+pyk compile -t node    tests/hello.pyk   # build/hello.js, ./hello runs it   (node22)
+pyk compile -t c99     tests/hello.pyk   # build/hello.c, the binary ./hello
+pyk compile -t c       tests/hello.pyk   # the same: c is c99
+pyk compile -t ocaml   tests/hello.pyk   # build/hello.ml, the binary ./hello (ocaml4.14)
 ```
 
 (`-t python` is spelled out because it is the *default* target, not
@@ -97,7 +119,7 @@ It runs the AST directly (`src/interpreter.ml`) rather than translating
 it, which makes it the *reference* for what a Pyking program means at run
 time: where a compiled target disagrees with it, the target is wrong. Its
 coverage is the type checker's, run for real — the same arrangement the
-`ocaml5.5` target uses — so what the checker refuses is refused, with the
+`ocaml` target uses — so what the checker refuses is refused, with the
 checker's own message. `pyk repl` is the same interpreter with a prompt
 in front of it.
 
@@ -117,7 +139,7 @@ always accept exactly the same programs:
 - **[Python](target_python.md)** — `python`. The reference backend, and
   the only one that compiles the whole language. Everything else is
   measured against it.
-- **[JavaScript](target_js.md)** — `node24`, `web24`, and `iweb24`. One
+- **[JavaScript](target_js.md)** — `node`, `web` and `iweb`. One
   translation (`src/target_js_core.ml`), three packagings
   (`src/target_js_packaging.ml`). They differ only in where `print` goes
   and what files come out.
@@ -130,7 +152,7 @@ always accept exactly the same programs:
   whole checked language; they are three shapes of output: plain classes
   for java8, records and `instanceof` patterns for java17, records and
   pattern `switch` for java21.
-- **[OCaml](target_ocaml.md)** — `ocaml5.5`. One backend
+- **[OCaml](target_ocaml.md)** — `ocaml`. One backend
   (`src/target_ocaml.ml`), and the only family with one member. It
   starts from a *stage* rather than a list of constructs — it runs the
   type checker and reads the types back — and takes away a short list
@@ -138,13 +160,13 @@ always accept exactly the same programs:
   [target_ocaml.md](target_ocaml.md) keeps.
 - **The interpreter** — `pyk <file>`, `pyk repl`. Not a family and not a
   backend: `src/interpreter.ml` runs the AST on a small-step machine
-  instead of translating it. Like `ocaml5.5`, its subset is the type
+  instead of translating it. Like `ocaml`, its subset is the type
   checker's, run for real.
 
 ## The interpreter's column
 
 The subset table below has no column for the interpreter, because it
-would be the `ocaml5.5` column with one difference: the interpreter has
+would be the `ocaml` column with one difference: the interpreter has
 closures and real `[Int]` lists, so `string`, `len` and `range` behave as
 the checker types them, and a function value can be passed, returned and
 printed. Everything the checker refuses, it refuses.
@@ -187,7 +209,7 @@ left as the recursion it was.
 only these two: how deep a tail recursion can go before the host gives
 out, and what `-t pyking` prints.
 
-The `ocaml5.5` target is the exception, and gets the guarantee without the
+The `ocaml` target is the exception, and gets the guarantee without the
 pass: OCaml eliminates tail calls itself, so that target is compiled
 from the program as written and a tail-recursive function compiles to a
 tail-recursive function. Running the pass first would only have the
@@ -252,7 +274,7 @@ calls are: `src/elaborate.ml` removes them from the AST, so what a
 backend compiles is a program with plain names and ordinary arguments
 (docs/overloading.md, docs/implicits.md).
 
-The `ocaml5.5` column starts from the type checker's coverage: the
+The `ocaml` column starts from the type checker's coverage: the
 backend runs `src/typesystem.ml` and reads the types back, so a program
 the checker refuses is refused here first, in the checker's own words.
 A construct the checker starts accepting reaches this target without
@@ -294,13 +316,13 @@ three JavaScript targets -- which under node is standard error, and in a
 browser the console. `pyk compile --release` removes every call to
 `debug` before any backend sees the program, so a release build writes
 nothing there; the interpreter takes no `--release` and runs a program
-as written, and `iweb24`'s page is told to remove them before it runs.
+as written, and `iweb`'s page is told to remove them before it runs.
 
 A program that ends by itself ends with status 0 on every target. One
 ending with `sys.exit(code)` ends with `code`, after what it printed is
 written out; one ending with a runtime error ends with a status that is
 not 0 -- 1 on most hosts, and whatever an uncaught OCaml exception gives
-on `ocaml5.5`. A page cannot end with a status, so it reports one that
+on `ocaml`. A page cannot end with a status, so it reports one that
 is not 0.
 
 ### Integers hold 32 bits, and overflow is undefined
@@ -320,8 +342,8 @@ deviations — each host is simply doing its own arithmetic:
 | `c89`, `c23` | whatever the C compiler's `int` is — 32 on every mainstream target | `-2147483648` (undefined behaviour, in practice this) |
 | `java8`, `java17`, `java21` | 32, wrapping (the JVM defines it) | `-2147483648` |
 | `python` | arbitrary precision | `2147483648` |
-| `node24`, `web24` | IEEE-754 doubles: exact to 2^53 | `2147483648` |
-| `ocaml5.5` | 63 | `2147483648` |
+| `node`, `web` | IEEE-754 doubles: exact to 2^53 | `2147483648` |
+| `ocaml` | 63 | `2147483648` |
 
 The interpreter appears twice on purpose: it is one implementation
 compiled two ways, and past 2^31 the two disagree. Both conform, because

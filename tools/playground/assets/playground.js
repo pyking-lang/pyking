@@ -85,7 +85,7 @@ const DEFAULTS = {
   // calls `setTheme` as its own changes -- and null where the viewer does,
   // with the header's switch and the settings.
   theme: null,
-  initialTarget: "node24",
+  initialTarget: "node22",
   initialExample: null,               // the first example
   // Whether the page's own URL may hold a program, `#code=...`
   // (share.js), which then opens in the editor in place of an example.
