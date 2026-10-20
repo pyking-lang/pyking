@@ -199,6 +199,11 @@ class Playground {
     ui.target.addEventListener("change", () => this.onTargetChange());
     ui.example.addEventListener("change", () => this.loadExample(ui.example.value));
     ui.compile.addEventListener("click", () => this.compile());
+    // Pressing Run takes the focus from the editor before the click is
+    // seen, so whether the editor had it is noted on the way down.
+    ui.runLeft.addEventListener("mousedown", () => {
+      this.focusAtRun = this.left.hasTextFocus() ? this.left.getSelection() : false;
+    });
     ui.runLeft.addEventListener("click", () => this.runFromSource());
     ui.runRight.addEventListener("click", () => this.runGenerated());
     ui.stopLeft.addEventListener("click", () => this.stopRun());
@@ -207,6 +212,9 @@ class Playground {
     ui.download.addEventListener("click", () => this.download());
     ui.copyLink.addEventListener("click", () => this.copyLink());
     ui.refresh.addEventListener("click", () => this.refreshPage());
+    // A press anywhere is the reader choosing where the focus goes: the
+    // editor no longer keeps the focus a run gave it back.
+    document.addEventListener("pointerdown", () => { this.keepEditorFocus = null; }, true);
     // A click on the window's bar gives the page in it the keyboard.
     ui.frameBar.addEventListener("click", (event) => {
       if (this.pageHost && !event.target.closest("button")) ui.page.focus({ preventScroll: true });
@@ -499,6 +507,17 @@ class Playground {
    *  A run asked for (`asked`, not "run while you type") asks for the
    *  program's input and gives a page the keyboard. */
   async runFromSource({ switchTab = true, asked = true } = {}) {
+    // Where the editor's cursor was, if it had the focus when Run was
+    // pressed: by a key in it, or by the button (`focusAtRun`).
+    const back = this.focusAtRun !== undefined ? this.focusAtRun
+      : this.left.hasTextFocus() ? this.left.getSelection() : false;
+    this.focusAtRun = undefined;
+    const refocus = () => {
+      if (!back) return;
+      this.left.setSelection(back);
+      this.left.focus();
+    };
+    this.keepEditorFocus = null;
     // Before starting the runtime, so the one-off "loading the compiler"
     // note survives rather than being wiped by the clear that follows it.
     this.beforeRun();
@@ -521,13 +540,53 @@ class Playground {
       else if (switchTab && this.tab !== "web") this.showTab("run");
       const input = await this.askForInput(analysis, asked);
       if (input === null) return;
-      if (asked && paged) this.ui.page.focus({ preventScroll: true });
+      // The editor gets its focus back where it had it, and keeps it while
+      // a page starts up and takes it -- until the reader presses the
+      // page. Otherwise a page takes the keys, which its program may read.
+      if (back) {
+        refocus();
+        if (paged) this.holdEditorFocus(back);
+      } else if (asked && paged) {
+        this.ui.page.focus({ preventScroll: true });
+      }
       await this.executeProgram(source, input);
     } finally {
       // A program that sent its page something goes on running there --
       // the page calls back what it was given -- so Stop stays armed.
       if (!(this.runtime.isLive && this.running)) this.endRun();
+      // Again once it has ended, unless the focus went somewhere since.
+      const focused = document.activeElement;
+      const paged = this.pageHost && this.ui.page.contains(focused);
+      if (!paged && (!focused || focused === document.body
+                     || focused === this.ui.runLeft || focused === this.ui.stopLeft)) {
+        refocus();
+      }
     }
+  }
+
+  /** Keeps the focus in the editor, at `selection`, for a short while
+   *  after a page's program starts: focus the page takes, or loses to
+   *  nothing, as it starts up is given back, until the reader presses
+   *  anywhere. Selection -> () */
+  holdEditorFocus(selection) {
+    const hold = { until: Date.now() + 2000 };
+    this.keepEditorFocus = hold;
+    const check = () => {
+      if (this.keepEditorFocus !== hold) return;
+      if (Date.now() > hold.until) {
+        this.keepEditorFocus = null;
+        return;
+      }
+      const focused = document.activeElement;
+      const taken = !this.left.hasTextFocus()
+        && (!focused || focused === document.body || this.ui.page.contains(focused));
+      if (taken) {
+        this.left.setSelection(selection);
+        this.left.focus();
+      }
+      setTimeout(check, 50);
+    };
+    setTimeout(check, 50);
   }
 
   /** Shows one of the right-hand tabs: "run", "compiled", "web" or

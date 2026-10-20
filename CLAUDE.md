@@ -2676,6 +2676,20 @@ state a non-obvious invariant in one line; it does not tell a story.
 them, tighten the prose to this same standard: state the fact, drop the
 rest.
 
+## Keywords in a request
+
+A request may carry one of three keywords saying how much to test, and
+`ask-me` besides:
+
+- **`no-test`** -- do no testing at all; just fix the problem.
+- **`some-test`** -- run the tests needed to check what was fixed, and
+  no more: not all the tests.
+- **`all-test`** -- run all the tests (`make test`) and really make sure
+  that everything is correct.
+- **`ask-me`** -- before starting, ask enough questions to get a good
+  picture of the design and implementation requirements. Use table form
+  when asking questions.
+
 ## Repository housekeeping
 
 - **Never create a git branch.** Work on whatever branch is already
