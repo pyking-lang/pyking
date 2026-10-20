@@ -18,7 +18,7 @@ import {
   splitArguments, themeFor,
 } from "../webrun/web.js";
 import { LspClient } from "./lsp-client.js";
-import { ACTIONS, DEFAULT_KEYS, Debugger, showKey, specOf } from "./debugger.js";
+import { ACTIONS, DEFAULT_KEYS, Debugger, keyList, showKey, showKeys, specOf } from "./debugger.js";
 import { linkTo, sourceFromHash } from "./share.js";
 import { packFiles, zip } from "./download.js";
 
@@ -168,10 +168,12 @@ class Playground {
       tabSize: 4, insertSpaces: true, detectIndentation: false,
       automaticLayout: true, minimap: { enabled: false },
       fixedOverflowWidgets: true,
-      // What the language server says of names (semantic tokens) and of
-      // the types it inferred (inlay hints) shows in the text.
+      // What the language server says of names (semantic tokens) shows
+      // in the text.
       "semanticHighlighting.enabled": true,
-      inlayHints: { enabled: "on" },
+      // A plain textarea for input: a key the debugger takes is then kept
+      // out of the text on every platform.
+      editContext: false,
     };
     const model = (text, language, uri) => {
       const made = monaco.editor.createModel(text, language, uri);
@@ -192,6 +194,7 @@ class Playground {
       // runtime download, before anyone had touched the page.
       if (!this.programmaticEdit) this.scheduleAutoRun();
     });
+    this.watchDeadKeys();
 
     ui.target.addEventListener("change", () => this.onTargetChange());
     ui.example.addEventListener("change", () => this.loadExample(ui.example.value));
@@ -247,16 +250,20 @@ class Playground {
     bind(this.right, "pyk-run", "Run the generated code",
          () => (this.running ? this.stopRun() : this.runGenerated()));
 
-    // The debugger's keys, wherever the focus is: caught on the way down,
-    // before an editor sees them. A key field in the settings is where a
-    // key is being chosen, so it is left alone there.
-    ui.root.addEventListener("keydown", (event) => {
-      if (event.target?.classList?.contains("pyk-key-field")) return;
+    // The debugger's keys, caught on the way down, before an editor sees
+    // them: Start's, Continue's and the steps' anywhere in the
+    // playground, or on the page itself where nothing has the focus; the
+    // rest where the focus is in the editor or the Debug tab.
+    const debugKey = (event) => {
       if (!ui.modal.classList.contains("pyk-hidden")) return;
       if (!ui.inputModal.classList.contains("pyk-hidden")) return;
-      if (!ui.confirmModal.classList.contains("pyk-hidden")) return;
-      this.debugger?.handleKey(event);
-    }, true);
+      const near = ui.leftEditor.contains(event.target) || ui.panels.debug?.contains(event.target);
+      this.debugger?.handleKey(event, near ? null : ["start", "continue", "next", "in", "out"]);
+    };
+    ui.root.addEventListener("keydown", debugKey, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.target === document.body || event.target === document.documentElement) debugKey(event);
+    });
 
     // The same keys when focus is outside both editors -- on a dropdown, a
     // button, or the page itself. Monaco stops propagation for keys it
@@ -271,7 +278,6 @@ class Playground {
       if (event.key !== "Enter") return;
       if (!ui.modal.classList.contains("pyk-hidden")) return;
       if (!ui.inputModal.classList.contains("pyk-hidden")) return;
-      if (!ui.confirmModal.classList.contains("pyk-hidden")) return;
       if (event.target?.closest?.(".monaco-editor")) return;
       const accel = event.ctrlKey || event.metaKey;
       if (!accel && !event.shiftKey) return;
@@ -687,37 +693,6 @@ class Playground {
     };
   }
 
-  /** Asks a yes-or-no question in a dialog: `text` under `title`, with
-   *  Cancel and a button labelled `ok`. Resolves to whether `ok` was
-   *  chosen. String -> String -> String -> Promise<Bool> */
-  async confirm(title, text, ok) {
-    const { ui } = this;
-    ui.confirmTitle.textContent = title;
-    ui.confirmText.textContent = text;
-    ui.confirmOk.textContent = ok;
-    ui.confirmModal.classList.remove("pyk-hidden");
-    ui.confirmOk.focus();
-    const chosen = await new Promise((resolve) => {
-      const done = (value) => {
-        ui.confirmOk.removeEventListener("click", onOk);
-        ui.confirmCancel.removeEventListener("click", onCancel);
-        ui.confirmModal.removeEventListener("keydown", onKey);
-        ui.confirmModal.classList.add("pyk-hidden");
-        resolve(value);
-      };
-      const onOk = () => done(true);
-      const onCancel = () => done(false);
-      const onKey = (event) => {
-        if (event.key === "Escape") done(false);
-      };
-      ui.confirmOk.addEventListener("click", onOk);
-      ui.confirmCancel.addEventListener("click", onCancel);
-      ui.confirmModal.addEventListener("keydown", onKey);
-    });
-    this.left.focus();
-    return chosen;
-  }
-
   async executeProgram(source, input = { stdin: "", args: [] }) {
     try {
       this.closePage();
@@ -858,6 +833,106 @@ class Playground {
 
   /** Replace the source without it counting as typing. Also the method to
    *  use from an embedding page, for the same reason. */
+  /** A debugger key that is a dead key on the reader's keyboard (Option+I
+   *  on a Mac starts a ˆ) cannot be kept from starting its accent. So a
+   *  composition such a key started or ran into is ended at once, and
+   *  what a run of them left -- each dead key ending the one before and
+   *  starting the next -- is taken back out when the last one ends: in
+   *  the editor once Monaco has written it, in a text field at once.
+   *  () -> () */
+  watchDeadKeys() {
+    const { ui } = this;
+    // A letter without its accent, and no accent on its own: the spacing
+    // modifier letters (ˆ is one) and the modifier symbols (¨ ´ ˜ ^ `).
+    const strip = (text) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[\p{Sk}\u02b0-\u02ff]/gu, "").normalize("NFC");
+    // The span `before` and `after` differ in: {from, to} in `after`.
+    const changed = (before, after) => {
+      let from = 0;
+      while (from < before.length && from < after.length && before[from] === after[from]) from += 1;
+      let end = 0;
+      while (end < before.length - from && end < after.length - from
+             && before[before.length - 1 - end] === after[after.length - 1 - end]) end += 1;
+      return { from, to: after.length - end };
+    };
+    // A run of compositions in one place: what it began from, whether a
+    // debugger key is in it, and whether one is open now.
+    let run = null;
+    let pending = false;
+    // A dead key may run into a composition already open, and starts the
+    // next one when the keyboard ends that.
+    this.deadKeyTaken = () => {
+      pending = true;
+      if (run?.open) {
+        run.ours = true;
+        setTimeout(finish, 0);
+      }
+    };
+    // Ends the open composition: a blur commits it.
+    const finish = () => {
+      if (!run?.open || !run.ours) return;
+      const el = run.field ?? ui.leftEditor.querySelector("textarea");
+      el?.blur();
+      if (run?.field) run.field.focus();
+      else this.left.focus();
+    };
+    const begin = (field, value) => {
+      if (!run) run = { field, before: value, ours: false, open: false };
+      run.open = true;
+      if (pending) run.ours = true;
+      pending = false;
+      if (run.ours) setTimeout(finish, 0);
+    };
+    // Once no composition has followed the one that ended, the run is over.
+    const end = () => {
+      if (!run) return;
+      run.open = false;
+      setTimeout(() => {
+        if (!run || run.open) return;
+        const done = run;
+        run = null;
+        if (done.ours) clean(done);
+      }, 0);
+    };
+    const clean = ({ field, before }) => {
+      if (field) {
+        const value = field.value;
+        const { from, to } = changed(before, value);
+        const kept = strip(value.slice(from, to));
+        if (kept === value.slice(from, to)) return;
+        field.value = value.slice(0, from) + kept + value.slice(to);
+        field.setSelectionRange(from + kept.length, from + kept.length);
+        return;
+      }
+      const model = this.left.getModel();
+      const value = model.getValue();
+      const { from, to } = changed(before, value);
+      const kept = strip(value.slice(from, to));
+      if (kept === value.slice(from, to)) return;
+      const start = model.getPositionAt(from);
+      const stop = model.getPositionAt(to);
+      this.left.executeEdits("debugger-key", [{
+        range: new this.monaco.Range(start.lineNumber, start.column, stop.lineNumber, stop.column),
+        text: kept,
+      }]);
+    };
+    // A key after a dead one that started no composition: none is coming.
+    ui.root.addEventListener("keydown", (event) => {
+      if (event.key !== "Dead" && !event.isComposing && !run) pending = false;
+    }, true);
+
+    this.left.onDidCompositionStart(() => begin(null, this.left.getValue()));
+    this.left.onDidCompositionEnd(end);
+    const isField = (el) => el && ["INPUT", "TEXTAREA"].includes(el.tagName)
+      && !ui.leftEditor.contains(el);
+    ui.root.addEventListener("compositionstart", (event) => {
+      if (isField(event.target)) begin(event.target, event.target.value);
+    }, true);
+    ui.root.addEventListener("compositionend", (event) => {
+      if (isField(event.target) && run?.field === event.target) end();
+    }, true);
+  }
+
   setSource(text) {
     // Monaco fires its change event synchronously from setValue, so a
     // plain flag is enough and no reset-on-a-timer is needed.
@@ -1566,42 +1641,79 @@ class Playground {
     this.showDebugKeys();
   }
 
-  /** The settings' debugger keys: one field per action, showing its key;
-   *  a key pressed in a field becomes the action's, Backspace takes it
-   *  away and Escape leaves it. () -> () */
+  /** The settings' debugger keys: per action, a chip for each key with
+   *  ✕ to remove it, + to record one more (Escape leaves it), and Reset
+   *  for the action's defaults. () -> () */
   showDebugKeys() {
     const list = this.ui.debugKeyList;
     list.textContent = "";
-    const keys = { ...DEFAULT_KEYS, ...(this.settings.debugKeys ?? {}) };
+    const saved = this.settings.debugKeys ?? {};
+    const keysOf = (action) => action in saved ? keyList(saved[action]) : DEFAULT_KEYS[action];
+    const save = (action, specs) => {
+      const rest = { ...(this.settings.debugKeys ?? {}) };
+      if (specs.join("\n") === DEFAULT_KEYS[action].join("\n")) delete rest[action];
+      else rest[action] = specs;
+      this.settings.debugKeys = rest;
+      this.saveSettings();
+      this.showDebugKeys();
+    };
+    const button = (text, title, onClick) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = text;
+      b.title = title;
+      b.addEventListener("click", onClick);
+      return b;
+    };
     for (const [action, label] of ACTIONS) {
-      const row = document.createElement("label");
+      const specs = keysOf(action);
+      const row = document.createElement("div");
       row.className = "pyk-key-row";
+      row.dataset.action = action;
       const name = document.createElement("span");
+      name.className = "pyk-key-name";
       name.textContent = label;
-      const field = document.createElement("input");
-      field.type = "text";
-      field.readOnly = true;
-      field.className = "pyk-key-field";
-      field.value = showKey(keys[action]);
-      field.title = "Click, then press the keys to use";
-      field.dataset.action = action;
-      field.addEventListener("keydown", (event) => {
-        if (event.key === "Tab") return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.key === "Escape") {
-          field.blur();
-          return;
-        }
-        const spec = event.key === "Backspace" && !event.ctrlKey && !event.metaKey
-          ? "" : specOf(event);
-        if (spec === null) return;
-        this.settings.debugKeys = { ...(this.settings.debugKeys ?? {}), [action]: spec };
-        field.value = showKey(spec);
-        this.saveSettings();
-        this.debugger?.showKeys();
+      const chips = document.createElement("span");
+      chips.className = "pyk-key-chips";
+      for (const spec of specs) {
+        const chip = document.createElement("span");
+        chip.className = "pyk-key-chip";
+        chip.textContent = showKey(spec);
+        chip.append(button("✕", `Remove ${showKey(spec)}`,
+          () => save(action, specs.filter((k) => k !== spec))));
+        chips.append(chip);
+      }
+      const add = button("+", "Add a key: click, then press it", () => {
+        const field = document.createElement("input");
+        field.type = "text";
+        field.readOnly = true;
+        field.className = "pyk-key-field";
+        field.placeholder = "press a key";
+        field.addEventListener("keydown", (event) => {
+          if (event.key === "Tab") return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.key === "Escape") {
+            field.blur();
+            return;
+          }
+          const spec = specOf(event);
+          if (spec === null) return;
+          save(action, specs.includes(spec) ? specs : [...specs, spec]);
+        });
+        field.addEventListener("blur", () => {
+          if (field.isConnected) field.replaceWith(add);
+        });
+        add.replaceWith(field);
+        field.focus();
       });
-      row.append(name, field);
+      add.className = "pyk-key-add";
+      chips.append(add);
+      const reset = button("reset", `${label}: its default keys, ${showKeys(DEFAULT_KEYS[action])}`,
+        () => save(action, DEFAULT_KEYS[action]));
+      reset.className = "pyk-key-reset";
+      reset.disabled = !(action in saved);
+      row.append(name, chips, reset);
       list.append(row);
     }
     this.debugger?.showKeys();
@@ -1866,24 +1978,8 @@ function buildDom(host, meta, cfg) {
         </div>
       </div>
     </div>
-    <div class="pyk-modal-backdrop pyk-hidden" data-r="confirmModal">
-      <div class="pyk-modal" role="dialog" aria-modal="true"
-           aria-labelledby="pyk-confirm-title">
-        <div class="pyk-modal-head">
-          <strong id="pyk-confirm-title" data-r="confirmTitle"></strong>
-        </div>
-        <div class="pyk-modal-body">
-          <p data-r="confirmText"></p>
-          <div class="pyk-field-row pyk-input-buttons">
-            <span class="pyk-spacer"></span>
-            <button data-r="confirmCancel">Cancel</button>
-            <button class="pyk-primary" data-r="confirmOk"></button>
-          </div>
-        </div>
-      </div>
-    </div>
     <div class="pyk-modal-backdrop pyk-hidden" data-r="modal">
-      <div class="pyk-modal" role="dialog" aria-modal="true"
+      <div class="pyk-modal pyk-modal-wide" role="dialog" aria-modal="true"
            aria-label="Playground settings">
         <div class="pyk-modal-head">
           <strong>Settings</strong>
@@ -1891,68 +1987,78 @@ function buildDom(host, meta, cfg) {
           <button class="pyk-icon" data-r="modalClose"
                   title="Close (Esc)" aria-label="Close">✕</button>
         </div>
-        <div class="pyk-modal-body">
-          <div class="pyk-field" data-r="themeField">
-            <label for="pyk-theme-choice">Appearance</label>
-            <select id="pyk-theme-choice" data-r="themeChoice">
-              <option value="system">Same as the system</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </div>
-          <div class="pyk-field">
-            <label>Editor font size</label>
-            <div class="pyk-field-row">
-              <input type="range" min="10" max="26" step="1" data-r="fontSize"
-                     aria-label="Editor font size">
-              <span class="pyk-value" data-r="fontValue">13px</span>
+        <div class="pyk-modal-body pyk-settings-body">
+          <div class="pyk-settings-column">
+            <div class="pyk-field" data-r="themeField">
+              <label for="pyk-theme-choice">Appearance</label>
+              <select id="pyk-theme-choice" data-r="themeChoice">
+                <option value="system">Same as the system</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
             </div>
-            <p class="pyk-hint">Applies to both editors, the output panes and the REPL.</p>
+            <div class="pyk-field">
+              <label>Editor font size</label>
+              <div class="pyk-field-row">
+                <input type="range" min="10" max="26" step="1" data-r="fontSize"
+                       aria-label="Editor font size">
+                <span class="pyk-value" data-r="fontValue">13px</span>
+              </div>
+              <p class="pyk-hint">Applies to both editors, the output panes and the REPL.</p>
+            </div>
+            <div class="pyk-field">
+              <label>Layout</label>
+              <div class="pyk-field-row">
+                <button data-r="resetLayoutButton">Reset pane sizes</button>
+              </div>
+              <p class="pyk-hint">Drag the bars between panes to resize them.
+                Settings are remembered in this browser.</p>
+            </div>
           </div>
-          <div class="pyk-field">
-            <label>Running</label>
-            <label class="pyk-check">
-              <input type="checkbox" data-r="autoRun">
-              Run while you type
-            </label>
-            <p class="pyk-hint">Runs the source about half a second after you
-              stop typing, as if you had pressed Run.</p>
+          <div class="pyk-settings-column">
+            <div class="pyk-field">
+              <label>Running</label>
+              <label class="pyk-check">
+                <input type="checkbox" data-r="autoRun">
+                Run while you type
+              </label>
+              <p class="pyk-hint">Runs the source about half a second after you
+                stop typing, as if you had pressed Run.</p>
+            </div>
+            <div class="pyk-field">
+              <label>Output pane</label>
+              <label class="pyk-check">
+                <input type="checkbox" data-r="scrollOutput">
+                Scrollable
+              </label>
+              <label class="pyk-check">
+                <input type="checkbox" data-r="clearOnRun">
+                Clear it each time you press Run
+              </label>
+            </div>
           </div>
-          <div class="pyk-field">
-            <label>Output pane</label>
-            <label class="pyk-check">
-              <input type="checkbox" data-r="scrollOutput">
-              Scrollable
-            </label>
-            <label class="pyk-check">
-              <input type="checkbox" data-r="clearOnRun">
-              Clear it each time you press Run
-            </label>
+          <div class="pyk-settings-column">
+            <div class="pyk-field">
+              <label>Debugger</label>
+              <label class="pyk-check">
+                <input type="checkbox" data-r="debugStopOnEntry">
+                Stop at the first statement
+              </label>
+              <label class="pyk-check">
+                <input type="checkbox" data-r="debugJustMyCode">
+                Step over the standard library's code
+              </label>
+            </div>
           </div>
-          <div class="pyk-field">
-            <label>Debugger</label>
-            <label class="pyk-check">
-              <input type="checkbox" data-r="debugStopOnEntry">
-              Stop at the first statement
-            </label>
-            <label class="pyk-check">
-              <input type="checkbox" data-r="debugJustMyCode">
-              Step over the standard library's code
-            </label>
+          <div class="pyk-field pyk-settings-wide">
+            <label>Debugger keys</label>
             <div class="pyk-key-list" data-r="debugKeyList"></div>
             <div class="pyk-field-row">
-              <button data-r="debugKeysReset">Reset the keys</button>
+              <button data-r="debugKeysReset">Reset all the keys</button>
             </div>
-            <p class="pyk-hint">Click a key's field and press the keys to use
-              instead; Backspace leaves an action without one.</p>
-          </div>
-          <div class="pyk-field">
-            <label>Layout</label>
-            <div class="pyk-field-row">
-              <button data-r="resetLayoutButton">Reset pane sizes</button>
-            </div>
-            <p class="pyk-hint">Drag the bars between panes to resize them.
-              Settings are remembered in this browser.</p>
+            <p class="pyk-hint">Click + to add a key and press it; ✕ removes
+              one. The keys act where the focus is in the editor or the
+              Debug tab, and stepping's only while a program is debugged.</p>
           </div>
         </div>
       </div>

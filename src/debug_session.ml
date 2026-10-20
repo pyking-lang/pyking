@@ -194,9 +194,9 @@ type frame = {
   library : bool;
 }
 
-(** What a reference stands for: a frame's own names or the names it
-    sees from outside, or a value's parts. *)
-type handle = Own of int | Outer of int | Parts of Interpreter.value
+(** What a reference stands for: the names a frame sees, or a value's
+    parts. *)
+type handle = Env of int | Parts of Interpreter.value
 
 (** One name, or one part of a value, as shown: its name, the value as
     a prompt shows it, its type, the reference its parts are under (0
@@ -887,21 +887,14 @@ let reference t handle =
   let n = t.next_handle in
   ({ t with handles = (n, handle) :: t.handles; next_handle = n + 1 }, n)
 
-(** A frame's scopes: its own names (a call's, where it is one) and the
-    names it sees from outside, each with its reference.
-    t -> int -> (t, [(string, int)]) *)
+(** A frame's one scope, its environment: every name it sees, with its
+    reference. t -> int -> (t, [(string, int)]) *)
 let scopes t fid =
   match frame_by_id t fid with
   | None -> (t, [])
-  | Some frame -> (
-      match frame.upto with
-      | Some _ ->
-          let t, own = reference t (Own fid) in
-          let t, outer = reference t (Outer fid) in
-          (t, [ ("Locals", own); ("Globals", outer) ])
-      | None ->
-          let t, outer = reference t (Outer fid) in
-          (t, [ ("Globals", outer) ]))
+  | Some _ ->
+      let t, env = reference t (Env fid) in
+      (t, [ ("Environment", env) ])
 
 (** Whether a value has parts to show. Interpreter.value -> bool *)
 let has_parts v =
@@ -921,7 +914,7 @@ let variable_of t name value vtype settable =
 (** What a reference holds: a frame's names, or a value's parts.
     t -> int -> (t, [variable]) *)
 let variables t reference =
-  let named t frame bindings =
+  let named t frame bindings own =
     let names = static_names t frame in
     let shown =
       List.filter_map
@@ -932,12 +925,13 @@ let variables t reference =
           | _ -> Option.map (fun shown -> (shown, value)) (shown_name names n))
         bindings
     in
-    (* In the order they are written: a binding the program wrote by
-       where it wrote it, anything else after, as it was found. *)
+    (* The call's own names first, then the rest; each in the order they
+       are written, anything the program did not write after, as found. *)
     let place n =
+      let outer = if List.mem_assoc n own then 0 else 1 in
       match Scopes.SMap.find_opt n names with
-      | Some (Scopes.Bound (p, _, _)) -> (0, p.Scopes.span.Lexer.row1, p.Scopes.span.Lexer.col1)
-      | _ -> (1, 0, 0)
+      | Some (Scopes.Bound (p, _, _)) -> (outer, 0, p.Scopes.span.Lexer.row1, p.Scopes.span.Lexer.col1)
+      | _ -> (outer, 1, 0, 0)
     in
     let shown = List.stable_sort (fun (a, _) (b, _) -> compare (place a) (place b)) (List.rev shown) in
     List.fold_left
@@ -966,16 +960,16 @@ let variables t reference =
   in
   match List.assoc_opt reference t.handles with
   | None -> (t, [])
-  | Some (Own fid) -> (
-      match frame_by_id t fid with
-      | None -> (t, [])
-      | Some frame -> named t frame (Interpreter.own_bindings frame.env frame.upto))
-  | Some (Outer fid) -> (
+  | Some (Env fid) -> (
       match frame_by_id t fid with
       | None -> (t, [])
       | Some frame ->
-          let from = match frame.upto with Some u -> u | None -> frame.env in
-          named t frame (Interpreter.own_bindings from None))
+          let own =
+            match frame.upto with
+            | Some _ -> Interpreter.own_bindings frame.env frame.upto
+            | None -> []
+          in
+          named t frame (Interpreter.own_bindings frame.env None) own)
   | Some (Parts value) ->
       let parts =
         match value with
@@ -1037,7 +1031,7 @@ let evaluate t fid text =
 let set_variable t reference name text =
   let frame =
     match List.assoc_opt reference t.handles with
-    | Some (Own fid) | Some (Outer fid) -> frame_by_id t fid
+    | Some (Env fid) -> frame_by_id t fid
     | _ -> None
   in
   match frame with

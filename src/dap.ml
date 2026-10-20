@@ -385,7 +385,7 @@ let request state request command arguments =
                                ("variablesReference", int reference);
                                ("expensive", Json.Bool false);
                              ]
-                            @ if name = "Locals" then [ ("presentationHint", Json.String "locals") ] else []))
+                            @ if name = "Environment" then [ ("presentationHint", Json.String "locals") ] else []))
                         scopes) );
                ]))
   | "variables" ->

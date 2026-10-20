@@ -234,7 +234,6 @@ request and gives the pane:
 - **signature help** -- a function's parameters while its call is typed;
 - **references** (Shift+F12), **highlights** of a name, and **rename**
   (F2);
-- **inlay hints** -- the inferred types, in the text;
 - **folding**, **semantic highlighting**, and **quick fixes** (the
   light bulb) for the errors that say what was meant.
 
@@ -376,16 +375,17 @@ The program in the editor run by the interpreter a step at a time
 (`src/debug_session.ml`, through `PykingRuntime.debugProgram`;
 `assets/debugger.js` is the tab). A click in the editor's margin, left of
 the line numbers, sets a breakpoint, and the line the program stopped at
-is marked there and in yellow. Debug with no breakpoint asks whether to
-stop at the first statement instead, and a program put in the editor --
+is marked there and in yellow. Debug with no breakpoint stops at the
+first statement, and a program put in the editor --
 an example, a link, an example copied from the help -- removes every
 breakpoint. The tab holds:
 
 - the controls -- Debug (or Restart), Continue/Pause, step Over, Into
-  and Out, Stop -- each naming its key when the pointer rests on it;
-- **Variables** -- the chosen frame's own names and what it sees from
-  outside, a list, a tuple or a datatype value opening to show its
-  parts; a `var`'s value is changed by double-clicking it;
+  and Out, Stop -- each naming its keys when the pointer rests on it;
+- **Environment** -- every name the chosen frame sees, one list: the
+  call's own names first, then the rest, a shadowed name shown once as
+  what it means there; a list, a tuple or a datatype value opens to show
+  its parts, and a `var`'s value is changed by double-clicking it;
 - **Watch** -- expressions evaluated each time the program stops;
 - **Call stack** -- the calls in progress; choosing one shows its names
   and marks its line;
@@ -394,11 +394,15 @@ breakpoint. The tab holds:
 - **Console** -- what the program writes, and an expression typed there
   evaluated where it stopped.
 
-The keys need no function key: Mod+Shift+Enter starts (or restarts),
-Mod+\ continues or pauses, Mod+' steps over, Mod+; into, Mod+Shift+;
-out, Mod+Shift+\ stops and Mod+B sets or removes a breakpoint on the
-cursor's line, Mod being Cmd on a Mac and Ctrl elsewhere -- Chrome
-DevTools' own. Settings changes any of them, and has whether to stop at
+The keys: Alt+D starts (or restarts), F8 or Alt+C continues, pauses,
+or starts debugging when nothing is debugged, F10 or Alt+O steps Over,
+F11 or Alt+I Into, Shift+F11 or Alt+T ouT, Alt+S stops and Alt+B sets
+or removes a breakpoint on the cursor's line, Alt being Option on a Mac,
+where the keys are shown so. Starting, continuing and the
+stepping keys act anywhere in the playground; the rest where the focus
+is in the editor or the Debug tab.
+The stepping keys and Stop do nothing while no program is debugged. Settings gives an action
+several keys or none, and has whether to stop at
 the first statement and whether to step over the standard library's
 code. The program runs on the compiler's worker a slice at a time, so a
 pause reaches even a loop that never ends. A tinyweb program's page is

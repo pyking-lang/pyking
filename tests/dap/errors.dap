@@ -4,7 +4,7 @@ configure
 wait stopped
 stack
 scopes 1
-variables Locals
+variables Environment
 continue
 wait terminated
 disconnect

@@ -2092,8 +2092,7 @@ events, so nothing waits. See [debugging.md](debugging.md).
   callback to run, and a file's breakpoints, each verified at the first
   statement on its line or after it.
 - **`frames`**, **`scopes`**, **`variables`** -- the calls in progress
-  where it stopped, each frame's own names and what it sees from
-  outside, a value's parts.
+  where it stopped, each frame's environment, a value's parts.
 - **`evaluate`**, **`set_variable`** -- an expression checked against
   the names in scope at a frame (types from the checker's `tmap`, a
   value's own where that names a variable) and run in the frame's

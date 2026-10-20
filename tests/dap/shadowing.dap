@@ -1,0 +1,11 @@
+# A name a call binds again is shown once, as what it means there.
+launch shadowing.pyk
+break shadowing.pyk 6
+configure
+wait stopped
+stack
+scopes 1
+variables Environment
+continue
+wait terminated
+disconnect

@@ -1645,8 +1645,10 @@ anything both pages need there rather than copying it.
   (a session of `repl_session.ml` on a `PykingRuntime` of its own, its
   environment as a table below), Debug (`debugger.js`: the program run
   by `debug_session.ml` a slice at a time on the worker, breakpoints in
-  the editor's margin, Variables, Watch, Call stack, Breakpoints and a
-  Console; keys without F keys, changeable in Settings) and Help (the
+  the editor's margin, Environment, Watch, Call stack, Breakpoints and a
+  Console; the start, continue and step keys act on every tab and the
+  rest in the editor and this tab, several per action,
+  changeable in Settings) and Help (the
   help, below). It has a light and a dark theme: colour
   tokens on `.pyk-playground`, overridden under `[data-theme="light"]`,
   chosen by the header's switch or Appearance in the settings unless the

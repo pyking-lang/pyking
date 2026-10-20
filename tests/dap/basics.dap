@@ -6,10 +6,9 @@ configure
 wait stopped
 stack
 scopes 1
-variables Locals
-variables Globals
+variables Environment
 scopes 2
-variables Globals
+variables Environment
 expand xs
 evaluate 1 n * 10
 evaluate 2 total + x
@@ -31,10 +30,10 @@ next
 wait stopped
 stack
 scopes 1
-set Globals total 100
-set Globals xs [1]
-set Globals total "no"
-variables Globals
+set Environment total 100
+set Environment xs [1]
+set Environment total "no"
+variables Environment
 in
 wait stopped
 stack

@@ -2,13 +2,15 @@
 // interpreter a step at a time (src/debug_session.ml, reached through
 // PykingRuntime's `debugProgram`), with breakpoints in the editor's
 // margin, the line it stopped at marked, and below the controls five
-// panes -- Variables, Watch, Call stack, Breakpoints and the Console,
+// panes -- Environment, Watch, Call stack, Breakpoints and the Console,
 // which holds what the program writes and evaluates what is typed into
 // it where the program stopped.
 //
-// Every control has a key, shown when the pointer rests on it and
-// changed in the settings (`DEFAULT_KEYS`). None is a function key:
-// those are hard to reach on a Mac.
+// Every control has keys, shown when the pointer rests on it and
+// changed in the settings (`DEFAULT_KEYS`). Start's, Continue's and the
+// steps' act anywhere in the playground -- Continue's starting debugging
+// when nothing is debugged, the steps' doing nothing then -- and the
+// others where the focus is in the editor or in this tab.
 //
 //   import { Debugger } from "./debugger.js";
 //   const debug = new Debugger(playground);
@@ -21,7 +23,7 @@ const FILE = "playground.pyk";
 /** What each action is called, in the settings and in a tooltip. */
 export const ACTIONS = [
   ["start", "Start debugging, or start again"],
-  ["continue", "Continue, or pause"],
+  ["continue", "Continue"],
   ["next", "Step over"],
   ["in", "Step into"],
   ["out", "Step out"],
@@ -29,18 +31,35 @@ export const ACTIONS = [
   ["breakpoint", "Set or remove a breakpoint on the cursor's line"],
 ];
 
-/** The keys each action has until the settings say otherwise: Chrome's
- *  DevTools' own, which need no function key, and two more. `Mod` is Cmd
- *  on a Mac and Ctrl elsewhere. */
+/** The keys each action has until the settings say otherwise: an Alt
+ *  key for each (Debug, Continue, Over, Into, ouT, Stop, Breakpoint) and
+ *  a function key for continuing and each step. Alt is Option on a Mac,
+ *  and `Mod` Cmd there and Ctrl elsewhere. */
 export const DEFAULT_KEYS = {
-  start: "Mod+Shift+Enter",
-  continue: "Mod+\\",
-  next: "Mod+'",
-  in: "Mod+;",
-  out: "Mod+Shift+;",
-  stop: "Mod+Shift+\\",
-  breakpoint: "Mod+B",
+  start: ["Alt+D"],
+  continue: ["F8", "Alt+C"],
+  next: ["F10", "Alt+O"],
+  in: ["F11", "Alt+I"],
+  out: ["Shift+F11", "Alt+T"],
+  stop: ["Alt+S"],
+  breakpoint: ["Alt+B"],
 };
+
+/** The actions that act only while a program is being debugged. */
+const SESSION_ACTIONS = ["next", "in", "out", "stop"];
+
+/** An action's keys as the settings hold them -- a list, or one spec
+ *  as earlier settings saved it -- as a list. Any -> [String] */
+export function keyList(held) {
+  if (Array.isArray(held)) return held.filter((k) => typeof k === "string" && k !== "");
+  return typeof held === "string" && held !== "" ? [held] : [];
+}
+
+/** Several key specs as this computer's keyboard writes them, "F10 or
+ *  Option+O". [String] -> String */
+export function showKeys(specs) {
+  return specs.length === 0 ? "no key" : specs.map(showKey).join(" or ");
+}
 
 /** The physical key a written character stands for, so a key means the
  *  same with Shift held: `;` is Semicolon whether or not it types `:`. */
@@ -134,13 +153,13 @@ export class Debugger {
     this.consoleHistory = [];
     this.consoleAt = 0;
     this.sourceChanged = false;
-    this.entryChosen = false;  // the last start was asked to stop at entry
   }
 
   /** Builds the tab inside `panel`, and hooks the editor's margin, its
    *  keys and its hover. Element -> () */
   install(panel) {
     this.panel = panel;
+    panel.tabIndex = -1;
     panel.innerHTML = `
       <div class="pyk-toolbar pyk-debug-bar" data-d="bar">
         <button class="pyk-run" data-d="start">▶ Debug</button>
@@ -156,8 +175,8 @@ export class Debugger {
       <div class="pyk-debug-status" data-d="status">Not debugging. Click in the editor's margin to set a breakpoint, then press Debug.</div>
       <div class="pyk-debug-panes">
         <details class="pyk-debug-pane" open>
-          <summary>Variables</summary>
-          <div class="pyk-debug-tree" data-d="variables"></div>
+          <summary>Environment</summary>
+          <div class="pyk-debug-tree" data-d="environment"></div>
         </details>
         <details class="pyk-debug-pane" open>
           <summary>Watch <button class="pyk-icon" data-d="addWatch" title="Add an expression to watch">+</button></summary>
@@ -188,7 +207,7 @@ export class Debugger {
     ui.next.addEventListener("click", () => this.command("next"));
     ui.in.addEventListener("click", () => this.command("in"));
     ui.out.addEventListener("click", () => this.command("out"));
-    ui.restart.addEventListener("click", () => this.start({ again: true }));
+    ui.restart.addEventListener("click", () => this.start());
     ui.stop.addEventListener("click", () => this.stop());
     ui.addWatch.addEventListener("click", (event) => {
       event.preventDefault();
@@ -207,7 +226,7 @@ export class Debugger {
     this.showKeys();
     this.renderWatches();
     this.renderBreakpoints();
-    this.renderVariables([]);
+    this.renderEnvironment([]);
     this.renderStack();
   }
 
@@ -263,10 +282,11 @@ export class Debugger {
   showKeys() {
     const keys = this.keys();
     const tip = (button, label, action) => {
-      button.title = `${label} (${showKey(keys[action])})`;
+      button.title = `${label} (${showKeys(keys[action])})`;
     };
     const { ui } = this;
-    tip(ui.start, "Start debugging the program in the editor", "start");
+    const startKeys = [...keys.start, ...keys.continue];
+    ui.start.title = `Start debugging the program in the editor (${showKeys(startKeys)})`;
     tip(ui.restart, "Start debugging it again from the beginning", "start");
     tip(ui.continue, "Continue to the next breakpoint", "continue");
     tip(ui.pause, "Pause where the program is", "continue");
@@ -274,26 +294,38 @@ export class Debugger {
     tip(ui.in, "Step into: stop at the next line run, inside a call too", "in");
     tip(ui.out, "Step out: run until the function returns", "out");
     tip(ui.stop, "Stop debugging", "stop");
-    this.parsed = Object.fromEntries(Object.entries(keys).map(([k, spec]) => [k, parseKey(spec)]));
+    this.parsed = Object.fromEntries(Object.entries(keys)
+      .map(([k, specs]) => [k, specs.map(parseKey).filter(Boolean)]));
     return this.parsed;
   }
 
-  /** Every action's key spec: the settings' over the defaults. () -> Object */
+  /** Every action's key specs: the settings' over the defaults.
+   *  () -> {action: [String]} */
   keys() {
-    return { ...DEFAULT_KEYS, ...(this.app.settings.debugKeys ?? {}) };
+    const saved = this.app.settings.debugKeys ?? {};
+    return Object.fromEntries(Object.entries(DEFAULT_KEYS).map(([action, specs]) =>
+      [action, action in saved ? keyList(saved[action]) : specs]));
   }
 
-  /** Runs the action a key event names, if it names one. Answers whether
-   *  it did. KeyboardEvent -> Bool */
-  handleKey(event) {
+  /** Runs the action a key event names, if it names one of `only`'s
+   *  (every action where none is given). Answers whether it did.
+   *  KeyboardEvent -> [String]? -> Bool */
+  handleKey(event, only = null) {
     const parsed = this.parsed ?? this.showKeys();
-    const found = Object.entries(parsed).find(([, key]) => matchesKey(key, event));
+    const found = Object.entries(parsed)
+      .find(([action, keys]) => (only === null || only.includes(action))
+        && keys.some((key) => matchesKey(key, event)));
     if (!found) return false;
+    const [action] = found;
     event.preventDefault();
     event.stopPropagation();
-    const [action] = found;
-    if (action === "start") this.start({ again: this.state !== "off" });
-    else if (action === "continue") this.command(this.state === "running" ? "pause" : "continue");
+    if (event.key === "Dead") this.app.deadKeyTaken?.();
+    if (SESSION_ACTIONS.includes(action) && this.state === "off") return true;
+    if (action === "start") this.start();
+    else if (action === "continue") {
+      if (this.state === "off") this.start();
+      else this.command(this.state === "running" ? "pause" : "continue");
+    }
     else if (action === "stop") this.stop();
     else if (action === "breakpoint") {
       const line = this.app.left.getPosition()?.lineNumber;
@@ -388,7 +420,7 @@ export class Debugger {
     list.textContent = "";
     if (this.breakpoints.length === 0) {
       list.append(empty("No breakpoints. Click in the editor's margin, or press "
-                        + showKey(this.keys().breakpoint) + " on a line."));
+                        + showKeys(this.keys().breakpoint) + " on a line."));
       return;
     }
     for (const b of this.breakpoints) {
@@ -440,25 +472,12 @@ export class Debugger {
   // -- running ----------------------------------------------------------
 
   /** Debugs the program in the editor from its start: what Debug and
-   *  Restart do. Where nothing would stop it -- no enabled breakpoint,
-   *  and not set to stop at the first statement -- the user is asked
-   *  whether to stop there instead; Restart (`again`) keeps the last
-   *  answer. {again: Bool}? -> Promise<()> */
-  async start({ again = false } = {}) {
+   *  Restart do. With no enabled breakpoint it stops at the first
+   *  statement. () -> Promise<()> */
+  async start() {
     const { app } = this;
     if (this.state !== "off") await this.stop({ quiet: true });
-    const atEntry = Boolean(app.settings.debugStopOnEntry);
-    if (atEntry || this.sent().length > 0) {
-      this.entryChosen = false;
-    } else if (!(again && this.entryChosen)) {
-      app.showTab("debug");
-      const go = await app.confirm("No breakpoints",
-        "There are no breakpoints in the program. Click Cancel and add "
-        + "breakpoints (click in the editor's left margin), or click Continue "
-        + "to start debugging at the start of the program.", "Continue");
-      if (!go) return;
-      this.entryChosen = true;
-    }
+    const atEntry = Boolean(app.settings.debugStopOnEntry) || this.sent().length === 0;
     app.cancelAutoRun?.();
     app.showTab("debug");
     if (!(await app.ensureRuntime())) return;
@@ -484,7 +503,7 @@ export class Debugger {
         stdin: input.stdin,
         args: input.args,
         tinywebLog: app.settings.tinywebLog,
-        stopOnEntry: atEntry || this.entryChosen,
+        stopOnEntry: atEntry,
         justMyCode: app.settings.debugJustMyCode !== false,
         breakpoints: [{ file: FILE, breakpoints: this.sent() }],
         onOutput: (text) => this.write(text),
@@ -549,11 +568,17 @@ export class Debugger {
       this.clearLine();
       this.frames = [];
       this.renderStack();
-      this.renderVariables([]);
+      this.renderEnvironment([]);
       this.setStatus("The top level has ended; waiting for the page's events. "
                      + "A breakpoint in a callback stops there.");
     } else if (state === "stopped") {
-      if (this.app.tab !== "debug") this.app.showTab("debug");
+      if (this.app.tab !== "debug") {
+        this.app.showTab("debug");
+        const focused = document.activeElement;
+        if (!this.app.ui.leftEditor.contains(focused) && !this.panel.contains(focused)) {
+          this.panel.focus();
+        }
+      }
       await this.showStop();
     }
     this.updateButtons();
@@ -589,12 +614,12 @@ export class Debugger {
     this.renderStack();
     this.markLine(frame);
     if (!frame) {
-      this.renderVariables([]);
+      this.renderEnvironment([]);
       this.renderWatches();
       return;
     }
     const scopes = await this.app.runtime.debug("scopes", { frame: frame.id });
-    this.renderVariables(scopes);
+    await this.renderEnvironment(scopes);
     await this.renderWatches();
   }
 
@@ -630,7 +655,7 @@ export class Debugger {
     this.frame = null;
     this.clearLine();
     this.renderStack();
-    this.renderVariables([]);
+    this.renderEnvironment([]);
     this.renderWatches();
     this.setStatus("Not debugging.");
     this.updateButtons();
@@ -724,51 +749,52 @@ export class Debugger {
     }
   }
 
-  /** The Variables pane: the chosen frame's scopes, each a tree whose
-   *  lists, tuples and datatype values open to show their parts.
-   *  [{name, ref}] -> () */
-  renderVariables(scopes) {
-    const tree = this.ui.variables;
+  /** The Environment pane: every name the chosen frame sees, one list
+   *  whose lists, tuples and datatype values open to show their parts.
+   *  [{name, ref}] -> Promise<()> */
+  async renderEnvironment(scopes) {
+    const tree = this.ui.environment;
+    const shown = (this.shownEnvironment ?? 0) + 1;
+    this.shownEnvironment = shown;
+    const names = [];
+    for (const scope of scopes) {
+      const vars = await this.app.runtime.debug("variables", { ref: scope.ref });
+      for (const v of vars) names.push([v, scope.ref]);
+    }
+    if (this.shownEnvironment !== shown) return;
     tree.textContent = "";
-    if (scopes.length === 0) {
+    if (names.length === 0) {
       tree.append(empty(this.state === "stopped" ? "No names here." : "Not stopped."));
       return;
     }
-    for (const scope of scopes) {
-      const node = this.treeNode({ name: scope.name, value: "", type: "", ref: scope.ref,
-                                   settable: false }, scope.ref, true, "scope");
-      tree.append(node);
-    }
+    for (const [v, ref] of names) tree.append(this.treeNode(v, ref));
   }
 
   /** One row of a tree, with its children loaded when it is opened.
    *  `parent` is the reference of the scope holding it, which setting a
-   *  `var` needs. Object -> Int -> Bool -> String? -> Element */
-  treeNode(v, parent, open = false, kind = "") {
+   *  `var` needs. Object -> Int -> Element */
+  treeNode(v, parent) {
     const node = document.createElement("div");
-    node.className = "pyk-debug-node " + kind;
+    node.className = "pyk-debug-node";
     const row = document.createElement("div");
     row.className = "row";
     const twisty = document.createElement("span");
     twisty.className = "twisty";
-    twisty.textContent = v.ref > 0 ? (open ? "▾" : "▸") : "";
+    twisty.textContent = v.ref > 0 ? "▸" : "";
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = v.name;
-    row.append(twisty, name);
-    if (kind !== "scope") {
-      const value = document.createElement("span");
-      value.className = "value";
-      value.textContent = v.value;
-      if (v.settable) {
-        value.title = "Double-click to give this var a new value";
-        value.addEventListener("dblclick", () => this.editVariable(v, parent, value));
-      }
-      const type = document.createElement("span");
-      type.className = "type";
-      type.textContent = v.type;
-      row.append(value, type);
+    const value = document.createElement("span");
+    value.className = "value";
+    value.textContent = v.value;
+    if (v.settable) {
+      value.title = "Double-click to give this var a new value";
+      value.addEventListener("dblclick", () => this.editVariable(v, parent, value));
     }
+    const type = document.createElement("span");
+    type.className = "type";
+    type.textContent = v.type;
+    row.append(twisty, name, value, type);
     node.append(row);
     const children = document.createElement("div");
     children.className = "children";
@@ -780,13 +806,12 @@ export class Debugger {
       const vars = await this.app.runtime.debug("variables", { ref: v.ref });
       if (vars.length === 0) children.append(empty("nothing"));
       for (const child of vars) {
-        children.append(this.treeNode(child, kind === "scope" ? v.ref : parent));
+        children.append(this.treeNode(child, parent));
       }
     };
     if (v.ref > 0) {
       row.classList.add("expandable");
-      children.classList.toggle("pyk-hidden", !open);
-      if (open) load();
+      children.classList.add("pyk-hidden");
       row.addEventListener("click", () => {
         const opening = children.classList.contains("pyk-hidden");
         children.classList.toggle("pyk-hidden", !opening);

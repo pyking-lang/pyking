@@ -377,10 +377,12 @@ const DEBUG = `(async () => { ${HELPERS}
   await source("def fact(n: Int) -> Int:\\n    if n <= 1:\\n        return 1\\n    return n * fact(n - 1)\\n\\nvar total = 0\\nxs = [1, 2, 3]\\nfor x in xs:\\n    total := total + fact(x)\\nprint(\\"total\\", total)\\n");
   $("[data-tab=debug]").click();
   check("the Debug tab shows its controls", d("start") && !d("start").classList.contains("pyk-hidden")
-    && d("variables") && d("watch") && d("stack") && d("breakpointList") && d("console"));
-  check("a control's tooltip names its key", /\\((Ctrl|Cmd)\\+'\\)/.test(d("next").title), d("next").title);
-  check("no control's key is a function key",
-    $$("[data-d]").every((b) => !/\\(F[0-9]+\\)|\\+F[0-9]+\\)/.test(b.title || "")));
+    && d("environment") && d("watch") && d("stack") && d("breakpointList") && d("console"));
+  check("a control's tooltip names its keys", /\\(F10 or (Alt|Option)\\+O\\)/.test(d("next").title), d("next").title);
+  check("Debug's tooltip names Continue's keys too",
+    /\\((Alt|Option)\\+D or F8 or (Alt|Option)\\+C\\)/.test(d("start").title), d("start").title);
+  check("the names pane is called Environment",
+    d("environment").closest("details").querySelector("summary").textContent.trim() === "Environment");
   dbg.toggleBreakpoint(3);
   check("a breakpoint shows in the margin",
     await until(() => $$("[data-r=leftEditor] .pyk-bp-glyph.pyk-bp").length === 1));
@@ -395,7 +397,7 @@ const DEBUG = `(async () => { ${HELPERS}
   const stack = () => $$(".pyk-debug-frame .name").map((e) => e.textContent).join(" | ");
   check("the call stack shows the calls in progress", stack() === "fact | <module playground>", stack());
   check("the variables show n, an Int, in the call",
-    await until(() => /n\\s*1\\s*Int/.test(d("variables").textContent)), d("variables").textContent);
+    await until(() => /n\\s*1\\s*Int/.test(d("environment").textContent)), d("environment").textContent);
   check("a watch is evaluated where it stopped",
     await until(() => d("watch").textContent.includes("100")), d("watch").textContent);
   d("input").value = "fact(5)";
@@ -406,44 +408,47 @@ const DEBUG = `(async () => { ${HELPERS}
   check("Continue stops at the breakpoint again, one call deeper", await stoppedAt(3, 3), stack());
   $$(".pyk-debug-frame")[2].click();
   check("choosing a frame shows its names",
-    await until(() => /total\\s*1\\s*Int/.test(d("variables").textContent)
-      && d("variables").textContent.includes("xs")), d("variables").textContent);
+    await until(() => /total\\s*1\\s*Int/.test(d("environment").textContent)
+      && d("environment").textContent.includes("xs")), d("environment").textContent);
   check("and marks its line as a caller's",
     await until(() => $$("[data-r=leftEditor] .pyk-debug-line-caller").length > 0));
   check("a var is offered to be set", $$(".pyk-debug-node .value[title]").length > 0);
   dbg.toggleBreakpoint(3);
   d("out").click();
   check("Step out stops in the caller, at the call", await stoppedAt(4, 2), stack());
-  const mac = /Cmd/.test(d("next").title);
-  const key = new KeyboardEvent("keydown",
-    { key: "'", code: "Quote", ctrlKey: !mac, metaKey: mac, bubbles: true });
-  $("[data-r=leftEditor] textarea").dispatchEvent(key);
+  const press = (target, key, code, more = {}) => {
+    const event = new KeyboardEvent("keydown", { key, code, bubbles: true, cancelable: true, ...more });
+    target.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  press($("[data-r=leftEditor] textarea"), "F10", "F10");
   check("the step-over key steps over the rest of the call, to its caller", await stoppedAt(9, 1), stack());
   d("next").click();
   check("Step over goes to the next turn of the loop", await stoppedAt(9, 1), stack());
-  d("in").click();
-  check("Step into goes into the call", await stoppedAt(2, 2), stack());
+  $("[data-tab=repl]").click();
+  press($("[data-r=replInput]"), "i", "KeyI", { altKey: true });
+  check("Alt+I in another tab steps into the call", await stoppedAt(2, 2), stack());
+  check("and shows the Debug tab", app.tab === "debug", app.tab);
   d("continue").click();
   check("the program runs to its end",
     await until(() => dbg.state === "off" && consoleText().includes("total 9")), consoleText());
   check("and says it finished", consoleText().includes("finished"), consoleText());
   check("nothing is marked once it has ended",
     $$("[data-r=leftEditor] .pyk-debug-line").length === 0);
+  check("with nothing debugged a step key does nothing",
+    press($("[data-r=leftEditor] textarea"), "o", "KeyO", { altKey: true }) && dbg.state === "off");
 
   await source("xs = [1]\\nprint(10 / (len(xs) - 1))\\n");
   dbg.watches = [];
-  const confirmShown = () => !$("[data-r=confirmModal]").classList.contains("pyk-hidden");
   d("start").click();
-  check("Debug with no breakpoint asks whether to start at the first statement",
-    await until(confirmShown) && /no breakpoints/.test($("[data-r=confirmText]").textContent),
-    $("[data-r=confirmText]").textContent);
-  $("[data-r=confirmCancel]").click();
-  await sleep(300);
-  check("Cancel does not start", !confirmShown() && dbg.state === "off", dbg.state);
-  d("start").click();
-  await until(confirmShown);
-  $("[data-r=confirmOk]").click();
-  check("Continue stops at the first statement", await stoppedAt(1, 1), JSON.stringify(dbg.frames));
+  check("Debug with no breakpoint stops at the first statement", await stoppedAt(1, 1),
+    JSON.stringify(dbg.frames));
+  d("stop").click();
+  await until(() => dbg.state === "off");
+  $("[data-tab=repl]").click();
+  press($("[data-r=replInput]"), "d", "KeyD", { altKey: true });
+  check("Alt+D starts debugging from another tab, at the first statement",
+    await stoppedAt(1, 1) && app.tab === "debug", app.tab);
   d("continue").click();
   check("a runtime error stops the program where it happens",
     await until(() => dbg.state === "stopped" && /runtime error/.test(d("status").textContent), 20000),
@@ -470,12 +475,168 @@ const DEBUG = `(async () => { ${HELPERS}
   check("Stop ends debugging a page", await until(() => dbg.state === "off"), dbg.state);
   dbg.toggleBreakpoint(6);
 
+  const chips = (action) => $$(".pyk-key-row[data-action=" + action + "] .pyk-key-chip")
+    .map((c) => c.firstChild.textContent);
+  check("the settings show each of an action's keys", chips("next").length === 2
+    && chips("next")[0] === "F10", JSON.stringify(chips("next")));
+  $(".pyk-key-row[data-action=next] .pyk-key-chip button").click();
+  check("✕ removes one key", JSON.stringify(app.settings.debugKeys?.next) === '["Alt+O"]'
+    && !/F10/.test(d("next").title), d("next").title);
+  $(".pyk-key-row[data-action=next] .pyk-key-add").click();
+  press($(".pyk-key-row[data-action=next] .pyk-key-field"), "F9", "F9", { shiftKey: true });
+  check("+ records a key pressed", chips("next").join(",") === "Alt+O,Shift+F9"
+    || chips("next").join(",") === "Option+O,Shift+F9", JSON.stringify(chips("next")));
+  $(".pyk-key-row[data-action=next] .pyk-key-reset").click();
+  check("reset gives an action its defaults back", app.settings.debugKeys?.next === undefined
+    && chips("next").length === 2, JSON.stringify(app.settings.debugKeys));
+
   dbg.toggleBreakpoint(1);
   await app.loadExample(app.meta.examples[0].file);
   check("choosing an example removes the breakpoints", await until(() => dbg.breakpoints.length === 0
     && $$("[data-r=leftEditor] .pyk-bp-glyph.pyk-bp").length === 0), JSON.stringify(dbg.breakpoints));
   return checks;
 })()`;
+
+/** The debugger's keys pressed for real, as a reader on `platform`
+ *  presses them -- Alt with the character a Mac's Option types -- and
+ *  what each did: nothing typed, and the debugger moved.
+ *  (send, String, evaluate, String) -> Promise<[[label, ok, detail]]> */
+async function realKeys(send, sessionId, evaluate, platform) {
+  const checks = [];
+  const check = (label, ok, detail = "") => checks.push([`${label} (${platform})`, Boolean(ok), detail]);
+  const MAC_TEXT = { D: "∂", C: "ç", O: "ø", I: "ˆ", T: "†", S: "ß", B: "∫" };
+  const press = async (spec) => {
+    const parts = spec.split("+");
+    const name = parts.pop();
+    const alt = parts.includes("Alt");
+    const shift = parts.includes("Shift");
+    const fkey = /^F[0-9]+$/.test(name);
+    const code = fkey ? name : "Key" + name;
+    const text = fkey ? undefined : alt ? MAC_TEXT[name] : name.toLowerCase();
+    const key = fkey ? name : text;
+    const common = { key, code, modifiers: (alt ? 1 : 0) | (shift ? 8 : 0),
+                     windowsVirtualKeyCode: fkey ? 111 + Number(name.slice(1)) : name.charCodeAt(0) };
+    await send("Input.dispatchKeyEvent",
+      { type: text ? "keyDown" : "rawKeyDown", text, unmodifiedText: text, ...common }, sessionId);
+    await send("Input.dispatchKeyEvent", { type: "keyUp", ...common }, sessionId);
+    await sleep(150);
+  };
+  const app = "window.pykingPlayground";
+  const state = () => evaluate(`${app}.debugger.state`);
+  const where = () => evaluate(`JSON.stringify(${app}.debugger.frames.map((f) => f.span.row1))`);
+  const until = async (test, ms = 20000) => {
+    for (let waited = 0; waited < ms; waited += 100) {
+      if (await test()) return true;
+      await sleep(100);
+    }
+    return false;
+  };
+  const stoppedAt = (rows) => until(async () => (await state()) === "stopped" && (await where()) === JSON.stringify(rows));
+  const program = "a = 1\nb = a + 1\ndef f(n: Int) -> Int:\n    return n * 2\nc = f(b)\nprint(c)\n";
+  const editor = () => evaluate(`${app}.left.getValue()`);
+  const focusEditor = (line) => evaluate(`${app}.showTab("run"); ${app}.left.focus(); `
+    + `${app}.left.setPosition({ lineNumber: ${line}, column: 1 })`);
+  const untouched = async () => (await editor()) === program;
+
+  await evaluate(`${app}.debugger.stop({ quiet: true }); ${app}.setSource(${JSON.stringify(program)}); `
+    + `${app}.debugger.clearBreakpoints()`);
+  await sleep(500);
+  if (platform === "a Mac") {
+    const title = await evaluate(`${app}.debugger.ui.start.title`);
+    check("the keys are named as a Mac's keyboard names them", /Option\+D/.test(title), title);
+  }
+  await focusEditor(1);
+  await press("Alt+D");
+  check("Alt+D in the editor starts debugging, at the first statement", await stoppedAt([1]), await where());
+  check("and types nothing", await untouched(), await editor());
+  await focusEditor(1);
+  await press("Alt+O");
+  check("Alt+O steps over", await stoppedAt([2]), await where());
+  await press("F10");
+  check("F10 steps over", await until(async () => (await state()) === "stopped"
+    && JSON.parse(await where())[0] > 2), await where());
+  check("and the steps type nothing", await untouched(), await editor());
+  await press("Alt+S");
+  check("Alt+S stops", await until(async () => (await state()) === "off"), await state());
+
+  await focusEditor(5);
+  await press("Alt+B");
+  check("Alt+B sets a breakpoint on the cursor's line",
+    await until(async () => (await evaluate(`JSON.stringify(${app}.debugger.breakpoints.map((b) => b.line))`)) === "[5]"),
+    await evaluate(`JSON.stringify(${app}.debugger.breakpoints.map((b) => b.line))`));
+  check("and types nothing", await untouched(), await editor());
+  for (const spec of ["Alt+O", "Alt+I", "Alt+T", "Alt+S", "F10", "F11", "Shift+F11"]) {
+    await press(spec);
+  }
+  await sleep(300);
+  check("with nothing debugged the step keys and Alt+S do nothing", (await state()) === "off"
+    && await untouched(), (await state()) + " " + JSON.stringify(await editor()));
+  await press("Alt+C");
+  check("Alt+C starts debugging, to the breakpoint", await stoppedAt([5]), await where());
+  await press("Alt+I");
+  check("Alt+I steps into the call", await stoppedAt([4, 5]), await where());
+  await press("Alt+T");
+  check("Alt+T steps out to the caller", await until(async () => (await state()) === "stopped"
+    && JSON.parse(await where()).length === 1), await where());
+  await press("Alt+C");
+  check("Alt+C runs it to its end", await until(async () => (await state()) === "off"), await state());
+  check("and none of it typed anything", await untouched(), await editor());
+
+  await evaluate(`${app}.showTab("repl"); document.querySelector("[data-r=replInput]").focus()`);
+  await press("Alt+D");
+  check("Alt+D in another tab starts debugging", await stoppedAt([5]), await where());
+  check("shows the Debug tab", (await evaluate(`${app}.tab`)) === "debug", await evaluate(`${app}.tab`));
+  check("and types nothing there",
+    (await evaluate(`document.querySelector("[data-r=replInput]").value`)) === "",
+    await evaluate(`document.querySelector("[data-r=replInput]").value`));
+  await press("F11");
+  check("F11 steps into the call", await stoppedAt([4, 5]), await where());
+  await press("Shift+F11");
+  check("Shift+F11 steps out", await until(async () => (await state()) === "stopped"
+    && JSON.parse(await where()).length === 1), await where());
+  await press("F8");
+  check("F8 runs it to its end", await until(async () => (await state()) === "off"), await state());
+  // A dead key, Option+I on a Mac: the keyboard starts an accent before
+  // the page sees the key (a composition holding ˆ, U+02C6), and each
+  // further one ends the open accent and starts another.
+  const deadKey = async (name) => {
+    const common = { key: "Dead", code: "Key" + name, modifiers: 1,
+                     windowsVirtualKeyCode: name.charCodeAt(0) };
+    await send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...common }, sessionId);
+    await send("Input.imeSetComposition", { text: "\u02c6", selectionStart: 1, selectionEnd: 1 }, sessionId);
+    await send("Input.dispatchKeyEvent", { type: "keyUp", ...common }, sessionId);
+    await sleep(300);
+  };
+  await focusEditor(1);
+  await press("Alt+C");
+  check("(a dead key) Alt+C stops at the breakpoint", await stoppedAt([5]), await where());
+  await evaluate(`${app}.left.focus(); ${app}.left.setPosition({ lineNumber: 2, column: 1 })`);
+  await deadKey("I");
+  check("a dead Alt+I steps into the call", await stoppedAt([4, 5]), await where());
+  await deadKey("I");
+  await deadKey("I");
+  await sleep(300);
+  check("and Alt+I pressed again and again leaves no accent in the editor", await untouched(),
+    JSON.stringify(await editor()));
+  await press("Alt+S");
+  await until(async () => (await state()) === "off");
+  await focusEditor(1);
+  await deadKey("I");
+  await press("E");
+  check("a letter typed after a dead Alt+I comes out without the accent",
+    (await editor()) === "e" + program, JSON.stringify(await editor()));
+  await evaluate(`${app}.setSource(${JSON.stringify(program)})`);
+
+  await sleep(1500);
+  const shown = await evaluate(`document.querySelector("[data-r=leftEditor] .view-lines").textContent`);
+  check("the editor shows no inferred types in the text", !/: *Int/.test(shown), shown);
+  await focusEditor(1);
+  check("the editor takes its input through a textarea",
+    (await evaluate("document.activeElement.tagName")) === "TEXTAREA",
+    await evaluate("document.activeElement.tagName + '.' + document.activeElement.className"));
+  await evaluate(`${app}.debugger.clearBreakpoints()`);
+  return checks;
+}
 
 const chrome = launch(browser, profile);
 
@@ -513,7 +674,10 @@ try {
       /* still loading */
     }
   }
-  if (!ready) throw new Error("the playground did not become ready");
+  if (!ready) {
+    throw new Error("the playground did not become ready"
+      + (problems.length ? ": " + problems.join(" | ") : ""));
+  }
   for (const [name, phase] of [["the page", PAGE], ["the language server", LSP],
                                ["the tabs", TABS], ["the REPL", REPL], ["the debugger", DEBUG],
                                ["the themes", THEME], ["a link", LINK]]) {
@@ -521,6 +685,40 @@ try {
     for (const [label, ok, detail] of await evaluate(phase)) {
       output.checks += 1;
       if (!ok) output.failures.push(`${label}${detail ? ": " + detail : ""}`);
+    }
+  }
+  // The debugger's keys pressed for real, through the browser's input,
+  // so a key the playground does not swallow types into the editor:
+  // once as this platform, once as a Mac.
+  const record = (label, ok, detail) => {
+    output.checks += 1;
+    if (!ok) output.failures.push(`${label}${detail ? ": " + detail : ""}`);
+  };
+  const reload = async () => {
+    await send("Page.reload", { ignoreCache: true }, sessionId);
+    for (let i = 0; i < 600; i++) {
+      await sleep(100);
+      try {
+        if (await evaluate("!!window.pykingPlayground && "
+          + "document.querySelector('[data-r=statusText]')?.textContent.includes('ready')")) return;
+      } catch { /* still loading */ }
+    }
+    throw new Error("the playground did not become ready again");
+  };
+  for (const platform of ["this platform", "a Mac"]) {
+    if (platform === "a Mac") {
+      await send("Emulation.setUserAgentOverride", {
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+          + "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+        platform: "MacIntel",
+        userAgentMetadata: { platform: "macOS", platformVersion: "15.0", architecture: "arm",
+                             model: "", mobile: false },
+      }, sessionId);
+      await reload();
+    }
+    progress(`checking the debugger's keys on ${platform}`);
+    for (const [label, ok, detail] of await realKeys(send, sessionId, evaluate, platform)) {
+      record(label, ok, detail);
     }
   }
   output.checks += 1;

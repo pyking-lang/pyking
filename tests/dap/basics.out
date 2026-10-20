@@ -11,15 +11,13 @@
 > stack
 {"body": {"stackFrames": [{"column": 9, "endColumn": 17, "endLine": 6, "id": 1, "line": 6, "name": "fact", "source": {"name": "basics.pyk", "path": "$CASES/basics.pyk"}}, {"column": 22, "endColumn": 29, "endLine": 12, "id": 2, "line": 12, "name": "<module basics>", "source": {"name": "basics.pyk", "path": "$CASES/basics.pyk"}}], "totalFrames": 2}, "command": "stackTrace", "success": true, "type": "response"}
 > scopes 1
-{"body": {"scopes": [{"expensive": false, "name": "Locals", "presentationHint": "locals", "variablesReference": 1}, {"expensive": false, "name": "Globals", "variablesReference": 2}]}, "command": "scopes", "success": true, "type": "response"}
-> variables Locals
-{"body": {"variables": [{"name": "n", "type": "Int", "value": "1", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
-> variables Globals
-{"body": {"variables": [{"name": "fact", "type": "(Int) -> Int", "value": "<function fact>", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
+{"body": {"scopes": [{"expensive": false, "name": "Environment", "presentationHint": "locals", "variablesReference": 1}]}, "command": "scopes", "success": true, "type": "response"}
+> variables Environment
+{"body": {"variables": [{"name": "n", "type": "Int", "value": "1", "variablesReference": 0}, {"name": "fact", "type": "(Int) -> Int", "value": "<function fact>", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
 > scopes 2
-{"body": {"scopes": [{"expensive": false, "name": "Globals", "variablesReference": 3}]}, "command": "scopes", "success": true, "type": "response"}
-> variables Globals
-{"body": {"variables": [{"name": "fact", "type": "(Int) -> Int", "value": "<function fact>", "variablesReference": 0}, {"name": "total", "type": "Int", "value": "0", "variablesReference": 0}, {"name": "xs", "type": "[Int]", "value": "[1, 2, 3]", "variablesReference": 4}, {"name": "x", "type": "Int", "value": "1", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
+{"body": {"scopes": [{"expensive": false, "name": "Environment", "presentationHint": "locals", "variablesReference": 2}]}, "command": "scopes", "success": true, "type": "response"}
+> variables Environment
+{"body": {"variables": [{"name": "fact", "type": "(Int) -> Int", "value": "<function fact>", "variablesReference": 0}, {"name": "total", "type": "Int", "value": "0", "variablesReference": 0}, {"name": "xs", "type": "[Int]", "value": "[1, 2, 3]", "variablesReference": 3}, {"name": "x", "type": "Int", "value": "1", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
 > expand xs
 {"body": {"variables": [{"name": "[0]", "type": "Int", "value": "1", "variablesReference": 0}, {"name": "[1]", "type": "Int", "value": "2", "variablesReference": 0}, {"name": "[2]", "type": "Int", "value": "3", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
 > evaluate 1 n * 10
@@ -61,14 +59,14 @@
 > stack
 {"body": {"stackFrames": [{"column": 5, "endColumn": 29, "endLine": 12, "id": 1, "line": 12, "name": "<module basics>", "source": {"name": "basics.pyk", "path": "$CASES/basics.pyk"}}], "totalFrames": 1}, "command": "stackTrace", "success": true, "type": "response"}
 > scopes 1
-{"body": {"scopes": [{"expensive": false, "name": "Globals", "variablesReference": 1}]}, "command": "scopes", "success": true, "type": "response"}
-> set Globals total 100
+{"body": {"scopes": [{"expensive": false, "name": "Environment", "presentationHint": "locals", "variablesReference": 1}]}, "command": "scopes", "success": true, "type": "response"}
+> set Environment total 100
 {"body": {"type": "Int", "value": "100", "variablesReference": 0}, "command": "setVariable", "success": true, "type": "response"}
-> set Globals xs [1]
+> set Environment xs [1]
 {"body": {}, "command": "setVariable", "message": "'xs' is not a var, so it cannot be given a new value", "success": false, "type": "response"}
-> set Globals total "no"
+> set Environment total "no"
 {"body": {}, "command": "setVariable", "message": "'total' is Int, but this ':=' gives String", "success": false, "type": "response"}
-> variables Globals
+> variables Environment
 {"body": {"variables": [{"name": "fact", "type": "(Int) -> Int", "value": "<function fact>", "variablesReference": 0}, {"name": "total", "type": "Int", "value": "100", "variablesReference": 0}, {"name": "xs", "type": "[Int]", "value": "[1, 2, 3]", "variablesReference": 2}, {"name": "x", "type": "Int", "value": "3", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
 > in
 {"body": {}, "command": "stepIn", "success": true, "type": "response"}

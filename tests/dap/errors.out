@@ -10,9 +10,9 @@
 > stack
 {"body": {"stackFrames": [{"column": 12, "endColumn": 17, "endLine": 4, "id": 1, "line": 4, "name": "divide", "source": {"name": "errors.pyk", "path": "$CASES/errors.pyk"}}, {"column": 7, "endColumn": 19, "endLine": 7, "id": 2, "line": 7, "name": "<module errors>", "source": {"name": "errors.pyk", "path": "$CASES/errors.pyk"}}], "totalFrames": 2}, "command": "stackTrace", "success": true, "type": "response"}
 > scopes 1
-{"body": {"scopes": [{"expensive": false, "name": "Locals", "presentationHint": "locals", "variablesReference": 1}, {"expensive": false, "name": "Globals", "variablesReference": 2}]}, "command": "scopes", "success": true, "type": "response"}
-> variables Locals
-{"body": {"variables": [{"name": "a", "type": "Int", "value": "1", "variablesReference": 0}, {"name": "b", "type": "Int", "value": "0", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
+{"body": {"scopes": [{"expensive": false, "name": "Environment", "presentationHint": "locals", "variablesReference": 1}]}, "command": "scopes", "success": true, "type": "response"}
+> variables Environment
+{"body": {"variables": [{"name": "a", "type": "Int", "value": "1", "variablesReference": 0}, {"name": "b", "type": "Int", "value": "0", "variablesReference": 0}, {"name": "divide", "type": "(Int, Int) -> Int", "value": "<function divide>", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
 > continue
 {"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
 > wait terminated

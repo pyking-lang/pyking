@@ -45,10 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The VS Code extension adds a `pyking` debugger, and the website's
   Editors page sets it up in every editor it covers.
 - The playground has a Debug tab: breakpoints in the editor's margin,
-  Variables, Watch, Call stack, Breakpoints and a Console, with keys
-  that need no function key and can be changed in the settings. Debug
-  with no breakpoint offers to stop at the first statement, and loading
-  an example removes the breakpoints.
+  Environment (every name the frame sees, in one list), Watch, Call
+  stack, Breakpoints and a Console, with Alt+D to start and Alt+S to
+  stop, and F8/F10/F11/Shift+F11 and Alt+C/O/I/T for continue and the
+  steps, all but stop acting from any tab, each action's keys
+  changeable in the settings. Debug with no breakpoint stops at the
+  first statement, and loading an example removes the breakpoints.
 - The language server answers signature help, references, document
   highlights, rename, inlay hints with the inferred types, folding
   ranges, semantic tokens, and quick fixes for `+`/`++`, a misspelt

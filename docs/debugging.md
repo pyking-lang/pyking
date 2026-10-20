@@ -75,10 +75,10 @@ of the call stack, except where the program stopped in one.
 
 The call stack is the calls in progress, innermost first, each with
 where it is: the statement being run for the innermost, the call for
-the others. A frame has two scopes: **Locals**, the names its call
-bound -- parameters and what its body bound so far -- and **Globals**,
-everything it sees from where its function was written. A frame at a
-module's top level has only Globals. Builtins, imported modules' fields
+the others. A frame has one scope, its **Environment**: every name it
+sees, each shown once as what it means there -- the names its call
+bound (parameters and what its body bound so far) first, then
+everything it sees from where its function was written. Builtins, imported modules' fields
 and the names the compiler made up are left out, and an overloaded
 definition is shown by the name it was written with (`int::abs`, not
 `int__abs`). A list, a tuple and a datatype value open to show their

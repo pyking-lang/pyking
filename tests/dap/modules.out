@@ -11,9 +11,9 @@
 > stack
 {"body": {"stackFrames": [{"column": 5, "endColumn": 19, "endLine": 3, "id": 1, "line": 3, "name": "twice", "source": {"name": "helper.pyk", "path": "$CASES/helper.pyk"}}, {"column": 7, "endColumn": 23, "endLine": 3, "id": 2, "line": 3, "name": "<module modules>", "source": {"name": "modules.pyk", "path": "$CASES/modules.pyk"}}], "totalFrames": 2}, "command": "stackTrace", "success": true, "type": "response"}
 > scopes 1
-{"body": {"scopes": [{"expensive": false, "name": "Locals", "presentationHint": "locals", "variablesReference": 1}, {"expensive": false, "name": "Globals", "variablesReference": 2}]}, "command": "scopes", "success": true, "type": "response"}
-> variables Locals
-{"body": {"variables": [{"name": "n", "type": "Int", "value": "21", "variablesReference": 0}, {"name": "doubled", "type": "Int", "value": "42", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
+{"body": {"scopes": [{"expensive": false, "name": "Environment", "presentationHint": "locals", "variablesReference": 1}]}, "command": "scopes", "success": true, "type": "response"}
+> variables Environment
+{"body": {"variables": [{"name": "n", "type": "Int", "value": "21", "variablesReference": 0}, {"name": "doubled", "type": "Int", "value": "42", "variablesReference": 0}, {"name": "twice", "type": "(Int) -> Int", "value": "<function twice>", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
 > continue
 {"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
 > wait terminated

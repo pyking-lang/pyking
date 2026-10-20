@@ -8,7 +8,7 @@ configure
 wait stopped
 stack
 scopes 1
-variables Globals
+variables Environment
 continue
 wait stopped
 evaluate 1 count

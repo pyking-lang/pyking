@@ -11,8 +11,8 @@
 > stack
 {"body": {"stackFrames": [{"column": 5, "endColumn": 28, "endLine": 6, "id": 1, "line": 6, "name": "pressed", "source": {"name": "page.pyk", "path": "$CASES/page.pyk"}}], "totalFrames": 1}, "command": "stackTrace", "success": true, "type": "response"}
 > scopes 1
-{"body": {"scopes": [{"expensive": false, "name": "Locals", "presentationHint": "locals", "variablesReference": 1}, {"expensive": false, "name": "Globals", "variablesReference": 2}]}, "command": "scopes", "success": true, "type": "response"}
-> variables Globals
+{"body": {"scopes": [{"expensive": false, "name": "Environment", "presentationHint": "locals", "variablesReference": 1}]}, "command": "scopes", "success": true, "type": "response"}
+> variables Environment
 {"body": {"variables": [{"name": "count", "type": "Int", "value": "1", "variablesReference": 0}, {"name": "pressed", "type": "() -> ()", "value": "<function pressed>", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
 > continue
 {"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}

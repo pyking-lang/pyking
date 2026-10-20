@@ -1,7 +1,7 @@
 // The playground's language server client: Monaco's hover, go to
 // definition, outline, completion, signature help, references, the
-// highlights of a name, renaming, the inferred types shown in the text,
-// folding, semantic highlighting and quick fixes for Pyking, and the
+// highlights of a name, renaming, folding, semantic highlighting and
+// quick fixes for Pyking, and the
 // diagnostics under the source, all answered by the Pyking language
 // server (src/lsp.ml) running in the compiler's worker.
 //
@@ -116,9 +116,6 @@ export class LspClient {
         resolveRenameLocation: (model, position) =>
           mine(model) ? this.prepareRename(position) : null,
       }),
-      monaco.languages.registerInlayHintsProvider(language, {
-        provideInlayHints: (model, range) => (mine(model) ? this.inlayHints(range) : null),
-      }),
       monaco.languages.registerFoldingRangeProvider(language, {
         provideFoldingRanges: (model) => (mine(model) ? this.folding() : null),
       }),
@@ -183,7 +180,6 @@ export class LspClient {
             completion: { completionItem: { snippetSupport: false } },
             signatureHelp: { signatureInformation: { parameterInformation: { labelOffsetSupport: true } } },
             rename: { prepareSupport: true },
-            inlayHint: {},
             foldingRange: {},
             semanticTokens: { requests: { full: true }, formats: ["relative"] },
             codeAction: { codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } } },
@@ -475,28 +471,6 @@ export class LspClient {
       }
     }
     return { edits };
-  }
-
-  async inlayHints(range) {
-    const result = await this.request("textDocument/inlayHint", {
-      textDocument: { uri: this.uri },
-      range: {
-        start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
-        end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
-      },
-    });
-    if (!result) return null;
-    const kinds = this.monaco.languages.InlayHintKind;
-    return {
-      hints: result.map((h) => ({
-        label: h.label,
-        position: { lineNumber: h.position.line + 1, column: h.position.character + 1 },
-        kind: kinds.Type,
-        paddingLeft: !!h.paddingLeft,
-        paddingRight: !!h.paddingRight,
-      })),
-      dispose: () => {},
-    };
   }
 
   async folding() {

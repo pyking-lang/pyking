@@ -462,7 +462,6 @@
   padding: .6rem .8rem; border-bottom: 1px solid var(--pyk-edge);
 }
 .pyk-modal-body { padding: .85rem; display: grid; gap: 1rem; }
-.pyk-modal-body > p { margin: 0; line-height: 1.5; }
 .pyk-field { display: grid; gap: .4rem; }
 .pyk-field > label { font-size: .82rem; color: var(--pyk-dim); }
 /* Beats `.pyk-field > label` above, which is for the group heading. */
@@ -479,20 +478,50 @@
 }
 .pyk-hint { font-size: .78rem; color: var(--pyk-dim); margin: 0; }
 
-/* The debugger's keys in the settings: what each action is, and its key
-   in a field that takes the next key pressed. */
-.pyk-key-list { display: grid; gap: .3rem; }
+/* The settings dialog: three columns, the debugger's keys across all
+   three below them, one column on a narrow screen. */
+.pyk-modal.pyk-modal-wide { max-width: min(64rem, calc(100% - 2rem)); width: 64rem; }
+.pyk-settings-body { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem 1.6rem; }
+.pyk-settings-column { display: grid; gap: 1rem; align-content: start; }
+.pyk-settings-wide { grid-column: 1 / -1; }
+@media (max-width: 760px) {
+  .pyk-settings-body { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The debugger's keys in the settings: each action, its keys as chips
+   with a ✕ each, a + that takes the next key pressed, and a reset. */
+.pyk-key-list {
+  display: grid; gap: .35rem 1.6rem;
+  grid-template-columns: repeat(auto-fill, minmax(24rem, 1fr));
+}
 .pyk-key-row {
   display: flex; align-items: center; gap: .5rem; font-size: .8rem;
-  color: var(--pyk-text);
+  color: var(--pyk-text); min-width: 0;
 }
-.pyk-key-row span { flex: 1 1 auto; }
+.pyk-key-name { flex: 0 0 12rem; }
+.pyk-key-chips { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; }
+.pyk-key-chip {
+  display: inline-flex; align-items: center; gap: .2rem;
+  font-family: ui-monospace, monospace; background: var(--pyk-sunken);
+  border: 1px solid var(--pyk-edge); border-radius: 4px; padding: .05rem .1rem .05rem .4rem;
+}
+.pyk-playground .pyk-key-chip button, .pyk-playground .pyk-key-add, .pyk-playground .pyk-key-reset {
+  font: inherit; font-size: .75rem; padding: 0 .3rem; line-height: 1.4;
+}
+.pyk-playground .pyk-key-chip button { background: transparent; border-color: transparent; }
 .pyk-key-field {
-  flex: none; width: 9.5rem; font: inherit; font-family: ui-monospace, monospace;
+  flex: none; width: 7.5rem; font: inherit; font-family: ui-monospace, monospace;
   color: inherit; background: var(--pyk-sunken); cursor: pointer;
-  border: 1px solid var(--pyk-edge); border-radius: 4px; padding: .2rem .4rem;
+  border: 1px solid var(--pyk-edge); border-radius: 4px; padding: .1rem .4rem;
 }
 .pyk-key-field:focus { outline: 2px solid var(--pyk-accent); outline-offset: -1px; }
+.pyk-panel-debug:focus { outline: none; }
+@media (max-width: 760px) {
+  .pyk-key-list { grid-template-columns: minmax(0, 1fr); gap: .6rem; }
+  .pyk-key-row { flex-wrap: wrap; }
+  .pyk-key-name { flex-basis: 100%; }
+  .pyk-key-chips { min-width: 0; }
+}
 
 /* --- the Debug tab ---
    The controls, a line saying where the program is, and five panes that
@@ -548,7 +577,6 @@
 .pyk-debug-node .children { padding-left: 1rem; }
 .pyk-debug-node .twisty { width: .8rem; flex: none; color: var(--pyk-dim); }
 .pyk-debug-node .name { color: var(--pyk-text); font-weight: 600; }
-.pyk-debug-node.scope > .row .name { font-weight: 400; color: var(--pyk-dim); }
 .pyk-debug-node .value {
   color: var(--pyk-repl-value); overflow: hidden; text-overflow: ellipsis;
   flex: 0 1 auto; min-width: 0;

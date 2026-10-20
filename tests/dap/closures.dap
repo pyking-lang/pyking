@@ -6,13 +6,12 @@ configure
 wait stopped
 stack
 scopes 1
-variables Locals
-variables Globals
+variables Environment
 evaluate 1 count + by
 continue
 wait stopped
 scopes 1
-variables Globals
+variables Environment
 continue
 wait terminated
 disconnect

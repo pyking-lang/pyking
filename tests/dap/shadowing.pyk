@@ -1,0 +1,8 @@
+n = 100
+label = "outer"
+
+def bump(n: Int) -> Int:
+    label = "inner"
+    return n + 1
+
+print(bump(5))
