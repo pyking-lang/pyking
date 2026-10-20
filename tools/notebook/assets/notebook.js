@@ -39,6 +39,7 @@
 import { renderMarkdown, escapeHTML } from "./markdown.js";
 import { Activities } from "./activities.js";
 import { checkNotebook } from "./checks.js";
+import { pictures } from "./exercises.js";
 
 const HERE = new URL(".", import.meta.url);
 
@@ -58,6 +59,7 @@ const DEFAULTS = {
   storageKey: null,       // where progress is kept; default: from url
   onChange: null,         // (results) -> (), whenever an answer is checked
   cellActions: [],        // [{label, title, run(source)}]: a button on each cell
+  save: null,             // {url, root}: where a picture a solution makes is saved
   runtime: null,          // a PykingRuntime to share; default: one of its own
   watch: false,           // reload the page when the document at url changes
 };
@@ -104,6 +106,7 @@ export async function mountNotebook(host, options = {}) {
   const doc = renderMarkdown(source, { baseURL, documentLink: cfg.documentLink });
 
   const notebook = new Notebook(host, doc, cfg, web, source);
+  notebook.baseURL = baseURL;
   await notebook.init();
   if (cfg.watch && cfg.url) watch(new URL(cfg.url, document.baseURI).href, source);
   return notebook;
@@ -160,6 +163,7 @@ export async function mountCells(placeholders, options = {}) {
 
   const cells = new Cells(cfg, web);
   let fragments = 0;
+  const made = [];
   for (const placeholder of placeholders) {
     if (!placeholder.classList.contains("pkn-fragment")) {
       cells.cells.push(new Cell(cells, cellSpec(placeholder, cells.cells.length), placeholder));
@@ -175,6 +179,7 @@ export async function mountCells(placeholders, options = {}) {
     }
     fragments += 1;
     cells.fragments.push(placeholder);
+    made.push([doc, placeholder]);
     cells.activities.push(new Activities(cells, doc, placeholder, {
       mode: cfg.mode,
       storageKey: `${cfg.storageKey ?? location.pathname}#${fragments}`,
@@ -183,7 +188,11 @@ export async function mountCells(placeholders, options = {}) {
       cellOffset: offset,
     }));
   }
+  // First in the run queue, as in a notebook: the text may show them.
+  const drawn = made.reduce((before, [doc, placeholder]) =>
+    before.then(() => cells.makePictures(doc, placeholder, cfg.baseURL ?? "")), Promise.resolve());
   await cells.init();
+  cells.picturesMade = drawn;
   return cells;
 }
 
@@ -229,15 +238,16 @@ class Cells {
   results() {
     const all = this.activities.map((a) => a.results());
     const items = all.flatMap((r) => r.items);
+    const counted = items.filter((item) => item.graded);
     const add = (key) => all.reduce((sum, r) => sum + (r[key] ?? 0), 0);
     const max = all.some((r) => r.max !== null) ? add("max") : null;
     const pass = all.some((r) => r.pass !== null) ? add("pass") : null;
     const points = add("points");
-    const solved = items.filter((item) => item.state === "solved").length;
+    const solved = counted.filter((item) => item.state === "solved").length;
     return {
-      items, solved, total: items.length, points, max, pass,
+      items, solved, total: counted.length, points, max, pass,
       passed: pass === null ? null : points >= pass,
-      done: items.length > 0 && solved === items.length,
+      done: counted.length > 0 && solved === counted.length,
     };
   }
 
@@ -389,24 +399,33 @@ class Cells {
 
   /** Runs a program quietly -- an answer being checked, or the solution
    *  it is checked against -- in the same queue as the cells, and answers
-   *  what it printed. A run longer than `timeout` is stopped.
-   *  String -> {name, stdin, args, timeout} ->
-   *  Promise<{ok, text?, stdout, stderr, exit, timedOut?}> */
-  capture(source, { name = "check.pyk", stdin = "", args = [], timeout = 10000 } = {}) {
+   *  what it printed. A run longer than `timeout` is stopped. With
+   *  `tinyweb`, also tinyweb's log and what the program sent its page,
+   *  each batch as [module, data].
+   *  String -> {name, stdin, args, timeout, tinyweb} ->
+   *  Promise<{ok, text?, stdout, stderr, exit, timedOut?, tinyweb?, page?}> */
+  capture(source, { name = "check.pyk", stdin = "", args = [], timeout = 10000, tinyweb = false } = {}) {
     const generation = this.generation;
     const job = this.queue.then(async () => {
       if (generation !== this.generation) return { ok: false, text: "stopped", stdout: "", stderr: "" };
       this.status("busy", "checking an answer");
       let stdout = "";
       let stderr = "";
+      let log = "";
+      const page = [];
       let failure = "";
       let exit = null;
       let timer = null;
       let timedOut = false;
       try {
         await this.runtime.ready();
+        const drawing = tinyweb ? {
+          tinywebLog: "separate",
+          onTinyweb: (text) => { log += text; },
+          onPage: (module, data) => { page.push([module, data]); },
+        } : {};
         const running = this.runtime.runProgram(source, {
-          name, stdin, args,
+          name, stdin, args, ...drawing,
           onOutput: (text) => { stdout += text; },
           onDebug: (text) => { stderr += text; },
           onFailure: (text) => { failure += text; },
@@ -420,13 +439,14 @@ class Cells {
           }, timeout);
         });
         const result = await Promise.race([running, late]);
+        const drawn = tinyweb ? { tinyweb: log, page } : {};
         if (timedOut || result === null) {
-          return { ok: false, timedOut: true, stdout, stderr, text: "did not finish in time" };
+          return { ok: false, timedOut: true, stdout, stderr, ...drawn, text: "did not finish in time" };
         }
         this.runtime.endLive();
         this.status("ready", "ready");
-        if (failure) return { ok: false, stdout, stderr, text: failure };
-        return { ...result, stdout, stderr, exit: result.exit ?? exit ?? 0 };
+        if (failure) return { ok: false, stdout, stderr, ...drawn, text: failure };
+        return { ...result, stdout, stderr, ...drawn, exit: result.exit ?? exit ?? 0 };
       } catch (err) {
         return { ok: false, stdout, stderr, timedOut, text: err.message };
       } finally {
@@ -435,6 +455,115 @@ class Cells {
     });
     this.queue = job.then(() => {}, () => {});
     return job;
+  }
+
+  /** Shows what a program sent its page in `element`, as a page of its
+   *  own that sends no events back: the pictures a submission and its
+   *  solution drew. Resolves once it has been drawn, to the PageHost.
+   *  Element -> [[String, [Object]]] -> Promise<PageHost> */
+  async drawPage(element, page) {
+    const host = new this.web.PageHost(element, { libURL: this.runtime.libURL, send: () => {} });
+    for (const [module, data] of page) host.receive(module, data);
+    await Promise.all([...host.pages.values()]);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    host.freeze();
+    return host;
+  }
+
+  /** What a solution's save_canvas saves: its solution run on its own
+   *  input, the canvas named drawn on white at its own size, as a PNG.
+   *  Resolves to the PNG, or to why there is none.
+   *  {exercise, canvas, file} -> Doc -> Promise<{blob?, problem?}> */
+  async picture({ exercise, canvas }, doc) {
+    const spec = doc.cells[exercise.solution.cell];
+    const result = await this.capture(spec.source, {
+      name: `${exercise.id}-solution.pyk`,
+      stdin: spec.stdin ?? exercise.stdin,
+      args: this.web.splitArguments(spec.args ?? exercise.args),
+      tinyweb: true,
+    });
+    if (!result.ok) return { problem: `the solution did not run: ${(result.text ?? "").trim()}` };
+    const holder = document.createElement("div");
+    holder.style.cssText = "position: fixed; left: -100000px; top: 0;";
+    document.body.append(holder);
+    try {
+      const host = await this.drawPage(holder, result.page);
+      const drawn = holder.querySelector(`canvas[data-tinyweb-id="${CSS.escape(canvas)}"]`);
+      if (!drawn) {
+        host.close();
+        return { problem: `the solution drew no canvas named "${canvas}"` };
+      }
+      const width = parseFloat(drawn.style.width) || drawn.width;
+      const height = parseFloat(drawn.style.height) || drawn.height;
+      const out = document.createElement("canvas");
+      out.width = Math.round(width);
+      out.height = Math.round(height);
+      const g = out.getContext("2d");
+      g.fillStyle = "#ffffff";
+      g.fillRect(0, 0, out.width, out.height);
+      g.drawImage(drawn, 0, 0, out.width, out.height);
+      host.close();
+      const blob = await new Promise((resolve) => out.toBlob(resolve, "image/png"));
+      return blob ? { blob } : { problem: "the canvas could not be made a picture" };
+    } finally {
+      holder.remove();
+    }
+  }
+
+  /** Makes every picture the solutions in `doc` save, before anything
+   *  else runs: each image in `root` naming its file shows it, and where
+   *  the page was told where (`save`), it is saved beside the document.
+   *  A teacher is told why one could not be made.
+   *  Doc -> Element -> String -> Promise */
+  async makePictures(doc, root, baseURL) {
+    const wanted = pictures(doc.notebook);
+    if (!wanted.length || typeof document === "undefined") return;
+    const base = new URL(baseURL || ".", document.baseURI);
+    const jobs = wanted.map((want) => {
+      const target = new URL(want.file, base).href;
+      const images = [...root.querySelectorAll("img")]
+        .filter((img) => new URL(img.getAttribute("src") ?? "", base).href === target);
+      for (const img of images) img.style.visibility = "hidden";
+      return { want, target, images };
+    });
+    for (const { want, target, images } of jobs) {
+      let made;
+      try {
+        made = await this.picture(want, doc);
+      } catch (err) {
+        made = { problem: err.message };
+      }
+      for (const img of images) img.style.visibility = "";
+      if (made.blob) {
+        const url = URL.createObjectURL(made.blob);
+        for (const img of images) img.src = url;
+        this.save(target, made.blob);
+      } else {
+        console.warn(`${want.file}: ${made.problem}`);
+        if (this.cfg.mode === "teacher") {
+          for (const img of images.length ? images : []) {
+            img.after(Object.assign(document.createElement("div"), {
+              className: "pkn-picture-problem",
+              textContent: `${want.file} was not made: ${made.problem}`,
+            }));
+          }
+        }
+      }
+    }
+  }
+
+  /** Saves a picture beside the document, where the page was told how:
+   *  posted to `save.url` under its path below `save.root`. Nothing is
+   *  said where it cannot be. String -> Blob -> () */
+  save(target, blob) {
+    const save = this.cfg.save;
+    if (!save?.url || !save.root || !target.startsWith(save.root)) return;
+    const path = target.slice(save.root.length).split("/").map(encodeURIComponent).join("/");
+    fetch(new URL(path, save.url), { method: "POST", body: blob })
+      .then((response) => {
+        if (!response.ok) console.warn(`could not save ${path}: ${response.status}`);
+      })
+      .catch(() => { /* no server to save to */ });
   }
 
   /** Ends the running cell and cancels every queued one. The compiler's
@@ -500,6 +629,8 @@ class Notebook extends Cells {
   async init() {
     this.buildDom();
     if (this.doc.math) this.renderMath();
+    // First in the run queue: the text may show what they make.
+    this.picturesMade = this.makePictures(this.doc, this.host, this.baseURL);
     await super.init();
     for (const pre of this.host.querySelectorAll("pre.pkn-code")) this.highlight(pre);
     if (this.activities[0]?.checks) this.check();

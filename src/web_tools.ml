@@ -132,6 +132,7 @@ let common_site () : Web_server.site =
       ];
     files = [ ("/pyking/pyking.js", bundle ()) ];
     answers = [ ("/pyking/manifest.json", (bundle_manifest, "application/json")) ];
+    posts = [];
     listing = false;
   }
 
@@ -142,14 +143,42 @@ let extended (more : Web_server.site) (site : Web_server.site) : Web_server.site
     mounts = more.mounts @ site.mounts;
     files = more.files @ site.files;
     answers = more.answers @ site.answers;
+    posts = more.posts @ site.posts;
     listing = site.listing || more.listing;
   }
 
 (* --- the notebook --- *)
 
+(** Writes a picture a notebook made into its document's directory:
+    `path` a .png file under `directory`, named by plain parts with no
+    `..` and none hidden. Leaves a file already holding those bytes
+    alone. string -> string -> string -> (unit, string) result *)
+let save_picture directory path bytes =
+  let parts = String.split_on_char '/' path in
+  let plain part =
+    part <> "" && part.[0] <> '.'
+    && String.for_all (fun c -> match c with 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '-' | '.' -> true | _ -> false) part
+  in
+  if not (List.for_all plain parts) || not (Filename.check_suffix path ".png") then
+    Error "only a .png file beside the notebook can be saved"
+  else
+    let file = List.fold_left Filename.concat directory parts in
+    let same =
+      Sys.file_exists file
+      && In_channel.with_open_bin file In_channel.input_all = bytes
+    in
+    if same then Ok ()
+    else if not (Sys.file_exists (Filename.dirname file)) then Error "no such directory"
+    else
+      try
+        Out_channel.with_open_bin file (fun out -> Out_channel.output_string out bytes);
+        Ok ()
+      with Sys_error message -> Error message
+
 (** What the notebook serves for one document in one mode: the page, its
-    scripts, the document's directory under doc/, and notebook.json,
-    which also tells the page to reload when the document changes.
+    scripts, the document's directory under doc/, notebook.json, which
+    also tells the page to reload when the document changes and where it
+    saves a picture, and save/, where it does.
     string -> string -> Web_server.site *)
 let notebook_site document mode =
   let assets = under [ "tools"; "notebook"; "assets" ] in
@@ -160,6 +189,7 @@ let notebook_site document mode =
         ("document", json_string (Filename.basename document));
         ("mode", json_string mode);
         ("watch", "true");
+        ("save", json_string "save/");
       ]
     ^ "\n"
   in
@@ -168,6 +198,7 @@ let notebook_site document mode =
       mounts = [ ("/notebook/", assets); ("/doc/", Filename.dirname document) ];
       files = [ ("/", index); ("/index.html", index) ];
       answers = [ ("/notebook.json", ((fun () -> config), "application/json")) ];
+      posts = [ ("/save/", save_picture (Filename.dirname document)) ];
       listing = false;
     }
     (common_site ())
@@ -262,6 +293,7 @@ let playground_site () =
       mounts = [ ("/assets/", assets) ];
       files = [ ("/", index); ("/index.html", index) ] @ examples;
       answers = [ ("/assets/playground.json", (playground_manifest, "application/json")) ];
+      posts = [];
       listing = false;
     }
     (common_site ())
@@ -273,7 +305,7 @@ let playground_site () =
 let help_site () =
   let index = under [ "tools"; "help"; "assets"; "index.html" ] in
   extended
-    { mounts = []; files = [ ("/", index); ("/index.html", index) ]; answers = []; listing = false }
+    { mounts = []; files = [ ("/", index); ("/index.html", index) ]; answers = []; posts = []; listing = false }
     (common_site ())
 
 (* --- starting one --- *)
@@ -301,7 +333,7 @@ let start tool port mode path =
         Error (Printf.sprintf "pyk serve: no such directory: %s" (Option.value ~default:"." path))
       else
         serve ~page
-          { mounts = [ ("/", directory) ]; files = []; answers = []; listing = true }
+          { mounts = [ ("/", directory) ]; files = []; answers = []; posts = []; listing = true }
           directory port []
   | Playground ->
       let* () = check_bundle "pyk playground" in

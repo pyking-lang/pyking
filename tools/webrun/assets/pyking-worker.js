@@ -32,7 +32,9 @@
 //
 // `run` may carry `tinywebLog`, and {type: "tinywebLog", on} -- no `id`,
 // no reply -- turns it on or off while a run goes on: tinyweb's log, each
-// line as `debug`, which is what `pyk --tinyweb-log` prints on stderr.
+// line as `debug`, which is what `pyk --tinyweb-log` prints on stderr --
+// or, with `tinywebLog` "separate", each line as {type: "tinyweb", text},
+// kept apart from what the program itself writes with `debug`.
 //
 // `debug` debugs a program instead of running it; see "the debugger"
 // below.
@@ -226,13 +228,16 @@ function analyze(message) {
  *  imported, so a caller that cannot wait -- the test suite -- need not. */
 /** Shows the tinyweb log, or stops showing it: each line as a `debug`
  *  line, which is how the page shows what `pyk --tinyweb-log` prints on
- *  stderr (lib/tinyweb/tinyweb_external_interpreter.js). Bool -> () */
+ *  stderr (lib/tinyweb/tinyweb_external_interpreter.js), or as a
+ *  `tinyweb` message where `on` is "separate". (Bool | "separate") -> () */
 function tinywebLog(on) {
-  self.pykTinywebLog = on ? (line) => debugOut(line + "\n") : null;
+  self.pykTinywebLog = on === "separate"
+    ? (line) => self.postMessage({ type: "tinyweb", text: line + "\n" })
+    : on ? (line) => debugOut(line + "\n") : null;
 }
 
 function run(message) {
-  tinywebLog(Boolean(message.tinywebLog));
+  tinywebLog(message.tinywebLog === "separate" ? "separate" : Boolean(message.tinywebLog));
   const analysis = analyze(message);
   if (!analysis.ok) return analysis;
   const mine = own(message);
@@ -314,7 +319,7 @@ function debugStart(message) {
   }
   if (debug !== null) self.pykDebugStop();
   debug = null;
-  tinywebLog(Boolean(message.tinywebLog));
+  tinywebLog(message.tinywebLog === "separate" ? "separate" : Boolean(message.tinywebLog));
   const analysis = analyze(message);
   if (!analysis.ok) return analysis;
   const mine = own(message);

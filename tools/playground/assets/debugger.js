@@ -572,7 +572,10 @@ export class Debugger {
       this.setStatus("The top level has ended; waiting for the page's events. "
                      + "A breakpoint in a callback stops there.");
     } else if (state === "stopped") {
-      if (this.app.tab !== "debug") {
+      // Starting and a breakpoint bring the Debug tab; a step leaves the
+      // tab being looked at, the Web output say, where it is.
+      const brings = ["entry", "breakpoint"].includes(this.reason?.reason);
+      if (brings && this.app.tab !== "debug") {
         this.app.showTab("debug");
         const focused = document.activeElement;
         if (!this.app.ui.leftEditor.contains(focused) && !this.panel.contains(focused)) {

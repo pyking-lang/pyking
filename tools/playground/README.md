@@ -408,7 +408,8 @@ code. The program runs on the compiler's worker a slice at a time, so a
 pause reaches even a loop that never ends. A tinyweb program's page is
 on the Web output tab; a breakpoint in one of its callbacks stops when
 the event arrives, and the page's events wait while the program is
-stopped. Whenever the program stops, the Debug tab is shown. See `docs/debugging.md`.
+stopped. Starting and stopping at a breakpoint show the Debug tab; a
+step leaves the tab being looked at, the Web output say, where it is. See `docs/debugging.md`.
 
 ### The REPL
 

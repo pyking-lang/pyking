@@ -199,6 +199,9 @@ notebook's cells -- and `src/web_server.ml` serves it on
 `$PYKING_WEB_HOST` names another address to listen on; the Docker
 image sets it to `0.0.0.0`, since a container's own 127.0.0.1 cannot be
 reached from outside it.
+The one request that writes is the notebook's `POST /save/PATH`: a
+picture a solution made, written as PATH beside the document -- a .png,
+named by plain parts, in a directory that exists.
 `pyk serve DIR` serves a directory's files the same way, which is what
 `--run` does for a `web` or `iweb` page. `tools/webrun/server.py`
 and `tools/playground/playground.py` say the same layout in Python, for

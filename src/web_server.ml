@@ -7,8 +7,9 @@
     docs/build.md ("The web tools").
 
     Data structures:
-      site -- URL prefixes mapped to directories, URL paths to files, and
-        URL paths to answers computed per request.
+      site -- URL prefixes mapped to directories, URL paths to files,
+        URL paths to answers computed per request, and URL prefixes to
+        what a POST there does.
 
     Functions:
       resolve site path -- the file or directory a URL path names.
@@ -18,6 +19,7 @@ type site = {
   mounts : (string * string) list;
   files : (string * string) list;
   answers : (string * ((unit -> string) * string)) list;
+  posts : (string * (string -> string -> (unit, string) result)) list;
   listing : bool;
 }
 
@@ -177,6 +179,30 @@ let respond site path =
           | Some body -> plain 200 "OK" (content_type file) body
           | None -> not_found))
 
+(** What a POST of `body` to a URL path answers: the handler of the
+    longest prefix of the path, given the rest of the path and the body.
+    site -> string -> string -> response *)
+let accept site path body =
+  let text status reason message = plain status reason "text/plain; charset=utf-8" (message ^ "\n") in
+  let starts prefix =
+    String.length path >= String.length prefix && String.sub path 0 (String.length prefix) = prefix
+  in
+  let found =
+    List.fold_left
+      (fun best (prefix, handle) ->
+        match best with
+        | Some (p, _) when String.length p >= String.length prefix -> best
+        | _ -> if starts prefix then Some (prefix, handle) else best)
+      None site.posts
+  in
+  match found with
+  | None -> text 404 "Not Found" "404 Not Found"
+  | Some (prefix, handle) -> (
+      let rest = String.sub path (String.length prefix) (String.length path - String.length prefix) in
+      match handle rest body with
+      | Ok () -> text 200 "OK" "saved"
+      | Error message -> text 400 "Bad Request" message)
+
 (** The bytes sent for a response, with the body left out for a HEAD.
     string -> response -> bool -> bool -> string *)
 let encode path response head keep =
@@ -261,6 +287,7 @@ let rec answer site fd pending =
             let response =
               match meth with
               | "GET" | "HEAD" -> respond site path
+              | "POST" -> accept site path (String.sub pending stop length)
               | _ -> plain 501 "Not Implemented" "text/plain" "501 Not Implemented\n"
             in
             write_all fd (encode path response (meth = "HEAD") keep);

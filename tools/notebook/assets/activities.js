@@ -14,9 +14,11 @@
 // Functions:
 //   Activities(cells, doc, root, options) -- mounts them into root.
 //   results() -- every item's state and the totals, for an embedding page.
+//   lineDiff(a, b) -- two texts' lines side by side, what differs marked.
 
 import { escapeHTML } from "./markdown.js";
-import { checkQuiz, award, quizAward, rightAnswers, sameOutput, summary } from "./exercises.js";
+import { allowedLine, checkQuiz, award, graded, normalizeOutput, quizAward, rightAnswers, sameOutput,
+  summary } from "./exercises.js";
 
 /** How long one run of a submitted answer may take, in milliseconds. */
 const SUBMIT_TIMEOUT = 10000;
@@ -94,7 +96,8 @@ export class Activities {
   }
 
   /** Every item's state, and the totals: what an embedding page asks.
-   *  () -> {items, solved, total, points, max, pass, passed, done} */
+   *  An item submitted with git is not `graded`, and the totals leave it
+   *  out. () -> {items, solved, total, points, max, pass, passed, done} */
   results() {
     const items = this.notebook.items.map((item) => {
       const state = this.states[item.id];
@@ -106,6 +109,7 @@ export class Activities {
         points: state.points,
         maxPoints: item.points,
         attemptsLeft: item.attempts === null ? null : Math.max(0, item.attempts - state.used),
+        graded: graded(item),
       };
     });
     return { items, ...summary(this.notebook, this.states) };
@@ -219,7 +223,7 @@ export class Activities {
           owned.add(item.solution.cell);
           indices.push(doc.cells[item.solution.cell].part);
         }
-        indices.push(...blocks(item.tests));
+        indices.push(...blocks(item.tests), ...item.allowedParts.map((block) => block.index));
       }
       report(widget.key?.isConnected ? widget.key : widget.box, indices, true);
     }
@@ -270,6 +274,9 @@ export class Activities {
     const limits = [];
     if (rules.max !== null) limits.push(`<span><b>${formatNumber(rules.max)}</b> points</span>`);
     if (rules.pass !== null) limits.push(`<span>pass at <b>${formatNumber(rules.pass)}</b></span>`);
+    const git = this.notebook.items.filter((item) => !graded(item))
+      .reduce((total, item) => total + (item.points ?? 0), 0);
+    if (git) limits.push(`<span>and <b>${formatNumber(git)}</b> submitted with git, graded elsewhere</span>`);
     box.innerHTML = `<div class="pkn-rules-head"><span class="pkn-rules-title">Rules</span>`
       + `${limits.length ? `<span class="pkn-rules-limits">${limits.join("")}</span>` : ""}</div>`
       + `<div class="pkn-rules-body">${rules.html}</div>`;
@@ -328,9 +335,11 @@ class ExerciseWidget {
         <span class="pkn-badges" data-r="badges"></span>
       </div>
       <div data-r="body"></div>
+      <div class="pkn-git pkn-hidden" data-r="git">Please submit via your git account.</div>
       <div class="pkn-tests" data-r="tests"></div>
-      <div class="pkn-activity-actions">
+      <div class="pkn-activity-actions" data-r="actions">
         <button class="pkn-button pkn-primary" data-r="submit">Submit</button>
+        <button class="pkn-button pkn-hidden" data-r="diff">See result diff</button>
         <button class="pkn-button pkn-hidden" data-r="show">Show a solution</button>
       </div>
       <div class="pkn-feedback pkn-hidden" data-r="feedback"></div>
@@ -343,11 +352,18 @@ class ExerciseWidget {
     anchor?.before(box);
     if (this.cell) this.ui.body.append(this.cell.element);
     else anchor?.remove();
+    // An answer submitted with git is written elsewhere: no box for it.
+    this.git = item.method === "git";
+    if (this.git) {
+      this.ui.body.classList.add("pkn-hidden");
+      this.ui.git.classList.remove("pkn-hidden");
+    }
     if (this.solutionCell) this.ui.solution.append(this.solutionCell.element);
     let shownTests = 0;
     for (const test of item.tests) {
       for (const block of [test.input, test.output, test.error]) {
-        if (!block) continue;
+        // One stdin block split into several tests is shown once.
+        if (!block || used.has(block.index)) continue;
         used.add(block.index);
         const placeholder = at(block);
         if (this.a.teacher || isVisible(block)) {
@@ -357,11 +373,21 @@ class ExerciseWidget {
         placeholder?.remove();
       }
     }
+    // What the comparison allows to differ: a teacher's to see.
+    for (const block of item.allowedParts) {
+      used.add(block.index);
+      if (this.a.teacher) {
+        this.ui.tests.append(ioBox(block));
+        shownTests += 1;
+      }
+      at(block)?.remove();
+    }
     if (shownTests) {
       this.ui.tests.prepend(element("div", "pkn-tests-label",
         this.a.teacher ? "Tests" : "Examples"));
     }
     this.ui.submit.addEventListener("click", () => this.submit());
+    this.ui.diff.addEventListener("click", () => this.showDiff());
     this.ui.show.addEventListener("click", () => {
       this.a.states[item.id].shown = true;
       this.render();
@@ -392,16 +418,22 @@ class ExerciseWidget {
       badges.push(badge(s.state === "solved"
         ? `${formatNumber(s.points)} of ${formatNumber(item.points)} points`
         : `${formatNumber(item.points)} point${item.points === 1 ? "" : "s"}`));
-      if (item.penalty) badges.push(badge(`−${formatNumber(item.penalty)} per failed try`));
+      if (item.penalty && !this.git) badges.push(badge(`−${formatNumber(item.penalty)} per failed try`));
     }
-    if (item.attempts !== null && s.state === "open") {
-      const left = item.attempts - s.used;
-      badges.push(badge(`${left} attempt${left === 1 ? "" : "s"} left`, "pkn-badge-attempts"));
+    if (this.git) {
+      badges.push(badge("submitted with git"));
+    } else {
+      if (item.attempts !== null && s.state === "open") {
+        const left = item.attempts - s.used;
+        badges.push(badge(`${left} attempt${left === 1 ? "" : "s"} left`, "pkn-badge-attempts"));
+      }
+      badges.push(stateBadge(s.state));
     }
-    badges.push(stateBadge(s.state));
     this.ui.badges.innerHTML = badges.join("");
-    this.box.dataset.state = s.state;
+    this.box.dataset.state = this.git ? "git" : s.state;
+    this.ui.submit.classList.toggle("pkn-hidden", this.git);
     this.ui.submit.disabled = s.state !== "open" || !this.cell;
+    this.ui.diff.classList.toggle("pkn-hidden", !this.lastFailure);
     const solutionShown = this.a.teacher || (s.shown && item.solution?.available);
     this.ui.show.classList.toggle("pkn-hidden",
       !item.solution || this.a.teacher || !item.solution.available || !!s.shown);
@@ -443,7 +475,7 @@ class ExerciseWidget {
             + (expected.text ?? ""), answer, expected, broken: true };
           break;
         }
-        const problem = compare(answer, expected, test, !!this.solutionCell);
+        const problem = compare(answer, expected, test, !!this.solutionCell, item.allowed);
         if (problem) {
           failed = { test, stdin, args, problem, answer, expected };
           break;
@@ -452,6 +484,8 @@ class ExerciseWidget {
     } finally {
       this.busy = false;
     }
+    // What "See result diff" shows: the first test whose outputs differ.
+    this.lastFailure = failed && !failed.broken && failed.answer?.ok ? failed : null;
     if (failed?.broken) {
       s.feedback = { kind: "bad", html: `<pre>${escapeHTML(failed.problem)}</pre>` };
     } else if (!failed) {
@@ -480,20 +514,176 @@ class ExerciseWidget {
       stdin,
       args: this.a.cells.web.splitArguments(args),
       timeout: SUBMIT_TIMEOUT,
+      tinyweb: true,
     });
   }
+
+  /** Shows the first test whose outputs differed, side by side: its
+   *  input, the pictures the two drew where they drew any, and what each
+   *  printed and drew, a line only one of them wrote marked. () -> () */
+  async showDiff() {
+    const failed = this.lastFailure;
+    if (!failed) return;
+    const { answer, expected } = failed;
+    const host = this.box.closest(".pkn-notebook") ?? document.body;
+    const backdrop = element("div", "pkn-modal-backdrop");
+    const drawn = (answer.page?.length ?? 0) + (expected.page?.length ?? 0) > 0;
+    const sections = [];
+    sections.push(`<div class="pkn-diff-case">
+        <div class="pkn-diff-case-title">The test case</div>
+        ${io("stdin", failed.stdin || "(none)")}
+        ${io("args", failed.args || "(none)")}
+      </div>
+      <div class="pkn-diff-what">${escapeHTML(failed.problem)}</div>
+      <div class="pkn-diff-legend"><span class="pkn-diff-del">only in your submission</span>
+        <span class="pkn-diff-add">only in the possible solution</span>
+        ${this.item.allowed.length
+          ? `<span class="pkn-diff-allowed">a difference the exercise allows</span>` : ""}</div>`);
+    if (drawn) {
+      sections.push(`<h4 class="pkn-diff-title">tinyweb: what each drew on its page</h4>
+        <div class="pkn-diff-pair">
+          <figure><figcaption>Your submission</figcaption><div class="pkn-diff-page" data-r="mine"></div></figure>
+          <figure><figcaption>Possible solution</figcaption><div class="pkn-diff-page" data-r="theirs"></div></figure>
+        </div>`);
+    }
+    const rules = this.item.allowed;
+    sections.push(diffSection("Standard output", answer.stdout, expected.stdout, rules));
+    if ((answer.tinyweb ?? "") !== "" || (expected.tinyweb ?? "") !== "") {
+      sections.push(diffSection("tinyweb: the commands each sent its page",
+        answer.tinyweb ?? "", expected.tinyweb ?? "", rules));
+    }
+    if (failed.test?.error || normalizeOutput(answer.stderr) !== normalizeOutput(expected.stderr)) {
+      sections.push(diffSection("debug (standard error)", answer.stderr, expected.stderr, rules));
+    }
+    if ((answer.exit ?? 0) !== (expected.exit ?? 0)) {
+      sections.push(`<div class="pkn-diff-what">Your submission ended with status ${answer.exit ?? 0}; `
+        + `the possible solution with ${expected.exit ?? 0}.</div>`);
+    }
+    backdrop.innerHTML = `<div class="pkn-modal pkn-diff" role="dialog" aria-modal="true"
+        aria-label="Result diff">
+      <div class="pkn-modal-head"><strong>Exercise ${this.item.number}: the first test that did not match</strong>
+        <button class="pkn-icon pkn-modal-close" data-r="close" title="Close (Esc)"
+          aria-label="Close">✕</button></div>
+      <div class="pkn-modal-body">${sections.join("")}</div>
+    </div>`;
+    host.append(backdrop);
+    const pages = [];
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+      }
+    };
+    const close = () => {
+      for (const page of pages) page.close();
+      backdrop.remove();
+      document.removeEventListener("keydown", onKey, true);
+      this.ui.diff.focus();
+    };
+    document.addEventListener("keydown", onKey, true);
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) close();
+    });
+    const closer = backdrop.querySelector('[data-r="close"]');
+    closer.addEventListener("click", close);
+    closer.focus();
+    if (drawn) {
+      const { cells } = this.a;
+      pages.push(await cells.drawPage(backdrop.querySelector('[data-r="mine"]'), answer.page ?? []));
+      pages.push(await cells.drawPage(backdrop.querySelector('[data-r="theirs"]'), expected.page ?? []));
+    }
+  }
+}
+
+/** One output of a submission and of the solution side by side, as a
+ *  table: a line only the submission wrote in red on the left, one only
+ *  the solution wrote in green on the right, and a pair that differs
+ *  only as a diff-allowed rule allows marked on both.
+ *  String -> String -> String -> [Rule] -> String */
+function diffSection(title, mine, theirs, rules = []) {
+  const rows = lineDiff(normalizeOutput(mine ?? ""), normalizeOutput(theirs ?? ""),
+    (a, b) => a === b || allowedLine(rules, a, b));
+  const same = rows.every((row) => row.kind !== "change");
+  const cell = (line, number, kind) => (line === null
+    ? `<td class="pkn-diff-n"></td><td class="pkn-diff-line pkn-diff-none"></td>`
+    : `<td class="pkn-diff-n">${number}</td>`
+      + `<td class="pkn-diff-line${kind ? " " + kind : ""}">${escapeHTML(line) || " "}</td>`);
+  const mark = (row, changed) => row.kind === "change" ? changed
+    : row.kind === "same" && row.left !== row.right ? "pkn-diff-allowed" : "";
+  const body = rows.map((row) => `<tr>${cell(row.left, row.l, mark(row, "pkn-diff-del"))}`
+    + `${cell(row.right, row.r, mark(row, "pkn-diff-add"))}</tr>`).join("");
+  const empty = rows.length === 0
+    ? `<tr><td colspan="4" class="pkn-diff-empty">neither wrote anything</td></tr>` : "";
+  return `<h4 class="pkn-diff-title">${escapeHTML(title)}`
+    + `${same ? ` <span class="pkn-diff-same">the same</span>` : ""}</h4>
+    <table class="pkn-diff-table"><colgroup><col class="pkn-diff-ncol"><col>
+      <col class="pkn-diff-ncol"><col></colgroup><thead><tr><th colspan="2">Your submission</th>
+      <th colspan="2">Possible solution</th></tr></thead><tbody>${body}${empty}</tbody></table>`;
+}
+
+/** Two texts' lines side by side, by their longest common subsequence:
+ *  a row is a line the same on both sides -- by `same`, equality unless
+ *  given -- or a change: what one side has and the other does not,
+ *  paired up where both have some, null where a side has none. Line
+ *  numbers count from 1.
+ *  String -> String -> ((String, String) -> Bool)? -> [{kind, left, right, l, r}] */
+export function lineDiff(a, b, same = (x, y) => x === y) {
+  const x = a === "" ? [] : a.split("\n");
+  const y = b === "" ? [] : b.split("\n");
+  const n = x.length;
+  const m = y.length;
+  const longest = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      longest[i][j] = same(x[i], y[j]) ? longest[i + 1][j + 1] + 1
+        : Math.max(longest[i + 1][j], longest[i][j + 1]);
+    }
+  }
+  const rows = [];
+  let gone = [];
+  let added = [];
+  const flush = () => {
+    for (let k = 0; k < Math.max(gone.length, added.length); k++) {
+      rows.push({ kind: "change", left: gone[k]?.[0] ?? null, l: gone[k]?.[1] ?? null,
+                  right: added[k]?.[0] ?? null, r: added[k]?.[1] ?? null });
+    }
+    gone = [];
+    added = [];
+  };
+  let i = 0;
+  let j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && same(x[i], y[j])) {
+      flush();
+      rows.push({ kind: "same", left: x[i], right: y[j], l: i + 1, r: j + 1 });
+      i += 1;
+      j += 1;
+    } else if (j >= m || (i < n && longest[i + 1][j] >= longest[i][j + 1])) {
+      gone.push([x[i], i + 1]);
+      i += 1;
+    } else {
+      added.push([y[j], j + 1]);
+      j += 1;
+    }
+  }
+  flush();
+  return rows;
 }
 
 /** What is wrong with an answer's run, compared with what was expected,
  *  or null. {ok, stdout, stderr, exit, text} -> {..} -> Test -> Bool ->
  *  String? */
-function compare(answer, expected, test, hasSolution) {
+function compare(answer, expected, test, hasSolution, rules = []) {
   if (answer.timedOut) return "Your program did not finish in time.";
   if (!answer.ok) return "Your program did not run:\n" + (answer.text ?? "").trimEnd();
-  if ((hasSolution || test.output) && !sameOutput(answer.stdout, expected.stdout)) {
+  const allowed = hasSolution ? rules : [];
+  if ((hasSolution || test.output) && !sameOutput(answer.stdout, expected.stdout, allowed)) {
     return "The output is not what it should be.";
   }
-  if (test.error && !sameOutput(answer.stderr, expected.stderr)) {
+  if (hasSolution && !sameOutput(answer.tinyweb ?? "", expected.tinyweb ?? "", allowed)) {
+    return "What it drew with tinyweb is not what it should be.";
+  }
+  if (test.error && !sameOutput(answer.stderr, expected.stderr, allowed)) {
     return "What debug printed is not what it should be.";
   }
   if (hasSolution && (answer.exit ?? 0) !== (expected.exit ?? 0)) {

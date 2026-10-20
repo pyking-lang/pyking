@@ -31,6 +31,7 @@ export class PykingRuntime {
     this.nextId = 1;
     this.onOutput = null;          // set for the duration of a run
     this.onDebug = null;           // likewise, for `debug`
+    this.onTinyweb = null;         // likewise, for tinyweb's log kept apart
     this.onShow = null;            // what a REPL entry shows, while it runs
     this.onInput = null;           // likewise, for a line the program read
     this.onPage = null;            // likewise, for what a program sends its page
@@ -98,6 +99,7 @@ export class PykingRuntime {
     if (message.type === "status") return this.onStatus(message.message);
     if (message.type === "stdout") return this.onOutput?.(message.text);
     if (message.type === "debug") return this.onDebug?.(message.text);
+    if (message.type === "tinyweb") return this.onTinyweb?.(message.text);
     if (message.type === "show") return this.onShow?.(message.text);
     if (message.type === "stdin") return this.onInput?.(message.text);
     if (message.type === "page") {
@@ -229,20 +231,23 @@ export class PykingRuntime {
    *  with each piece of output as it is written, so output produced
    *  before a hang is not lost; `onDebug` with each `debug` line, and
    *  `onInput` with each line the program read. `stdin` is what the
-   *  program reads, and `args` what `sys.args()` answers.
+   *  program reads, and `args` what `sys.args()` answers. `tinywebLog`
+   *  true sends tinyweb's log to `onDebug`, and "separate" to
+   *  `onTinyweb`, a line at a time.
    *
    *  Resolves to {ok:true, exit?} -- `exit` being the status `sys.exit`
    *  ended the run with -- or to a refusal in `compile`'s own shape,
    *  {ok:false, text, info?}, since running compiles first and a program
    *  that does not check is refused the same way either way. */
   async runProgram(source, {
-    onOutput, onDebug, onInput, onPage, onFailure, onExit, onEnd,
+    onOutput, onDebug, onTinyweb, onInput, onPage, onFailure, onExit, onEnd,
     name = "playground.pyk", stdin = "", args = [], release = false, tinywebLog = false,
   } = {}) {
     this._require();
     this.endLive();
     this.onOutput = onOutput || null;
     this.onDebug = onDebug || null;
+    this.onTinyweb = onTinyweb || null;
     this.onInput = onInput || null;
     this.onPage = onPage || null;
     this.onFailure = onFailure || null;
@@ -386,6 +391,7 @@ export class PykingRuntime {
     this._live = false;
     this.onOutput = null;
     this.onDebug = null;
+    this.onTinyweb = null;
     this.onShow = null;
     this.onInput = null;
     this.onPage = null;

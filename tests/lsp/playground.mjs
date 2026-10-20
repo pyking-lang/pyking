@@ -428,7 +428,7 @@ const DEBUG = `(async () => { ${HELPERS}
   $("[data-tab=repl]").click();
   press($("[data-r=replInput]"), "i", "KeyI", { altKey: true });
   check("Alt+I in another tab steps into the call", await stoppedAt(2, 2), stack());
-  check("and shows the Debug tab", app.tab === "debug", app.tab);
+  check("and leaves the tab being looked at", app.tab === "repl", app.tab);
   d("continue").click();
   check("the program runs to its end",
     await until(() => dbg.state === "off" && consoleText().includes("total 9")), consoleText());

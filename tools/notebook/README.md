@@ -226,6 +226,7 @@ Another example
 | `points = N` | what solving it gives | none: solved or not |
 | `penalty = N` | taken off the points for each failed Submit, never below 0 | 0 |
 | `stdin = "…"`, `args = "…"` | the input the cell starts with, and that a test without its own uses | empty |
+| `method = code_box` or `git` | where the answer is written: in the page, or elsewhere and pushed with git | `code_box` |
 
 The blocks after it are, in this order and each optional: one
 ```` ```pyking solution ````, then the tests. A test is a
@@ -237,7 +238,8 @@ is an error, and so is anything else between them. The next exercise
 starts a new one.
 
 **Submit** runs the student's code on every test. With a solution, the
-solution runs on the same input, and the two must print the same and end
+solution runs on the same input, and the two must print the same, draw
+the same with tinyweb -- its log, as `--tinyweb-log` writes it -- and end
 with the same status; what `debug` writes is compared too where the test
 has a stderr block. The blocks' own text is then only checked by test
 mode, against the solution. Without a solution, the student's output
@@ -247,9 +249,72 @@ Each run may take ten seconds. A failed Submit uses an attempt and, unless
 `attempts = 1`, shows one failed test: its input, what was expected and
 what the answer printed. Running the cell with **▶** is free.
 
+When a test fails, **See result diff** beside Submit shows the first
+test whose outputs differed: its stdin and args, what each program drew
+with tinyweb as two pictures, "Your submission" and "Possible solution",
+and side by side what each printed and what each sent its page, a line
+only the submission wrote in red and one only the solution wrote in
+green.
+
 **Show a solution** shows the solution under the exercise, at any time,
-unless it says `available = false`; then it is never shown in student
-mode. A solved exercise turns green, with a check mark.
+where it says `available = true`; without it the solution is never shown
+in student mode. A solved exercise turns green, with a check mark.
+
+A stdin block with **`lines_per_multi_input = N`** is a test for every
+N lines of it, each run on its own with the block's arguments; every one
+must pass. Its pieces are compared with the solution, so the exercise
+needs one, and no stdout or stderr block follows it.
+
+````markdown
+```stdin lines_per_multi_input = 1
+1
+2
+3
+```
+````
+
+A **```` ```diff-allowed ````** block under an exercise loosens how an
+answer is compared with its solution. Each line of it is a pattern: its
+text must match a line exactly, except that each `[+/-N]` stands for a
+number, and a line of the answer and the solution's line count as the
+same when both match one pattern and each such number of the answer is
+at most N from the solution's. N may be a decimal (`[+/-3.21]`), and a
+line may have several. It applies to what is printed and to tinyweb's
+log alike, and "See result diff" marks such a pair as an allowed
+difference rather than a change. It is a teacher's to see.
+
+````markdown
+```diff-allowed
+circle "canvas" 75 0 [+/-2] "#000000" "" 1.000 1.000
+```
+````
+
+An exercise with **`method = git`** is answered somewhere else and
+pushed with git: the page shows "Please submit via your git account"
+in place of the code box and Submit, and grades nothing. Its points are
+left out of the totals and of `max`, and the rules box says how many are
+graded elsewhere.
+
+A solution may save what it draws as a picture, which the text can
+show: **`save_canvas = "c"`** names a tinyweb canvas and **`file =
+"name.png"`** the file beside the notebook it is saved as. The solution
+runs first thing when the page opens, on its own `stdin` and `args`
+where its header gives them, and the canvas is drawn on white at its
+size; every image in the text naming that file shows it, and `pyk
+notebook` also writes the file. A teacher is told when it could not be
+made.
+
+````markdown
+![For 40](square.png)
+
+```pyking exercise
+print("Add your code here")
+```
+
+```pyking solution stdin = "40" save_canvas = "canvas" file = "square.png"
+...
+```
+````
 
 ### Quizzes
 
@@ -347,7 +412,12 @@ for each problem, and exits with 1 if there was one:
   starting code included;
 - a solution prints, on each test's input, what any stdout or stderr
   block after it says, and so does an ordinary cell;
-- an exercise with no solution has an output to compare an answer with.
+- an exercise with no solution has an output to compare an answer with;
+- an exercise's `method` is code_box or git, a solution's `save_canvas`
+  has a `file`, a .png beside the notebook, and a stdin block split by
+  `lines_per_multi_input` is whole pieces, with a solution and no output
+  after it, and a diff-allowed block is under an exercise with a
+  solution, each line holding a `[+/-N]`.
 
 `tests/notebook/broken.md` makes every one of these mistakes, and
 `broken.out` is what test mode says about it.
@@ -395,11 +465,18 @@ a theme is a few overrides. The mounted object has `cells`, `run(index)`,
 mode's checks), `storageKey` (where progress is kept; by default
 from `url`, or from the text given as `markdown`), and `onChange(results)`,
 called whenever an answer is checked. `results()` answers every exercise
-and quiz -- `{id, kind, number, state, points, maxPoints, attemptsLeft}`,
-`state` being `"open"`, `"solved"` or `"failed"` -- with the totals:
-`solved`, `total`, `points`, `max`, `pass`, `passed` and `done`. The
-host element also receives a `pkn-results` event, the same object in
-`detail`.
+and quiz -- `{id, kind, number, state, points, maxPoints, attemptsLeft,
+graded}`, `state` being `"open"`, `"solved"` or `"failed"`, and `graded`
+false for an exercise submitted with git -- with the totals, which leave
+those out: `solved`, `total`, `points`, `max`, `pass`, `passed` and
+`done`. The host element also receives a `pkn-results` event, the same
+object in `detail`.
+
+`save: {url, root}` is where the pictures solutions make are saved: a
+picture whose file is `root` + `path` is posted to `url` + `path`.
+`pyk notebook` gives it as `save` in `notebook.json`, and the server
+writes the file beside the document; without it a picture is only
+shown.
 
 ### Cells without the notebook
 

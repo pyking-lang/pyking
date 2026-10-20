@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Notebook exercises: `method = git` for an exercise answered elsewhere
+  (a note in place of the code box, not graded in the page);
+  `lines_per_multi_input = N` on a stdin block, a test for every N
+  lines; `save_canvas` and `file` on a solution, whose tinyweb canvas is
+  made into a PNG when the page opens, shown wherever the text names
+  the file and saved beside the notebook by `pyk notebook`; and, after
+  a failed Submit, "See result diff": the first test that did not match,
+  its input, both pictures and a side-by-side diff of what each printed
+  and drew. Submit now compares what tinyweb draws as well. A
+  `diff-allowed` block under an exercise lets numbers differ: each line
+  is a pattern whose `[+/-N]` stands for a number allowed to be N, a
+  whole number or a decimal, from the solution's.
 - Structs: `struct Point(x: Int, y = 78)` declares a datatype of one
   constructor named as the type is, its fields on the line or on
   indented lines under `struct Point:`, with type parameters written
@@ -60,6 +72,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A notebook exercise's solution is shown to a student (Show a
+  solution) only where it says `available = true`; the default is now
+  `false`.
 - `tinyweb.bitmap(width, height, background)`: a bitmap starts as
   `background`, white unless given, where it started black. The host
   function under it is `make_bitmap`, with the background, in every

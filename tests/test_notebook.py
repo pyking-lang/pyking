@@ -15,7 +15,10 @@ Five parts:
   renderer  tests/notebook/features.md, which uses every feature the
             renderer supports, against tests/notebook/features.html;
             then a list of short cases against the HTML CommonMark and
-            GitHub give for them.
+            GitHub give for them; and what exercises.js makes of
+            tests/notebook/drawing.md -- an exercise submitted with git,
+            a solution saving a picture, stdin split into tests -- and of
+            the headers it refuses.
   cells     every runnable cell of PYKING-TUTORIAL.md and features.md,
             run through tools/webrun/assets/pyking-worker.js: an `error`
             cell must be refused, every other cell must run.
@@ -25,8 +28,9 @@ Five parts:
             names compared with what pyk serves, the mode the page is
             told, and the refusals: a missing file, a file that is not
             Markdown, a mode there is none of, a missing directory, an
-            address to listen on that is not one.
-  test mode `pyk notebook --mode test` passes features.md, and reports
+            address to listen on that is not one; and what POST /save/
+            writes beside a copy of drawing.md, and refuses.
+  test mode `pyk notebook --mode test` passes features.md and drawing.md, and reports
             exactly what tests/notebook/broken.out says about broken.md.
   page      where a Chromium is found (tests/suite.py, find_chromium) and
             the editor has been vendored (`make vendor`), features.md
@@ -34,6 +38,9 @@ Five parts:
             student mode, exercises submitted wrong and right, quizzes
             answered, progress kept over a reload and forgotten by start
             over; in teacher mode, every solution, test and answer shown.
+            Then drawing.md in each: its picture made, shown and saved,
+            and for a student answers that fail with the diff of the
+            first test that did not match, and answers that pass.
 
 Usage: python3 tests/test_notebook.py [--compiler CMD] [--update]
 
@@ -75,6 +82,8 @@ BUNDLE = REPO / "share" / "pyking.js"
 MARKDOWN = REPO / "tools" / "notebook" / "assets" / "markdown.js"
 EXERCISES = REPO / "tools" / "notebook" / "assets" / "exercises.js"
 BROKEN = FIXTURES / "broken.md"
+DRAWING = FIXTURES / "drawing.md"
+ACTIVITIES = REPO / "tools" / "notebook" / "assets" / "activities.js"
 WORKER = REPO / "tools" / "webrun" / "assets" / "pyking-worker.js"
 VENDOR = REPO / "tools" / "webrun" / "vendor" / "ace" / "ace.js"
 PAGE_DRIVER = FIXTURES / "page.mjs"
@@ -239,6 +248,83 @@ check("the totals: solved, points, and whether they pass",
       totals.solved === 2 && totals.total === 6 && totals.points === 7 && totals.max === 12
       && totals.passed === false && totals.done === false, JSON.stringify(totals));
 
+// 1d. An exercise submitted with git, a solution that saves a picture,
+//     and stdin blocks split into several tests.
+const drawing = renderMarkdown(fs.readFileSync(plan.drawing, "utf8"), { baseURL: "doc/" }).notebook;
+check("drawing.md has no notebook problems", drawing.problems.length === 0,
+      JSON.stringify(drawing.problems));
+const [square, doubling, elsewhere] = drawing.items;
+check("an exercise is answered in the page unless it says method = git",
+      square.method === "code_box" && doubling.method === "code_box" && elsewhere.method === "git"
+      && grading.graded(square) && !grading.graded(elsewhere),
+      JSON.stringify(drawing.items.map((i) => i.method)));
+check("a solution saves its canvas as a picture",
+      JSON.stringify(square.solution.picture) === '{"canvas":"canvas","file":"square.png"}'
+      && doubling.solution.picture === null
+      && JSON.stringify(grading.pictures(drawing).map((p) => [p.exercise.id, p.file]))
+        === '[["exercise-1","square.png"]]',
+      JSON.stringify(square.solution));
+check("a solution is shown to a student only where it says available = true",
+      elsewhere.solution.available === false && square.solution.available === false);
+check("lines_per_multi_input splits a stdin block into tests",
+      JSON.stringify(square.tests.map((t) => t.stdin)) === '["10\\n","20\\n","30\\n"]'
+      && JSON.stringify(doubling.tests.map((t) => t.stdin)) === '["1\\n2\\n","3\\n4\\n"]'
+      && doubling.tests.every((t) => t.input === doubling.tests[0].input),
+      JSON.stringify([square.tests.map((t) => t.stdin), doubling.tests.map((t) => t.stdin)]));
+const drawn = grading.summary(drawing, { "exercise-1": { state: "solved", points: 2 } });
+check("an exercise submitted with git is left out of the totals",
+      drawn.total === 2 && drawn.solved === 1 && drawn.points === 2 && drawn.max === 4,
+      JSON.stringify(drawn));
+for (const [header, problem] of [
+  ["```pyking exercise method = svn\n```\n", "method is code_box or git, not 'svn'"],
+  ["```pyking exercise\n```\n```pyking solution save_canvas = \"c\"\nprint(1)\n```\n",
+   "save_canvas = needs file"],
+  ["```pyking exercise\n```\n```pyking solution save_canvas = \"c\" file = \"../x.png\"\nprint(1)\n```\n",
+   "file is a .png beside the notebook"],
+  ["```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n```stdin lines_per_multi_input = 2\n1\n2\n3\n```\n",
+   "are not pieces of 2"],
+  ["```pyking exercise\n```\n```stdin lines_per_multi_input = 1\n1\n```\n```stdout\n1\n```\n",
+   "compared with the solution"],
+  ["```diff-allowed\nx [+/-1]\n```\n", "belongs under an exercise"],
+  ["```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nx [1]\n```\n",
+   "holds +/- and a number"],
+  ["```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nno slot here\n```\n",
+   "needs a [+/-N]"],
+]) {
+  const found = renderMarkdown(header).notebook.problems.map((p) => p.message);
+  check("refuses " + JSON.stringify(header.split("\n")[header.includes("solution save") ? 2 : 0]),
+        found.some((m) => m.includes(problem)), JSON.stringify(found));
+}
+check("a diff-allowed block's lines are the square's rules",
+      JSON.stringify(square.allowed.map((r) => r.slots)) === "[[2,2],[2]]"
+      && doubling.allowed.length === 0, JSON.stringify(square.allowed.map((r) => r.text)));
+const rect = (n, color) => `rect "canvas" 10 10 ${n} ${n} 0 "${color}" "" 1.000 1.000`;
+check("a number may differ by what a rule allows, and no more",
+      grading.sameOutput(rect(40, "#ff0000") + "\n40", rect(42, "#ff0000") + "\n38", square.allowed)
+      && !grading.sameOutput(rect(40, "#ff0000"), rect(43, "#ff0000"), square.allowed)
+      && !grading.sameOutput(rect(40, "#ff0000"), rect(41, "#0000ff"), square.allowed)
+      && !grading.sameOutput("40", "41", [])
+      && !grading.sameOutput("40\n41", "40", square.allowed));
+const decimals = renderMarkdown("```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n"
+  + "```diff-allowed\nx = [+/-3.21], y = [+/- 0.5]\n```\n").notebook.items[0].allowed;
+check("a rule's slots may be decimals, several on a line",
+      grading.allowedLine(decimals, "x = 1.5, y = 2", "x = -1.71, y = 2.5")
+      && !grading.allowedLine(decimals, "x = 1.5, y = 2", "x = -1.72, y = 2")
+      && !grading.allowedLine(decimals, "x = 1.5, y = 2", "x = 1.5, y = 2.6"),
+      JSON.stringify(decimals.map((r) => r.slots)));
+const { lineDiff } = await import(pathToFileURL(plan.activities).href);
+const rows = lineDiff("a\nb\nc\nd", "a\nB\nc\nd\ne");
+const loose = lineDiff("v 1\nw", "v 2\nw", (x, y) => x === y || grading.allowedLine(
+  renderMarkdown("```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nv [+/-1]\n```\n")
+    .notebook.items[0].allowed, x, y));
+check("a line diff takes lines a rule allows as the same",
+      loose.every((r) => r.kind === "same") && loose[0].left === "v 1" && loose[0].right === "v 2",
+      JSON.stringify(loose));
+check("a line diff pairs what changed and keeps what is the same",
+      JSON.stringify(rows.map((r) => [r.kind, r.left, r.right]))
+        === '[["same","a","a"],["change","b","B"],["same","c","c"],["same","d","d"],["change",null,"e"]]',
+      JSON.stringify(rows));
+
 // 2. The short cases.
 for (const [source, want] of plan.cases) {
   const got = renderMarkdown(source).html.trim();
@@ -363,6 +449,14 @@ check("what it read is echoed", ran.read === "Ada\n", JSON.stringify(ran.read));
 check("its debug line is marked apart", ran.debugged === "read Ada\n",
       JSON.stringify(ran.debugged));
 
+// 4b. tinyweb's log kept apart from debug, as a submission is compared.
+const drew = await ask({ type: "run", name: "drew.pyk", tinywebLog: "separate",
+  source: "import tinyweb as tw\nc = tw.canvas(10, 20)\ndebug(\"mine\")\n" });
+const logged = replies.filter((reply) => reply.type === "tinyweb").map((reply) => reply.text).join("");
+check("with tinywebLog separate, tinyweb's log arrives on its own",
+      drew.answer?.value?.ok && logged === 'canvas "canvas" 10 20\n' && drew.debugged === "mine\n",
+      JSON.stringify([logged, drew.debugged]));
+
 report(JSON.stringify({ checks, cells, failures }));
 
 function firstDifference(a, b) {
@@ -383,6 +477,8 @@ def run_driver(update):
     plan = {
         "markdown": str(MARKDOWN),
         "exercises": str(EXERCISES),
+        "activities": str(ACTIVITIES),
+        "drawing": str(DRAWING),
         "worker": str(WORKER),
         "bundle": str(BUNDLE),
         "lib": str(REPO / "lib"),
@@ -426,12 +522,12 @@ def free_port():
         return probe.getsockname()[1]
 
 
-def fetch(port, path, method="GET"):
+def fetch(port, path, method="GET", body=None):
     """One request, with the path sent exactly as given.
-    Int -> String -> String -> (Int, Bytes)"""
+    Int -> String -> String -> Bytes? -> (Int, Bytes)"""
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
     try:
-        connection.request(method, path)
+        connection.request(method, path, body=body)
         response = connection.getresponse()
         return response.status, response.read()
     finally:
@@ -525,6 +621,41 @@ def check_server(compiler):
         finally:
             stop(process)
 
+    # A picture a solution makes is saved beside the document: into a copy
+    # here, since the server writes it.
+    with tempfile.TemporaryDirectory(prefix="pyk-notebook-") as directory:
+        copy = Path(directory) / DRAWING.name
+        shutil.copy(DRAWING, copy)
+        (Path(directory) / "pictures").mkdir()
+        port = free_port()
+        process, printed = start(compiler, ["notebook", "--port", str(port), str(copy)], environment)
+        check("`pyk notebook` starts on a copy", process is not None, printed)
+        if process is not None:
+            try:
+                status, body = fetch(port, "/notebook.json")
+                check("notebook.json says where a picture is saved",
+                      status == 200 and json.loads(body).get("save") == "save/", body[:120])
+                picture = b"\x89PNG\r\n\x1a\n made by a page"
+                status, _ = fetch(port, "/save/square.png", "POST", picture)
+                check("a picture posted to save/ is written beside the document",
+                      status == 200 and (Path(directory) / "square.png").read_bytes() == picture,
+                      f"status {status}")
+                status, _ = fetch(port, "/save/pictures/sub.png", "POST", picture)
+                check("and into a directory beside it",
+                      status == 200 and (Path(directory) / "pictures" / "sub.png").exists(),
+                      f"status {status}")
+                status, _ = fetch(port, "/save/square.png", "POST", picture)
+                check("the same picture again is answered too", status == 200, f"status {status}")
+                for path in ["/save/../escape.png", "/save/%2e%2e/escape.png", "/save/notes.txt",
+                             "/save/.hidden.png", "/save/missing/x.png", "/save/"]:
+                    status, _ = fetch(port, path, "POST", picture)
+                    check(f"it refuses to save {path}", status == 400, f"status {status}")
+                check("nothing was written outside the document's directory",
+                      not (Path(directory).parent / "escape.png").exists()
+                      and not (Path(directory) / "notes.txt").exists())
+            finally:
+                stop(process)
+
     port = free_port()
     process, printed = start(
         compiler, ["notebook", "--port", str(port), "--mode", "teacher", str(FEATURES)],
@@ -582,7 +713,7 @@ def check_server(compiler):
             status, body = fetch(port, "/pyking/manifest.json", "HEAD")
             check("a HEAD answers with no body", status == 200 and body == b"", f"status {status}")
             status, _ = fetch(port, "/assets/nothing", "POST")
-            check("a POST is not answered", status == 501, f"status {status}")
+            check("a POST where nothing takes one is not found", status == 404, f"status {status}")
         finally:
             stop(process)
 
@@ -677,10 +808,11 @@ def check_test_mode(compiler, update):
                               cwd=REPO, capture_output=True, text=True,
                               env=environment, timeout=STEP_TIMEOUT)
 
-    good = mode_test(FEATURES)
-    if good.returncode != 0:
-        failures.append("features.md passes test mode: "
-                        + (good.stdout + good.stderr).strip())
+    for document in (FEATURES, DRAWING):
+        good = mode_test(document)
+        if good.returncode != 0:
+            failures.append(f"{document.name} passes test mode: "
+                            + (good.stdout + good.stderr).strip())
     bad = mode_test(BROKEN)
     golden = BROKEN.with_suffix(".out")
     if update:
@@ -696,7 +828,7 @@ def check_test_mode(compiler, update):
         failures.append("broken.md is reported as broken.out says: line "
                         f"{k + 1}: got {got[k] if k < len(got) else None!r}, "
                         f"expected {want[k] if k < len(want) else None!r}")
-    return 2, failures
+    return 3, failures
 
 
 def check_page(compiler, chromium):
@@ -704,11 +836,11 @@ def check_page(compiler, chromium):
     page.mjs. [String] -> String -> (Int, [String])"""
     checks, failures = 0, []
     for mode in ("student", "teacher"):
-        # The teacher's page is served from a copy, which the driver edits.
-        copy = Path(tempfile.mkdtemp(prefix="pyk-notebook-")) if mode == "teacher" else None
-        if copy:
-            shutil.copytree(FIXTURES, copy, dirs_exist_ok=True)
-        document = copy / FEATURES.name if copy else FEATURES
+        # Served from a copy: the teacher's driver edits it, and a page
+        # saves the pictures its solutions make beside it.
+        copy = Path(tempfile.mkdtemp(prefix="pyk-notebook-"))
+        shutil.copytree(FIXTURES, copy, dirs_exist_ok=True)
+        document = copy / FEATURES.name
         port = free_port()
         process, printed = start(
             compiler, ["notebook", "--port", str(port), "--mode", mode, str(document)],

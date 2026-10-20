@@ -29,4 +29,7 @@ tests/notebook/broken.md:115: the program prints
     prints this
 and this stdout block says
     prints something else
-notebook test: tests/notebook/broken.md: 9 cells, 8 exercises and quizzes, 24 problems.
+tests/notebook/broken.md:122: method is code_box or git, not 'svn'
+tests/notebook/broken.md:126: save_canvas = needs file = "….png", the file the canvas is saved as
+tests/notebook/broken.md:130: its 3 lines are not pieces of 2
+notebook test: tests/notebook/broken.md: 11 cells, 9 exercises and quizzes, 27 problems.

@@ -4,9 +4,10 @@
 // tests/notebook/features.md and runs this against it, once in student
 // mode and once in teacher mode.
 //
-// Usage: node page.mjs <chromium> <url> <student|teacher> [<document>]
-// Writes {checks, failures} as JSON. In teacher mode, <document> is the
-// file the server serves, which the driver edits to see the page reload.
+// Usage: node page.mjs <chromium> <url> <student|teacher> <document>
+// Writes {checks, failures} as JSON. <document> is the file the server
+// serves, a copy: in teacher mode the driver edits it to see the page
+// reload, and in both drawing.md beside it saves its picture there.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -136,6 +137,97 @@ const STUDENT = [`(async () => { ${HELPERS}
   return checks;
 })()`];
 
+// drawing.md, opened beside features.md: the picture its solution saves,
+// an exercise submitted with git, and -- for a student -- answers that
+// fail, the diff of the first test that did not match, and answers that
+// pass.
+const SQUARE = (color, grow = "") => JSON.stringify("import tinyweb as tw\nimport io\n"
+  + `size = int(io.read_line())${grow}\nc = tw.canvas(100, 100)\n`
+  + `tw.rect(c, 10, 10, size, size, "${color}")\nprint(size)\n`);
+const DOUBLING = (second) => JSON.stringify("import io\na = int(io.read_line())\n"
+  + `b = int(io.read_line())\nprint(a * 2, ${second})\n`);
+const DRAWING = `(async () => { ${HELPERS}
+  const until = async (test, ms = 30000) => {
+    for (let i = 0; i < ms / 100; i++) {
+      if (await test()) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return false;
+  };
+  const picture = () => [...document.querySelectorAll(".pkn-prose img")]
+    .find((img) => img.src.startsWith("blob:"));
+  check("the picture a solution saves is made, and shown where the text names it",
+    await until(() => picture()?.complete && picture().naturalWidth === 100),
+    [...document.querySelectorAll(".pkn-prose img")].map((img) => img.src).join(" "));
+  const git = exercise(3);
+  check("an exercise submitted with git says so, with nothing to submit",
+    !hidden($("[data-r=git]", git)) && /Please submit via your git account/.test($("[data-r=git]", git).innerText)
+    && hidden($("[data-r=submit]", git)) && /submitted with git/.test($("[data-r=badges]", git).innerText),
+    git.innerText);
+  check("the rules say what is submitted with git", /5\\s*submitted with git/.test($(".pkn-rules").innerText),
+    $(".pkn-rules").innerText);
+  const r = nb.results();
+  check("the totals leave it out", r.total === 2 && r.max === 4, JSON.stringify(r));
+  if (nb.cfg.mode === "teacher") {
+    check("a teacher sees its solution", !hidden($("[data-r=solution]", git)));
+    return checks;
+  }
+  check("a student does not see its solution, nor a button for it",
+    hidden($("[data-r=solution]", git)) && hidden($("[data-r=show]", git)));
+  check("a split stdin block is shown once", $$(".pkn-io-stdin", exercise(2)).length === 1,
+    $$(".pkn-io-stdin", exercise(2)).length);
+
+  const diff = () => $("[data-r=diff]", exercise(1));
+  check("no diff to see before a Submit", hidden(diff()));
+  let fb = await submit(1, ${SQUARE("#0000ff", " + 1")});
+  check("a drawing that is not the solution's fails", /Not quite/.test(fb)
+    && /drew with tinyweb is not what it should be/.test(fb), fb);
+  check("and offers to see the diff", !hidden(diff()));
+  diff().click();
+  check("the diff shows both pictures", await until(() => $$(".pkn-diff canvas[data-tinyweb-id]").length === 2),
+    $$(".pkn-diff canvas").length);
+  const modal = $(".pkn-diff");
+  const text = modal.innerText;
+  check("it names the two sides", /Your submission/.test(text) && /Possible solution/.test(text), text.slice(0, 200));
+  check("it shows the test case's stdin and args",
+    $$(".pkn-diff-case .pkn-io-text", modal).map((e) => e.innerText.trim()).join("|") === "10|(none)",
+    $$(".pkn-diff-case .pkn-io-text", modal).map((e) => e.innerText).join("|"));
+  const red = $$(".pkn-diff-line.pkn-diff-del", modal).map((e) => e.innerText);
+  const green = $$(".pkn-diff-line.pkn-diff-add", modal).map((e) => e.innerText);
+  check("what only the submission drew is red, what only the solution drew green",
+    red.some((l) => l.includes("#0000ff")) && green.some((l) => l.includes("#ff0000"))
+    && !red.some((l) => l.includes("#ff0000")),
+    JSON.stringify([red, green]));
+  check("output that differs only as diff-allowed allows is said to be the same",
+    /Standard output\\s*the same/.test(text), text.slice(0, 600));
+  check("and its lines are marked as an allowed difference",
+    $$(".pkn-diff-line.pkn-diff-allowed", modal).map((e) => e.innerText).join(" ") === "11 10",
+    $$(".pkn-diff-line.pkn-diff-allowed", modal).map((e) => e.innerText).join(" "));
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  check("Escape closes it", !$(".pkn-diff"));
+  fb = await submit(1, ${SQUARE("#ff0000", " + 3")});
+  check("a square three pixels too big fails", /Not quite/.test(fb), fb);
+  fb = await submit(1, ${SQUARE("#ff0000", " - 2")});
+  check("one two pixels too small, which diff-allowed allows, solves it", /Solved/.test(fb), fb);
+  check("and the diff is gone", hidden(diff()));
+
+  fb = await submit(2, ${DOUBLING("if a == 3 then 0 else b * 2")});
+  check("an answer wrong on the second piece of input fails", /Not quite/.test(fb), fb);
+  $("[data-r=diff]", exercise(2)).click();
+  const second = await until(() => $(".pkn-diff")) && $(".pkn-diff");
+  check("the diff is of that piece of input",
+    $(".pkn-diff-case .pkn-io-text", second)?.innerText.trim() === "3\\n4",
+    $(".pkn-diff-case .pkn-io-text", second)?.innerText);
+  check("a line that differs is red on the left and green on the right",
+    $$(".pkn-diff-del", second).some((e) => e.innerText === "6 0")
+    && $$(".pkn-diff-add", second).some((e) => e.innerText === "6 8"),
+    $$(".pkn-diff-table", second).map((e) => e.innerText).join(" | "));
+  check("with no tinyweb, no pictures", $$(".pkn-diff canvas", second).length === 0);
+  $("[data-r=close]", second.closest(".pkn-modal-backdrop")).click();
+  check("its close button closes it", !$(".pkn-diff"));
+  return checks;
+})()`;
+
 const TEACHER = [`(async () => { ${HELPERS}
   check("the solution is shown, with no button", !hidden($("[data-r=solution]", exercise(1)))
     && hidden($("[data-r=show]", exercise(1))));
@@ -248,6 +340,25 @@ try {
       if (!ok) output.failures.push(`${mode}: ${label}${detail ? ": " + detail : ""}`);
     }
   }
+
+  progress(`${mode}: drawing.md`);
+  const saved = path.join(path.dirname(served), "square.png");
+  fs.rmSync(saved, { force: true });
+  await evaluate("localStorage.clear(); true");
+  await send("Page.navigate", { url: url + "?doc=drawing.md" }, sessionId);
+  await ready();
+  for (const [label, ok, detail] of await evaluate(DRAWING)) {
+    output.checks += 1;
+    if (!ok) output.failures.push(`${mode}: ${label}${detail ? ": " + detail : ""}`);
+  }
+  let written = false;
+  for (let i = 0; i < 50 && !written; i++) {
+    written = fs.existsSync(saved)
+      && fs.readFileSync(saved).subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    if (!written) await sleep(100);
+  }
+  output.checks += 1;
+  if (!written) output.failures.push(`${mode}: the picture is saved beside the document as a PNG`);
   close();
 } catch (error) {
   output = { checks: output.checks + 1, failures: [...output.failures, `${mode}: ${error.message}`] };

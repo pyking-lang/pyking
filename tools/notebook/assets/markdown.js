@@ -46,8 +46,9 @@ export const CELL_ATTRIBUTES = ["norun", "readonly", "error", "exercise", "solut
 export const INPUT_LANGUAGES = ["stdin", "args"];
 
 /** The languages of the other blocks a notebook reads rather than shows
- *  as code: what a program should print, the quizzes, and the rules. */
-export const PART_LANGUAGES = ["stdout", "stderr", "quiz", "answer", "rules"];
+ *  as code: what a program should print, the quizzes, the rules, and the
+ *  differences an exercise allows. */
+export const PART_LANGUAGES = ["stdout", "stderr", "quiz", "answer", "rules", "diff-allowed"];
 
 const CALLOUTS = {
   note: "Note", tip: "Tip", important: "Important",

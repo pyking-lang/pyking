@@ -541,3 +541,57 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
   .pkn-main { padding-top: 1.5rem; }
   .pkn-anchor { display: none; }
 }
+
+/* --- an exercise submitted with git, and the pictures solutions save --- */
+.pkn-git {
+  margin: 0 0 .6rem; padding: .6rem .8rem; border-radius: 6px;
+  background: var(--pkn-accent-soft); border-left: 3px solid var(--pkn-accent);
+  color: var(--pkn-text);
+}
+.pkn-picture-problem { color: var(--pkn-bad); font-size: .9em; margin: .3rem 0; }
+
+/* --- "See result diff": the first test that did not match, side by side.
+   Red is a line only the submission wrote, green one only the solution
+   did; each a strong colour so it reads in both themes. --- */
+.pkn-modal-backdrop {
+  position: fixed; inset: 0; z-index: 1000; background: rgba(0, 0, 0, .45);
+  display: flex; align-items: flex-start; justify-content: center; padding: 3vh 1rem;
+}
+.pkn-modal {
+  background: var(--pkn-surface); color: var(--pkn-text); border: 1px solid var(--pkn-edge);
+  border-radius: 8px; box-shadow: 0 14px 44px rgba(0, 0, 0, .3);
+  width: min(70rem, 100%); max-height: 94vh; display: flex; flex-direction: column;
+}
+.pkn-modal-head {
+  display: flex; align-items: center; gap: .5rem; justify-content: space-between;
+  padding: .6rem .9rem; border-bottom: 1px solid var(--pkn-edge);
+}
+.pkn-modal-body { padding: .9rem; overflow: auto; }
+.pkn-diff-case { margin-bottom: .6rem; }
+.pkn-diff-case-title { font-weight: 600; margin-bottom: .3rem; }
+.pkn-diff-what { margin: .5rem 0; font-weight: 600; }
+.pkn-diff-legend { display: flex; gap: .8rem; flex-wrap: wrap; margin: .3rem 0 .8rem; font-size: .85em; }
+.pkn-diff-legend span { padding: .1rem .5rem; border-radius: 4px; }
+.pkn-diff-title { margin: 1rem 0 .4rem; font-size: 1em; }
+.pkn-diff-same { color: var(--pkn-good); font-weight: normal; font-size: .9em; }
+.pkn-diff-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.pkn-diff-pair figure { margin: 0; min-width: 0; overflow: auto; }
+.pkn-diff-pair figcaption, .pkn-diff-table th {
+  font-weight: 600; text-align: left; padding: .2rem .4rem; background: var(--pkn-sunken);
+  border: 1px solid var(--pkn-edge);
+}
+.pkn-diff-page { border: 1px solid var(--pkn-edge); border-top: 0; padding: .4rem; min-height: 2rem; }
+.pkn-diff-table {
+  width: 100%; border-collapse: collapse; table-layout: fixed;
+  font-family: var(--pkn-mono); font-size: 13px;
+}
+.pkn-diff-table td { border: 1px solid var(--pkn-edge); padding: .05rem .4rem; vertical-align: top; }
+.pkn-diff-ncol { width: 3.2em; }
+.pkn-diff-n { text-align: right; color: var(--pkn-faint); user-select: none; }
+.pkn-diff-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.pkn-diff-none { background: var(--pkn-sunken); }
+.pkn-diff-empty { color: var(--pkn-faint); font-style: italic; }
+.pkn-diff-del { background: #ffd7d5; color: #82071e; }
+.pkn-diff-add { background: #ccffd8; color: #055d20; }
+.pkn-diff-allowed { background: #fff3c4; color: #5c4400; }
+@media (max-width: 40rem) { .pkn-diff-pair { grid-template-columns: minmax(0, 1fr); } }

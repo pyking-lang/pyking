@@ -1626,6 +1626,13 @@ anything both pages need there rather than copying it.
   nothing: `tools/notebook/check.js` runs every program under node with
   the page's own worker and prints `file:line: message`. Progress is kept
   in the browser; `results()` and `onChange` tell an embedding page.
+  An exercise may be `method = git` (graded elsewhere, left out of the
+  totals), a stdin block may be split into tests by
+  `lines_per_multi_input`, a solution's `save_canvas`/`file` makes a
+  picture the text shows and `pyk notebook` saves (`POST /save/`, the
+  server's one write), a `diff-allowed` block lets numbers in matching
+  lines differ by `[+/-N]`, and a failed Submit offers "See result
+  diff", tinyweb's drawing included.
   `tools/notebook/README.md`, "Exercises and quizzes", is the long form.
 - **A program run in either page may use the standard library.** The
   server serves `lib/` (`common_site`), the worker fetches a module's
@@ -2264,7 +2271,9 @@ which needs Playwright and is not part of `make test`.
 `tests/notebook/features.md` -- every Markdown feature the notebook
 supports, and every exercise and quiz block -- against `features.html`,
 checks short cases against CommonMark's own answers, checks what
-`exercises.js` makes of `features.md` and its grading arithmetic, runs
+`exercises.js` makes of `features.md` and its grading arithmetic, and
+of `tests/notebook/drawing.md` (a git exercise, a saved picture, split
+stdin; the page drives its result diff in Chromium too), runs
 every cell of `PYKING-TUTORIAL.md` through
 `tools/webrun/assets/pyking-worker.js` under node (an `error` cell must
 be refused, any other must run), and starts `pyk notebook`, `pyk

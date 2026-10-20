@@ -115,3 +115,20 @@ print("prints this")
 ```stdout
 prints something else
 ```
+
+An exercise submitted some other way, a picture with no file to save it
+as, and a stdin block that is not whole pieces.
+
+```pyking exercise method = svn
+print("starting code")
+```
+
+```pyking solution save_canvas = "canvas"
+print("draws nothing")
+```
+
+```stdin lines_per_multi_input = 2
+1
+2
+3
+```

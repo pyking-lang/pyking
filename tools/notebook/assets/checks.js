@@ -44,8 +44,9 @@ export async function checkNotebook(doc, run) {
   for (const cell of doc.cells) {
     const name = `cell-${cell.index + 1}.pyk`;
     const item = roles.get(cell.index);
-    const stdin = item ? item.stdin : cell.stdin ?? "";
-    const args = item ? item.args : cell.args ?? "";
+    // A cell's own input first: a solution may name the one it is shown with.
+    const stdin = cell.stdin ?? (item ? item.stdin : "");
+    const args = cell.args ?? (item ? item.args : "");
     const result = await run(cell.source, name, stdin, args);
     const what = cell.attrs.exercise ? "the exercise's starting code"
       : cell.attrs.solution ? "the solution" : "this cell";

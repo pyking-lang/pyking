@@ -7,21 +7,25 @@
     docs/build.md ("The web tools").
 
     Data structures:
-      site -- URL prefixes mapped to directories, URL paths to files, and
-        URL paths to answers computed per request.
+      site -- URL prefixes mapped to directories, URL paths to files,
+        URL paths to answers computed per request, and URL prefixes to
+        what a POST there does.
 
     Functions:
       serve site title port explicit lines -- serves a site until Ctrl+C. *)
 
 (** What one tool serves. `mounts` maps a URL prefix ending in `/` to a
     directory, `files` an exact URL path to a file, `answers` an exact
-    URL path to the function making its body and its content type, and
-    `listing` says whether a directory with no index.html is listed. A
-    path with a component starting with `.` names nothing. *)
+    URL path to the function making its body and its content type,
+    `posts` a URL prefix to what a POST there does with the rest of the
+    path and the body, and `listing` says whether a directory with no
+    index.html is listed. A path with a component starting with `.`
+    names nothing. *)
 type site = {
   mounts : (string * string) list;
   files : (string * string) list;
   answers : (string * ((unit -> string) * string)) list;
+  posts : (string * (string -> string -> (unit, string) result)) list;
   listing : bool;
 }
 
