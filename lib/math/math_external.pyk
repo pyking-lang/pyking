@@ -6,10 +6,9 @@
 # halves").
 #
 # Every declaration is **private**: math.pyk is what a program calls,
-# and it is where angles are turned into degrees, where `round` decides
-# its ties and where `abs`, `min`, `max`, `clamp` and `sign` are
-# overloaded over Int and Float -- a declaration half may not hold a
-# `::` name (docs/overloading.md). Each answers what the host's own
+# and it is where `round` decides its ties and where `abs`, `min`,
+# `max`, `clamp` and `sign` are overloaded over Int and Float -- a
+# declaration half may not hold a `::` name (docs/overloading.md). Each answers what the host's own
 # function of the same name answers, in radians.
 
 def host_sin(x: Float) -> Float

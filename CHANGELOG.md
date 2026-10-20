@@ -60,6 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `math`'s trigonometry is in radians: `sin`, `cos` and `tan` take an
+  angle in radians and `asin`, `acos`, `atan` and `atan2` answer one.
+  `to_radians` and `to_degrees` convert, in place of `radians` and
+  `degrees`, and the `_rad` twins are gone.
 - A notebook quiz's button is Submit, and the rule under its question
   is dark grey at the question's size.
 - An unversioned target name now means its family's default rather than

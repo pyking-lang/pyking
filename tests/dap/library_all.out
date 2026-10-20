@@ -13,7 +13,7 @@
 > wait stopped
 {"body": {"allThreadsStopped": true, "reason": "step", "threadId": 1}, "event": "stopped", "type": "event"}
 > stack
-{"body": {"stackFrames": [{"column": 5, "endColumn": 35, "endLine": 190, "id": 1, "line": 190, "name": "int::abs", "presentationHint": "subtle", "source": {"name": "math.pyk", "path": "$LIB/math/math.pyk"}}, {"column": 16, "endColumn": 27, "endLine": 4, "id": 2, "line": 4, "name": "double_abs", "source": {"name": "library.pyk", "path": "$CASES/library.pyk"}}, {"column": 7, "endColumn": 21, "endLine": 6, "id": 3, "line": 6, "name": "<module library>", "source": {"name": "library.pyk", "path": "$CASES/library.pyk"}}], "totalFrames": 3}, "command": "stackTrace", "success": true, "type": "response"}
+{"body": {"stackFrames": [{"column": 5, "endColumn": 35, "endLine": 185, "id": 1, "line": 185, "name": "int::abs", "presentationHint": "subtle", "source": {"name": "math.pyk", "path": "$LIB/math/math.pyk"}}, {"column": 16, "endColumn": 27, "endLine": 4, "id": 2, "line": 4, "name": "double_abs", "source": {"name": "library.pyk", "path": "$CASES/library.pyk"}}, {"column": 7, "endColumn": 21, "endLine": 6, "id": 3, "line": 6, "name": "<module library>", "source": {"name": "library.pyk", "path": "$CASES/library.pyk"}}], "totalFrames": 3}, "command": "stackTrace", "success": true, "type": "response"}
 > out
 {"body": {}, "command": "stepOut", "success": true, "type": "response"}
 > wait stopped

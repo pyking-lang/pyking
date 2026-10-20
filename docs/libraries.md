@@ -84,11 +84,8 @@ functions, all private and all in radians (`host_sin`, `host_floor`,
 ...); everything a program calls is written in `math.pyk` over them, so
 every host answers alike:
 
-- **Angles are in degrees**, and each trigonometric function has a
-  `_rad` twin. The degree functions answer exactly at the angles a
-  drawing uses -- `sin` and `cos` at every multiple of 30 degrees, `tan`
-  at every multiple of 45, `inf` at 90 -- and the inverse ones answer a
-  whole number of degrees where they are within 1e-9 of one.
+- **Angles are in radians**, as the host's own functions take them;
+  `to_radians` and `to_degrees` convert.
 - **`floor`, `ceil`, `trunc` and `round` answer an Int**, 0 where `int`
   would; `round` takes a tie away from zero, which no host's own
   rounding agrees on.

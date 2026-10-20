@@ -8,10 +8,12 @@ def six(x: Float) -> Float:
     return float(math.round(x * 1000000.0)) / 1000000.0
 
 print(six(math.sin(1.0)), six(math.cos(1.0)), six(math.tan(1.0)))
-print(six(math.sin(45.0)), six(math.cos(45.0)), six(math.sin(-123.0)), six(math.cos(1000.0)))
-print(six(math.sin_rad(1.0)), six(math.cos_rad(1.0)), six(math.tan_rad(1.0)))
-print(six(math.asin_rad(0.5)), six(math.acos_rad(0.5)), six(math.atan_rad(1.0)), six(math.atan2_rad(-1.0, -1.0)))
+print(six(math.sin(math.pi / 6.0)), six(math.cos(math.pi / 3.0)), six(math.tan(math.pi / 4.0)))
+print(six(math.sin(-2.0)), six(math.cos(100.0)), six(math.sin(math.pi)), six(math.cos(math.pi / 2.0)))
+print(six(math.asin(0.5)), six(math.acos(0.5)), six(math.atan(1.0)), six(math.atan2(-1.0, -1.0)))
 print(six(math.asin(0.3)), six(math.acos(0.3)), six(math.atan(2.0)), six(math.atan2(2.0, -3.0)))
+print(six(math.to_degrees(math.asin(0.5))), six(math.to_degrees(math.atan2(1.0, -1.0))))
+print(six(math.sin(math.to_radians(30.0))), six(math.cos(math.to_radians(60.0))))
 print(six(math.sinh(1.0)), six(math.cosh(1.0)), six(math.tanh(0.5)))
 print(six(math.exp(2.5)), six(math.log(10.0)), six(math.log2(10.0)), six(math.log10(2.0)))
 print(six(math.cbrt(10.0)), six(math.pow(2.0, 0.5)), six(math.hypot(1.0, 1.0)))
@@ -20,5 +22,6 @@ print(six(math.lerp(0.0, 1.0, 1.0 / 3.0)), six(math.map_range(1.0, 0.0, 3.0, 0.0
 # A circle of eight points, the way a drawing walks one.
 var angle = 0.0
 while angle < 360.0:
-    print(angle, six(100.0 * math.cos(angle)), six(100.0 * math.sin(angle)))
+    a = math.to_radians(angle)
+    print(angle, six(100.0 * math.cos(a)), six(100.0 * math.sin(a)))
     angle := angle + 45.0

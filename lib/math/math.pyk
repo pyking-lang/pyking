@@ -1,9 +1,8 @@
-## Numbers: trigonometry in degrees and in radians, powers and
-## logarithms, rounding to an Int, and helpers for drawing and games.
+## Numbers: trigonometry, powers and logarithms, rounding to an Int,
+## and helpers for drawing and games.
 ##
-## Angles are in **degrees**: `sin(90.0)` is `1.0`. Each trigonometric
-## function has a twin ending in `_rad` that works in radians, and
-## `radians` and `degrees` convert between the two. `abs`, `min`, `max`,
+## Angles are in **radians**: `sin(pi / 2.0)` is `1.0`. `to_radians` and
+## `to_degrees` convert from and to degrees. `abs`, `min`, `max`,
 ## `clamp`, `sign` and `mod` take two Ints or two Floats and answer the
 ## same type; everything else takes and answers Floats, so an Int is
 ## passed as `float(n)`.
@@ -14,13 +13,9 @@
 # private to this library.
 #
 # Everything a reader sees beyond the host's own functions is decided
-# here rather than per target: the degree functions answer exact values
-# at the angles a beginner draws with (0, 30, 45, 60, 90, ... degrees),
-# where the radian ones are a rounding error away (`sin_rad(pi)` is not
-# 0.0), and the inverse ones answer a whole number of degrees where they
-# are within 1e-9 of one. Rounding to an Int, its ties and the floored
-# modulo are written here for the same reason: the hosts disagree about
-# all three.
+# here rather than per target: rounding to an Int, its ties and the
+# floored modulo are written here because the hosts disagree about all
+# three.
 #
 # Pyking has no `!=`, `and`, `or` or `%`, so the tests below are nested
 # `if`s, and `x == x` is how a NaN is told apart.
@@ -133,41 +128,41 @@ public def is_finite(x: Float) -> Bool:
 ## An angle in degrees, in radians.
 ##
 ## # Parameters
-## - `angle`: the angle in degrees.
+## - `deg`: the angle in degrees.
 ##
 ## # Returns
-## The same angle in radians: `angle * pi / 180`.
+## The same angle in radians: `deg * pi / 180`.
 ##
 ## # Examples
 ## ```pyking
 ## import math
-## print(math.radians(180.0))
+## print(math.to_radians(180.0))
 ## ```
 ## ```stdout
 ## 3.141592653589793
 ## ```
-public def radians(angle: Float) -> Float:
-    return angle * pi / 180.0
+public def to_radians(deg: Float) -> Float:
+    return deg * pi / 180.0
 
 
 ## An angle in radians, in degrees.
 ##
 ## # Parameters
-## - `angle`: the angle in radians.
+## - `rad`: the angle in radians.
 ##
 ## # Returns
-## The same angle in degrees: `angle * 180 / pi`.
+## The same angle in degrees: `rad * 180 / pi`.
 ##
 ## # Examples
 ## ```pyking
 ## import math
-## print(math.degrees(math.pi))
+## print(math.to_degrees(math.pi))
 ## ```
 ## ```stdout
 ## 180.0
 ## ```
-public def degrees(angle: Float) -> Float:
-    return angle * 180.0 / pi
+public def to_degrees(rad: Float) -> Float:
+    return rad * 180.0 / pi
 
 
 ## The size of an Int, without its sign.
@@ -463,208 +458,6 @@ public def float::mod(x: Float, y: Float) -> Float:
         return if r <= y then 0.0 else r
 
 
-# An angle the inverse functions answered, as a whole number of degrees
-# where it is within 1e-9 of one: asin(0.5) is 30.000000000000004 in
-# radians turned into degrees.
-def whole_degrees(angle: Float) -> Float:
-    nearest = host_floor(angle + 0.5)
-    return if abs(angle - nearest) < 0.000000001 then nearest else angle
-
-
-## The sine of an angle in degrees.
-##
-## # Parameters
-## - `angle`: the angle in degrees.
-##
-## # Returns
-## The sine, from -1 to 1. It is exact at every multiple of 30 degrees:
-## `sin(30.0)` is `0.5` and `sin(180.0)` is `0.0`.
-##
-## # Examples
-## ```pyking
-## import math
-## print(math.sin(30.0), math.sin(90.0), math.sin(-90.0))
-## ```
-## ```stdout
-## 0.5 1.0 -1.0
-## ```
-public def sin(angle: Float) -> Float:
-    a = mod(angle, 360.0)
-    if a == 0.0:
-        return 0.0
-    else if a == 30.0:
-        return 0.5
-    else if a == 90.0:
-        return 1.0
-    else if a == 150.0:
-        return 0.5
-    else if a == 180.0:
-        return 0.0
-    else if a == 210.0:
-        return -0.5
-    else if a == 270.0:
-        return -1.0
-    else if a == 330.0:
-        return -0.5
-    else:
-        return host_sin(radians(a))
-
-
-## The cosine of an angle in degrees.
-##
-## # Parameters
-## - `angle`: the angle in degrees.
-##
-## # Returns
-## The cosine, from -1 to 1. It is exact at every multiple of 30 degrees:
-## `cos(60.0)` is `0.5` and `cos(90.0)` is `0.0`.
-##
-## # Examples
-## ```pyking
-## import math
-## print(math.cos(0.0), math.cos(60.0), math.cos(90.0), math.cos(180.0))
-## ```
-## ```stdout
-## 1.0 0.5 0.0 -1.0
-## ```
-public def cos(angle: Float) -> Float:
-    a = mod(angle, 360.0)
-    if a == 0.0:
-        return 1.0
-    else if a == 60.0:
-        return 0.5
-    else if a == 90.0:
-        return 0.0
-    else if a == 120.0:
-        return -0.5
-    else if a == 180.0:
-        return -1.0
-    else if a == 240.0:
-        return -0.5
-    else if a == 270.0:
-        return 0.0
-    else if a == 300.0:
-        return 0.5
-    else:
-        return host_cos(radians(a))
-
-
-## The tangent of an angle in degrees.
-##
-## # Parameters
-## - `angle`: the angle in degrees.
-##
-## # Returns
-## The tangent. It is exact at every multiple of 45 degrees, and `inf`
-## at 90 degrees, 270 degrees and so on, where the tangent grows without
-## bound.
-##
-## # Examples
-## ```pyking
-## import math
-## print(math.tan(45.0), math.tan(135.0), math.tan(90.0))
-## ```
-## ```stdout
-## 1.0 -1.0 inf
-## ```
-public def tan(angle: Float) -> Float:
-    a = mod(angle, 180.0)
-    if a == 0.0:
-        return 0.0
-    else if a == 45.0:
-        return 1.0
-    else if a == 90.0:
-        return inf
-    else if a == 135.0:
-        return -1.0
-    else:
-        return host_tan(radians(a))
-
-
-## The angle in degrees whose sine is `x`.
-##
-## # Parameters
-## - `x`: the sine, from -1 to 1.
-##
-## # Returns
-## The angle, from -90 to 90 degrees; NaN when `x` is outside -1 to 1.
-##
-## # Examples
-## ```pyking
-## import math
-## print(math.asin(0.5), math.asin(1.0), math.asin(-1.0))
-## ```
-## ```stdout
-## 30.0 90.0 -90.0
-## ```
-public def asin(x: Float) -> Float:
-    return whole_degrees(degrees(host_asin(x)))
-
-
-## The angle in degrees whose cosine is `x`.
-##
-## # Parameters
-## - `x`: the cosine, from -1 to 1.
-##
-## # Returns
-## The angle, from 0 to 180 degrees; NaN when `x` is outside -1 to 1.
-##
-## # Examples
-## ```pyking
-## import math
-## print(math.acos(0.5), math.acos(0.0), math.acos(-1.0))
-## ```
-## ```stdout
-## 60.0 90.0 180.0
-## ```
-public def acos(x: Float) -> Float:
-    return whole_degrees(degrees(host_acos(x)))
-
-
-## The angle in degrees whose tangent is `x`.
-##
-## # Parameters
-## - `x`: the tangent.
-##
-## # Returns
-## The angle, between -90 and 90 degrees.
-##
-## # Examples
-## ```pyking
-## import math
-## print(math.atan(1.0), math.atan(-1.0), math.atan(math.inf))
-## ```
-## ```stdout
-## 45.0 -45.0 90.0
-## ```
-public def atan(x: Float) -> Float:
-    return whole_degrees(degrees(host_atan(x)))
-
-
-## The direction in degrees from the origin to the point (`x`, `y`): the
-## angle a line from (0, 0) to that point makes with the x axis. Unlike
-## `atan(y / x)`, it tells all four quarters of the plane apart. Note the
-## order: `y` comes first.
-##
-## # Parameters
-## - `y`: the point's y coordinate.
-## - `x`: the point's x coordinate.
-##
-## # Returns
-## The angle, from -180 to 180 degrees.
-##
-## # Examples
-## ```pyking
-## import math
-## print(math.atan2(1.0, 1.0), math.atan2(1.0, -1.0), math.atan2(-1.0, 0.0))
-## ```
-## ```stdout
-## 45.0 135.0 -90.0
-## ```
-public def atan2(y: Float, x: Float) -> Float:
-    return whole_degrees(degrees(host_atan2(y, x)))
-
-
 ## The sine of an angle in radians.
 ##
 ## # Parameters
@@ -676,12 +469,12 @@ public def atan2(y: Float, x: Float) -> Float:
 ## # Examples
 ## ```pyking
 ## import math
-## print(math.sin_rad(0.0), math.sin_rad(math.pi / 2.0))
+## print(math.sin(0.0), math.sin(math.pi / 2.0))
 ## ```
 ## ```stdout
 ## 0.0 1.0
 ## ```
-public def sin_rad(angle: Float) -> Float:
+public def sin(angle: Float) -> Float:
     return host_sin(angle)
 
 
@@ -696,12 +489,12 @@ public def sin_rad(angle: Float) -> Float:
 ## # Examples
 ## ```pyking
 ## import math
-## print(math.cos_rad(0.0), math.cos_rad(math.pi))
+## print(math.cos(0.0), math.cos(math.pi))
 ## ```
 ## ```stdout
 ## 1.0 -1.0
 ## ```
-public def cos_rad(angle: Float) -> Float:
+public def cos(angle: Float) -> Float:
     return host_cos(angle)
 
 
@@ -716,12 +509,12 @@ public def cos_rad(angle: Float) -> Float:
 ## # Examples
 ## ```pyking
 ## import math
-## print(math.tan_rad(0.0))
+## print(math.tan(0.0))
 ## ```
 ## ```stdout
 ## 0.0
 ## ```
-public def tan_rad(angle: Float) -> Float:
+public def tan(angle: Float) -> Float:
     return host_tan(angle)
 
 
@@ -736,12 +529,12 @@ public def tan_rad(angle: Float) -> Float:
 ## # Examples
 ## ```pyking
 ## import math
-## print(math.asin_rad(1.0) == math.pi / 2.0)
+## print(math.asin(1.0) == math.pi / 2.0)
 ## ```
 ## ```stdout
 ## true
 ## ```
-public def asin_rad(x: Float) -> Float:
+public def asin(x: Float) -> Float:
     return host_asin(x)
 
 
@@ -756,12 +549,12 @@ public def asin_rad(x: Float) -> Float:
 ## # Examples
 ## ```pyking
 ## import math
-## print(math.acos_rad(-1.0) == math.pi)
+## print(math.acos(-1.0) == math.pi)
 ## ```
 ## ```stdout
 ## true
 ## ```
-public def acos_rad(x: Float) -> Float:
+public def acos(x: Float) -> Float:
     return host_acos(x)
 
 
@@ -776,17 +569,19 @@ public def acos_rad(x: Float) -> Float:
 ## # Examples
 ## ```pyking
 ## import math
-## print(math.atan_rad(0.0))
+## print(math.atan(0.0), math.atan(1.0) == math.pi / 4.0)
 ## ```
 ## ```stdout
-## 0.0
+## 0.0 true
 ## ```
-public def atan_rad(x: Float) -> Float:
+public def atan(x: Float) -> Float:
     return host_atan(x)
 
 
-## The direction in radians from the origin to the point (`x`, `y`), as
-## `atan2` answers it in degrees. `y` comes first.
+## The direction in radians from the origin to the point (`x`, `y`): the
+## angle a line from (0, 0) to that point makes with the x axis. Unlike
+## `atan(y / x)`, it tells all four quarters of the plane apart. Note the
+## order: `y` comes first.
 ##
 ## # Parameters
 ## - `y`: the point's y coordinate.
@@ -798,12 +593,12 @@ public def atan_rad(x: Float) -> Float:
 ## # Examples
 ## ```pyking
 ## import math
-## print(math.atan2_rad(0.0, -1.0) == math.pi)
+## print(math.atan2(0.0, -1.0) == math.pi, math.atan2(-1.0, 0.0) == -math.pi / 2.0)
 ## ```
 ## ```stdout
-## true
+## true true
 ## ```
-public def atan2_rad(y: Float, x: Float) -> Float:
+public def atan2(y: Float, x: Float) -> Float:
     return host_atan2(y, x)
 
 
