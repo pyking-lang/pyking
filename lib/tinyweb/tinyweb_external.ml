@@ -2106,7 +2106,7 @@ let base64 data =
   done;
   Buffer.contents out
 
-let bitmap width height =
+let new_bitmap width height =
   ready ();
   let id = fresh "bitmap" in
   let w = max 1 width and h = max 1 height in
@@ -2151,6 +2151,11 @@ let fill_bitmap b color =
       bm.y1 <- 0;
       bm.x2 <- bm.bw;
       bm.y2 <- bm.bh
+
+let make_bitmap width height background =
+  let id = new_bitmap width height in
+  fill_bitmap id background;
+  id
 
 let draw_bitmap c b x y scale =
   match Hashtbl.find_opt bitmaps b with

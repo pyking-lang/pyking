@@ -69,33 +69,7 @@ def pointer(c: String, which: String) -> Int
 
 def draw_image(c: String, picture: String, x: Int, y: Int, width: Int, height: Int, alpha: Float) -> ()
 
-## Makes a bitmap: a picture the program builds pixel by pixel. Setting
-## a pixel sends nothing to the page; `show_bitmap` draws the bitmap on a
-## canvas in one go. It starts black.
-##
-## # Parameters
-## - `width`: its width in pixels.
-## - `height`: its height in pixels.
-##
-## # Returns
-## The bitmap's identifier, which the other bitmap functions take as
-## `b`: `"bitmap"`, with a number added where something on the page has
-## that name already.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(64, 64)
-## b = tw.bitmap(64, 64)
-## for y in range(64):
-##     for x in range(64):
-##         tw.set_pixel(b, x, y, tw.pixel_color(x * 4, y * 4, 128))
-## tw.show_bitmap(c, b)
-## ```
-## ```stdout
-## ```
-public def bitmap(width: Int, height: Int) -> String
+def make_bitmap(width: Int, height: Int, background: Int) -> String
 
 ## Sets one pixel of a bitmap. Nothing is sent to the page until the
 ## bitmap is shown. A pixel outside the bitmap is left alone.

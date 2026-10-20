@@ -5,7 +5,8 @@ import tinyweb as tw
 tw.web_init(0)
 c = tw.canvas(160, 100)
 b = tw.bitmap(16, 10)
-print("a new bitmap is black:", tw.get_pixel(b, 3, 3))
+print("a new bitmap is white:", tw.get_pixel(b, 3, 3))
+print("or its background:", tw.get_pixel(tw.bitmap(2, 2, tw.pixel_color(0, 128, 0)), 1, 1))
 for y in range(10):
     for x in range(16):
         tw.set_pixel(b, x, y, tw.pixel_color(x * 16, y * 25, 128))

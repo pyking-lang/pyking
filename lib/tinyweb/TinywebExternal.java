@@ -496,10 +496,11 @@ public final class TinywebExternal {
         return String.format(Locale.ROOT, "%08x", h);
     }
 
-    public static String bitmap(int width, int height) {
+    public static String make_bitmap(int width, int height, int background) {
         ready();
         String id = fresh("bitmap");
         bitmaps.put(id, new Bitmap(java.lang.Math.max(1, width), java.lang.Math.max(1, height)));
+        fill_bitmap(id, background);
         return id;
     }
 

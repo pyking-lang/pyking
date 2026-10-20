@@ -1803,6 +1803,42 @@ public def ignore2(x: Int, y: Int) -> ():
     ()
 
 
+## Makes a bitmap: a picture the program builds pixel by pixel. Setting
+## a pixel sends nothing to the page; `show_bitmap` draws the bitmap on a
+## canvas in one go. It starts filled with `background`.
+##
+## # Parameters
+## - `width`: its width in pixels.
+## - `height`: its height in pixels.
+## - `background`: the color every pixel starts as, as `pixel_color`
+##   makes them; white unless given.
+##
+## # Returns
+## The bitmap's identifier, which the other bitmap functions take as
+## `b`: `"bitmap"`, with a number added where something on the page has
+## that name already.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(64, 64)
+## b = tw.bitmap(64, 64)
+## for y in range(64):
+##     for x in range(64):
+##         tw.set_pixel(b, x, y, tw.pixel_color(x * 4, y * 4, 128))
+## tw.show_bitmap(c, b)
+## white = tw.bitmap(2, 2)
+## dark = tw.bitmap(2, 2, tw.pixel_color(0, 0, 0))
+## print(tw.red(tw.get_pixel(white, 1, 1)), tw.red(tw.get_pixel(dark, 1, 1)))
+## ```
+## ```stdout
+## 255 0
+## ```
+public def bitmap(width: Int, height: Int, background: Int = pixel_color(255, 255, 255)) -> String:
+    return make_bitmap(width, height, background)
+
+
 ## Draws a bitmap on the canvas `c`: what changed since it was last shown
 ## is sent to the page, in one go.
 ##

@@ -60,6 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `tinyweb.bitmap(width, height, background)`: a bitmap starts as
+  `background`, white unless given, where it started black. The host
+  function under it is `make_bitmap`, with the background, in every
+  implementation.
 - `math`'s trigonometry is in radians: `sin`, `cos` and `tan` take an
   angle in radians and `asin`, `acos`, `atan` and `atan2` answer one.
   `to_radians` and `to_degrees` convert, in place of `radians` and

@@ -72,7 +72,7 @@ int tinyweb_pointer(const char *c, const char *which);
 const char *tinyweb_load_image(const char *name);
 void tinyweb_draw_image(const char *c, const char *picture, int x, int y, int width, int height,
                         double alpha);
-const char *tinyweb_bitmap(int width, int height);
+const char *tinyweb_make_bitmap(int width, int height, int background);
 void tinyweb_set_pixel(const char *b, int x, int y, int color);
 int tinyweb_get_pixel(const char *b, int x, int y);
 void tinyweb_fill_bitmap(const char *b, int color);
@@ -1986,7 +1986,7 @@ static tw_bitmap *tw_bitmap_named(const char *b)
     return NULL;
 }
 
-const char *tinyweb_bitmap(int width, int height)
+const char *tinyweb_make_bitmap(int width, int height, int background)
 {
     tw_bitmap *bitmap;
     size_t i, count;
@@ -2011,6 +2011,7 @@ const char *tinyweb_bitmap(int width, int height)
     bitmap->y1 = 0;
     bitmap->x2 = width;
     bitmap->y2 = height;
+    tinyweb_fill_bitmap(bitmap->id, background);
     return bitmap->id;
 }
 

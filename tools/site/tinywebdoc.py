@@ -96,10 +96,11 @@ DESCRIPTIONS = {
     "on_key_up": "Calls `released` with the name of each key let go while the page has "
                  "the focus. Leaving the page lets go of every key held.",
     "key_down": "Whether the key named `key` is held down now.",
-    "bitmap": "A picture `width` by `height` pixels the program builds, all black, kept "
-              "by the program: setting a pixel sends nothing. Answers the string that "
-              "names it: \"bitmap\", with a number added where something on the page "
-              "has that name already.",
+    "make_bitmap": "A picture `width` by `height` pixels the program builds, every "
+                   "pixel `background` to start with, as `set_pixel` takes a color, kept "
+                   "by the program: setting a pixel sends nothing. Answers the string "
+                   "that names it: \"bitmap\", with a number added where something on "
+                   "the page has that name already.",
     "set_pixel": "Sets the pixel (`x`, `y`) of the bitmap `b` to `color`, red times "
                  "65536 plus green times 256 plus blue. A pixel outside it is left alone.",
     "get_pixel": "The color of the pixel (`x`, `y`) of the bitmap `b`, as `set_pixel` "

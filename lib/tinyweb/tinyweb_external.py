@@ -309,10 +309,11 @@ class _Bitmap:
         self.y2 = max(self.y2, y + 1)
 
 
-def bitmap(width, height):
+def make_bitmap(width, height, background):
     _ready()
     id = _fresh("bitmap")
     _bitmaps[id] = _Bitmap(max(1, width), max(1, height))
+    fill_bitmap(id, background)
     return id
 
 

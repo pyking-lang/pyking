@@ -2,9 +2,9 @@ canvas "canvas" 160 100
 bitmap "canvas" "bitmap" 0 0 10.000 16 10 0 0 16 10 2bff66c5
 bitmap "canvas" "bitmap" 0 0 10.000 16 10 4 2 4 4 46921640
 bitmap "canvas" "bitmap" 5 5 1.000 16 10 0 0 0 0 811c9dc5
-bitmap "canvas" "bitmap1" 120 60 0.500 4 4 0 0 4 4 cf634725
+bitmap "canvas" "bitmap2" 120 60 0.500 4 4 0 0 4 4 cf634725
 on_frame
 > frame 0.5
-bitmap "canvas" "bitmap1" 120 60 2.000 4 4 1 1 1 1 393ab306
+bitmap "canvas" "bitmap2" 120 60 2.000 4 4 1 1 1 1 393ab306
 > frame 1.0
-bitmap "canvas" "bitmap1" 120 60 2.000 4 4 1 1 1 1 ae5e20bc
+bitmap "canvas" "bitmap2" 120 60 2.000 4 4 1 1 1 1 ae5e20bc
