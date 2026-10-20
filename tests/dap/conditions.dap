@@ -1,0 +1,18 @@
+# A condition, a hit count, and a logpoint, which prints rather than
+# stops. A breakpoint on a blank line stops at the statement after it.
+launch basics.pyk
+breakpoints basics.pyk [{"line": 12, "condition": "x == 2"}, {"line": 5, "hitCondition": "4"}, {"line": 14, "logMessage": "total is {total}, pairs {pairs}"}, {"line": 3}]
+configure
+wait stopped
+stack
+continue
+wait stopped
+stack
+evaluate 1 x
+continue
+wait stopped
+stack
+evaluate 1 n
+continue
+wait terminated
+disconnect

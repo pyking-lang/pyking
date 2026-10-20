@@ -326,8 +326,8 @@ host's, so nothing of it runs and no backend starts it.
 
 `interpreter.run_modules` does that directly: each module runs in a top
 level of its own, and `exported_values` reads its public names out of
-the environment it left behind. It uses `run_entry` rather than
-`enter_block`, because a block puts the enclosing scope back when it
+the environment it left behind. It runs a top level a statement at a
+time (`runner_step`) rather than with `enter_block`, because a block puts the enclosing scope back when it
 ends and a module's top level has no enclosing scope to go back to --
 what it bound is what it exports.
 

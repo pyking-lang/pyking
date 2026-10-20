@@ -142,10 +142,13 @@ repl`) rather than a `--target`.
 | `src/web_tools.ml` | `pyk notebook`, `pyk playground` and `pyk serve`: what each serves, from the tree beside the executable. |
 | `src/web_server.ml` | A small HTTP/1.1 server on 127.0.0.1, in the `pyk` process, which `web_tools.ml` serves each tool with. See [build.md](build.md), "The web tools". |
 | `src/completion.ml` | What completion needs whoever asks: the word before the cursor and its `m.`, which names are hidden, the candidates fitting a prefix and their common prefix. `lsp.ml` and `repl_session.ml` share it. |
-| `src/lsp.ml` | The language server: one message in, the messages to send out; checks a document as a program with the stages above and reads hover, definition, outline and completion out of them. In the library, so the browser bundle serves it too. See [../design/lsp.md](../design/lsp.md). |
+| `src/scopes.ml` | What the names in a module mean: every use with the binding it reaches, and which names are in scope where. The language server and the debugger read it. |
+| `src/lsp.ml` | The language server: one message in, the messages to send out; checks a document as a program with the stages above and reads hover, definition, outline, completion, signature help, references, rename, inlay hints, folding, semantic tokens and quick fixes out of them. In the library, so the browser bundle serves it too. See [../design/lsp.md](../design/lsp.md). |
+| `src/debug_session.ml` | The debugger's core: a program run by the interpreter a step at a time, with breakpoints, stepping, the calls in progress, their variables and expressions evaluated where it stopped. Protocol-free; a session is a value. See [debugging.md](debugging.md). |
+| `src/dap.ml` | The debug adapter, `pyk dap`: the Debug Adapter Protocol over a `debug_session.ml` session. In the library; its stdio transport is in `pyk.ml`. |
 | `src/json.ml` | JSON read and written, for the language server. |
 | `src/examples.ml` | The examples `pyk example` lists and saves and the playground offers, read from `src/examples.toml`. |
-| `src/pyk.ml` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`), plus the web commands, `pyk example` and `pyk lsp`'s stdio transport, which run no front end of their own. |
+| `src/pyk.ml` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`), plus the web commands, `pyk example`, and the stdio transports of `pyk lsp` and `pyk dap`, which run no front end of their own. |
 
 ## The builtins and the host boundary
 

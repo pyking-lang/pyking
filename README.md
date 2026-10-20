@@ -197,9 +197,14 @@ and math libraries and caches them, which is why the cache only goes on
 ## Editors
 
 `pyk lsp` is a language server: errors as you type, the inferred type
-on hover, go to definition, an outline and completion, in any editor
-that speaks the Language Server Protocol. It is part of `pyk`, so it
-needs nothing more. [tools/editors/vscode/](tools/editors/vscode/) is the
+on hover, go to definition, an outline, completion, signature help,
+references, rename, inlay hints, folding, semantic highlighting and
+quick fixes, in any editor that speaks the Language Server Protocol.
+`pyk dap` is a debugger for any editor that speaks the Debug Adapter
+Protocol: breakpoints, stepping, the calls in progress and their
+variables ([docs/debugging.md](docs/debugging.md)); the playground has
+the same debugger in its Debug tab. Both are part of `pyk`, so they
+need nothing more. [tools/editors/vscode/](tools/editors/vscode/) is the
 VS Code and Cursor extension, `tools/emacs/pyking-mode.el` registers it
 with eglot, and the website's Editors page
 ([sitesrc/documentation/editors.md](sitesrc/documentation/editors.md)) sets
@@ -251,6 +256,9 @@ form:
   under `lib/`: what each library offers, how `pyk` finds one, why
   each reaches the targets it does, and how the interpreter and a
   browser reach one implemented in a target language.
+- **[docs/debugging.md](docs/debugging.md)** — the debugger: one
+  session core, two transports (`pyk dap` and the playground's Debug
+  tab), and what stepping, breakpoints and evaluating mean.
 - **[docs/release.md](docs/release.md)** — `pyk compile --release`: how
   every call to `debug` is removed before any backend sees the program.
 - **[docs/modules.md](docs/modules.md)** — the module system: how a file

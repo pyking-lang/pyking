@@ -91,7 +91,7 @@ needs a copy of it saved once.
                                  ↑ drag
 ```
 
-The right-hand side is five tabs, and the page opens on **Run output**:
+The right-hand side is six tabs, and the page opens on **Run output**:
 
 - **Run output** is what the left ▶ Run printed, over the whole tab.
 - **Compiled code** holds the Target list, **Compile**, the right ▶ Run,
@@ -101,6 +101,8 @@ The right-hand side is five tabs, and the page opens on **Run output**:
   browser-window frame, above the same output Run output shows (see "The
   Web output tab").
 - **REPL** is `pyk repl` in the page (see "The REPL").
+- **Debug** runs the program a step at a time, with breakpoints, the
+  variables and the calls in progress (see "The Debug tab").
 - **Help** is the help `pyk pykhelp` serves -- getting started, the
   language reference and the libraries -- with a menu above the page
   (see "The Help tab").
@@ -228,7 +230,13 @@ request and gives the pane:
   standard library;
 - **the outline** (Ctrl/Cmd+Shift+O) -- the `def`s, bindings and imports;
 - **completion** -- the names in scope, and after `m.` what module `m`
-  exports.
+  exports;
+- **signature help** -- a function's parameters while its call is typed;
+- **references** (Shift+F12), **highlights** of a name, and **rename**
+  (F2);
+- **inlay hints** -- the inferred types, in the text;
+- **folding**, **semantic highlighting**, and **quick fixes** (the
+  light bulb) for the errors that say what was meant.
 
 The document is `file:///playground.pyk`, so the program is the module
 `playground`, as Compile names it. Stopping a program replaces the
@@ -362,6 +370,42 @@ A program that imports compiles as `pyk compile` compiles it: the page
 reads its modules as a run reads them, and the Compiled code tab shows
 the program's own file first and every module's beside it.
 
+### The Debug tab
+
+The program in the editor run by the interpreter a step at a time
+(`src/debug_session.ml`, through `PykingRuntime.debugProgram`;
+`assets/debugger.js` is the tab). A click in the editor's margin, left of
+the line numbers, sets a breakpoint, and the line the program stopped at
+is marked there and in yellow. Debug with no breakpoint asks whether to
+stop at the first statement instead, and a program put in the editor --
+an example, a link, an example copied from the help -- removes every
+breakpoint. The tab holds:
+
+- the controls -- Debug (or Restart), Continue/Pause, step Over, Into
+  and Out, Stop -- each naming its key when the pointer rests on it;
+- **Variables** -- the chosen frame's own names and what it sees from
+  outside, a list, a tuple or a datatype value opening to show its
+  parts; a `var`'s value is changed by double-clicking it;
+- **Watch** -- expressions evaluated each time the program stops;
+- **Call stack** -- the calls in progress; choosing one shows its names
+  and marks its line;
+- **Breakpoints** -- each with a switch and fields for a condition, a
+  hit count and a log message;
+- **Console** -- what the program writes, and an expression typed there
+  evaluated where it stopped.
+
+The keys need no function key: Mod+Shift+Enter starts (or restarts),
+Mod+\ continues or pauses, Mod+' steps over, Mod+; into, Mod+Shift+;
+out, Mod+Shift+\ stops and Mod+B sets or removes a breakpoint on the
+cursor's line, Mod being Cmd on a Mac and Ctrl elsewhere -- Chrome
+DevTools' own. Settings changes any of them, and has whether to stop at
+the first statement and whether to step over the standard library's
+code. The program runs on the compiler's worker a slice at a time, so a
+pause reaches even a loop that never ends. A tinyweb program's page is
+on the Web output tab; a breakpoint in one of its callbacks stops when
+the event arrives, and the page's events wait while the program is
+stopped. Whenever the program stops, the Debug tab is shown. See `docs/debugging.md`.
+
 ### The REPL
 
 The REPL tab is a session of `pyk repl`: the session half of the REPL is
@@ -472,6 +516,7 @@ tools/playground/
     index.html       thin host page: mounts the component, nothing else
     playground.js    the UI (ES module, exports mountPlayground)
     lsp-client.js    the source pane as a language server client
+    debugger.js      the Debug tab
     share.js         a program in a link (#code=...), read and written
     js-worker.js     generated JavaScript, on its own thread
     playground.css   all styles, scoped under .pyk-playground
@@ -621,6 +666,15 @@ await rt.lsp({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
 // [ { jsonrpc: "2.0", id: 1, result: { capabilities: { … } } } ]
 await rt.lspIdle();
 rt.generation; // changes when a stop or a reload replaced the worker
+
+// Debug it: stops at breakpoints, then is asked where it is.
+await rt.debugProgram(source, {
+  breakpoints: [{ file: "playground.pyk", breakpoints: [{ line: 3 }] }],
+  onDebugger: ({ state, events }) => console.log(state, events),
+});
+await rt.debug("frames");            // the calls in progress where it stopped
+await rt.debug("command", { command: "next" });
+rt.debugStop();
 ```
 
 `compile` and `runProgram` are asynchronous because they cross a thread

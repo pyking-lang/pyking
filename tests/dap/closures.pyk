@@ -1,0 +1,9 @@
+def counter(start: Int) -> (Int) -> Int:
+    var count = start
+    def step(by: Int) -> Int:
+        count := count + by
+        return count
+    return step
+
+tick = counter(10)
+print(tick(1), tick(2))

@@ -216,9 +216,9 @@ left behind.
 
 Two details are load-bearing.
 
-**A module's top level is not a block.** `run_entry` runs its statements
-one at a time in the state's own environment, the way the REPL runs an
-entry, rather than `enter_block`. A block puts the enclosing scope back
+**A module's top level is not a block.** The `runner` (`runner_step`)
+runs its statements one at a time in the state's own environment, the
+way the REPL runs an entry, rather than `enter_block`. A block puts the enclosing scope back
 when it ends (that is what `KSeq`'s `exit_env` is for), and a module's
 top level has no enclosing scope to go back to: what it bound *is* what
 it exports, so it has to survive.
@@ -235,7 +235,10 @@ An import itself is a no-op at run time -- its names were bound when the
 module's environment was built -- and `EQualified` is one `lookup` of a
 dotted name, so neither adds a value kind or a continuation.
 
-`run_modules` is `load_modules` started from an empty machine.
+`run_modules` is `load_modules` started from an empty machine, and
+`load_modules` drives a `runner` to its end: the same sequence, one
+step at a time, that a debugger steps (`start_modules`,
+`runner_step`; see [debugging.md](debugging.md)).
 `load_modules(state, units, exports)` runs modules into a machine that
 is already running -- what a REPL entry's imports do -- adding their
 call-free tables to its own and their exports to the ones it was given,

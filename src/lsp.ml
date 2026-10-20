@@ -10,7 +10,6 @@
       settings -- what the editor configured.
       document -- one open file.
       analysis -- what checking one document as a program found.
-      meaning -- what a name refers to.
       phase -- where the protocol is.
       state -- everything the server knows.
 
@@ -21,12 +20,12 @@
       exit_code state -- the status to exit with, once `exit` arrived. *)
 
 open Syntax
+open Scopes
 
-module SMap = Map.Make (String)
-
-(* What the editor configured: more library directories, and whether to
-   check only on save. *)
-type settings = { lib_path : string list; on_save : bool }
+(* What the editor configured: more library directories, whether to
+   check only on save, and whether to show the types it inferred in the
+   text. *)
+type settings = { lib_path : string list; on_save : bool; inlay_hints : bool }
 
 (* One open file: its URI and path, its text and version as the editor
    last sent them, and whether it is due to be checked. *)
@@ -49,20 +48,6 @@ type analysis = {
   problem : problem option;
   internal : string option;
 }
-
-(* Where a name is bound: a file and the name's span in it. *)
-type place = { file : string; span : Lexer.info }
-
-(* What kind of binding a name is: a def, an `=`, a `var`, a parameter. *)
-type binding_kind = KFunction | KValue | KVariable | KParameter
-
-(* What a name refers to: a binding (its place, symbol and kind), an
-   imported module, a builtin, or nothing found. *)
-type meaning =
-  | Bound of place * int * binding_kind
-  | Module_of of string
-  | Builtin
-  | Unknown
 
 (* Where the protocol is: before initialize, running, after shutdown, and
    after exit with the status to end with. *)
@@ -87,7 +72,7 @@ let create base libs server_version =
     base;
     libs;
     server_version;
-    settings = { lib_path = []; on_save = false };
+    settings = { lib_path = []; on_save = false; inlay_hints = true };
     documents = [];
     analyses = [];
     published = [];
@@ -329,286 +314,6 @@ let analysis_of state document =
       let a = analyse state document previous in
       ({ state with analyses = (document.uri, a) :: List.remove_assoc document.uri state.analyses }, a)
 
-(* --- what names mean --- *)
-
-(** The span of the first identifier `name` at or after where a span
-    starts, from a module's tokens. [token] -> string -> Lexer.info ->
-    Lexer.info *)
-let name_span tokens name (from : Lexer.info) =
-  let found =
-    List.find_opt
-      (fun token ->
-        match token with
-        | Lexer.TokIdent (i, n) -> n = name && compare (i.row1, i.col1) (from.row1, from.col1) >= 0
-        | _ -> false)
-      tokens
-  in
-  match found with
-  | Some token -> Lexer.token_info token
-  | None -> { from with row2 = from.row1; col2 = from.col1 }
-
-(** What resolution is told about the module whose names it resolves. *)
-type context = { ctx_path : string; ctx_tokens : Lexer.token list; ctx_units : Module.t list }
-
-(** The unit of a module by its name. context -> string -> Module.t? *)
-let unit_named ctx name = List.find_opt (fun (u : Module.t) -> u.name = name) ctx.ctx_units
-
-(** Where a module binds one of its top-level names, and the binding's
-    symbol and kind. Module.t -> string -> (place, int, binding_kind)? *)
-let export_place (unit : Module.t) name =
-  let in_stmts stmts tokens file =
-    List.find_map
-      (fun stmt ->
-        match stmt with
-        | SFunctionDef (i, n, _, _, _, s, _, _, _) when n = name ->
-            Some ({ file; span = name_span tokens n i }, s, KFunction)
-        | SFunctionSig (i, n, _, s, _) when n = name ->
-            Some ({ file; span = name_span tokens n i }, s, KFunction)
-        | SVar (i, n, _, s) when n = name -> Some ({ file; span = name_span tokens n i }, s, KVariable)
-        | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) -> (
-            let rec find target =
-              match target with
-              | TargetName (i, n, s) when n = name -> Some ({ file; span = i }, s, KValue)
-              | TargetName _ -> None
-              | TargetTuple (_, targets, _) -> List.find_map find targets
-            in
-            find target)
-        | _ -> None)
-      stmts
-  in
-  match in_stmts unit.stmts unit.tokens unit.path with
-  | Some found -> Some found
-  | None -> in_stmts unit.declarations [] (Option.value ~default:unit.path unit.declaration_path)
-
-(** One name found in a module: where, what it is called and what it
-    means. *)
-type use = { use_at : Lexer.info; use_name : string; use_meaning : meaning }
-
-(** The names in scope from a row and column to another. *)
-type scope = { scope_from : int * int; scope_to : int * int; names : meaning SMap.t }
-
-(** What resolution has found so far. *)
-type found = { uses : use list; scopes : scope list }
-
-(** What a name means in an environment. meaning SMap.t -> string -> meaning *)
-let lookup env name = Option.value ~default:Unknown (SMap.find_opt name env)
-
-(** The names an assignment target binds, with their spans and symbols.
-    assign_target -> [(string, Lexer.info, int)] *)
-let rec target_bindings target =
-  match target with
-  | TargetName (i, n, s) -> [ (n, i, s) ]
-  | TargetTuple (_, targets, _) -> List.concat_map target_bindings targets
-
-(** The names a pattern binds, with their spans and symbols.
-    pattern -> [(string, Lexer.info, int)] *)
-let rec pattern_bindings pattern =
-  match pattern with
-  | PCapture (i, n, s) -> [ (n, i, s) ]
-  | PTuple (_, ps, _) -> List.concat_map pattern_bindings ps
-  | PList (_, before, rest, after, _) ->
-      List.concat_map pattern_bindings before
-      @ (match rest with Some (ListRest (i, Some n, s)) -> [ (n, i, s) ] | _ -> [])
-      @ List.concat_map pattern_bindings after
-  | PText (i, _, Some n, _, s) -> [ (n, i, s) ]
-  | PConstructor (_, _, _, ps, named, _) ->
-      List.concat_map pattern_bindings (ps @ List.map snd named)
-  | POr (_, first :: _, _) -> pattern_bindings first
-  | POr (_, [], _) -> []
-  | PAs (i, inner, n, s) -> pattern_bindings inner @ [ (n, i, s) ]
-  | PInt _ | PString _ | PBool _ | PWildcard _ | PText _ -> []
-
-(** An environment with names bound at places in the module resolved.
-    context -> binding_kind -> meaning SMap.t -> [(string, Lexer.info,
-    int)] -> meaning SMap.t *)
-let bind_all ctx kind env names =
-  List.fold_left
-    (fun env (n, span, s) -> SMap.add n (Bound ({ file = ctx.ctx_path; span }, s, kind)) env)
-    env names
-
-(** A parameter's binding: its name, the span of the name alone, its
-    symbol. param -> (string, Lexer.info, int) *)
-let param_binding (Param (i, n, _, _, s)) =
-  (n, { i with row2 = i.row1; col2 = i.col1 + String.length n }, s)
-
-(** What an import binds: a module under its local name, or each field
-    taken, where its module binds it. context -> meaning SMap.t -> stmt ->
-    meaning SMap.t *)
-let bind_import ctx env stmt =
-  match stmt with
-  | SImport (_, module_, name, selected, fields, _) ->
-      if not selected then SMap.add name (Module_of module_) env
-      else
-        List.fold_left
-          (fun env (exported, local) ->
-            let meaning =
-              match Option.bind (unit_named ctx module_) (fun u -> export_place u exported) with
-              | Some (place, s, kind) -> Bound (place, s, kind)
-              | None -> Unknown
-            in
-            SMap.add local meaning env)
-          env fields
-  | _ -> env
-
-(** What `module.name` means, where `module` is bound in env.
-    context -> meaning SMap.t -> string -> string -> meaning *)
-let qualified ctx env module_ name =
-  match lookup env module_ with
-  | Module_of real -> (
-      match Option.bind (unit_named ctx real) (fun u -> export_place u name) with
-      | Some (place, s, kind) -> Bound (place, s, kind)
-      | None -> Unknown)
-  | _ -> Unknown
-
-(** Every name an expression uses. context -> meaning SMap.t -> expr ->
-    found -> found *)
-let rec resolve_expr ctx env e found =
-  let go = resolve_expr ctx env in
-  match e with
-  | EInt _ | EFloat _ | EString _ | EBool _ -> found
-  | EVar (i, n, _) -> { found with uses = { use_at = i; use_name = n; use_meaning = lookup env n } :: found.uses }
-  | EAdd (_, a, b, _) | ESub (_, a, b, _) | EMul (_, a, b, _) | EDiv (_, a, b, _)
-  | EConcat (_, a, b, _) | ELessThan (_, a, b, _) | ELessThanEq (_, a, b, _)
-  | EGreatThan (_, a, b, _) | EGreatThanEq (_, a, b, _) | EEq (_, a, b, _) ->
-      go b (go a found)
-  | ENeg (_, a, _) -> go a found
-  | ECall (_, f, args, _) -> List.fold_left (fun found a -> go a found) (go f found) (arg_exprs args)
-  | EList (_, es, _) | ETuple (_, es, _) -> List.fold_left (fun found a -> go a found) found es
-  | EIf (_, c, a, b, _) -> go b (go a (go c found))
-  | EQualified (i, m, n, _) ->
-      let module_span = { i with row2 = i.row1; col2 = i.col1 + String.length m } in
-      let uses =
-        { use_at = { i with row1 = i.row2; col1 = max i.col1 (i.col2 - String.length n) };
-          use_name = m ^ "." ^ n; use_meaning = qualified ctx env m n }
-        :: { use_at = module_span; use_name = m; use_meaning = lookup env m }
-        :: found.uses
-      in
-      { found with uses }
-  | EListComp (_, body, clauses, _) ->
-      let env, found =
-        List.fold_left
-          (fun (env, found) clause ->
-            match clause with
-            | CompFor (_, pattern, sequence, _) ->
-                let found = resolve_expr ctx env sequence found in
-                (bind_all ctx KValue env (pattern_bindings pattern), found)
-            | CompIf (_, c, _) -> (env, resolve_expr ctx env c found))
-          (env, found) clauses
-      in
-      resolve_expr ctx env body found
-  | ELambda (_, params, body, _) ->
-      resolve_expr ctx (bind_all ctx KParameter env (List.map param_binding params)) body found
-  | ELet (_, target, _, value, body, _) ->
-      resolve_expr ctx (bind_all ctx KValue env (target_bindings target)) body (go value found)
-  | EConstruct (_, _, _, args, _) ->
-      List.fold_left (fun found a -> go a found) found (arg_exprs args)
-  | EField (_, record, _, _) -> go record found
-
-(** Every name a block uses, and what is in scope where, with its `def`s
-    bound before any of it. context -> meaning SMap.t -> [stmt] -> (int,
-    int) -> found -> found *)
-and resolve_block ctx env stmts stop found =
-  let env =
-    List.fold_left
-      (fun env stmt ->
-        match stmt with
-        | SFunctionDef (i, n, _, _, _, s, _, _, _) ->
-            SMap.add n (Bound ({ file = ctx.ctx_path; span = name_span ctx.ctx_tokens n i }, s, KFunction)) env
-        | _ -> env)
-      env stmts
-  in
-  let _, found =
-    List.fold_left
-      (fun (env, found) stmt ->
-        let i = stmt_info stmt in
-        let found = { found with scopes = { scope_from = (i.row1, i.col1); scope_to = stop; names = env } :: found.scopes } in
-        let env, found = resolve_stmt ctx env stmt found in
-        let found = { found with scopes = { scope_from = (i.row2, i.col2); scope_to = stop; names = env } :: found.scopes } in
-        (env, found))
-      (env, found) stmts
-  in
-  found
-
-(** Every name a statement uses, and the environment it leaves.
-    context -> meaning SMap.t -> stmt -> found -> (meaning SMap.t, found) *)
-and resolve_stmt ctx env stmt found =
-  match stmt with
-  | SLet (_, target, e, _, _, _, _) ->
-      let found = resolve_expr ctx env e found in
-      (bind_all ctx KValue env (target_bindings target), found)
-  | SLetStmt (_, target, inner, _, _, _) ->
-      let _, found = resolve_stmt ctx env inner found in
-      (bind_all ctx KValue env (target_bindings target), found)
-  | SVar (i, n, e, s) ->
-      let found = resolve_expr ctx env e found in
-      (SMap.add n (Bound ({ file = ctx.ctx_path; span = name_span ctx.ctx_tokens n i }, s, KVariable)) env, found)
-  | SMutate (i, n, e, _) ->
-      let found = resolve_expr ctx env e found in
-      let use = { use_at = name_span ctx.ctx_tokens n i; use_name = n; use_meaning = lookup env n } in
-      (env, { found with uses = use :: found.uses })
-  | SReturn (_, e, _) | SExprStmt (_, e, _) -> (env, resolve_expr ctx env e found)
-  | SReturnStmt (_, inner, _) -> (env, snd (resolve_stmt ctx env inner found))
-  | SLoop (i, target, init, _, iter, body, _) ->
-      let found = match init with Some e -> resolve_expr ctx env e found | None -> found in
-      let inner =
-        match target with Some t -> bind_all ctx KValue env (target_bindings t) | None -> env
-      in
-      let inner, found =
-        match iter with
-        | Some (ForIn (fi, n, sequence, _)) ->
-            let found = resolve_expr ctx env sequence found in
-            (bind_all ctx KValue inner [ (n, name_span ctx.ctx_tokens n fi, 0) ], found)
-        | Some (WhileTest (_, c, _)) -> (inner, resolve_expr ctx inner c found)
-        | None -> (inner, found)
-      in
-      (env, resolve_block ctx inner body (i.row2, i.col2) found)
-  | SBreak _ | SContinue _ | SFunctionSig _ | SDatatype _ -> (env, found)
-  | SIf (i, c, then_, else_, _) ->
-      let found = resolve_expr ctx env c found in
-      let found = resolve_block ctx env then_ (i.row2, i.col2) found in
-      (env, match else_ with Some b -> resolve_block ctx env b (i.row2, i.col2) found | None -> found)
-  | SFunctionDef (i, n, params, body, _, s, _, implicits, _) ->
-      let found =
-        List.fold_left
-          (fun found (Param (_, _, _, default, _)) ->
-            match default with Some e -> resolve_expr ctx env e found | None -> found)
-          found params
-      in
-      let inner =
-        SMap.add n (Bound ({ file = ctx.ctx_path; span = name_span ctx.ctx_tokens n i }, s, KFunction)) env
-      in
-      let inner = bind_all ctx KParameter inner (List.map param_binding (params @ implicits)) in
-      (env, resolve_block ctx inner body (i.row2, i.col2) found)
-  | SMatch (_, subject, cases, _) ->
-      let found = resolve_expr ctx env subject found in
-      ( env,
-        List.fold_left
-          (fun found (MatchCase (ci, pattern, guard, body, _)) ->
-            let inner = bind_all ctx KValue env (pattern_bindings pattern) in
-            let found =
-              match guard with Some g -> resolve_expr ctx inner g found | None -> found
-            in
-            resolve_block ctx inner body (ci.row2, ci.col2) found)
-          found cases )
-  | SImport _ -> (bind_import ctx env stmt, found)
-
-(** What every name in a module means, and what is in scope where.
-    [Module.t] -> Module.t -> found *)
-let resolve units (unit : Module.t) =
-  let ctx = { ctx_path = unit.path; ctx_tokens = unit.tokens; ctx_units = units } in
-  let env = List.fold_left (fun env n -> SMap.add n Builtin env) SMap.empty Builtin.names in
-  let env = List.fold_left (bind_import ctx) env unit.stmts in
-  let env =
-    List.fold_left
-      (fun env stmt ->
-        match stmt with
-        | SFunctionSig (i, n, _, s, _) ->
-            SMap.add n (Bound ({ file = Option.value ~default:unit.path unit.declaration_path; span = i }, s, KFunction)) env
-        | _ -> env)
-      env unit.declarations
-  in
-  resolve_block ctx env unit.stmts (max_int, max_int) { uses = []; scopes = [] }
-
 (* --- answers --- *)
 
 (** A doc comment's lines with each section line outside a code block --
@@ -721,18 +426,6 @@ let typed_node stmts tmap row col =
           | None -> best)
       | _ -> best)
     None stmts
-
-(** The use of a name at a position, the smallest holding it.
-    found -> int -> int -> use? *)
-let use_at found row col =
-  List.fold_left
-    (fun best u ->
-      if contains u.use_at row col then
-        match best with
-        | Some b when compare (size b.use_at) (size u.use_at) <= 0 -> best
-        | _ -> Some u
-      else best)
-    None found.uses
 
 (** A Markdown hover holding Pyking. string -> string? -> Json.t *)
 let hover_contents code doc =
@@ -865,18 +558,7 @@ let completion state document pos =
   let row, col = row_col document.text pos in
   let found = Option.map (fun (u, _) -> resolve analysis.units u) (own_unit analysis document) in
   let scope_names =
-    match found with
-    | None -> SMap.empty
-    | Some found ->
-        List.fold_left
-          (fun best s ->
-            match best with
-            | Some b when compare b.scope_from s.scope_from >= 0 -> best
-            | _ ->
-                if compare s.scope_from (row, col) <= 0 && compare (row, col) s.scope_to <= 0 then Some s else best)
-          None found.scopes
-        |> Option.map (fun s -> s.names)
-        |> Option.value ~default:SMap.empty
+    match found with None -> SMap.empty | Some found -> names_at found row col
   in
   let module_names =
     List.fold_left (fun env (u : Module.t) -> SMap.add u.name (Module_of u.name) env) SMap.empty analysis.units
@@ -920,6 +602,893 @@ let completion state document pos =
       let names = if names = [] then List.map (fun n -> item n 3 (Some "builtin")) Builtin.names else names in
       let keywords = List.map (fun k -> item k 14 None) Lexer.keywords in
       (state, Json.Object [ ("isIncomplete", Json.Bool false); ("items", Json.List (List.rev names @ keywords)) ])
+
+(* --- signature help --- *)
+
+(** The call a position is inside, read from the text, since a call being
+    typed seldom parses: the callee written before the innermost `(`
+    still open there, the row and byte column of that callee, how many
+    commas at its depth come before the position, and the name of a
+    named argument being written. string -> int -> int -> (string, int,
+    int, int, string?)? *)
+let open_call text row col =
+  let at = offset_of text row col in
+  let rec back i depth commas =
+    if i < 0 || at - i > 4000 then None
+    else
+      match text.[i] with
+      | ')' | ']' -> back (i - 1) (depth + 1) commas
+      | '[' -> if depth = 0 then None else back (i - 1) (depth - 1) commas
+      | '(' -> if depth = 0 then Some (i, commas) else back (i - 1) (depth - 1) commas
+      | ',' when depth = 0 -> back (i - 1) depth (commas + 1)
+      | _ -> back (i - 1) depth commas
+  in
+  match back (at - 1) 0 0 with
+  | None -> None
+  | Some (paren, commas) -> (
+      let is_name c =
+        match c with 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '.' | ':' -> true | _ -> false
+      in
+      let rec start i = if i > 0 && is_name text.[i - 1] then start (i - 1) else i in
+      let first = start paren in
+      let callee = String.sub text first (paren - first) in
+      if callee = "" || not (match callee.[0] with 'a' .. 'z' | 'A' .. 'Z' | '_' -> true | _ -> false)
+      then None
+      else
+        (* The argument being written: after the last comma or the `(`. *)
+        let rec last_comma i depth =
+          if i <= paren then paren
+          else
+            match text.[i] with
+            | ')' | ']' -> last_comma (i - 1) (depth + 1)
+            | '(' | '[' -> last_comma (i - 1) (depth - 1)
+            | ',' when depth = 0 -> i
+            | _ -> last_comma (i - 1) depth
+        in
+        let from = last_comma (at - 1) 0 + 1 in
+        let argument = String.trim (String.sub text from (max 0 (at - from))) in
+        let named =
+          match String.index_opt argument '=' with
+          | Some k
+            when k > 0
+                 && (k + 1 >= String.length argument || argument.[k + 1] <> '=')
+                 && argument.[k - 1] <> '=' && argument.[k - 1] <> '<' && argument.[k - 1] <> '>'
+                 && argument.[k - 1] <> ':' ->
+              let name = String.trim (String.sub argument 0 k) in
+              if name <> "" && String.for_all (fun c -> is_name c && c <> '.' && c <> ':') name then Some name
+              else None
+          | _ -> None
+        in
+        let rec position_of offset r c i =
+          if i >= offset then (r, c)
+          else if text.[i] = '\n' then position_of offset (r + 1) 0 (i + 1)
+          else position_of offset r (c + 1) (i + 1)
+        in
+        let r, c = position_of first 1 0 0 in
+        Some (callee, r, c, commas, named))
+
+(** The `##` comment above a row of a file, as its lines, without their
+    markers. state -> string -> int -> [string] *)
+let doc_lines state file row =
+  let lines = Array.of_list (lines_of (text_of state file)) in
+  let rec go r acc =
+    if r < 1 || r > Array.length lines then acc
+    else
+      let line = String.trim lines.(r - 1) in
+      if String.length line >= 2 && String.sub line 0 2 = "##" then
+        let body = String.sub line 2 (String.length line - 2) in
+        let body = if String.length body > 0 && body.[0] = ' ' then String.sub body 1 (String.length body - 1) else body in
+        go (r - 1) (body :: acc)
+      else acc
+  in
+  go (row - 1) []
+
+(** A doc comment's summary -- what comes before its first `#` section
+    -- and what its `# Parameters` section says of each parameter.
+    [string] -> (string, [(string, string)]) *)
+let doc_parts lines =
+  let is_section line = String.length line > 2 && String.sub line 0 2 = "# " in
+  let rec summary lines out =
+    match lines with
+    | line :: rest when not (is_section line) -> summary rest (out @ [ line ])
+    | _ -> String.trim (String.concat "\n" out)
+  in
+  let rec parameters lines inside out =
+    match lines with
+    | [] -> out
+    | line :: rest when is_section line -> parameters rest (String.trim line = "# Parameters") out
+    | line :: rest when inside && String.length line > 2 && String.sub line 0 2 = "- " -> (
+        let item = String.sub line 2 (String.length line - 2) in
+        match String.index_opt item ':' with
+        | Some k ->
+            let name = String.trim (String.sub item 0 k) in
+            let name =
+              if String.length name >= 2 && name.[0] = '`' && name.[String.length name - 1] = '`'
+              then String.sub name 1 (String.length name - 2)
+              else name
+            in
+            parameters rest inside (out @ [ (name, String.trim (String.sub item (k + 1) (String.length item - k - 1))) ])
+        | None -> parameters rest inside out)
+    | line :: rest when inside && out <> [] && String.length line > 0 && line.[0] = ' ' ->
+        let name, text = List.nth out (List.length out - 1) in
+        parameters rest inside (List.filteri (fun k _ -> k < List.length out - 1) out @ [ (name, text ^ " " ^ String.trim line) ])
+    | _ :: rest -> parameters rest inside out
+  in
+  (summary lines [], parameters lines false [])
+
+(** The definition a binding's place names, in the units of a program.
+    [Module.t] -> place -> stmt? *)
+let definition_at units (place : place) =
+  List.find_map
+    (fun (u : Module.t) ->
+      if u.path <> place.file && u.declaration_path <> Some place.file then None
+      else
+        Walk.fold_stmts
+          (fun found node ->
+            match (found, node) with
+            | None, Walk.NStmt (SFunctionDef (i, n, _, _, _, _, _, _, _) as d)
+              when name_span u.tokens n i = place.span ->
+                Some d
+            | None, Walk.NStmt (SFunctionSig (i, _, _, _, _) as d) when i = place.span -> Some d
+            | _ -> found)
+          None (u.stmts @ u.declarations))
+    units
+
+(** One signature: its label, its documentation, and each parameter's
+    span in the label and documentation. string -> string -> [(string,
+    string)] -> Json.t *)
+let signature label doc params =
+  let utf16 text = utf16_of_bytes text (String.length text) in
+  let _, parameters =
+    List.fold_left
+      (fun (from, out) (shown, about) ->
+        let rec find i =
+          if i + String.length shown > String.length label then None
+          else if String.sub label i (String.length shown) = shown then Some i
+          else find (i + 1)
+        in
+        match find from with
+        | None -> (from, out)
+        | Some i ->
+            let a = utf16 (String.sub label 0 i) and b = utf16 (String.sub label 0 (i + String.length shown)) in
+            ( i + String.length shown,
+              out
+              @ [
+                  Json.Object
+                    ([ ("label", Json.List [ Json.Number (float_of_int a); Json.Number (float_of_int b) ]) ]
+                    @ if about = "" then [] else [ ("documentation", Json.String about) ]);
+                ] ))
+      (String.index_opt label '(' |> Option.value ~default:0, [])
+      params
+  in
+  Json.Object
+    ([ ("label", Json.String label); ("parameters", Json.List parameters) ]
+    @ if doc = "" then [] else [ ("documentation", Json.Object [ ("kind", Json.String "markdown"); ("value", Json.String doc) ]) ])
+
+(** The signatures of a builtin, each its label and parameters.
+    string -> [(string, [string])] *)
+let builtin_signatures name =
+  match name with
+  | "print" | "debug" -> [ (name ^ "(values...) -> ()", [ "values..." ]) ]
+  | "range" ->
+      [
+        ("range(stop: Int) -> [Int]", [ "stop: Int" ]);
+        ("range(start: Int, stop: Int) -> [Int]", [ "start: Int"; "stop: Int" ]);
+        ("range(start: Int, stop: Int, step: Int) -> [Int]", [ "start: Int"; "stop: Int"; "step: Int" ]);
+      ]
+  | "len" -> [ ("len(items) -> Int", [ "items" ]) ]
+  | "string" -> [ ("string(value) -> String", [ "value" ]) ]
+  | "int" -> [ ("int(value) -> Int", [ "value" ]) ]
+  | "float" -> [ ("float(value) -> Float", [ "value" ]) ]
+  | "bool" -> [ ("bool(value) -> Bool", [ "value" ]) ]
+  | _ -> []
+
+(** The signature of a definition: `name(p: T, ...) -> R`, with what its
+    `##` comment says, and its parameters' names.
+    state -> analysis -> string -> place -> int -> (Json.t, [string])? *)
+let def_signature state analysis shown (place : place) sym =
+  let types = meaning_type analysis (Bound (place, sym, KFunction)) in
+  let doc, about = doc_parts (doc_lines state place.file place.span.row1) in
+  match definition_at analysis.units place with
+  | Some (SFunctionDef (_, _, params, _, ret, s, _, implicits, _)) ->
+      let tmap =
+        Option.value ~default:IntMap.empty (List.assoc_opt place.file analysis.tmaps)
+      in
+      let param_type (Param (_, _, written, _, ps)) =
+        match IntMap.find_opt ps tmap with
+        | Some t -> Some (show_type t)
+        | None -> Option.map show_type written
+      in
+      let shown_params =
+        List.map
+          (fun (Param (_, n, _, default, _) as p) ->
+            n ^ (match param_type p with Some t -> ": " ^ t | None -> "")
+            ^ if default <> None then " = ..." else "")
+          params
+      in
+      let result =
+        match IntMap.find_opt s tmap with
+        | Some (TFunction (_, _, r, _, _, _, _)) -> " -> " ^ show_type r
+        | _ -> ( match ret with Some r -> " -> " ^ show_type r | None -> "")
+      in
+      let implicit_part =
+        if implicits = [] then ""
+        else
+          ", "
+          ^ String.concat ", "
+              (List.map (fun (Param (_, n, w, _, _)) -> "implicit " ^ n ^ match w with Some t -> ": " ^ show_type t | None -> "") implicits)
+      in
+      let label = shown ^ "(" ^ String.concat ", " shown_params ^ implicit_part ^ ")" ^ result in
+      let names = List.map (fun (Param (_, n, _, _, _)) -> n) params in
+      Some
+        ( signature label doc
+            (List.map2 (fun shown_p n -> (shown_p, Option.value ~default:"" (List.assoc_opt n about))) shown_params names),
+          names )
+  | _ -> (
+      (* A declaration: only its type is known. *)
+      match types with
+      | Some t ->
+          let label = shown ^ " : " ^ t in
+          Some (signature label doc [], [])
+      | None -> None)
+
+(** The signatures of the call a position is inside, the one meant
+    first, and the parameter being written.
+    state -> document -> Json.t -> (state, Json.t) *)
+let signature_help state document pos =
+  let state, analysis = analysis_of state document in
+  let row, col = row_col document.text pos in
+  let typed = match analysis.typed with Some (units, tmaps) -> { analysis with units; tmaps } | None -> analysis in
+  match (open_call document.text row col, own_unit typed document) with
+  | None, _ | _, None -> (state, Json.Null)
+  | Some (callee, r, c, commas, named), Some (unit, _) ->
+      let found = resolve typed.units unit in
+      let names = names_at found r c in
+      let module_, base =
+        match String.rindex_opt callee '.' with
+        | Some k -> (Some (String.sub callee 0 k), String.sub callee (k + 1) (String.length callee - k - 1))
+        | None -> (None, callee)
+      in
+      let candidates =
+        match module_ with
+        | Some m -> (
+            let real =
+              match SMap.find_opt m names with
+              | Some (Module_of real) -> Some real
+              | _ -> if List.exists (fun (u : Module.t) -> u.name = m) typed.units then Some m else None
+            in
+            match Option.bind real (fun r -> List.find_opt (fun (u : Module.t) -> u.name = r) typed.units) with
+            | None -> []
+            | Some u ->
+                List.filter_map
+                  (fun (n, _) ->
+                    if n = base || (Names.is_qualified n && Names.base n = base) then
+                      Option.map (fun (place, s, _) -> (m ^ "." ^ n, place, s)) (export_place u n)
+                    else None)
+                  u.publics)
+        | None ->
+            SMap.fold
+              (fun n meaning out ->
+                match meaning with
+                | Bound (place, s, _) when n = base || (Names.is_qualified n && Names.base n = base) ->
+                    out @ [ (n, place, s) ]
+                | _ -> out)
+              names []
+      in
+      let built =
+        List.filter_map (fun (shown, place, s) -> def_signature state typed shown place s) candidates
+      in
+      let built =
+        if built <> [] then built
+        else
+          (* A constructor: its fields, as its datatype writes them. *)
+          List.concat_map
+            (fun (u : Module.t) ->
+              Walk.fold_stmts
+                (fun out node ->
+                  match node with
+                  | Walk.NConstructor (Constructor (_, n, fields, _)) when n = base ->
+                      let shown =
+                        List.mapi
+                          (fun k (Field (_, label, written, default, _)) ->
+                            Option.value ~default:(string_of_int k) label
+                            ^ (match written with Some t -> ": " ^ show_type t | None -> "")
+                            ^ if default <> None then " = ..." else "")
+                          fields
+                      in
+                      let names =
+                        List.mapi (fun k (Field (_, label, _, _, _)) -> Option.value ~default:(string_of_int k) label) fields
+                      in
+                      out @ [ (signature (n ^ "(" ^ String.concat ", " shown ^ ")") "" (List.map (fun p -> (p, "")) shown), names) ]
+                  | _ -> out)
+                [] u.stmts)
+            (if String.length base > 0 && base.[0] >= 'A' && base.[0] <= 'Z' then typed.units else [])
+      in
+      let built =
+        if built <> [] then built
+        else
+          match SMap.find_opt base names with
+          | Some Builtin | None when module_ = None ->
+              List.map
+                (fun (label, params) ->
+                  let doc = match Builtin.lookup base with Some b -> b.doc | None -> "" in
+                  (signature label doc (List.map (fun p -> (p, "")) params), []))
+                (builtin_signatures base)
+          | _ -> []
+      in
+      if built = [] then (state, Json.Null)
+      else
+        let active_parameter names =
+          match named with
+          | Some n -> (
+              match List.find_index (fun x -> x = n) names with Some k -> k | None -> commas)
+          | None -> commas
+        in
+        (* The signature meant first is the first with room for the
+           arguments written so far. *)
+        let active =
+          match
+            List.find_index
+              (fun (s, _) -> List.length (Json.to_list (Json.member "parameters" s)) > commas)
+              built
+          with
+          | Some k -> k
+          | None -> 0
+        in
+        let _, names_active = List.nth built active in
+        ( state,
+          Json.Object
+            [
+              ("signatures", Json.List (List.map fst built));
+              ("activeSignature", Json.Number (float_of_int active));
+              ("activeParameter", Json.Number (float_of_int (active_parameter names_active)));
+            ] )
+
+(* --- references, highlights and renaming --- *)
+
+(** The binding a position names in a document: the one a use there
+    reaches, or the one written there; with the name as written at the
+    position. analysis -> document -> int -> int -> (place, int,
+    binding_kind, string)? *)
+let binding_at analysis document row col =
+  match own_unit analysis document with
+  | None -> None
+  | Some (unit, _) -> (
+      let found = resolve analysis.units unit in
+      match use_at found row col with
+      | Some { use_meaning = Bound (place, s, kind); use_name; _ } ->
+          let name =
+            match String.rindex_opt use_name '.' with
+            | Some k -> String.sub use_name (k + 1) (String.length use_name - k - 1)
+            | None -> use_name
+          in
+          Some (place, s, kind, name)
+      | _ ->
+          List.find_map
+            (fun (n, (place : place), s, kind) ->
+              if place.file = document.path && contains place.span row col then Some (place, s, kind, n) else None)
+            (bindings found))
+
+(** Every place a binding is written: its own, then each use of it in
+    every module of the program, each with whether it is the binding.
+    analysis -> place -> [(string, Lexer.info, bool)] *)
+let occurrences analysis (place : place) =
+  let same (p : place) = p.file = place.file && p.span = place.span in
+  let uses =
+    List.concat_map
+      (fun (u : Module.t) ->
+        if u.is_external then []
+        else
+          let found = resolve analysis.units u in
+          List.filter_map
+            (fun use ->
+              match use.use_meaning with
+              | Bound (p, _, _) when same p && not (use.use_at = place.span && u.path = place.file) ->
+                  Some (u.path, use.use_at, false)
+              | _ -> None)
+            found.uses)
+      analysis.units
+  in
+  let uses = List.sort_uniq compare uses in
+  (place.file, place.span, true) :: uses
+
+(** Every place the name at a position is written, as locations.
+    state -> document -> Json.t -> bool -> (state, Json.t) *)
+let references state document pos declaration =
+  let state, analysis = analysis_of state document in
+  (* Names and where they are written come from the text as it is now. *)
+  let row, col = row_col document.text pos in
+  match binding_at analysis document row col with
+  | None -> (state, Json.Null)
+  | Some (place, _, _, _) ->
+      ( state,
+        Json.List
+          (List.filter_map
+             (fun (file, span, own) ->
+               if own && not declaration then None else Some (location state { file; span }))
+             (occurrences analysis place)) )
+
+(** Where in this document the name at a position is written: the
+    binding as written to, each use as read. state -> document -> Json.t
+    -> (state, Json.t) *)
+let highlights state document pos =
+  let state, analysis = analysis_of state document in
+  (* Names and where they are written come from the text as it is now. *)
+  let row, col = row_col document.text pos in
+  match binding_at analysis document row col with
+  | None -> (state, Json.Null)
+  | Some (place, _, _, _) ->
+      ( state,
+        Json.List
+          (List.filter_map
+             (fun (file, span, own) ->
+               if file <> document.path then None
+               else
+                 Some
+                   (Json.Object
+                      [ ("range", range document.text span); ("kind", Json.Number (if own then 3. else 2.)) ]))
+             (occurrences analysis place)) )
+
+(** Why the name at a position cannot be renamed, or the binding, the
+    name and every place it is written.
+    state -> analysis -> document -> int -> int -> (string, (place,
+    string, [(string, Lexer.info, bool)])) result *)
+let renamable state analysis document row col =
+  match binding_at analysis document row col with
+  | None -> Error "there is no name here to rename"
+  | Some (place, _, _, name) ->
+      let all = occurrences analysis place in
+      if Names.is_qualified name || String.contains name ':' then
+        Error "a name with a qualifier is one of an overloaded set: rename it where it is defined, by hand"
+      else if List.exists (fun (file, _, _) -> Module.in_library state.libs file) all then
+        Error ("'" ^ name ^ "' is a library's, and a library is not renamed from here")
+      else Ok (place, name, all)
+
+(** The span of the name under a position, for an editor to edit, with
+    the name. state -> document -> Json.t -> (state, (Json.t, (int,
+    string)) result) *)
+let prepare_rename state document pos =
+  let state, analysis = analysis_of state document in
+  (* Names and where they are written come from the text as it is now. *)
+  let row, col = row_col document.text pos in
+  match renamable state analysis document row col with
+  | Error why -> (state, Error (-32602, why))
+  | Ok (_, name, all) -> (
+      match
+        List.find_opt (fun (file, span, _) -> file = document.path && contains span row col) all
+      with
+      | Some (_, span, _) ->
+          (state, Ok (Json.Object [ ("range", range document.text span); ("placeholder", Json.String name) ]))
+      | None -> (state, Error (-32602, "there is no name here to rename")))
+
+(** Whether a text is a name a program may bind. string -> bool *)
+let bindable name =
+  String.length name > 0
+  && (match name.[0] with 'a' .. 'z' | '_' -> true | _ -> false)
+  && String.for_all (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true | _ -> false) name
+  && (not (List.mem name Lexer.keywords))
+  && not (List.mem name Builtin.names)
+
+(** Every place the name at a position is written, given a new name --
+    refused where the new name is not one a program may bind, or where
+    it would mean something else at any of those places.
+    state -> document -> Json.t -> string -> (state, (Json.t, (int,
+    string)) result) *)
+let rename state document pos new_name =
+  let state, analysis = analysis_of state document in
+  (* Names and where they are written come from the text as it is now. *)
+  let row, col = row_col document.text pos in
+  match renamable state analysis document row col with
+  | Error why -> (state, Error (-32602, why))
+  | Ok (place, name, all) ->
+      if not (bindable new_name) then
+        (state, Error (-32602, Printf.sprintf "'%s' is not a name a program can bind" new_name))
+      else
+        let clash =
+          List.find_map
+            (fun (file, (span : Lexer.info), _) ->
+              match List.find_opt (fun (u : Module.t) -> u.path = file) analysis.units with
+              | None -> None
+              | Some u -> (
+                  let found = resolve analysis.units u in
+                  match SMap.find_opt new_name (names_at found span.row1 span.col1) with
+                  | Some (Bound (p, _, _)) when p <> place -> Some (file, span)
+                  | Some Builtin | Some (Module_of _) -> Some (file, span)
+                  | _ -> None))
+            all
+        in
+        match clash with
+        | Some (file, span) ->
+            ( state,
+              Error
+                ( -32602,
+                  Printf.sprintf "'%s' is already a name in scope at %s %d:%d, so the rename would change what it means"
+                    new_name (Filename.basename file) span.row1 (span.col1 + 1) ) )
+        | None ->
+            let edits =
+              List.fold_left
+                (fun edits (file, (span : Lexer.info), _) ->
+                  let text = text_of state file in
+                  let line = line_at text span.row1 in
+                  let written =
+                    if span.row1 = span.row2 && span.col2 <= String.length line then
+                      String.sub line span.col1 (span.col2 - span.col1)
+                    else ""
+                  in
+                  (* An alias that happens to point here is a name of its
+                     own, and keeps it. *)
+                  if written <> name then edits
+                  else
+                    let edit =
+                      Json.Object [ ("range", range text span); ("newText", Json.String new_name) ]
+                    in
+                    let uri = uri_of_path file in
+                    match List.assoc_opt uri edits with
+                    | Some list -> (uri, list @ [ edit ]) :: List.remove_assoc uri edits
+                    | None -> edits @ [ (uri, [ edit ]) ])
+                [] all
+            in
+            ( state,
+              Ok
+                (Json.Object
+                   [ ("changes", Json.Object (List.map (fun (u, es) -> (u, Json.List es)) edits)) ]) )
+
+(* --- inlay hints --- *)
+
+(** The type the checker worked out for every binding a document did not
+    annotate, shown after its name, and for every definition that did
+    not say what it returns, after its parameters.
+    state -> document -> Json.t -> (state, Json.t) *)
+let inlay_hints state document range_ =
+  let state, analysis = analysis_of state document in
+  let analysis = match analysis.typed with Some (units, tmaps) -> { analysis with units; tmaps } | None -> analysis in
+  match own_unit analysis document with
+  | None -> (state, Json.List [])
+  | Some (unit, tmap) when state.settings.inlay_hints ->
+      let first, _ = row_col document.text (Json.member "start" range_) in
+      let last, _ = row_col document.text (Json.member "end" range_) in
+      let hint row col label left =
+        Json.Object
+          ([ ("position", position document.text row col); ("label", Json.String label); ("kind", Json.Number 1.) ]
+          @ if left then [ ("paddingLeft", Json.Bool true) ] else [])
+      in
+      let typed s = Option.map show_type (IntMap.find_opt s tmap) in
+      let after (i : Lexer.info) s =
+        match typed s with Some t -> [ (i.row2, i.col2, ": " ^ t, false) ] | None -> []
+      in
+      let rec target_hints target =
+        match target with
+        | TargetName (i, _, s) -> after i s
+        | TargetTuple (_, targets, _) -> List.concat_map target_hints targets
+      in
+      let param_hints params =
+        List.concat_map
+          (fun (Param (i, n, written, _, s)) ->
+            if written <> None then []
+            else after { i with row2 = i.row1; col2 = i.col1 + String.length n } s)
+          params
+      in
+      (* Where a definition's parameter list closes: the `)` matching the
+         first `(` after its name. *)
+      let closing (i : Lexer.info) =
+        let rec go tokens depth started =
+          match tokens with
+          | [] -> None
+          | Lexer.TokLParen t :: rest when compare (t.row1, t.col1) (i.row1, i.col1) >= 0 ->
+              go rest (depth + 1) true
+          | Lexer.TokRParen t :: rest when started ->
+              if depth = 1 then Some t else go rest (depth - 1) started
+          | _ :: rest -> go rest depth started
+        in
+        go unit.tokens 0 false
+      in
+      let hints =
+        Walk.fold_stmts
+          (fun out node ->
+            match node with
+            | Walk.NStmt (SLet (_, target, _, None, _, _, _)) | Walk.NStmt (SLetStmt (_, target, _, None, _, _)) ->
+                out @ target_hints target
+            | Walk.NStmt (SLoop (_, Some target, _, None, _, _, _)) -> out @ target_hints target
+            | Walk.NStmt (SVar (i, n, _, s)) ->
+                let span = name_span unit.tokens n i in
+                out @ after span s
+            | Walk.NStmt (SFunctionDef (i, _, params, _, ret, s, _, _, _)) ->
+                let returns =
+                  match (ret, IntMap.find_opt s tmap, closing i) with
+                  | None, Some (TFunction (_, _, r, _, _, _, _)), Some paren ->
+                      [ (paren.row2, paren.col2, "-> " ^ show_type r, true) ]
+                  | _ -> []
+                in
+                out @ param_hints params @ returns
+            | Walk.NExpr (ELambda (_, params, _, _)) -> out @ param_hints params
+            | _ -> out)
+          [] unit.stmts
+      in
+      ( state,
+        Json.List
+          (List.filter_map
+             (fun (row, col, label, left) ->
+               if row >= first && row <= last then Some (hint row col label left) else None)
+             hints) )
+  | Some _ -> (state, Json.List [])
+
+(* --- folding --- *)
+
+(** The parts of a document that fold: every block that spans lines, each
+    run of comment lines, and the imports at its top.
+    state -> document -> (state, Json.t) *)
+let folding_ranges state document =
+  let state, analysis = analysis_of state document in
+  (* Names and where they are written come from the text as it is now. *)
+  let range_json first last kind =
+    Json.Object
+      ([ ("startLine", Json.Number (float_of_int (first - 1))); ("endLine", Json.Number (float_of_int (last - 1))) ]
+      @ match kind with Some k -> [ ("kind", Json.String k) ] | None -> [])
+  in
+  let blocks =
+    match own_unit analysis document with
+    | None -> []
+    | Some (unit, _) ->
+        Walk.fold_stmts
+          (fun out node ->
+            let span =
+              match node with
+              | Walk.NStmt (SFunctionDef (i, _, _, _, _, _, _, _, _))
+              | Walk.NStmt (SIf (i, _, _, _, _))
+              | Walk.NStmt (SLoop (i, _, _, _, _, _, _))
+              | Walk.NStmt (SMatch (i, _, _, _))
+              | Walk.NStmt (SDatatype (i, _, _, _, _, _))
+              | Walk.NMatchCase (MatchCase (i, _, _, _, _)) ->
+                  Some i
+              | _ -> None
+            in
+            match span with
+            | Some (i : Lexer.info) when i.row2 > i.row1 -> out @ [ range_json i.row1 i.row2 None ]
+            | _ -> out)
+          [] unit.stmts
+  in
+  let lines = Array.of_list (lines_of document.text) in
+  let comment k = k < Array.length lines && String.length (String.trim lines.(k)) > 0 && (String.trim lines.(k)).[0] = '#' in
+  let rec comments k out =
+    if k >= Array.length lines then out
+    else if comment k then
+      let rec stop j = if comment j then stop (j + 1) else j in
+      let e = stop k in
+      comments e (if e - k >= 2 then out @ [ range_json (k + 1) e (Some "comment") ] else out)
+    else comments (k + 1) out
+  in
+  let imports =
+    match own_unit analysis document with
+    | Some (unit, _) -> (
+        let rows =
+          List.filter_map (function SImport (i, _, _, _, _, _) -> Some i.row1 | _ -> None) unit.stmts
+        in
+        match rows with
+        | first :: _ :: _ -> [ range_json first (List.fold_left max first rows) (Some "imports") ]
+        | _ -> [])
+    | None -> []
+  in
+  (state, Json.List (blocks @ comments 0 [] @ imports))
+
+(* --- semantic tokens --- *)
+
+(** The token types and modifiers semantic tokens name, in the order
+    their numbers count. [string] *)
+let token_types = [ "namespace"; "type"; "enumMember"; "function"; "parameter"; "variable"; "property" ]
+
+let token_modifiers = [ "declaration"; "readonly"; "defaultLibrary" ]
+
+(** Every name in a document with what it is -- a module, a type, a
+    constructor, a function, a parameter, a variable or a field -- as
+    LSP's semantic tokens, relative and in UTF-16.
+    state -> document -> (state, Json.t) *)
+let semantic_tokens state document =
+  let state, analysis = analysis_of state document in
+  (* Names and where they are written come from the text as it is now. *)
+  match own_unit analysis document with
+  | None -> (state, Json.Object [ ("data", Json.List []) ])
+  | Some (unit, _) ->
+      let found = resolve analysis.units unit in
+      let index name = Option.value ~default:0 (List.find_index (fun t -> t = name) token_types) in
+      let bit name = 1 lsl Option.value ~default:0 (List.find_index (fun t -> t = name) token_modifiers) in
+      let of_meaning meaning =
+        match meaning with
+        | Bound (_, _, KFunction) -> Some (index "function", 0)
+        | Bound (_, _, KParameter) -> Some (index "parameter", 0)
+        | Bound (_, _, KValue) -> Some (index "variable", bit "readonly")
+        | Bound (_, _, KVariable) -> Some (index "variable", 0)
+        | Builtin -> Some (index "function", bit "defaultLibrary")
+        | Module_of _ -> Some (index "namespace", 0)
+        | Unknown -> None
+      in
+      let mine (i : Lexer.info) = (i.file = document.path || i.file = "") && i.row1 = i.row2 && i.col2 > i.col1 in
+      let from_uses =
+        List.filter_map
+          (fun u ->
+            if not (mine u.use_at) then None
+            else Option.map (fun (t, m) -> (u.use_at, t, m)) (of_meaning u.use_meaning))
+          found.uses
+      in
+      let from_bindings =
+        List.filter_map
+          (fun (_, (place : place), _, kind) ->
+            if place.file <> document.path || not (mine place.span) then None
+            else
+              Option.map
+                (fun (t, m) -> (place.span, t, m lor bit "declaration"))
+                (of_meaning (Bound (place, 0, kind))))
+          (bindings found)
+      in
+      let named name (i : Lexer.info) = name_span unit.tokens name i in
+      let from_tree =
+        Walk.fold_stmts
+          (fun out node ->
+            match node with
+            | Walk.NExpr (EConstruct (i, _, name, _, _)) -> out @ [ (named name i, index "enumMember", 0) ]
+            | Walk.NPattern (PConstructor (i, _, name, _, _, _)) -> out @ [ (named name i, index "enumMember", 0) ]
+            | Walk.NConstructor (Constructor (i, name, _, _)) ->
+                out @ [ (named name i, index "enumMember", bit "declaration") ]
+            | Walk.NStmt (SDatatype (i, name, _, _, _, _)) -> out @ [ (named name i, index "type", bit "declaration") ]
+            | Walk.NType (TCon (i, name, _, _)) when not (String.contains name '.') ->
+                out @ [ (named name i, index "type", 0) ]
+            | Walk.NExpr (EField (_, record, name, _)) ->
+                let r = expr_info record in
+                out @ [ (named name { r with row1 = r.row2; col1 = r.col2 }, index "property", 0) ]
+            | _ -> out)
+          [] unit.stmts
+        |> List.filter (fun (i, _, _) -> mine i)
+      in
+      let all =
+        List.sort_uniq
+          (fun ((a : Lexer.info), _, _) ((b : Lexer.info), _, _) -> compare (a.row1, a.col1) (b.row1, b.col1))
+          (from_bindings @ from_uses @ from_tree)
+      in
+      let _, _, _, data =
+        List.fold_left
+          (fun (last_row, last_col, last_end, data) ((i : Lexer.info), t, m) ->
+            let line = line_at document.text i.row1 in
+            let start = utf16_of_bytes line i.col1 and stop = utf16_of_bytes line i.col2 in
+            if i.row1 = last_row && start < last_end then (last_row, last_col, last_end, data)
+            else
+              let delta_line = i.row1 - last_row in
+              let delta_col = if delta_line = 0 then start - last_col else start in
+              (i.row1, start, stop, data @ [ delta_line; delta_col; stop - start; t; m ]))
+          (1, 0, 0, []) all
+      in
+      (state, Json.Object [ ("data", Json.List (List.map (fun n -> Json.Number (float_of_int n)) data)) ])
+
+(* --- code actions --- *)
+
+(** How many single-character edits make one name another.
+    string -> string -> int *)
+let distance a b =
+  let m = String.length b in
+  (* One row of the table per character of `a`, each made from the one
+     before it. *)
+  let next row i =
+    let _, out =
+      List.fold_left
+        (fun (left, out) j ->
+          let above = List.nth row j and diagonal = List.nth row (j - 1) in
+          let cell = min (min (above + 1) (left + 1)) (diagonal + if a.[i - 1] = b.[j - 1] then 0 else 1) in
+          (cell, out @ [ cell ]))
+        (i, [ i ])
+        (List.init m (fun j -> j + 1))
+    in
+    out
+  in
+  let last =
+    List.fold_left next (List.init (m + 1) (fun j -> j)) (List.init (String.length a) (fun i -> i + 1))
+  in
+  List.nth last m
+
+(** The fixes the error a document has offers, where the request's range
+    meets it: `+` for `++` and the other way round, a name in scope for
+    one that is not, and an annotation for the type the value has.
+    state -> document -> Json.t -> (state, Json.t) *)
+let code_actions state document range_ =
+  let state, analysis = analysis_of state document in
+  let r1, _ = row_col document.text (Json.member "start" range_) in
+  let r2, _ = row_col document.text (Json.member "end" range_) in
+  match analysis.problem with
+  | Some p when p.at.file = document.path && p.at.row1 <= r2 && p.at.row2 >= r1 ->
+      let action title edits =
+        Json.Object
+          [
+            ("title", Json.String title);
+            ("kind", Json.String "quickfix");
+            ("isPreferred", Json.Bool true);
+            ( "edit",
+              Json.Object
+                [ ("changes", Json.Object [ (document.uri, Json.List edits) ]) ] );
+          ]
+      in
+      let edit (span : Lexer.info) text = Json.Object [ ("range", range document.text span); ("newText", Json.String text) ] in
+      let contains_text needle = 
+        let n = String.length needle and m = String.length p.message in
+        let rec go i = i + n <= m && (String.sub p.message i n = needle || go (i + 1)) in
+        go 0
+      in
+      let tokens = try Lexer.lexing document.path (Lexer.chars_of_string document.text) with _ -> [] in
+      let inside (t : Lexer.info) = contains p.at t.row1 t.col1 && contains p.at t.row2 t.col2 in
+      (* The operator of the expression the error is about: the one at
+         its own depth, outside any parentheses within it. *)
+      let operator wanted =
+        let _, found =
+          List.fold_left
+            (fun (depth, found) token ->
+              let i = Lexer.token_info token in
+              if not (inside i) then (depth, found)
+              else
+                match token with
+                | Lexer.TokLParen _ | Lexer.TokLBracket _ -> (depth + 1, found)
+                | Lexer.TokRParen _ | Lexer.TokRBracket _ -> (depth - 1, found)
+                | t when depth = 0 && found = None && wanted t -> (depth, Some i)
+                | _ -> (depth, found))
+            (0, None) tokens
+        in
+        found
+      in
+      let swaps =
+        if contains_text "Did you mean `++`" then
+          match operator (function Lexer.TokAdd _ -> true | _ -> false) with
+          | Some i -> [ action "Change `+` to `++`, which joins strings" [ edit i "++" ] ]
+          | None -> []
+        else if contains_text "Did you mean `+`" then
+          match operator (function Lexer.TokConcat _ -> true | _ -> false) with
+          | Some i -> [ action "Change `++` to `+`, which adds numbers" [ edit i "+" ] ]
+          | None -> []
+        else []
+      in
+      let names =
+        match String.index_opt p.message '\'' with
+        | Some a when String.length p.message > 14 && String.sub p.message 0 14 = "unbound name '" -> (
+            match String.index_from_opt p.message (a + 1) '\'' with
+            | Some b when not (String.contains (String.sub p.message (a + 1) (b - a - 1)) '.') -> (
+                let wrong = String.sub p.message (a + 1) (b - a - 1) in
+                match own_unit analysis document with
+                | None -> []
+                | Some (unit, _) ->
+                    let found = resolve analysis.units unit in
+                    let candidates =
+                      SMap.fold
+                        (fun n meaning out ->
+                          match meaning with
+                          | Module_of _ | Unknown -> out
+                          | _ ->
+                              let d = distance wrong n in
+                              let near = if String.length wrong <= 3 then 1 else 2 + (String.length wrong / 8) in
+                              if n <> wrong && d <= near && not (String.contains n '.')
+                              then (d, n) :: out
+                              else out)
+                        (names_at found p.at.row1 p.at.col1) []
+                    in
+                    List.map
+                      (fun (_, n) -> action (Printf.sprintf "Change to '%s'" n) [ edit p.at n ])
+                      (List.filteri (fun k _ -> k < 3) (List.sort compare candidates)))
+            | _ -> [])
+        | _ -> []
+      in
+      let annotation =
+        let prefix = "this binding is annotated " in
+        if String.length p.message > String.length prefix && String.sub p.message 0 (String.length prefix) = prefix then
+          let rest = String.sub p.message (String.length prefix) (String.length p.message - String.length prefix) in
+          let marker = ", but its value has type " in
+          let rec find i =
+            if i + String.length marker > String.length rest then None
+            else if String.sub rest i (String.length marker) = marker then Some i
+            else find (i + 1)
+          in
+          match find 0 with
+          | Some k when p.at.row1 = p.at.row2 ->
+              let actual = String.trim (String.sub rest (k + String.length marker) (String.length rest - k - String.length marker)) in
+              let actual = String.concat " " (String.split_on_char '\n' actual) |> String.split_on_char ' ' |> List.filter (( <> ) "") |> String.concat " " in
+              [ action (Printf.sprintf "Annotate it %s, the type of its value" actual) [ edit p.at actual ] ]
+          | _ -> []
+        else []
+      in
+      (state, Json.List (swaps @ names @ annotation))
+  | _ -> (state, Json.List [])
 
 (* --- diagnostics --- *)
 
@@ -1040,7 +1609,10 @@ let configure settings value =
     | Json.String "change" -> false
     | _ -> settings.on_save
   in
-  { lib_path; on_save }
+  let inlay_hints =
+    match Json.member "inlayHints" value with Json.Bool b -> b | _ -> settings.inlay_hints
+  in
+  { lib_path; on_save; inlay_hints }
 
 (** What the server can do, for `initialize`. state -> Json.t *)
 let capabilities state =
@@ -1058,6 +1630,29 @@ let capabilities state =
             ("definitionProvider", Json.Bool true);
             ("documentSymbolProvider", Json.Bool true);
             ("completionProvider", Json.Object [ ("triggerCharacters", Json.List [ Json.String "." ]) ]);
+            ( "signatureHelpProvider",
+              Json.Object
+                [
+                  ("triggerCharacters", Json.List [ Json.String "("; Json.String "," ]);
+                  ("retriggerCharacters", Json.List [ Json.String "=" ]);
+                ] );
+            ("referencesProvider", Json.Bool true);
+            ("documentHighlightProvider", Json.Bool true);
+            ("renameProvider", Json.Object [ ("prepareProvider", Json.Bool true) ]);
+            ("inlayHintProvider", Json.Bool true);
+            ("foldingRangeProvider", Json.Bool true);
+            ( "semanticTokensProvider",
+              Json.Object
+                [
+                  ( "legend",
+                    Json.Object
+                      [
+                        ("tokenTypes", Json.List (List.map (fun t -> Json.String t) token_types));
+                        ("tokenModifiers", Json.List (List.map (fun t -> Json.String t) token_modifiers));
+                      ] );
+                  ("full", Json.Bool true);
+                ] );
+            ("codeActionProvider", Json.Object [ ("codeActionKinds", Json.List [ Json.String "quickfix" ]) ]);
           ] );
       ("serverInfo", Json.Object [ ("name", Json.String "pyk lsp"); ("version", Json.String state.server_version) ]);
     ]
@@ -1136,6 +1731,25 @@ let request state method_ params =
   | "textDocument/definition" -> on_document (fun s d -> definition s d (Json.member "position" params))
   | "textDocument/documentSymbol" -> on_document document_symbols
   | "textDocument/completion" -> on_document (fun s d -> completion s d (Json.member "position" params))
+  | "textDocument/signatureHelp" -> on_document (fun s d -> signature_help s d (Json.member "position" params))
+  | "textDocument/references" ->
+      let declaration =
+        match Json.member "includeDeclaration" (Json.member "context" params) with Json.Bool b -> b | _ -> true
+      in
+      on_document (fun s d -> references s d (Json.member "position" params) declaration)
+  | "textDocument/documentHighlight" -> on_document (fun s d -> highlights s d (Json.member "position" params))
+  | "textDocument/prepareRename" | "textDocument/rename" -> (
+      match document () with
+      | None -> (state, Ok Json.Null)
+      | Some d ->
+          if method_ = "textDocument/prepareRename" then prepare_rename state d (Json.member "position" params)
+          else
+            rename state d (Json.member "position" params)
+              (Option.value ~default:"" (Json.to_string_option (Json.member "newName" params))))
+  | "textDocument/inlayHint" -> on_document (fun s d -> inlay_hints s d (Json.member "range" params))
+  | "textDocument/foldingRange" -> on_document folding_ranges
+  | "textDocument/semanticTokens/full" -> on_document semantic_tokens
+  | "textDocument/codeAction" -> on_document (fun s d -> code_actions s d (Json.member "range" params))
   | _ -> (state, Error (-32601, "method not found: " ^ method_))
 
 let handle state text =

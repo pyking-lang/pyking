@@ -1,0 +1,43 @@
+# Stopping at a breakpoint, the stack, scopes and variables, evaluating
+# in a frame, stepping out, over and in, and a var given a new value.
+launch basics.pyk
+break basics.pyk 6
+configure
+wait stopped
+stack
+scopes 1
+variables Locals
+variables Globals
+scopes 2
+variables Globals
+expand xs
+evaluate 1 n * 10
+evaluate 2 total + x
+evaluate 1 total
+evaluate 1 fact(5)
+evaluate 1 n +
+evaluate 1 x = 1
+continue
+wait stopped
+stack
+break basics.pyk
+out
+wait stopped
+stack
+next
+wait stopped
+stack
+next
+wait stopped
+stack
+scopes 1
+set Globals total 100
+set Globals xs [1]
+set Globals total "no"
+variables Globals
+in
+wait stopped
+stack
+continue
+wait terminated
+disconnect

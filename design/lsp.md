@@ -4,7 +4,8 @@
 the Language Server Protocol (LSP) as JSON-RPC over the server's
 standard input and output. This page says what the server is made of,
 what each of three steps adds, and how it is tested and shipped. Step 1
-is built; steps 2 and 3 are the plan. It replaces the LSP part of
+is built, and so are the parts of steps 2 and 3 marked built below; the
+rest is the plan. It replaces the LSP part of
 [plan-eval-lsp.md](plan-eval-lsp.md) (section 8), which assumed a
 Python compiler.
 
@@ -106,16 +107,20 @@ front end stops there.
   an error and goes on with the binding's type unknown. This is the
   largest piece, and the one most worth having; it changes
   `parser.ml` and `typesystem.ml`, not just the server.
-- **References, document highlight and rename**, from the same
-  resolution go-to-definition uses, across every module of the program.
-  Rename refuses a name a `public` makes part of a module's interface
-  unless every importer is open.
-- **Signature help** from the callee's `TFunction`, with named and
-  default parameters.
-- **Inlay hints** for the inferred types of unannotated bindings and
-  parameters -- `tmap` again.
-- **Semantic tokens**, so a variable, a `var`, a parameter, a function
-  and a module are coloured apart.
+- **References, document highlight and rename** (built), from the same
+  resolution go-to-definition uses (`scopes.ml`), across every module
+  of the program. Rename refuses a new name that would mean something
+  else where the old one is written, and a name a library defines.
+- **Signature help** (built) from the callee's definition and its `##`
+  comment, read from the text of the call, which seldom parses while it
+  is typed; a named argument marks its parameter, and a constructor's
+  fields are its parameters.
+- **Inlay hints** (built) for the inferred types of unannotated
+  bindings and parameters, and a `def`'s result -- `tmap` again.
+- **Semantic tokens** (built), so a variable, a `var`, a parameter, a
+  function, a module, a type, a constructor and a field are coloured
+  apart.
+- **Folding ranges** (built): blocks, comment runs, the imports.
 - **Completion that knows the type**: fields after a qualified name are
   already there; add named arguments in a call and snippets for `def`,
   `match` and `loop`.
@@ -129,16 +134,17 @@ front end stops there.
 - **Formatting.** `pprint_program` prints the AST, and the lexer drops
   comments, so formatting would delete them. The lexer first records
   comments as trivia with their `info`, and the printer puts them back.
-- **Code actions**: annotate a binding or a function with its inferred
-  type, add a missing `else`, import a name from a library that exports
-  it.
+- **Code actions**: built are the quick fixes for `+`/`++`, a
+  misspelt name and an annotation that disagrees with its value; still
+  planned are annotating a binding or a function with its inferred
+  type, adding a missing `else`, and importing a name from a library
+  that exports it.
 - **Workspace symbols** over every `.pyk` under the workspace folders,
   and **call hierarchy**.
 - **Incremental sync** (`didChange` with ranges), and checking only the
   modules a change can reach.
-- **Running and debugging**: code lenses that run a program with `pyk`,
-  and a DAP server, `pyk dap`, over the interpreter's resumable machine
-  (`design/plan-eval-lsp.md`, section 7).
+- **Running and debugging**: code lenses that run a program with `pyk`.
+  The DAP server, `pyk dap`, is built (`docs/debugging.md`).
 
 ## Editors
 

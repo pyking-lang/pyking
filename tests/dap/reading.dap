@@ -1,0 +1,14 @@
+# Standard input and arguments from the launch, stopping on entry, and
+# debug's lines as standard error.
+launch reading.pyk {"stdin": "reading.in", "args": ["a", "b c"], "stopOnEntry": true}
+configure
+wait stopped
+stack
+next
+wait stopped
+next
+wait stopped
+stack
+continue
+wait terminated
+disconnect

@@ -1,0 +1,7 @@
+import math
+
+def double_abs(x: Int) -> Int:
+    return 2 * math.abs(x)
+
+print(double_abs(-4))
+print("done")

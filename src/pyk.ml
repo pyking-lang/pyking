@@ -205,6 +205,7 @@ let synopsis =
   \       pyk pykhelp [--port N]               open the help in the browser\n\
   \       pyk serve [--port N] [<dir>|<file>]  serve a directory's files\n\
   \       pyk lsp [--stdio] [--log FILE]       the language server, for editors\n\
+  \       pyk dap [--stdio] [--log FILE]       the debug adapter, for editors\n\
   \       pyk example [<name>]                 list the examples, or save one\n\n\
    Options:\n\
   \  -t, --target <name>   compile for <name> (default: python); with\n\
@@ -369,6 +370,12 @@ let usage_full () =
      completion. --stdio is accepted and is the only transport; -L adds\n\
      library directories as for a program; --log FILE appends every\n\
      message to FILE, for finding out what an editor sent.\n\n\
+     `pyk dap` is the debug adapter an editor starts to debug a program:\n\
+     it reads and writes the Debug Adapter Protocol on standard input\n\
+     and output, runs the program with the interpreter, and stops at\n\
+     breakpoints, steps, and shows the calls in progress and their\n\
+     variables. The editor's launch request names the program. --stdio\n\
+     and --log are as for `pyk lsp`.\n\n\
      `pyk example` lists the example programs, one per line, and `pyk\n\
      example <name>` saves the one named in the current directory, which\n\
      it refuses to do over a file already there. The playground offers\n\
@@ -398,6 +405,7 @@ let commands =
     ("pykhelp", "pykhelp");
     ("serve", "serve");
     ("lsp", "lsp");
+    ("dap", "dap");
     ("plugins", "plugins");
     ("example", "example");
   ]
@@ -574,8 +582,8 @@ let parse_args argv =
             | Some port when port > 0 && port < 65536 ->
                 go { options with port = Some port } positional rest
             | _ -> usage_error (Printf.sprintf "--port expects a port number, not '%s'" given)))
-    | "--stdio" :: rest when command = "lsp" -> go options positional rest
-    | "--stdio" :: _ -> usage_error "--stdio only applies to 'pyk lsp'"
+    | "--stdio" :: rest when command = "lsp" || command = "dap" -> go options positional rest
+    | "--stdio" :: _ -> usage_error "--stdio only applies to 'pyk lsp' and 'pyk dap'"
     | "--log" :: rest -> (
         match rest with
         | [] -> usage_error "--log requires a <file> argument"
@@ -666,14 +674,14 @@ let parse_args argv =
     usage_error
       "--port only applies to 'pyk notebook', 'pyk playground', 'pyk pykhelp' and \
        'pyk serve'";
-  if options.log <> None && command <> "lsp" then
-    usage_error "--log only applies to 'pyk lsp'";
+  if options.log <> None && command <> "lsp" && command <> "dap" then
+    usage_error "--log only applies to 'pyk lsp' and 'pyk dap'";
   if options.mode <> None && command <> "notebook" then
     usage_error "--mode only applies to 'pyk notebook'";
   if options.mode = Some "test" && options.port <> None then
     usage_error "--mode test serves nothing, so it takes no --port";
   if options.arguments <> [] then
-    if command = "repl" || command = "lsp" || command = "example" || web then
+    if command = "repl" || command = "lsp" || command = "dap" || command = "example" || web then
       usage_error
         (Printf.sprintf
            "everything after -- is passed to a program being run, and 'pyk %s' \
@@ -705,7 +713,10 @@ let parse_args argv =
          "--no-typechecking only applies to 'pyk compile -t %s': every other \
           target, and the interpreter, need the types the checker works out"
          pyking_target);
-  if command = "repl" || command = "playground" || command = "pykhelp" || command = "lsp" then (
+  if
+    command = "repl" || command = "playground" || command = "pykhelp" || command = "lsp"
+    || command = "dap"
+  then (
     if positional <> [] then
       usage_error (Printf.sprintf "'pyk %s' takes no filename" command);
     options)
@@ -943,6 +954,25 @@ let front_end options =
    many more there were. *)
 let trace_limit = 10
 
+(** The lines a runtime error is reported in: the error, moved out of a
+    library's own code to where the program called into the library, and
+    the calls in progress there, at most `trace_limit` of them.
+    [Module.lib_entry] -> Interpreter.state -> exn -> [string] *)
+let runtime_report libs state error =
+  let error, trace = Interpreter.outside_libraries (Module.in_library libs) state error in
+  let first = match format_error error with Some text -> text | None -> raise error in
+  let calls =
+    List.filteri (fun index _ -> index < trace_limit) trace
+    |> List.map (fun (name, info) ->
+           wrap (Printf.sprintf "  in '%s', called at %s" name (Lexer.pprint_info info)))
+  in
+  let more =
+    if List.length trace > trace_limit then
+      [ Printf.sprintf "  ... %d more calls" (List.length trace - trace_limit) ]
+    else []
+  in
+  (first :: calls) @ more
+
 (** Runs `pyk <file>` with the interpreter; prints a runtime error (with
     a truncated stack trace) if one occurs. Every module of the program
     runs, in the order it was checked in, each in a top level of its
@@ -1012,24 +1042,7 @@ let command_interpret ?(libs = []) checked arguments =
   match failure with
   | None -> 0
   | Some error ->
-      (* An error in a library's own code is reported where the program
-         called into the library. *)
-      let error, trace =
-        Interpreter.outside_libraries (Module.in_library libs) state error
-      in
-      (match format_error error with
-      | Some text -> prerr_endline text
-      | None -> raise error);
-      List.iteri
-        (fun index (name, info) ->
-          if index < trace_limit then
-            prerr_endline
-              (wrap
-                 (Printf.sprintf "  in '%s', called at %s" name
-                    (Lexer.pprint_info info))))
-        trace;
-      if List.length trace > trace_limit then
-        Printf.eprintf "  ... %d more calls\n" (List.length trace - trace_limit);
+      List.iter prerr_endline (runtime_report libs state error);
       1
 
 (** What a file compiled from `stem` is called when nothing says: the
@@ -1834,6 +1847,238 @@ let command_lsp options =
   Option.iter close_out log;
   status
 
+(** Runs `pyk dap`, the debug adapter: Debug Adapter Protocol on standard
+    input and output, over dap.ml, which this function feeds with
+    messages and with slices of running. The program gets standard
+    streams of its own -- what it writes goes to a file read back into
+    `output` events, and what it reads is the launch's `stdin` file, or
+    nothing -- so nothing it does reaches the protocol. A callback the
+    host makes once the top level has ended -- tinyweb's events -- is
+    debugged like the top level, in a loop of its own while the host
+    waits; one made while a slice is running runs to its end unstopped.
+    `state` is the one cell this function writes, since such a callback
+    arrives from inside the host and has to reach the adapter as it
+    stands. options -> int *)
+let command_dap options =
+  let log =
+    Option.map
+      (fun path -> open_out_gen [ Open_append; Open_creat; Open_binary ] 0o644 path)
+      options.log
+  in
+  let note direction text =
+    match log with
+    | Some channel -> Printf.fprintf channel "%s %s\n%!" direction text
+    | None -> ()
+  in
+  let protocol_in = Unix.dup Unix.stdin in
+  let protocol_out = Unix.out_channel_of_descr (Unix.dup Unix.stdout) in
+  set_binary_mode_out protocol_out true;
+  let written_path = Filename.temp_file "pyk-dap" ".out" in
+  let file = Unix.openfile written_path [ Unix.O_WRONLY; Unix.O_TRUNC ] 0o600 in
+  Unix.dup2 file Unix.stdout;
+  Unix.close file;
+  let null = Unix.openfile "/dev/null" [ Unix.O_RDONLY ] 0 in
+  Unix.dup2 null Unix.stdin;
+  Unix.close null;
+  let written = open_in_bin written_path in
+  let errors = ref [] in
+  let output () =
+    flush stdout;
+    let available = in_channel_length written - pos_in written in
+    let text = if available > 0 then really_input_string written available else "" in
+    let lines = List.rev !errors in
+    errors := [];
+    (if text = "" then [] else [ ("stdout", text) ]) @ List.map (fun l -> ("stderr", l ^ "\n")) lines
+  in
+  let send text =
+    note "<--" text;
+    output_string protocol_out (Printf.sprintf "Content-Length: %d\r\n\r\n%s" (String.length text) text);
+    flush protocol_out
+  in
+  let quit code =
+    close_in_noerr written;
+    (try Sys.remove written_path with Sys_error _ -> ());
+    Option.iter close_out log;
+    exit code
+  in
+  let libs = ref (library_path options) in
+  (* The report `pyk <file>` prints, each line whole: an editor's
+     console wraps lines itself. *)
+  let unwrapped line =
+    String.concat " " (List.map String.trim (String.split_on_char '\n' line))
+  in
+  let report machine =
+    match Interpreter.failure machine with
+    | Some error -> (
+        match runtime_report !libs machine error with
+        | first :: calls -> String.concat "\n" (unwrapped first :: List.map (fun c -> "  " ^ unwrapped c) calls)
+        | [] -> "")
+    | None -> ""
+  in
+  let in_advance = ref false in
+  let state = ref (Dap.create { Dap.start = (fun _ -> Error ""); report }) in
+  let pending = ref "" in
+  let chunk = Bytes.create 65536 in
+  let read_more () =
+    match Unix.read protocol_in chunk 0 (Bytes.length chunk) with
+    | 0 | (exception Unix.Unix_error _) -> quit 0
+    | n -> pending := !pending ^ Bytes.sub_string chunk 0 n
+  in
+  let ready descriptors timeout =
+    match Unix.select descriptors [] [] timeout with
+    | ready, _, _ -> ready
+    | exception Unix.Unix_error (Unix.EINTR, _, _) -> []
+  in
+  let finish code =
+    let st, out = Dap.finish !state code output in
+    state := st;
+    List.iter send out
+  in
+  let failed error =
+    (match error with
+    | Interpreter.Runtime_error _ -> (
+        match format_error error with Some text -> errors := !errors @ [ unwrapped text ] | None -> ())
+    | error -> errors := !errors @ [ Printexc.to_string error ]);
+    finish 1
+  in
+  let after_started = ref false in
+  let rec serve until =
+    (match Dap.exit_code !state with Some code -> quit code | None -> ());
+    match until () with
+    | Some result -> result
+    | None ->
+        (match framed !pending with
+        | Some "", rest -> pending := rest
+        | Some text, rest ->
+            pending := rest;
+            note "-->" text;
+            let st, out = Dap.handle !state text output in
+            state := st;
+            List.iter send out
+        | None, _ ->
+            if Dap.running !state then (
+              in_advance := true;
+              let st, out =
+                Fun.protect ~finally:(fun () -> in_advance := false) (fun () ->
+                    Dap.advance !state 20000 output)
+              in
+              state := st;
+              List.iter send out;
+              if ready [ protocol_in ] 0.0 <> [] then read_more ())
+            else if Dap.top_level_ended !state && not !after_started then (
+              after_started := true;
+              (* What a plugin asked to run once the top level ended: a
+                 page's events are waited for beside the protocol, and
+                 anything else is run now. *)
+              if Pyk_plugin.idle_descriptors () = [] then
+                match Pyk_plugin.run_after_program () with
+                | () -> finish 0
+                | exception error -> failed error)
+            else
+              let waiting =
+                if !after_started && Dap.top_level_ended !state then
+                  List.map (fun d : Unix.file_descr -> Obj.obj d) (Pyk_plugin.idle_descriptors ())
+                else []
+              in
+              let found = ready (protocol_in :: waiting) 0.5 in
+              if List.mem protocol_in found then read_more ();
+              if List.exists (fun d -> d <> protocol_in) found then (
+                match Pyk_plugin.run_idle () with () -> () | exception error -> failed error);
+              let st, out = Dap.advance !state 0 output in
+              state := st;
+              List.iter send out);
+        serve until
+  in
+  let drive machine =
+    if !in_advance then Interpreter.run machine
+    else (
+      state := Dap.push_call !state machine;
+      serve (fun () ->
+          let st, ended = Dap.take_call !state in
+          if ended <> None then state := st;
+          ended))
+  in
+  let start arguments =
+    let text name = Json.to_string_option (Json.member name arguments) in
+    let flag name default = match Json.member name arguments with Json.Bool b -> b | _ -> default in
+    match text "program" with
+    | None | Some "" -> Error "the launch configuration names no program"
+    | Some program -> (
+        (match text "cwd" with
+        | Some directory when directory <> "" -> ( try Sys.chdir directory with Sys_error _ -> ())
+        | _ -> ());
+        let more = List.filter_map Json.to_string_option (Json.to_list (Json.member "libPath" arguments)) in
+        libs := library_path { options with lib_paths = options.lib_paths @ more };
+        let refusal error =
+          match format_error error with
+          | Some text -> Error (unwrapped text)
+          | None -> Error (Printexc.to_string error)
+        in
+        match
+          let units = Module.load ~libs:!libs program in
+          (units, Debug_session.prepare ~release:(flag "release" false) units)
+        with
+        | exception (Sys_error message) -> Error message
+        | exception error -> refusal error
+        | units, prepared -> (
+            let plugins =
+              List.filter_map
+                (fun (unit : Module.t) ->
+                  match unit.declaration_path with
+                  | Some declaration_path when unit.declarations <> [] ->
+                      Some
+                        Plugin_host.
+                          {
+                            name = unit.name;
+                            declared = Module.external_signatures unit.declarations;
+                            declaration_path;
+                          }
+                  | _ -> None)
+                units
+            in
+            match Plugin_host.load plugins with
+            | exception error -> refusal error
+            | () -> (
+                let input =
+                  match text "stdin" with
+                  | None | Some "" -> Ok ()
+                  | Some path -> (
+                      match Unix.openfile path [ Unix.O_RDONLY ] 0 with
+                      | descriptor ->
+                          Unix.dup2 descriptor Unix.stdin;
+                          Unix.close descriptor;
+                          Ok ()
+                      | exception Unix.Unix_error (e, _, _) ->
+                          Error (Printf.sprintf "cannot read '%s': %s" path (Unix.error_message e)))
+                in
+                match input with
+                | Error text -> Error text
+                | Ok () ->
+                    let arguments =
+                      List.filter_map Json.to_string_option (Json.to_list (Json.member "args" arguments))
+                    in
+                    Plugin_host.set_arguments program arguments;
+                    let host =
+                      Interpreter.callback_host
+                        ~externals:(Plugin_host.externals plugins)
+                        ~debug_line:(fun line -> errors := !errors @ [ line ])
+                        (fun line ->
+                          print_string line;
+                          print_newline ())
+                    in
+                    Ok
+                      (Debug_session.create
+                         ~stop_on_entry:(flag "stopOnEntry" false)
+                         ~just_my_code:(flag "justMyCode" true)
+                         ~is_library:(Module.in_library !libs) ~drive prepared host))))
+  in
+  state := Dap.create { Dap.start; report };
+  match serve (fun () -> None) with
+  | () -> quit 0
+  | exception error ->
+      note "!!!" (Printexc.to_string error);
+      quit 1
+
 (** Runs pyk. [string] -> int *)
 let main argv =
   let options = parse_args argv in
@@ -1847,6 +2092,7 @@ let main argv =
   else if options.command = "pykhelp" then command_web Web_tools.Help options
   else if options.command = "serve" then command_web Web_tools.Files options
   else if options.command = "lsp" then command_lsp options
+  else if options.command = "dap" then command_dap options
   else if options.command = "example" then command_example options
   else if options.command = default_command && options.target_given then
     (* `pyk <file> -t <target>`: compiled into build/ and run from there,

@@ -1,0 +1,24 @@
+> launch errors.pyk
+{"body": {"exceptionBreakpointFilters": [{"default": true, "filter": "uncaught", "label": "Runtime errors"}], "supportsConditionalBreakpoints": true, "supportsConfigurationDoneRequest": true, "supportsEvaluateForHovers": true, "supportsHitConditionalBreakpoints": true, "supportsLogPoints": true, "supportsSetVariable": true, "supportsTerminateRequest": true}, "command": "initialize", "success": true, "type": "response"}
+{"body": {}, "command": "launch", "success": true, "type": "response"}
+{"body": {}, "event": "initialized", "type": "event"}
+> configure
+{"body": {}, "command": "configurationDone", "success": true, "type": "response"}
+> wait stopped
+{"body": {"category": "stdout", "output": "2\n"}, "event": "output", "type": "event"}
+{"body": {"allThreadsStopped": true, "description": "Runtime error", "reason": "exception", "text": "division by zero", "threadId": 1}, "event": "stopped", "type": "event"}
+> stack
+{"body": {"stackFrames": [{"column": 12, "endColumn": 17, "endLine": 4, "id": 1, "line": 4, "name": "divide", "source": {"name": "errors.pyk", "path": "$CASES/errors.pyk"}}, {"column": 7, "endColumn": 19, "endLine": 7, "id": 2, "line": 7, "name": "<module errors>", "source": {"name": "errors.pyk", "path": "$CASES/errors.pyk"}}], "totalFrames": 2}, "command": "stackTrace", "success": true, "type": "response"}
+> scopes 1
+{"body": {"scopes": [{"expensive": false, "name": "Locals", "presentationHint": "locals", "variablesReference": 1}, {"expensive": false, "name": "Globals", "variablesReference": 2}]}, "command": "scopes", "success": true, "type": "response"}
+> variables Locals
+{"body": {"variables": [{"name": "a", "type": "Int", "value": "1", "variablesReference": 0}, {"name": "b", "type": "Int", "value": "0", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
+> continue
+{"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
+> wait terminated
+{"body": {"category": "stderr", "output": "'$CASES/errors.pyk' 4:11-4:16 Runtime error: division by zero\n  in 'divide', called at '$CASES/errors.pyk' 7:6-7:18\n"}, "event": "output", "type": "event"}
+{"body": {"exitCode": 1}, "event": "exited", "type": "event"}
+{"body": {}, "event": "terminated", "type": "event"}
+> disconnect
+{"body": {}, "command": "disconnect", "success": true, "type": "response"}
+> exit status 0

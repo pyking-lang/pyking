@@ -1,0 +1,28 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "inlayHintProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open fixes.pyk
+> idle
+diagnostics $CASES/fixes.pyk v1 [{"code": "Type error", "message": "`+` cannot be applied to String and String; it accepts Int + Int or Float + Float. Did you mean `++`, the concatenation operator?", "range": {"end": {"character": 26, "line": 1}, "start": {"character": 11, "line": 1}}, "severity": 1, "source": "pyking"}]
+> request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 0}}, "context": {"diagnostics": []}}
+[{"edit": {"changes": {"$CASES/fixes.pyk": [{"newText": "++", "range": {"end": {"character": 17, "line": 1}, "start": {"character": 16, "line": 1}}}]}}, "isPreferred": true, "kind": "quickfix", "title": "Change `+` to `++`, which joins strings"}]
+> change fixes.pyk
+> idle
+diagnostics $CASES/fixes.pyk v2 [{"code": "Name error", "message": "unbound name 'cuont'", "range": {"end": {"character": 11, "line": 1}, "start": {"character": 6, "line": 1}}, "severity": 1, "source": "pyking"}]
+> request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 1, "character": 6}, "end": {"line": 1, "character": 6}}, "context": {"diagnostics": []}}
+[{"edit": {"changes": {"$CASES/fixes.pyk": [{"newText": "count", "range": {"end": {"character": 11, "line": 1}, "start": {"character": 6, "line": 1}}}]}}, "isPreferred": true, "kind": "quickfix", "title": "Change to 'count'"}]
+> change fixes.pyk
+> idle
+diagnostics $CASES/fixes.pyk v3 [{"code": "Type error", "message": "this binding is annotated Int, but its value has type String", "range": {"end": {"character": 9, "line": 0}, "start": {"character": 6, "line": 0}}, "severity": 1, "source": "pyking"}]
+> request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 4}}, "context": {"diagnostics": []}}
+[{"edit": {"changes": {"$CASES/fixes.pyk": [{"newText": "String", "range": {"end": {"character": 9, "line": 0}, "start": {"character": 6, "line": 0}}}]}}, "isPreferred": true, "kind": "quickfix", "title": "Annotate it String, the type of its value"}]
+> change fixes.pyk
+> idle
+diagnostics $CASES/fixes.pyk v4 [{"code": "Type error", "message": "`++` cannot be applied to Int and Int; it accepts String ++ String or two lists of one type. Did you mean `+`?", "range": {"end": {"character": 13, "line": 0}, "start": {"character": 7, "line": 0}}, "severity": 1, "source": "pyking"}]
+> request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 4}}, "context": {"diagnostics": []}}
+[{"edit": {"changes": {"$CASES/fixes.pyk": [{"newText": "+", "range": {"end": {"character": 11, "line": 0}, "start": {"character": 9, "line": 0}}}]}}, "isPreferred": true, "kind": "quickfix", "title": "Change `++` to `+`, which adds numbers"}]
+> request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 5, "character": 0}, "end": {"line": 5, "character": 4}}, "context": {"diagnostics": []}}
+[]
+> shutdown
+null
+> exit
+> exit status 0

@@ -1,0 +1,7 @@
+# A runtime error: dividing by zero in a function.
+
+def divide(a: Int, b: Int) -> Int:
+    return a / b
+
+print(divide(6, 3))
+print(divide(1, 0))

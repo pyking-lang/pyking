@@ -1,0 +1,37 @@
+> launch closures.pyk
+{"body": {"exceptionBreakpointFilters": [{"default": true, "filter": "uncaught", "label": "Runtime errors"}], "supportsConditionalBreakpoints": true, "supportsConfigurationDoneRequest": true, "supportsEvaluateForHovers": true, "supportsHitConditionalBreakpoints": true, "supportsLogPoints": true, "supportsSetVariable": true, "supportsTerminateRequest": true}, "command": "initialize", "success": true, "type": "response"}
+{"body": {}, "command": "launch", "success": true, "type": "response"}
+{"body": {}, "event": "initialized", "type": "event"}
+> break closures.pyk 5
+{"body": {"breakpoints": [{"id": 1, "line": 5, "verified": true}]}, "command": "setBreakpoints", "success": true, "type": "response"}
+> configure
+{"body": {}, "command": "configurationDone", "success": true, "type": "response"}
+> wait stopped
+{"body": {"allThreadsStopped": true, "hitBreakpointIds": [1], "reason": "breakpoint", "threadId": 1}, "event": "stopped", "type": "event"}
+> stack
+{"body": {"stackFrames": [{"column": 9, "endColumn": 21, "endLine": 5, "id": 1, "line": 5, "name": "step", "source": {"name": "closures.pyk", "path": "$CASES/closures.pyk"}}, {"column": 7, "endColumn": 14, "endLine": 9, "id": 2, "line": 9, "name": "<module closures>", "source": {"name": "closures.pyk", "path": "$CASES/closures.pyk"}}], "totalFrames": 2}, "command": "stackTrace", "success": true, "type": "response"}
+> scopes 1
+{"body": {"scopes": [{"expensive": false, "name": "Locals", "presentationHint": "locals", "variablesReference": 1}, {"expensive": false, "name": "Globals", "variablesReference": 2}]}, "command": "scopes", "success": true, "type": "response"}
+> variables Locals
+{"body": {"variables": [{"name": "by", "type": "Int", "value": "1", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
+> variables Globals
+{"body": {"variables": [{"name": "counter", "type": "(Int) -> (Int) -> Int", "value": "<function counter>", "variablesReference": 0}, {"name": "start", "type": "Int", "value": "10", "variablesReference": 0}, {"name": "count", "type": "Int", "value": "11", "variablesReference": 0}, {"name": "step", "type": "(Int) -> Int", "value": "<function step>", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
+> evaluate 1 count + by
+{"body": {"result": "12", "type": "Int", "variablesReference": 0}, "command": "evaluate", "success": true, "type": "response"}
+> continue
+{"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
+> wait stopped
+{"body": {"allThreadsStopped": true, "hitBreakpointIds": [1], "reason": "breakpoint", "threadId": 1}, "event": "stopped", "type": "event"}
+> scopes 1
+{"body": {"scopes": [{"expensive": false, "name": "Locals", "presentationHint": "locals", "variablesReference": 1}, {"expensive": false, "name": "Globals", "variablesReference": 2}]}, "command": "scopes", "success": true, "type": "response"}
+> variables Globals
+{"body": {"variables": [{"name": "counter", "type": "(Int) -> (Int) -> Int", "value": "<function counter>", "variablesReference": 0}, {"name": "start", "type": "Int", "value": "10", "variablesReference": 0}, {"name": "count", "type": "Int", "value": "13", "variablesReference": 0}, {"name": "step", "type": "(Int) -> Int", "value": "<function step>", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
+> continue
+{"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
+> wait terminated
+{"body": {"category": "stdout", "output": "11 13\n"}, "event": "output", "type": "event"}
+{"body": {"exitCode": 0}, "event": "exited", "type": "event"}
+{"body": {}, "event": "terminated", "type": "event"}
+> disconnect
+{"body": {}, "command": "disconnect", "success": true, "type": "response"}
+> exit status 0

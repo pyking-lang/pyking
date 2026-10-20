@@ -1,0 +1,11 @@
+# What is refused, and breakpoints set before the launch.
+request initialize {"adapterID": "pyking"}
+request threads
+request stackTrace {"threadId": 1}
+request attach {}
+request launch {}
+request launch {"program": "missing.pyk"}
+request launch {"program": "broken.pyk"}
+break basics.pyk 6 7
+request frobnicate {}
+disconnect

@@ -1,14 +1,15 @@
 ---
 title: Editors
-description: Set up your editor to use the Pyking language server, pyk lsp.
+description: Set up your editor to use the Pyking language server, pyk lsp, and the Pyking debugger, pyk dap.
 sidebar:
   order: 2
 ---
 
-`pyk` includes a language server, `pyk lsp`. An editor starts it and
-talks to it over the Language Server Protocol (LSP). The server is part
-of `pyk`, so there is nothing else to install: an editor only needs to
-know how to start it.
+`pyk` includes a language server, `pyk lsp`, and a debugger, `pyk dap`.
+An editor starts them and talks to them over the Language Server
+Protocol (LSP) and the Debug Adapter Protocol (DAP). Both are part of
+`pyk`, so there is nothing else to install: an editor only needs to know
+how to start them. Each editor's section below sets up both.
 
 The server gives:
 
@@ -24,6 +25,23 @@ The server gives:
   and the imports.
 - **Completion**: keywords, builtins, the names in scope, and after
   `m.` the names that module `m` exports.
+- **Signature help**: while a call is typed, the function's parameters
+  with their types, the one being written marked, and what its `##`
+  comment says of each. A named argument marks its parameter.
+- **References** and **highlights**: every place a name is written, in
+  the file and in the modules of the program.
+- **Rename**: a binding and every use of it renamed together. A rename
+  that would make a use mean another binding is refused, and so is one
+  of a name the standard library defines.
+- **Inlay hints**: the types the checker inferred, shown after each
+  binding and parameter written without one, and after a `def` that does
+  not say what it returns.
+- **Folding**: blocks, runs of comment lines, and the imports.
+- **Semantic highlighting**: functions, parameters, variables (a `var`
+  apart from an `=` binding), modules, types, constructors and fields.
+- **Quick fixes**: `++` for a `+` on strings and the other way round, a
+  name in scope for a misspelt one, and an annotation changed to the type
+  of the value.
 
 Each document is checked as a program, together with the modules it
 imports. A module that is open in the editor is read from the editor,
@@ -51,6 +69,45 @@ An editor can send two settings, as `initializationOptions` or as the
 |---|---|---|
 | `libPath` | `[]` | more library directories, searched after `-L` |
 | `diagnostics` | `"change"` | `"change"`: check as you type, once typing pauses; `"save"`: check only when a file is opened or saved |
+| `inlayHints` | `true` | show the inferred types in the text |
+
+## The debugger
+
+```sh
+pyk dap [--stdio] [--log FILE]
+```
+
+`pyk dap` runs a program with the interpreter, as `pyk <file>` does, and
+lets the editor set breakpoints, step through the program, and show the
+calls in progress, their variables, and the value of an expression
+where the program stopped. It speaks DAP on standard input and output;
+`--stdio` and `--log` are as for `pyk lsp`. The editor's *launch*
+request says what to run:
+
+| argument | default | meaning |
+|---|---|---|
+| `program` | | the Pyking file to run |
+| `args` | `[]` | the program's own arguments, what `sys.args()` answers |
+| `stdin` | | a file the program reads as its standard input; without one it reads nothing |
+| `cwd` | | the directory the program runs in |
+| `stopOnEntry` | `false` | stop at the first statement |
+| `justMyCode` | `true` | step over the code of the standard library and of `-L` libraries |
+| `libPath` | `[]` | more library directories, searched after `-L` |
+| `release` | `false` | debug the program as `--release` compiles it, every `debug()` removed |
+
+A breakpoint stops at the first statement starting on its line or after
+it, and may have a condition (a Bool expression), a hit count (`3` for
+the third time only, `>= 3`, `% 2`) or a log message, which is printed
+instead of stopping, with each `{expression}` in it replaced by its
+value. A runtime error stops the program where it happens unless the
+editor turns off the **Runtime errors** breakpoint. An expression
+evaluated where the program stopped -- a watch, the debug console, a
+hover -- is type-checked against the names in scope there. Only a `var`
+can be given a new value. A tinyweb program's callbacks are debugged
+too: a breakpoint in one stops when its event arrives.
+
+The program's standard output and its `debug` lines arrive in the
+editor's debug console, as standard output and standard error.
 
 The examples below assume `pyk` is on your `PATH`. If it is not, write
 its full path in place of `pyk`.
@@ -84,6 +141,35 @@ To log the server's messages, set `"pyking.server.args"` to
 `["lsp", "--log", "/tmp/pyk-lsp.log"]`. The command **Pyking: Restart
 Language Server** restarts it.
 
+### Debugging
+
+The extension adds a `pyking` debugger that starts `pyk dap`. With a
+`.pyk` file open, **Run > Start Debugging** debugs it; click left of a
+line number to set a breakpoint. To give the program arguments or
+input, add a configuration to `.vscode/launch.json`:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "pyking",
+      "request": "launch",
+      "name": "Debug the current Pyking file",
+      "program": "${file}",
+      "args": [],
+      "stdin": "${workspaceFolder}/input.txt",
+      "stopOnEntry": false,
+      "justMyCode": true
+    }
+  ]
+}
+```
+
+The setting `"pyking.debugger.args"` (default `["dap"]`) is what
+`pyking.server.path` is started with; `["dap", "--log",
+"/tmp/pyk-dap.log"]` logs the adapter's messages.
+
 ## Cursor
 
 Cursor installs the same `.vsix` as VS Code:
@@ -94,6 +180,11 @@ cursor --install-extension pyking-<version>.vsix
 
 or, in the Extensions view, open the `...` menu and choose **Install
 from VSIX...**. The settings are the same as for VS Code.
+
+### Debugging
+
+The same as in VS Code: the extension's `pyking` debugger starts `pyk
+dap`, and **Run > Start Debugging** debugs the open `.pyk` file.
 
 ## Neovim
 
@@ -133,6 +224,27 @@ end
 require("lspconfig").pyking.setup({})
 ```
 
+### Debugging
+
+With [nvim-dap](https://github.com/mfussenegger/nvim-dap):
+
+```lua
+local dap = require("dap")
+dap.adapters.pyking = { type = "executable", command = "pyk", args = { "dap" } }
+dap.configurations.pyking = {
+  {
+    type = "pyking",
+    request = "launch",
+    name = "Debug this file",
+    program = "${file}",
+  },
+}
+```
+
+`:lua require("dap").toggle_breakpoint()` sets a breakpoint and
+`:lua require("dap").continue()` starts debugging. vimspector, below,
+works in Neovim too.
+
 ## Vim
 
 With [vim-lsp](https://github.com/prabirshrestha/vim-lsp), add this to
@@ -165,6 +277,29 @@ as above and add a server to `coc-settings.json` (`:CocConfig`):
   }
 }
 ```
+
+### Debugging
+
+With [vimspector](https://github.com/puremourning/vimspector), put a
+`.vimspector.json` in the project's directory:
+
+```json
+{
+  "adapters": {
+    "pyking": { "name": "pyking", "command": ["pyk", "dap"] }
+  },
+  "configurations": {
+    "Debug this file": {
+      "adapter": "pyking",
+      "filetypes": ["pyking"],
+      "configuration": { "request": "launch", "program": "${file}" }
+    }
+  }
+}
+```
+
+`:call vimspector#Launch()` starts debugging, and
+`:call vimspector#ToggleBreakpoint()` sets a breakpoint.
 
 ## Emacs
 
@@ -202,6 +337,22 @@ eglot:
                     :activation-fn (lsp-activate-on "pyking")
                     :server-id 'pyking)))
 ```
+
+### Debugging
+
+With [dape](https://github.com/svaante/dape), from GNU ELPA:
+
+```elisp
+(with-eval-after-load 'dape
+  (add-to-list 'dape-configs
+               '(pyking modes (pyking-mode)
+                        command "pyk" command-args ("dap")
+                        :type "pyking" :request "launch"
+                        :program dape-buffer-default)))
+```
+
+`M-x dape` then `pyking` debugs the file in the buffer, and `M-x
+dape-breakpoint-toggle` sets a breakpoint.
 
 ## Sublime Text
 
@@ -248,6 +399,13 @@ Settings**:
 }
 ```
 
+### Debugging
+
+The [Debugger](https://packagecontrol.io/packages/Debugger) package
+starts only the debug adapters it ships with, and has no setting to
+start another, so `pyk dap` cannot be used from Sublime Text yet. Debug
+in another editor here, or in the playground's Debug tab.
+
 ## Zed
 
 There is no Zed extension for Pyking yet. Zed requires an extension to
@@ -274,6 +432,21 @@ For highlighting, the IDE can read the VS Code extension's grammar:
 unzip `pyking-<version>.vsix` (it is a zip file) and add its
 `extension/` directory in **Settings > Editor > TextMate Bundles**.
 
+### Debugging
+
+LSP4IJ also starts debug adapters. In **Run > Edit Configurations...**,
+add a **Debug Adapter Protocol** configuration:
+
+- **Server** tab: command `pyk dap`.
+- **Mappings** tab, **File name patterns**: `*.pyk`, so breakpoints can
+  be set in Pyking files.
+- **Configuration** tab: the file to debug, debug mode **Launch**, and
+  as the DAP parameters:
+
+```json
+{ "type": "pyking", "request": "launch", "program": "${file}" }
+```
+
 ## Helix
 
 Add this to `languages.toml` (`~/.config/helix/languages.toml`):
@@ -295,10 +468,33 @@ language-servers = ["pyk"]
 Helix has no Pyking grammar, so the file is not highlighted, but
 diagnostics, hover, go to definition, symbols and completion work.
 
+### Debugging
+
+Helix's debugger is set per language, in the same `[[language]]`
+block:
+
+```toml
+[language.debugger]
+name = "pyk dap"
+transport = "stdio"
+command = "pyk"
+args = ["dap"]
+
+[[language.debugger.templates]]
+name = "launch"
+request = "launch"
+completion = [ { name = "program", completion = "filename" } ]
+args = { program = "{0}" }
+```
+
+`:debug-start launch` asks for the file and starts debugging, and the
+debug menu sets breakpoints. Helix's debugger is experimental.
+
 ## When it does not work
 
 - Run `pyk --version` in a terminal. If it fails, `pyk` is not on the
   `PATH` the editor sees; give the editor the full path instead.
 - Add `--log FILE` to the command, for example `pyk lsp --log
   /tmp/pyk-lsp.log`, open a `.pyk` file, and read the log. If the file
-  is empty, the editor did not start the server.
+  is empty, the editor did not start the server. `pyk dap --log FILE`
+  does the same for the debugger.

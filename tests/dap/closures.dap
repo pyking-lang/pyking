@@ -1,0 +1,18 @@
+# A closure over a var: its own names, and what it sees from where it
+# was written.
+launch closures.pyk
+break closures.pyk 5
+configure
+wait stopped
+stack
+scopes 1
+variables Locals
+variables Globals
+evaluate 1 count + by
+continue
+wait stopped
+scopes 1
+variables Globals
+continue
+wait terminated
+disconnect

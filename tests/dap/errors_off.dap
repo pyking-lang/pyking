@@ -1,0 +1,6 @@
+# With the runtime-error filter off, the error ends the program at once.
+launch errors.pyk
+exceptions
+configure
+wait terminated
+disconnect

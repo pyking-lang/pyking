@@ -1,0 +1,14 @@
+# A program to step through: a recursive function, a loop over a
+# list, and a var it adds to.
+
+def fact(n: Int) -> Int:
+    if n <= 1:
+        return 1
+    return n * fact(n - 1)
+
+var total = 0
+xs = [1, 2, 3]
+for x in xs:
+    total := total + fact(x)
+pairs = [(x, fact(x)) for x in xs]
+print("total", total, pairs)

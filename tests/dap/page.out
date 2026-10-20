@@ -1,0 +1,32 @@
+> launch page.pyk
+{"body": {"exceptionBreakpointFilters": [{"default": true, "filter": "uncaught", "label": "Runtime errors"}], "supportsConditionalBreakpoints": true, "supportsConfigurationDoneRequest": true, "supportsEvaluateForHovers": true, "supportsHitConditionalBreakpoints": true, "supportsLogPoints": true, "supportsSetVariable": true, "supportsTerminateRequest": true}, "command": "initialize", "success": true, "type": "response"}
+{"body": {}, "command": "launch", "success": true, "type": "response"}
+{"body": {}, "event": "initialized", "type": "event"}
+> break page.pyk 6
+{"body": {"breakpoints": [{"id": 1, "line": 6, "verified": true}]}, "command": "setBreakpoints", "success": true, "type": "response"}
+> configure
+{"body": {}, "command": "configurationDone", "success": true, "type": "response"}
+> wait stopped
+{"body": {"allThreadsStopped": true, "hitBreakpointIds": [1], "reason": "breakpoint", "threadId": 1}, "event": "stopped", "type": "event"}
+> stack
+{"body": {"stackFrames": [{"column": 5, "endColumn": 28, "endLine": 6, "id": 1, "line": 6, "name": "pressed", "source": {"name": "page.pyk", "path": "$CASES/page.pyk"}}], "totalFrames": 1}, "command": "stackTrace", "success": true, "type": "response"}
+> scopes 1
+{"body": {"scopes": [{"expensive": false, "name": "Locals", "presentationHint": "locals", "variablesReference": 1}, {"expensive": false, "name": "Globals", "variablesReference": 2}]}, "command": "scopes", "success": true, "type": "response"}
+> variables Globals
+{"body": {"variables": [{"name": "count", "type": "Int", "value": "1", "variablesReference": 0}, {"name": "pressed", "type": "() -> ()", "value": "<function pressed>", "variablesReference": 0}]}, "command": "variables", "success": true, "type": "response"}
+> continue
+{"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
+> wait stopped
+{"body": {"category": "stdout", "output": "pressed 1\n"}, "event": "output", "type": "event"}
+{"body": {"allThreadsStopped": true, "hitBreakpointIds": [1], "reason": "breakpoint", "threadId": 1}, "event": "stopped", "type": "event"}
+> evaluate 1 count
+{"body": {"result": "2", "type": "Int", "variablesReference": 0}, "command": "evaluate", "success": true, "type": "response"}
+> continue
+{"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
+> wait terminated
+{"body": {"category": "stdout", "output": "pressed 2\n"}, "event": "output", "type": "event"}
+{"body": {"exitCode": 0}, "event": "exited", "type": "event"}
+{"body": {}, "event": "terminated", "type": "event"}
+> disconnect
+{"body": {}, "command": "disconnect", "success": true, "type": "response"}
+> exit status 0

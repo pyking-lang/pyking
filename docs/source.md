@@ -68,7 +68,10 @@ and which module calls which.
 | [`version.ml`](#versionml) | 1 | The version, generated from `VERSION` by `src/dune`. |
 | [`web_tools.ml`](#web_toolsml) | ~330 | `pyk notebook`, `pyk playground` and `pyk serve`: what each serves. |
 | [`web_server.ml`](#web_serverml) | ~360 | A small HTTP/1.1 server, in the `pyk` process. |
-| [`lsp.ml`](#lspml) | ~1000 | The language server: a state, and one message in to the messages out. |
+| [`scopes.ml`](#scopesml) | ~420 | What the names in a module mean: every use with the binding it reaches, and which names are in scope where. The language server and the debugger read it. |
+| [`lsp.ml`](#lspml) | ~2000 | The language server: a state, and one message in to the messages out. |
+| [`debug_session.ml`](#debug_sessionml) | ~900 | The debugger's core: a program run a step at a time, with breakpoints, stepping, the calls in progress and their variables. Protocol-free. |
+| [`dap.ml`](#dapml) | ~480 | The debug adapter: the Debug Adapter Protocol over a `debug_session.ml` session. |
 | [`json.ml`](#jsonml) | ~190 | JSON read and written. |
 | [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the six commands. |
 | [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground and the notebook. |
@@ -1260,9 +1263,12 @@ three are design rather than accident:
   modules: each runs in a top level of its own, in dependency order, and
   what it exports is what the ones after it are given. **`module_env`**
   builds a module's starting environment from those exports and
-  **`exported_values`** reads its own back out; **`run_entry`** is what
-  runs a module's top level without putting an enclosing scope back
-  afterwards, since there is none to go back to.
+  **`exported_values`** reads its own back out. A module's top level
+  runs one statement at a time, each in the environment the one before
+  it left, without putting an enclosing scope back afterwards, since
+  there is none to go back to; **`runner`** is that sequence as a value
+  (`start_modules`, `runner_step`, `runner_done`), which is what a
+  debugger steps, and `run_modules` drives it to its end.
   **`load_modules(state, units, exports)`** is the same into a machine
   already running, which is what a REPL entry's imports do, and
   **`bind_imports(state, stmts, exports)`** binds an entry's imports into
@@ -1279,7 +1285,15 @@ three are design rather than accident:
   `externals.call` the first, so a host may call back during the call or
   later; `apply` is the same for a finished machine, answering its
   state. `call` and `step` are one recursive group so that `call` can
-  run one.
+  run one. The runtime's **`drive`**, where one is given, is how such a
+  machine is run to its end: a debugger passes its own, which stops at
+  breakpoints in a callback.
+- **`statement_at`, `call_depth`, `innermost_call_site`, `calls`,
+  `own_bindings`, `with_env`, `assign`** -- what a debugger reads of a
+  paused machine: the statement about to start, the calls in progress
+  (each with its call site, its caller's environment and the
+  environment the function was written in), the names a frame binds
+  itself, and a `var`'s cell written.
 - **`declare_entry(state, stmts)` / `eval_in(state, stmt) -> state` /
   `eval_statement(state, stmt)`** — running statements in an existing
   machine's environment, which is what a prompt does. `declare_entry` is
@@ -1948,6 +1962,13 @@ pyk serve [<dir>]       serve a directory's files (web_tools.ml)
   compiled for `iweb` into a fresh directory and served, unless
   `--headless` says to interpret it here (docs/libraries.md, "A library
   that needs a page").
+- **`command_dap options`** -- `pyk dap`'s stdio transport over
+  `dap.ml`: the program gets standard streams of its own (its output a
+  file read back into `output` events, its input the launch's `stdin`
+  file), it runs in slices between messages, and a callback the host
+  makes once the top level has ended runs in a loop of its own while the
+  host waits. `runtime_report` words a runtime error as `pyk <file>`
+  prints it, for both.
 - **`command_interpret` / `command_compile`**, and `Repl.start` for the
   third. `command_compile` also writes a library's `<name>_assets/`
   beside a web page (`library_assets`). The REPL is *handed* this module's `format_error` rather than
@@ -1984,11 +2005,8 @@ holds the state between messages. See
   error as a `problem` (span, `pyk`'s label for the stage, message),
   and `typed`, the last check that reached the document's own module,
   which hover reads while the program does not check.
-- **`meaning`** -- what a name refers to: `Bound` (a place, the binding's
-  symbol, what kind of binding), `Module_of` a module, `Builtin`, or
-  `Unknown`.
-- **`found`** -- what a scope walk found: every use of a name with its
-  meaning, and which names are in scope from where to where.
+- **`settings`** -- the library path, check on change or on save, and
+  whether inlay hints are shown.
 
 ### Main functions
 
@@ -2003,12 +2021,94 @@ holds the state between messages. See
 - **`analyse state document previous`** -- the front end over the
   document, as `pyk.ml` runs it; an error in a module the document
   imports is reported at the import that reaches it.
-- **`resolve units unit`** -- the scope walk: `resolve_block` binds a
-  block's `def`s first, `resolve_stmt` and `resolve_expr` follow every
-  construct that binds a name. Definition and completion read it.
+- **`hover`, `definition`, `document_symbols`, `completion`,
+  `signature_help`, `references`, `highlights`, `prepare_rename` /
+  `rename`, `inlay_hints`, `folding_ranges`, `semantic_tokens`,
+  `code_actions`** -- one request each. Names come from `scopes.ml`'s
+  walk over the text as it is now, types from the last check that
+  reached the document's own module. `open_call` reads the call a
+  position is inside from the text, since a call being typed seldom
+  parses; `rename` refuses a new name that would mean something else
+  at any place the old one is written.
 - **`position` / `row_col`** -- the one conversion between
   `Lexer.info` (rows from 1, byte columns) and LSP positions (lines from
   0, UTF-16 columns).
+
+---
+
+## `scopes.ml`
+
+**What the names in a module mean**, read by the language server and
+by the debugger (the names a Watch expression may use). A walk that
+binds as `analyses.ml` does -- every `def` of a block before any of it,
+a module's imports before its first statement.
+
+### Data structures
+
+- **`meaning`** -- what a name refers to: `Bound` (a place, the
+  binding's symbol, what kind of binding), `Module_of` a module,
+  `Builtin`, or `Unknown`.
+- **`found`** -- every use of a name with its meaning, a name taken by
+  a `from` line among them, and which names are in scope from where to
+  where.
+
+### Main functions
+
+- **`resolve units unit`** -- the walk: `resolve_block` binds a block's
+  `def`s first, `resolve_stmt` and `resolve_expr` follow every construct
+  that binds a name.
+- **`use_at`, `names_at`, `bindings`** -- the use at a position, the
+  names in scope there, and every binding the scopes hold.
+
+---
+
+## `debug_session.ml`
+
+**The debugger's core**, protocol-free: `pyk dap` (`dap.ml`) and the
+playground's Debug tab (`web/pyking_web.ml`) are two transports over it.
+A session is a value; `advance t steps` runs a slice and answers the
+events, so nothing waits. See [debugging.md](debugging.md).
+
+### Data structures
+
+- **`program`** -- every module as the checker saw it (`source`: the
+  module, its `tmap`, its imports' sigmaps, what its names mean) beside
+  what the interpreter runs.
+- **`t`** -- the runs in progress (the top level, and callbacks, each an
+  `Interpreter.runner` or a machine), where the session is (`Running`
+  towards a goal, stopped, waiting for a callback, over), the
+  breakpoints, and the frames and references of the current stop.
+
+### Main functions
+
+- **`prepare`** -- a loaded program checked and made ready to run as
+  `pyk <file>` runs it.
+- **`advance`** -- steps, checking at each statement started whether a
+  breakpoint, a pause or the stepping goal stops there. A statement that
+  continues the line the one before it started (the value of `x = if
+  ...`) is not a new line to stop at. Stepping over or out of a call
+  stops in the caller once the call returns.
+- **`resume`**, **`push_call`**, **`set_breakpoints`** -- go on, a
+  callback to run, and a file's breakpoints, each verified at the first
+  statement on its line or after it.
+- **`frames`**, **`scopes`**, **`variables`** -- the calls in progress
+  where it stopped, each frame's own names and what it sees from
+  outside, a value's parts.
+- **`evaluate`**, **`set_variable`** -- an expression checked against
+  the names in scope at a frame (types from the checker's `tmap`, a
+  value's own where that names a variable) and run in the frame's
+  environment; a `var` given a new value through `:=`.
+
+---
+
+## `dap.ml`
+
+**The debug adapter, `pyk dap`**: one DAP message in, the messages to
+send back, over a `debug_session.ml` session. In the library; the stdio
+transport is `command_dap` in `pyk.ml`, which supplies `hooks` (how a
+launch loads, checks and starts a program, and how a failed run is
+reported) and runs the program in slices between messages. See
+[debugging.md](debugging.md).
 
 ---
 

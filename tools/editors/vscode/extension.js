@@ -1,10 +1,12 @@
 // The Pyking extension for VS Code and Cursor: starts the Pyking
-// language server, `pyk lsp --stdio`, for every Pyking document. The
-// language, its highlighting and its editing rules are declared in
-// package.json. See README.md.
+// language server, `pyk lsp --stdio`, for every Pyking document, and
+// the Pyking debug adapter, `pyk dap`, for a `pyking` debug session.
+// The language, its highlighting, its editing rules and the debugger's
+// launch configuration are declared in package.json. See README.md.
 //
 // Functions:
-//   activate(context) -- starts the server; registers the restart command.
+//   activate(context) -- starts the server; registers the restart
+//     command and the debugger.
 //   deactivate() -- stops the server.
 
 "use strict";
@@ -72,6 +74,38 @@ async function start() {
   }
 }
 
+// How a `pyking` debug session reaches its adapter: `pyk dap`, from the
+// same executable as the language server.
+const debugAdapter = {
+  createDebugAdapterDescriptor() {
+    const config = vscode.workspace.getConfiguration("pyking");
+    const command = config.get("server.path") || "pyk";
+    return new vscode.DebugAdapterExecutable(command, config.get("debugger.args", ["dap"]));
+  },
+};
+
+// What F5 debugs where no launch.json says: the Pyking file in the
+// editor. Answers the configuration, or undefined to cancel.
+// DebugConfiguration -> DebugConfiguration?
+const debugConfigurations = {
+  resolveDebugConfiguration(folder, config) {
+    if (!config.type && !config.request && !config.name) {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || editor.document.languageId !== "pyking") {
+        vscode.window.showInformationMessage("Pyking: open a .pyk file to debug it.");
+        return undefined;
+      }
+      return { type: "pyking", request: "launch", name: "Debug the current Pyking file",
+               program: editor.document.uri.fsPath };
+    }
+    if (!config.program) {
+      vscode.window.showInformationMessage("Pyking: the launch configuration names no program.");
+      return undefined;
+    }
+    return config;
+  },
+};
+
 // Stops the language server, if one is running. () -> Promise(())
 async function stop() {
   if (client) {
@@ -85,6 +119,8 @@ async function stop() {
 // ExtensionContext -> Promise(())
 async function activate(context) {
   context.subscriptions.push(
+    vscode.debug.registerDebugAdapterDescriptorFactory("pyking", debugAdapter),
+    vscode.debug.registerDebugConfigurationProvider("pyking", debugConfigurations),
     vscode.commands.registerCommand("pyking.restartServer", async () => {
       await stop();
       await start();

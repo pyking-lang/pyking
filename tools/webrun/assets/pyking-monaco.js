@@ -93,6 +93,12 @@ export function registerPyking(monaco, words) {
     { token: "function", foreground: c.function },
     { token: "predefined", foreground: c.builtin },
     { token: "operator", foreground: c.builtin },
+    // What the language server's semantic tokens name (src/lsp.ml).
+    { token: "parameter", fontStyle: "italic" },
+    { token: "enumMember", foreground: c.number },
+    { token: "namespace", foreground: c.type },
+    { token: "property", foreground: c.builtin },
+    { token: "function.defaultLibrary", foreground: c.builtin },
   ];
   // The context menu (Go to Definition, ...) in both themes: white text
   // on a dark menu, which stays readable whatever the page around it is.

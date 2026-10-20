@@ -437,6 +437,25 @@ The library path is `pyk`'s own (`-L`, `$PYKING_LIB_PATH`, the built-in
 Standard input closing without `exit` ends it with status 1, as the
 protocol says. See [../design/lsp.md](../design/lsp.md).
 
+## `pyk dap`: the debug adapter's transport
+
+`pyk dap` runs no front end until an editor asks: `command_dap` reads
+DAP messages framed by `Content-Length` from standard input and hands
+each to `Dap.handle`; a `launch` loads, checks and starts the program
+there (`Dap.hooks.start`), loading its plugins as `pyk <file>` does.
+While the program runs it is given slices of 20000 steps
+(`Dap.advance`), and standard input is looked at between them, so a
+`pause` arrives in time. The program never touches the protocol's
+streams: they are duplicated first, standard output is pointed at a
+temporary file whose new bytes become `output` events after each slice,
+and standard input is the launch's `stdin` file or nothing. Once the top
+level has ended, a plugin's events -- tinyweb's page -- are waited for
+beside standard input, and a callback the plugin makes runs in a loop
+of its own (`drive`) that keeps answering the editor until the callback
+ends. A callback made inside a slice runs to its end unstopped. `state`
+is the one cell the function writes, since such a callback reaches the
+adapter from inside the plugin. See [debugging.md](debugging.md).
+
 ## Why `repl.ml` is handed `format_error`
 
 ```ocaml

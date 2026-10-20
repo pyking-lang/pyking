@@ -1,0 +1,28 @@
+# Signature help, references, renaming, inlay hints, folding, semantic
+# tokens: a program that uses each.
+import helper
+from helper import double
+
+## Adds two numbers.
+##
+## # Parameters
+## - `a`: the first.
+## - `b`: the second.
+##
+## # Returns
+## Their sum.
+def add(a: Int, b: Int) -> Int:
+    return a + b
+
+def scale(x, by = 2):
+    x * by
+
+datatype Shape:
+    Circle(radius: Int, filled: Bool = false)
+
+var total = 0
+for n in [1, 2, 3]:
+    total := add(total, n)
+shape = Circle(radius = 3)
+label = "total"
+print(label, scale(total), double(4), helper.greet(label), shape.radius)

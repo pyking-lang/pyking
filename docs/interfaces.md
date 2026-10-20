@@ -81,7 +81,15 @@ respects that, which is what makes the library link.
 │                                                                      │
 │  lsp.ml          create, handle, idle, exit_code: the language       │
 │                  server, over module.ml, typesystem.ml, analyses.ml, │
-│                  walk.ml and json.ml (parse, to_string, member)      │
+│                  scopes.ml, walk.ml and json.ml (parse, to_string,   │
+│                  member)                                             │
+│  scopes.ml       resolve, use_at, names_at, bindings: what the names │
+│                  in a module mean, for lsp.ml and debug_session.ml   │
+│  dap.ml          create, handle, advance, push_call, take_call,      │
+│                  finish: the debug adapter, over debug_session.ml    │
+│  debug_session.ml prepare, create, advance, resume, frames, scopes,  │
+│                  variables, evaluate, ...: the debugger's core, over │
+│                  interpreter.ml's runner and what a debugger reads   │
 │  examples.ml     example, file, read, find, listing: the examples    │
 │                  list, for pyk.ml and web_tools.ml                   │
 │  repl_session.ml new_session, submit, run_meta, bindings, complete,  │

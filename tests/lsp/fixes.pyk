@@ -1,0 +1,3 @@
+name = "hello"
+greeting = name + " world"
+print(greeting)

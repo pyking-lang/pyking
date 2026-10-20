@@ -1,7 +1,7 @@
 {
   "name": "pyking",
   "displayName": "Pyking",
-  "description": "Pyking language support: highlighting, and diagnostics, hover, go to definition, outline and completion from the Pyking language server (pyk lsp).",
+  "description": "Pyking language support: highlighting; diagnostics, hover, go to definition, outline and completion from the Pyking language server (pyk lsp); and debugging with the Pyking debug adapter (pyk dap).",
   "version": "0.0.0",
   "publisher": "pyking-lang",
   "license": "MIT",
@@ -10,15 +10,19 @@
     "vscode": "^1.82.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Debuggers"
   ],
   "keywords": [
     "pyking",
-    "lsp"
+    "lsp",
+    "debug"
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:pyking"
+    "onLanguage:pyking",
+    "onDebugResolve:pyking",
+    "onDebugDynamicConfigurations:pyking"
   ],
   "contributes": {
     "languages": [
@@ -96,9 +100,107 @@
           ],
           "default": "off",
           "description": "Traces the messages between VS Code and the language server, in the Pyking output channel."
+        },
+        "pyking.debugger.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "dap"
+          ],
+          "markdownDescription": "The arguments `pyking.server.path` is started with as the debug adapter."
         }
       }
-    }
+    },
+    "breakpoints": [
+      {
+        "language": "pyking"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "pyking",
+        "label": "Pyking",
+        "languages": [
+          "pyking"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "The Pyking program to debug.",
+                "default": "${file}"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The program's own arguments, what sys.args() answers.",
+                "default": []
+              },
+              "stdin": {
+                "type": "string",
+                "description": "A file the program reads as its standard input; with none, it reads nothing."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "The directory the program runs in.",
+                "default": "${workspaceFolder}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Stop at the program's first statement.",
+                "default": false
+              },
+              "justMyCode": {
+                "type": "boolean",
+                "description": "Step over the code of the standard library and of -L libraries.",
+                "default": true
+              },
+              "libPath": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "More directories of libraries, searched as -L ones are.",
+                "default": []
+              },
+              "release": {
+                "type": "boolean",
+                "description": "Debug the program as --release compiles it: every call to debug() removed.",
+                "default": false
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "pyking",
+            "request": "launch",
+            "name": "Debug the current Pyking file",
+            "program": "${file}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Pyking: Launch",
+            "description": "Debug a Pyking program with pyk dap.",
+            "body": {
+              "type": "pyking",
+              "request": "launch",
+              "name": "Debug ${1:the current file}",
+              "program": "^\"\\${file}\""
+            }
+          }
+        ]
+      }
+    ]
   },
   "dependencies": {
     "vscode-languageclient": "9.0.1"

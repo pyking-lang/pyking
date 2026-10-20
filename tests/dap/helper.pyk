@@ -1,0 +1,3 @@
+public def twice(n: Int) -> Int:
+    doubled = n * 2
+    return doubled

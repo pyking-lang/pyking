@@ -1,0 +1,3 @@
+import helper
+
+print(helper.twice(21))

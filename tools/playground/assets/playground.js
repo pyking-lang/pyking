@@ -1,7 +1,8 @@
 // The playground user interface: the source editor with its example
-// selector, and five tabs on the right -- the run's output, the compiled
-// code with its target selector, the page a run draws, a REPL, and the
-// help. Served by tools/playground/playground.py.
+// selector, and six tabs on the right -- the run's output, the compiled
+// code with its target selector, the page a run draws, a REPL, the
+// debugger (debugger.js) and the help. Served by
+// tools/playground/playground.py.
 //
 // Embedding this in another page is one call:
 //
@@ -17,6 +18,7 @@ import {
   splitArguments, themeFor,
 } from "../webrun/web.js";
 import { LspClient } from "./lsp-client.js";
+import { ACTIONS, DEFAULT_KEYS, Debugger, showKey, specOf } from "./debugger.js";
 import { linkTo, sourceFromHash } from "./share.js";
 import { packFiles, zip } from "./download.js";
 
@@ -35,6 +37,12 @@ const DEFAULT_SETTINGS = {
   clearOnRun: true,
   autoRun: false,
   tinywebLog: false,
+  // The debugger: whether it stops at the first statement, whether it
+  // steps over the standard library's code, and each action's key where
+  // the viewer changed it (debugger.js, DEFAULT_KEYS).
+  debugStopOnEntry: false,
+  debugJustMyCode: true,
+  debugKeys: {},
 };
 
 /** How long the source has to sit still before an automatic run. Long
@@ -145,6 +153,7 @@ class Playground {
     this.replDraft = "";        // what was being typed before Up
     this.help = null;           // the Help tab's help, once it is opened
     this.helpStarting = null;
+    this.debugger = null;       // the Debug tab (debugger.js)
   }
 
   async init() {
@@ -159,6 +168,10 @@ class Playground {
       tabSize: 4, insertSpaces: true, detectIndentation: false,
       automaticLayout: true, minimap: { enabled: false },
       fixedOverflowWidgets: true,
+      // What the language server says of names (semantic tokens) and of
+      // the types it inferred (inlay hints) shows in the text.
+      "semanticHighlighting.enabled": true,
+      inlayHints: { enabled: "on" },
     };
     const model = (text, language, uri) => {
       const made = monaco.editor.createModel(text, language, uri);
@@ -201,6 +214,8 @@ class Playground {
       tab.addEventListener("click", () => this.showTab(tab.dataset.tab));
     }
     this.installRepl();
+    this.debugger = new Debugger(this);
+    this.debugger.install(ui.panelDebug);
     this.installTheme();
 
     this.installSplitters();
@@ -232,6 +247,17 @@ class Playground {
     bind(this.right, "pyk-run", "Run the generated code",
          () => (this.running ? this.stopRun() : this.runGenerated()));
 
+    // The debugger's keys, wherever the focus is: caught on the way down,
+    // before an editor sees them. A key field in the settings is where a
+    // key is being chosen, so it is left alone there.
+    ui.root.addEventListener("keydown", (event) => {
+      if (event.target?.classList?.contains("pyk-key-field")) return;
+      if (!ui.modal.classList.contains("pyk-hidden")) return;
+      if (!ui.inputModal.classList.contains("pyk-hidden")) return;
+      if (!ui.confirmModal.classList.contains("pyk-hidden")) return;
+      this.debugger?.handleKey(event);
+    }, true);
+
     // The same keys when focus is outside both editors -- on a dropdown, a
     // button, or the page itself. Monaco stops propagation for keys it
     // handled, but the check for an enclosing editor is explicit so that a
@@ -245,6 +271,7 @@ class Playground {
       if (event.key !== "Enter") return;
       if (!ui.modal.classList.contains("pyk-hidden")) return;
       if (!ui.inputModal.classList.contains("pyk-hidden")) return;
+      if (!ui.confirmModal.classList.contains("pyk-hidden")) return;
       if (event.target?.closest?.(".monaco-editor")) return;
       const accel = event.ctrlKey || event.metaKey;
       if (!accel && !event.shiftKey) return;
@@ -296,6 +323,7 @@ class Playground {
   /** Puts the program a link held in the editor; it is not run. */
   openLinked(text) {
     this.setSource(text);
+    this.debugger?.clearBreakpoints();
     this.ui.example.value = "";
     this.clearError();
     this.note("Opened the program in the link.");
@@ -317,6 +345,7 @@ class Playground {
     if (!entry) return;
     const response = await fetch(this.cfg.examplesURL + file);
     this.setSource(await response.text());
+    this.debugger?.clearBreakpoints();
     this.ui.example.value = file;
     this.clearError();
     if (!silent) this.note(`Loaded ${file} — ${entry.description}`);
@@ -535,6 +564,7 @@ class Playground {
         theme: this.effectiveTheme(),
         onCopy: (code) => {
           this.setSource(code);
+          this.debugger?.clearBreakpoints();
           this.note("Copied an example from the help into the editor.");
         },
       });
@@ -657,6 +687,37 @@ class Playground {
     };
   }
 
+  /** Asks a yes-or-no question in a dialog: `text` under `title`, with
+   *  Cancel and a button labelled `ok`. Resolves to whether `ok` was
+   *  chosen. String -> String -> String -> Promise<Bool> */
+  async confirm(title, text, ok) {
+    const { ui } = this;
+    ui.confirmTitle.textContent = title;
+    ui.confirmText.textContent = text;
+    ui.confirmOk.textContent = ok;
+    ui.confirmModal.classList.remove("pyk-hidden");
+    ui.confirmOk.focus();
+    const chosen = await new Promise((resolve) => {
+      const done = (value) => {
+        ui.confirmOk.removeEventListener("click", onOk);
+        ui.confirmCancel.removeEventListener("click", onCancel);
+        ui.confirmModal.removeEventListener("keydown", onKey);
+        ui.confirmModal.classList.add("pyk-hidden");
+        resolve(value);
+      };
+      const onOk = () => done(true);
+      const onCancel = () => done(false);
+      const onKey = (event) => {
+        if (event.key === "Escape") done(false);
+      };
+      ui.confirmOk.addEventListener("click", onOk);
+      ui.confirmCancel.addEventListener("click", onCancel);
+      ui.confirmModal.addEventListener("keydown", onKey);
+    });
+    this.left.focus();
+    return chosen;
+  }
+
   async executeProgram(source, input = { stdin: "", args: [] }) {
     try {
       this.closePage();
@@ -730,6 +791,10 @@ class Playground {
    *  booting the runtime, compiling, executing -- because the programs
    *  this exists for are the ones that never reach the end on their own. */
   beginRun(origin, kind) {
+    // A run started while a program is debugged ends the debugging.
+    if (kind !== "debug" && this.debugger && this.debugger.state !== "off") {
+      this.debugger.stop({ quiet: true });
+    }
     this.endRun();
     this.stopped = false;
     this.running = { origin, kind };
@@ -755,6 +820,10 @@ class Playground {
   stopRun({ quiet = false } = {}) {
     if (!this.running) return;
     const { kind } = this.running;
+    if (kind === "debug") {
+      this.debugger.stop({ quiet });
+      return;
+    }
     this.stopped = true;
     if (!quiet) (kind === "js" ? this.right : this.left).focus();
     const log = kind === "js" ? this.ui.compiledOutput : this.ui.output;
@@ -1481,6 +1550,61 @@ class Playground {
       this.saveSettings();
     });
     this.ui.resetLayoutButton.addEventListener("click", () => this.resetLayout());
+    this.ui.debugStopOnEntry.addEventListener("change", () => {
+      this.settings.debugStopOnEntry = this.ui.debugStopOnEntry.checked;
+      this.saveSettings();
+    });
+    this.ui.debugJustMyCode.addEventListener("change", () => {
+      this.settings.debugJustMyCode = this.ui.debugJustMyCode.checked;
+      this.saveSettings();
+    });
+    this.ui.debugKeysReset.addEventListener("click", () => {
+      this.settings.debugKeys = {};
+      this.saveSettings();
+      this.showDebugKeys();
+    });
+    this.showDebugKeys();
+  }
+
+  /** The settings' debugger keys: one field per action, showing its key;
+   *  a key pressed in a field becomes the action's, Backspace takes it
+   *  away and Escape leaves it. () -> () */
+  showDebugKeys() {
+    const list = this.ui.debugKeyList;
+    list.textContent = "";
+    const keys = { ...DEFAULT_KEYS, ...(this.settings.debugKeys ?? {}) };
+    for (const [action, label] of ACTIONS) {
+      const row = document.createElement("label");
+      row.className = "pyk-key-row";
+      const name = document.createElement("span");
+      name.textContent = label;
+      const field = document.createElement("input");
+      field.type = "text";
+      field.readOnly = true;
+      field.className = "pyk-key-field";
+      field.value = showKey(keys[action]);
+      field.title = "Click, then press the keys to use";
+      field.dataset.action = action;
+      field.addEventListener("keydown", (event) => {
+        if (event.key === "Tab") return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === "Escape") {
+          field.blur();
+          return;
+        }
+        const spec = event.key === "Backspace" && !event.ctrlKey && !event.metaKey
+          ? "" : specOf(event);
+        if (spec === null) return;
+        this.settings.debugKeys = { ...(this.settings.debugKeys ?? {}), [action]: spec };
+        field.value = showKey(spec);
+        this.saveSettings();
+        this.debugger?.showKeys();
+      });
+      row.append(name, field);
+      list.append(row);
+    }
+    this.debugger?.showKeys();
   }
 
   openSettings() {
@@ -1499,7 +1623,8 @@ class Playground {
     this.right.updateOptions({ fontSize: px });
     // The output pane is plain text, not an editor, so it needs telling
     // separately -- but it should scale with the code beside it.
-    for (const element of [this.ui.output, this.ui.compiledOutput, this.ui.repl, this.ui.env]) {
+    for (const element of [this.ui.output, this.ui.compiledOutput, this.ui.repl, this.ui.env,
+                           this.ui.panelDebug]) {
       element.style.fontSize = px + "px";
     }
     this.ui.fontValue.textContent = px + "px";
@@ -1520,6 +1645,8 @@ class Playground {
     this.ui.clearOnRun.checked = this.settings.clearOnRun;
     this.ui.autoRun.checked = this.settings.autoRun;
     this.ui.tinywebLog.checked = this.settings.tinywebLog;
+    this.ui.debugStopOnEntry.checked = Boolean(this.settings.debugStopOnEntry);
+    this.ui.debugJustMyCode.checked = this.settings.debugJustMyCode !== false;
     for (const [key, name] of [["colSplit", "--pyk-col-split"],
                                ["outSplit", "--pyk-out-split"]]) {
       if (this.settings[key]) this.ui.root.style.setProperty(name, this.settings[key]);
@@ -1535,6 +1662,9 @@ class Playground {
       clearOnRun: this.settings.clearOnRun,
       autoRun: this.settings.autoRun,
       tinywebLog: this.settings.tinywebLog,
+      debugStopOnEntry: this.settings.debugStopOnEntry,
+      debugJustMyCode: this.settings.debugJustMyCode,
+      debugKeys: this.settings.debugKeys,
       colSplit: style.getPropertyValue("--pyk-col-split") || null,
       outSplit: style.getPropertyValue("--pyk-out-split") || null,
     });
@@ -1600,6 +1730,8 @@ function buildDom(host, meta, cfg) {
                   title="What the program shows: a program using tinyweb draws here">Web output</button>
           <button class="pyk-tab" data-r="tabRepl" data-tab="repl" role="tab"
                   title="Type Pyking an entry at a time">REPL</button>
+          <button class="pyk-tab" data-r="tabDebug" data-tab="debug" role="tab"
+                  title="Run the program a step at a time: breakpoints, variables and the calls in progress">Debug</button>
           <button class="pyk-tab" data-r="tabHelp" data-tab="help" role="tab"
                   title="Getting started, the language reference and the libraries">Help</button>
         </div>
@@ -1665,6 +1797,8 @@ function buildDom(host, meta, cfg) {
           <div class="pyk-gutter pyk-gutter-h" data-r="gutterWeb" role="separator"
                aria-orientation="horizontal" title="Drag to resize"></div>
         </div>
+
+        <div class="pyk-panel pyk-hidden pyk-panel-debug" data-r="panelDebug" role="tabpanel"></div>
 
         <div class="pyk-panel pyk-hidden" data-r="panelHelp" role="tabpanel">
           <div class="pyk-help-host" data-r="helpHost"></div>
@@ -1732,6 +1866,22 @@ function buildDom(host, meta, cfg) {
         </div>
       </div>
     </div>
+    <div class="pyk-modal-backdrop pyk-hidden" data-r="confirmModal">
+      <div class="pyk-modal" role="dialog" aria-modal="true"
+           aria-labelledby="pyk-confirm-title">
+        <div class="pyk-modal-head">
+          <strong id="pyk-confirm-title" data-r="confirmTitle"></strong>
+        </div>
+        <div class="pyk-modal-body">
+          <p data-r="confirmText"></p>
+          <div class="pyk-field-row pyk-input-buttons">
+            <span class="pyk-spacer"></span>
+            <button data-r="confirmCancel">Cancel</button>
+            <button class="pyk-primary" data-r="confirmOk"></button>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="pyk-modal-backdrop pyk-hidden" data-r="modal">
       <div class="pyk-modal" role="dialog" aria-modal="true"
            aria-label="Playground settings">
@@ -1780,6 +1930,23 @@ function buildDom(host, meta, cfg) {
             </label>
           </div>
           <div class="pyk-field">
+            <label>Debugger</label>
+            <label class="pyk-check">
+              <input type="checkbox" data-r="debugStopOnEntry">
+              Stop at the first statement
+            </label>
+            <label class="pyk-check">
+              <input type="checkbox" data-r="debugJustMyCode">
+              Step over the standard library's code
+            </label>
+            <div class="pyk-key-list" data-r="debugKeyList"></div>
+            <div class="pyk-field-row">
+              <button data-r="debugKeysReset">Reset the keys</button>
+            </div>
+            <p class="pyk-hint">Click a key's field and press the keys to use
+              instead; Backspace leaves an action without one.</p>
+          </div>
+          <div class="pyk-field">
             <label>Layout</label>
             <div class="pyk-field-row">
               <button data-r="resetLayoutButton">Reset pane sizes</button>
@@ -1799,7 +1966,7 @@ function buildDom(host, meta, cfg) {
   ui.tabs = [...host.querySelectorAll(".pyk-tab")];
   ui.panels = {
     run: ui.panelRun, compiled: ui.panelCompiled, web: ui.panelWeb, repl: ui.panelRepl,
-    help: ui.panelHelp,
+    debug: ui.panelDebug, help: ui.panelHelp,
   };
 
   for (const target of meta.targets) {

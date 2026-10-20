@@ -1,0 +1,38 @@
+> launch basics.pyk
+{"body": {"exceptionBreakpointFilters": [{"default": true, "filter": "uncaught", "label": "Runtime errors"}], "supportsConditionalBreakpoints": true, "supportsConfigurationDoneRequest": true, "supportsEvaluateForHovers": true, "supportsHitConditionalBreakpoints": true, "supportsLogPoints": true, "supportsSetVariable": true, "supportsTerminateRequest": true}, "command": "initialize", "success": true, "type": "response"}
+{"body": {}, "command": "launch", "success": true, "type": "response"}
+{"body": {}, "event": "initialized", "type": "event"}
+> breakpoints basics.pyk [{"line": 12, "condition": "x == 2"}, {"line": 5, "hitCondition": "4"}, {"line": 14, "logMessage": "total is {total}, pairs {pairs}"}, {"line": 3}]
+{"body": {"breakpoints": [{"id": 1, "line": 12, "verified": true}, {"id": 2, "line": 5, "verified": true}, {"id": 3, "line": 14, "verified": true}, {"id": 4, "line": 4, "verified": true}]}, "command": "setBreakpoints", "success": true, "type": "response"}
+> configure
+{"body": {}, "command": "configurationDone", "success": true, "type": "response"}
+> wait stopped
+{"body": {"allThreadsStopped": true, "hitBreakpointIds": [4], "reason": "breakpoint", "threadId": 1}, "event": "stopped", "type": "event"}
+> stack
+{"body": {"stackFrames": [{"column": 1, "id": 1, "line": 4, "name": "<module basics>", "source": {"name": "basics.pyk", "path": "$CASES/basics.pyk"}}], "totalFrames": 1}, "command": "stackTrace", "success": true, "type": "response"}
+> continue
+{"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
+> wait stopped
+{"body": {"allThreadsStopped": true, "hitBreakpointIds": [1], "reason": "breakpoint", "threadId": 1}, "event": "stopped", "type": "event"}
+> stack
+{"body": {"stackFrames": [{"column": 5, "endColumn": 29, "endLine": 12, "id": 1, "line": 12, "name": "<module basics>", "source": {"name": "basics.pyk", "path": "$CASES/basics.pyk"}}], "totalFrames": 1}, "command": "stackTrace", "success": true, "type": "response"}
+> evaluate 1 x
+{"body": {"result": "2", "type": "Int", "variablesReference": 0}, "command": "evaluate", "success": true, "type": "response"}
+> continue
+{"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
+> wait stopped
+{"body": {"allThreadsStopped": true, "hitBreakpointIds": [2], "reason": "breakpoint", "threadId": 1}, "event": "stopped", "type": "event"}
+> stack
+{"body": {"stackFrames": [{"column": 5, "id": 1, "line": 5, "name": "fact", "source": {"name": "basics.pyk", "path": "$CASES/basics.pyk"}}, {"column": 22, "endColumn": 29, "endLine": 12, "id": 2, "line": 12, "name": "<module basics>", "source": {"name": "basics.pyk", "path": "$CASES/basics.pyk"}}], "totalFrames": 2}, "command": "stackTrace", "success": true, "type": "response"}
+> evaluate 1 n
+{"body": {"result": "3", "type": "Int", "variablesReference": 0}, "command": "evaluate", "success": true, "type": "response"}
+> continue
+{"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
+> wait terminated
+{"body": {"category": "stdout", "output": "total 9 [(1, 1), (2, 2), (3, 6)]\n"}, "event": "output", "type": "event"}
+{"body": {"category": "console", "output": "total is 9, pairs [(1, 1), (2, 2), (3, 6)]\n"}, "event": "output", "type": "event"}
+{"body": {"exitCode": 0}, "event": "exited", "type": "event"}
+{"body": {}, "event": "terminated", "type": "event"}
+> disconnect
+{"body": {}, "command": "disconnect", "success": true, "type": "response"}
+> exit status 0

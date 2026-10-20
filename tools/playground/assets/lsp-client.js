@@ -1,7 +1,9 @@
 // The playground's language server client: Monaco's hover, go to
-// definition, outline and completion for Pyking, and the diagnostics
-// under the source, all answered by the Pyking language server
-// (src/lsp.ml) running in the compiler's worker.
+// definition, outline, completion, signature help, references, the
+// highlights of a name, renaming, the inferred types shown in the text,
+// folding, semantic highlighting and quick fixes for Pyking, and the
+// diagnostics under the source, all answered by the Pyking language
+// server (src/lsp.ml) running in the compiler's worker.
 //
 // Messages go through PykingRuntime's `lsp` and `lspIdle` (see
 // tools/webrun/assets/pyking-runtime.js), which hand one JSON-RPC message
@@ -94,7 +96,44 @@ export class LspClient {
         provideCompletionItems: (model, position) =>
           mine(model) ? this.completion(position) : null,
       }),
+      monaco.languages.registerSignatureHelpProvider(language, {
+        signatureHelpTriggerCharacters: ["(", ","],
+        signatureHelpRetriggerCharacters: ["="],
+        provideSignatureHelp: (model, position) =>
+          mine(model) ? this.signatureHelp(position) : null,
+      }),
+      monaco.languages.registerReferenceProvider(language, {
+        provideReferences: (model, position, context) =>
+          mine(model) ? this.references(position, context) : null,
+      }),
+      monaco.languages.registerDocumentHighlightProvider(language, {
+        provideDocumentHighlights: (model, position) =>
+          mine(model) ? this.highlights(position) : null,
+      }),
+      monaco.languages.registerRenameProvider(language, {
+        provideRenameEdits: (model, position, newName) =>
+          mine(model) ? this.rename(position, newName) : null,
+        resolveRenameLocation: (model, position) =>
+          mine(model) ? this.prepareRename(position) : null,
+      }),
+      monaco.languages.registerInlayHintsProvider(language, {
+        provideInlayHints: (model, range) => (mine(model) ? this.inlayHints(range) : null),
+      }),
+      monaco.languages.registerFoldingRangeProvider(language, {
+        provideFoldingRanges: (model) => (mine(model) ? this.folding() : null),
+      }),
+      monaco.languages.registerCodeActionProvider(language, {
+        provideCodeActions: (model, range) => (mine(model) ? this.codeActions(range) : null),
+      }),
     );
+    const legend = this.capabilities?.semanticTokensProvider?.legend;
+    if (legend) {
+      this.disposables.push(monaco.languages.registerDocumentSemanticTokensProvider(language, {
+        getLegend: () => legend,
+        provideDocumentSemanticTokens: (model) => (mine(model) ? this.semanticTokens() : null),
+        releaseDocumentSemanticTokens: () => {},
+      }));
+    }
     if (monaco.editor.registerEditorOpener) {
       this.disposables.push(monaco.editor.registerEditorOpener({
         openCodeEditor: (source, resource, selection) => {
@@ -142,6 +181,12 @@ export class LspClient {
           textDocument: {
             hover: { contentFormat: ["markdown", "plaintext"] },
             completion: { completionItem: { snippetSupport: false } },
+            signatureHelp: { signatureInformation: { parameterInformation: { labelOffsetSupport: true } } },
+            rename: { prepareSupport: true },
+            inlayHint: {},
+            foldingRange: {},
+            semanticTokens: { requests: { full: true }, formats: ["relative"] },
+            codeAction: { codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } } },
             documentSymbol: { hierarchicalDocumentSymbolSupport: true },
             publishDiagnostics: {},
             synchronization: { didSave: true },
@@ -336,6 +381,162 @@ export class LspClient {
       };
     };
     return result.map(convert);
+  }
+
+  /** The signatures of the call the position is inside, as Monaco shows
+   *  them. Position -> Promise<Object?> */
+  async signatureHelp(position) {
+    const result = await this.request("textDocument/signatureHelp", this.position(position));
+    if (!result || !result.signatures?.length) return null;
+    const text = (d) => (d === undefined ? undefined
+      : typeof d === "string" ? d : { value: d.value });
+    return {
+      value: {
+        signatures: result.signatures.map((s) => ({
+          label: s.label,
+          documentation: text(s.documentation),
+          parameters: (s.parameters ?? []).map((p) => ({
+            label: p.label, documentation: text(p.documentation),
+          })),
+        })),
+        activeSignature: result.activeSignature ?? 0,
+        activeParameter: result.activeParameter ?? 0,
+      },
+      dispose: () => {},
+    };
+  }
+
+  /** Locations as Monaco's, each in the document or in a model made for
+   *  a library file. [Object] -> Promise<[Object]> */
+  async locations(result) {
+    const answer = [];
+    for (const location of result || []) {
+      const uri = this.monaco.Uri.parse(location.uri);
+      if (location.uri !== this.uri) await this.foreign(uri);
+      answer.push({ uri, range: this.range(location.range) });
+    }
+    return answer;
+  }
+
+  async references(position, context) {
+    const result = await this.request("textDocument/references", {
+      ...this.position(position),
+      context: { includeDeclaration: context?.includeDeclaration ?? true },
+    });
+    return this.locations(result);
+  }
+
+  async highlights(position) {
+    const result = await this.request("textDocument/documentHighlight", this.position(position));
+    if (!result) return null;
+    const kinds = this.monaco.languages.DocumentHighlightKind;
+    return result.map((h) => ({
+      range: this.range(h.range),
+      kind: h.kind === 3 ? kinds.Write : h.kind === 2 ? kinds.Read : kinds.Text,
+    }));
+  }
+
+  /** Where a rename starts, or why there is none. Position -> Promise<Object> */
+  async prepareRename(position) {
+    if (!(await this.session())) return { rejectReason: "no language server" };
+    const id = this.nextId++;
+    const answer = await this.runtime.lsp({
+      jsonrpc: "2.0", id, method: "textDocument/prepareRename", params: this.position(position),
+    });
+    const reply = (answer || []).find((m) => m.id === id);
+    if (!reply || reply.error) return { range: undefined, text: "", rejectReason: reply?.error?.message ?? "cannot rename this" };
+    return { range: this.range(reply.result.range), text: reply.result.placeholder };
+  }
+
+  /** The edits a rename makes, or why it is refused.
+   *  Position -> String -> Promise<Object> */
+  async rename(position, newName) {
+    if (!(await this.session())) return { edits: [], rejectReason: "no language server" };
+    const id = this.nextId++;
+    const answer = await this.runtime.lsp({
+      jsonrpc: "2.0", id, method: "textDocument/rename",
+      params: { ...this.position(position), newName },
+    });
+    const reply = (answer || []).find((m) => m.id === id);
+    if (!reply || reply.error) return { edits: [], rejectReason: reply?.error?.message ?? "cannot rename this" };
+    return this.workspaceEdit(reply.result);
+  }
+
+  /** A WorkspaceEdit as Monaco's. Object -> Object */
+  workspaceEdit(edit) {
+    const edits = [];
+    for (const [uri, list] of Object.entries(edit?.changes ?? {})) {
+      for (const e of list) {
+        edits.push({
+          resource: this.monaco.Uri.parse(uri),
+          textEdit: { range: this.range(e.range), text: e.newText },
+          versionId: undefined,
+        });
+      }
+    }
+    return { edits };
+  }
+
+  async inlayHints(range) {
+    const result = await this.request("textDocument/inlayHint", {
+      textDocument: { uri: this.uri },
+      range: {
+        start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
+        end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
+      },
+    });
+    if (!result) return null;
+    const kinds = this.monaco.languages.InlayHintKind;
+    return {
+      hints: result.map((h) => ({
+        label: h.label,
+        position: { lineNumber: h.position.line + 1, column: h.position.character + 1 },
+        kind: kinds.Type,
+        paddingLeft: !!h.paddingLeft,
+        paddingRight: !!h.paddingRight,
+      })),
+      dispose: () => {},
+    };
+  }
+
+  async folding() {
+    const result = await this.request("textDocument/foldingRange", { textDocument: { uri: this.uri } });
+    if (!result) return null;
+    const kinds = this.monaco.languages.FoldingRangeKind;
+    return result.map((r) => ({
+      start: r.startLine + 1,
+      end: r.endLine + 1,
+      kind: r.kind === "comment" ? kinds.Comment : r.kind === "imports" ? kinds.Imports : undefined,
+    }));
+  }
+
+  async semanticTokens() {
+    const result = await this.request("textDocument/semanticTokens/full", { textDocument: { uri: this.uri } });
+    if (!result) return null;
+    return { data: new Uint32Array(result.data ?? []), resultId: undefined };
+  }
+
+  /** The quick fixes for what is wrong where the cursor or selection is.
+   *  Range -> Promise<Object?> */
+  async codeActions(range) {
+    const result = await this.request("textDocument/codeAction", {
+      textDocument: { uri: this.uri },
+      range: {
+        start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
+        end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
+      },
+      context: { diagnostics: [] },
+    });
+    if (!result) return null;
+    return {
+      actions: result.map((a) => ({
+        title: a.title,
+        kind: a.kind,
+        isPreferred: !!a.isPreferred,
+        edit: this.workspaceEdit(a.edit),
+      })),
+      dispose: () => {},
+    };
   }
 
   async completion(position) {

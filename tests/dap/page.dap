@@ -1,0 +1,17 @@
+# A callback tinyweb makes once the top level has ended stops at its
+# breakpoint, once per event.
+env PYKING_TINYWEB_LOG /dev/null
+env PYKING_TINYWEB_EVENTS page.events
+launch page.pyk
+break page.pyk 6
+configure
+wait stopped
+stack
+scopes 1
+variables Globals
+continue
+wait stopped
+evaluate 1 count
+continue
+wait terminated
+disconnect

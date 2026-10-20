@@ -13,6 +13,10 @@
       pykAnalyze(main)                  what a program needs to be run
       pykCallback(id\nargs)             call a function handed to JavaScript
       pykLsp(message) / pykLspIdle()    the language server (lsp.ml)
+      pykDebugStart(request) / pykDebugRun(steps) / pykDebugCommand(c)
+        / pykDebugBreakpoints / pykDebugFrames / pykDebugScopes
+        / pykDebugVariables / pykDebugEvaluate / pykDebugSetVariable
+        / pykDebugStop()                the debugger (debug_session.ml)
       pykReplStart() / pykReplLine(text) / pykReplImports(text)
         / pykReplSubmit(text)           the REPL (repl_session.ml)
       pykReplComplete("col\nline")      what Tab offers in the REPL
@@ -66,6 +70,19 @@ external library_file : string -> string = "pyk_library_file"
     with the status it was given. Raised from a call into the module and
     caught where the run was started. *)
 exception Program_exit of int
+
+(** How a callback the page makes reaches the debugger: raised by the
+    session's `drive` with the machine about to run it, and caught by
+    `invoke`, which hands it to the session instead of running it. *)
+exception Debug_call of Interpreter.state
+
+(** The program being debugged, where there is one, and whether a slice
+    of it is running -- a callback made then runs to its end unstopped.
+    The two cells the page's calls share. *)
+let debugging : Debug_session.t option ref = ref None
+
+let slicing = ref false
+
 
 (* --- JSON ---
    Written out for every answer this module gives, and read back for the
@@ -655,6 +672,13 @@ let invoke id arguments =
       with
       | exception Program_exit code ->
           json_object [ ("ok", json_bool true); ("exit", json_int code) ]
+      | exception Debug_call machine ->
+          (* A callback made while a program is debugged runs in the
+             session, which the page then drives until it ends. *)
+          (match !debugging with
+          | Some s -> debugging := Some (Debug_session.push_call s machine)
+          | None -> ());
+          json_object [ ("ok", json_bool true); ("debugging", json_bool true) ]
       | exception Interpreter.Runtime_error (info, message) ->
           failed "Runtime error" info message
       | exception Interpreter.Trap (info, message) ->
@@ -1258,6 +1282,287 @@ let repl_submit text =
      ]
     @ match exit with Some code -> [ ("exit", json_int code) ] | None -> [])
 
+(* --- the debugger --- *)
+
+(** A number as JSON. int -> Json.t *)
+let jint n = Json.Number (float_of_int n)
+
+(** A span as JSON: rows from 1, columns from 0. Lexer.info -> Json.t *)
+let span_json (i : Lexer.info) =
+  Json.Object
+    [ ("row1", jint i.row1); ("col1", jint i.col1); ("row2", jint i.row2); ("col2", jint i.col2) ]
+
+(** A variable as the page shows it. Debug_session.variable -> Json.t *)
+let variable_json (v : Debug_session.variable) =
+  Json.Object
+    [
+      ("name", Json.String v.vname);
+      ("value", Json.String v.value);
+      ("type", Json.String v.vtype);
+      ("ref", jint v.reference);
+      ("settable", Json.Bool v.settable);
+    ]
+
+(** The breakpoints of one file as the page sends them: each a line, and
+    a condition, a hit condition and a logpoint's message where it has
+    one. Json.t -> [(int, string?, string?, string?)] *)
+let breakpoint_specs value =
+  List.filter_map
+    (fun b ->
+      Option.map
+        (fun line ->
+          ( line,
+            Json.to_string_option (Json.member "condition" b),
+            Json.to_string_option (Json.member "hit" b),
+            Json.to_string_option (Json.member "log" b) ))
+        (Json.to_int_option (Json.member "line" b)))
+    (Json.to_list value)
+
+(** The breakpoints of one file as verified. [breakpoint] -> Json.t *)
+let verified_json made =
+  Json.List
+    (List.map
+       (fun (b : Debug_session.breakpoint) ->
+         Json.Object
+           ([ ("id", jint b.id); ("line", jint b.line); ("verified", Json.Bool (b.at <> None)) ]
+           @ match b.at with Some row -> [ ("at", jint row) ] | None -> []))
+       made)
+
+(** Starts debugging a program: the request is JSON naming its main file
+    and the files the page wrote (everything else is a library's), and
+    saying whether to stop on entry, whether library code is stepped
+    over, and each file's breakpoints. Answers `{"ok":true,
+    "breakpoints":[...]}` or a refusal in `failed`'s shape.
+    string -> string *)
+let debug_start request =
+  let r = try Json.parse request with Json.Parse_error _ -> Json.Null in
+  let main = Option.value ~default:"playground.pyk" (Json.to_string_option (Json.member "main" r)) in
+  let flag name default = match Json.member name r with Json.Bool b -> b | _ -> default in
+  match
+    let units = Module.load ~from:browser_sources main in
+    (units, Debug_session.prepare ~release:(flag "release" false) units)
+  with
+  | exception e -> refused e
+  | units, program ->
+      let host =
+        Interpreter.callback_host ~externals:(externals_for units)
+          ~debug_line:(fun line -> emit_debug (line ^ "\n"))
+          (fun line -> emit (line ^ "\n"))
+      in
+      let drive machine = if !slicing then Interpreter.run machine else raise (Debug_call machine) in
+      let own = List.filter_map Json.to_string_option (Json.to_list (Json.member "files" r)) in
+      let own = if own = [] then [ main ] else own in
+      let session =
+        Debug_session.create
+          ~stop_on_entry:(flag "stopOnEntry" false)
+          ~just_my_code:(flag "justMyCode" true)
+          ~is_library:(fun file -> not (List.mem file own))
+          ~drive program host
+      in
+      let session, verified =
+        List.fold_left
+          (fun (session, verified) entry ->
+            let file = Option.value ~default:"" (Json.to_string_option (Json.member "file" entry)) in
+            let session, made =
+              Debug_session.set_breakpoints session file (breakpoint_specs (Json.member "breakpoints" entry))
+            in
+            (session, verified @ [ Json.Object [ ("file", Json.String file); ("breakpoints", verified_json made) ] ]))
+          (session, [])
+          (Json.to_list (Json.member "breakpoints" r))
+      in
+      debugging := Some session;
+      Json.to_string (Json.Object [ ("ok", Json.Bool true); ("breakpoints", Json.List verified) ])
+
+(** Where the session is: "running", "stopped", "idle" (the top level
+    has ended and it waits for the page) or "ended". string *)
+let debug_status () =
+  match !debugging with
+  | None -> "ended"
+  | Some s ->
+      if Debug_session.ended s then "ended"
+      else if Debug_session.stopped s <> None then "stopped"
+      else if Debug_session.idle s then "idle"
+      else "running"
+
+(** A run's failure as the page shows one, from `run_result`, or None
+    where it ended without one. Interpreter.state -> Json.t option *)
+let failure_json machine =
+  match Interpreter.failure machine with
+  | None -> None
+  | Some _ -> ( try Some (Json.parse (run_result machine)) with Json.Parse_error _ -> None)
+
+(** Runs the program being debugged for up to `steps` steps. Answers
+    `{"state", "events"}`: each event a stop (its reason, the
+    breakpoints and the error's text), a logpoint's line, the end of the
+    top level (with its failure, or `exit` where `sys.exit` ended it) or
+    the end of a callback (likewise). string -> string *)
+let debug_run request =
+  let steps = Option.value ~default:5000 (int_of_string_opt request) in
+  let events =
+    match !debugging with
+    | None -> []
+    | Some s -> (
+        slicing := true;
+        match Debug_session.advance s steps with
+        | exception Program_exit code ->
+            slicing := false;
+            debugging := Some (Debug_session.terminate s);
+            [ Json.Object [ ("kind", Json.String "done"); ("exit", jint code) ] ]
+        | s, events ->
+            slicing := false;
+            debugging := Some s;
+            List.map
+              (fun e ->
+                match e with
+                | Debug_session.Stopped reason ->
+                    let name, extra =
+                      match reason with
+                      | Debug_session.Entry -> ("entry", [])
+                      | Debug_session.Step -> ("step", [])
+                      | Debug_session.Paused -> ("pause", [])
+                      | Debug_session.Breakpoint ids -> ("breakpoint", [ ("ids", Json.List (List.map jint ids)) ])
+                      | Debug_session.Exception text -> ("exception", [ ("text", Json.String text) ])
+                    in
+                    Json.Object ([ ("kind", Json.String "stopped"); ("reason", Json.String name) ] @ extra)
+                | Debug_session.Output text -> Json.Object [ ("kind", Json.String "log"); ("text", Json.String text) ]
+                | Debug_session.Program_done m ->
+                    Json.Object
+                      ([ ("kind", Json.String "done") ]
+                      @ match failure_json m with Some f -> [ ("failure", f) ] | None -> [])
+                | Debug_session.Callback_done m ->
+                    Json.Object
+                      ([ ("kind", Json.String "callback") ]
+                      @ match failure_json m with Some f -> [ ("failure", f) ] | None -> []))
+              events)
+  in
+  Json.to_string (Json.Object [ ("state", Json.String (debug_status ())); ("events", Json.List events) ])
+
+(** The session told to go on: "continue", "next", "in", "out" or
+    "pause". Answers the state. string -> string *)
+let debug_command request =
+  let command =
+    match request with
+    | "next" -> Some Debug_session.Next
+    | "in" -> Some Debug_session.Step_in
+    | "out" -> Some Debug_session.Step_out
+    | "pause" -> Some Debug_session.Pause
+    | "continue" -> Some Debug_session.Continue
+    | _ -> None
+  in
+  (match (!debugging, command) with
+  | Some s, Some c -> debugging := Some (Debug_session.resume s c)
+  | _ -> ());
+  Json.to_string (Json.Object [ ("state", Json.String (debug_status ())) ])
+
+(** The breakpoints of one file replaced: the request is JSON with the
+    file and its breakpoints. Answers them as verified. string -> string *)
+let debug_breakpoints request =
+  let r = try Json.parse request with Json.Parse_error _ -> Json.Null in
+  let file = Option.value ~default:"" (Json.to_string_option (Json.member "file" r)) in
+  match !debugging with
+  | None -> "[]"
+  | Some s ->
+      let s, made = Debug_session.set_breakpoints s file (breakpoint_specs (Json.member "breakpoints" r)) in
+      debugging := Some s;
+      Json.to_string (verified_json made)
+
+(** The calls in progress where the program stopped, innermost first.
+    () -> string *)
+let debug_frames () =
+  match !debugging with
+  | None -> "[]"
+  | Some s ->
+      Json.to_string
+        (Json.List
+           (List.map
+              (fun (f : Debug_session.frame) ->
+                Json.Object
+                  [
+                    ("id", jint f.fid);
+                    ("name", Json.String f.name);
+                    ("file", Json.String f.file);
+                    ("span", span_json f.span);
+                    ("library", Json.Bool f.library);
+                  ])
+              (Debug_session.frames s)))
+
+(** A frame's scopes, each a name and a reference. string -> string *)
+let debug_scopes request =
+  match (!debugging, int_of_string_opt request) with
+  | Some s, Some fid ->
+      let s, scopes = Debug_session.scopes s fid in
+      debugging := Some s;
+      Json.to_string
+        (Json.List
+           (List.map (fun (name, r) -> Json.Object [ ("name", Json.String name); ("ref", jint r) ]) scopes))
+  | _ -> "[]"
+
+(** What a reference holds. string -> string *)
+let debug_variables request =
+  match (!debugging, int_of_string_opt request) with
+  | Some s, Some r ->
+      let s, vars = Debug_session.variables s r in
+      debugging := Some s;
+      Json.to_string (Json.List (List.map variable_json vars))
+  | _ -> "[]"
+
+(** An expression evaluated where the program stopped: the frame's id
+    (or nothing, for the innermost) on the first line, the text after
+    it. Answers `{"ok":true, value...}` or `{"ok":false, "text"}`.
+    string -> string *)
+let debug_evaluate request =
+  let fid, text =
+    match String.index_opt request '\n' with
+    | None -> (None, request)
+    | Some i ->
+        ( int_of_string_opt (String.sub request 0 i),
+          String.sub request (i + 1) (String.length request - i - 1) )
+  in
+  match !debugging with
+  | None -> Json.to_string (Json.Object [ ("ok", Json.Bool false); ("text", Json.String "nothing is being debugged") ])
+  | Some s -> (
+      slicing := true;
+      let answer =
+        match Debug_session.evaluate s fid text with
+        | exception Program_exit _ -> (s, Error "the expression ended the program")
+        | answer -> answer
+      in
+      slicing := false;
+      match answer with
+      | s, Ok v ->
+          debugging := Some s;
+          Json.to_string
+            (Json.Object [ ("ok", Json.Bool true); ("value", Json.String v.value); ("type", Json.String v.vtype); ("ref", jint v.reference) ])
+      | s, Error message ->
+          debugging := Some s;
+          Json.to_string (Json.Object [ ("ok", Json.Bool false); ("text", Json.String message) ]))
+
+(** A `var` given a new value: the reference of the scope holding it, its
+    name and the expression, one to a line. string -> string *)
+let debug_set request =
+  match String.split_on_char '\n' request with
+  | r :: name :: rest -> (
+      let text = String.concat "\n" rest in
+      match (!debugging, int_of_string_opt r) with
+      | Some s, Some r -> (
+          slicing := true;
+          let answer = Debug_session.set_variable s r name text in
+          slicing := false;
+          match answer with
+          | s, Ok v ->
+              debugging := Some s;
+              Json.to_string (Json.Object [ ("ok", Json.Bool true); ("variable", variable_json v) ])
+          | s, Error message ->
+              debugging := Some s;
+              Json.to_string (Json.Object [ ("ok", Json.Bool false); ("text", Json.String message) ]))
+      | _ -> Json.to_string (Json.Object [ ("ok", Json.Bool false); ("text", Json.String "nothing is being debugged") ]))
+  | _ -> Json.to_string (Json.Object [ ("ok", Json.Bool false); ("text", Json.String "a malformed request") ])
+
+(** Ends the program being debugged. () -> string *)
+let debug_stop () =
+  debugging := None;
+  "{}"
+
 (** The `pykFormat` helper the JavaScript backend generates, read out of
     the backend rather than hand-copied. () -> string *)
 let format_helper () = Target_js_packaging.format_js
@@ -1293,6 +1598,16 @@ let () =
           invoke
             (int_of_string (String.sub request 0 i))
             (String.sub request (i + 1) (String.length request - i - 1)));
+  register1 "pykDebugStart" debug_start;
+  register1 "pykDebugRun" debug_run;
+  register1 "pykDebugCommand" debug_command;
+  register1 "pykDebugBreakpoints" debug_breakpoints;
+  register0 "pykDebugFrames" debug_frames;
+  register1 "pykDebugScopes" debug_scopes;
+  register1 "pykDebugVariables" debug_variables;
+  register1 "pykDebugEvaluate" debug_evaluate;
+  register1 "pykDebugSetVariable" debug_set;
+  register0 "pykDebugStop" debug_stop;
   register_utf8 "pykLsp" lsp_message;
   register_utf8_0 "pykLspIdle" lsp_idle;
   register0 "pykReplStart" repl_start;

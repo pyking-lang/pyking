@@ -232,8 +232,9 @@
 .pyk-hidden { display: none !important; }
 
 /* --- the right-hand tabs ---
-   Four panels share the right column and one of them shows at a time:
-   the run's output, the compiled code, the run's page, and the REPL. */
+   Six panels share the right column and one of them shows at a time:
+   the run's output, the compiled code, the run's page, the REPL, the
+   debugger and the help. */
 .pyk-tabs {
   display: flex; align-items: flex-end; gap: .15rem; flex: none;
   padding: .4rem .6rem 0; overflow-x: auto; overflow-y: hidden;
@@ -453,6 +454,7 @@
   background: var(--pyk-panel); color: var(--pyk-text);
   border: 1px solid var(--pyk-edge); border-radius: 8px;
   min-width: 19rem; max-width: 24rem; margin: 1rem;
+  max-height: calc(100% - 2rem); overflow: auto;
   box-shadow: 0 14px 44px var(--pyk-shadow);
 }
 .pyk-modal-head {
@@ -460,6 +462,7 @@
   padding: .6rem .8rem; border-bottom: 1px solid var(--pyk-edge);
 }
 .pyk-modal-body { padding: .85rem; display: grid; gap: 1rem; }
+.pyk-modal-body > p { margin: 0; line-height: 1.5; }
 .pyk-field { display: grid; gap: .4rem; }
 .pyk-field > label { font-size: .82rem; color: var(--pyk-dim); }
 /* Beats `.pyk-field > label` above, which is for the group heading. */
@@ -475,6 +478,141 @@
   min-width: 3.2rem; text-align: right; color: var(--pyk-text);
 }
 .pyk-hint { font-size: .78rem; color: var(--pyk-dim); margin: 0; }
+
+/* The debugger's keys in the settings: what each action is, and its key
+   in a field that takes the next key pressed. */
+.pyk-key-list { display: grid; gap: .3rem; }
+.pyk-key-row {
+  display: flex; align-items: center; gap: .5rem; font-size: .8rem;
+  color: var(--pyk-text);
+}
+.pyk-key-row span { flex: 1 1 auto; }
+.pyk-key-field {
+  flex: none; width: 9.5rem; font: inherit; font-family: ui-monospace, monospace;
+  color: inherit; background: var(--pyk-sunken); cursor: pointer;
+  border: 1px solid var(--pyk-edge); border-radius: 4px; padding: .2rem .4rem;
+}
+.pyk-key-field:focus { outline: 2px solid var(--pyk-accent); outline-offset: -1px; }
+
+/* --- the Debug tab ---
+   The controls, a line saying where the program is, and five panes that
+   share what is left, each of which can be folded away. */
+.pyk-panel-debug { overflow: hidden; }
+.pyk-debug-bar button[disabled] { opacity: .45; }
+.pyk-debug-status {
+  flex: none; padding: .35rem .7rem; font-size: .82rem; color: var(--pyk-dim);
+  background: var(--pyk-strip); border-bottom: 1px solid var(--pyk-edge);
+}
+.pyk-debug-status.bad { color: var(--pyk-bad); }
+.pyk-debug-panes {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  display: flex; flex-direction: column;
+}
+.pyk-debug-pane { border-bottom: 1px solid var(--pyk-edge); flex: none; }
+.pyk-debug-pane > summary {
+  display: flex; align-items: center; gap: .4rem; cursor: pointer;
+  padding: .3rem .7rem; font-size: .76rem; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--pyk-dim); background: var(--pyk-panel);
+  list-style: none; user-select: none;
+}
+.pyk-debug-pane > summary::-webkit-details-marker { display: none; }
+.pyk-debug-pane > summary::before { content: "▸"; font-size: .7rem; }
+.pyk-debug-pane[open] > summary::before { content: "▾"; }
+.pyk-debug-pane > summary .pyk-icon { margin-left: auto; font-size: .8rem; padding: .1rem .35rem; }
+.pyk-debug-pane > div {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .82rem; padding: .25rem 0; max-height: 16rem; overflow: auto;
+  background: var(--pyk-sunken);
+}
+.pyk-debug-console-pane[open] { flex: 1 0 10rem; display: flex; flex-direction: column; }
+.pyk-debug-console { flex: 1 1 auto; min-height: 5rem; max-height: none; }
+.pyk-debug-console .log { color: var(--pyk-warn); }
+.pyk-debug-console .echo { color: var(--pyk-accent); }
+.pyk-debug-console .value { color: var(--pyk-repl-value); }
+.pyk-debug-input { width: 100%; box-sizing: border-box; }
+.pyk-debug-input, .pyk-debug-edit {
+  font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .82rem; color: var(--pyk-text); background: var(--pyk-bg);
+  border: none; border-top: 1px solid var(--pyk-edge); padding: .35rem .7rem;
+  flex: none;
+}
+.pyk-debug-edit { border: 1px solid var(--pyk-accent); border-radius: 3px; padding: 0 .3rem; }
+.pyk-debug-input:disabled { opacity: .5; }
+.pyk-playground .pyk-empty { color: var(--pyk-dim); padding: .2rem .7rem; font-style: italic; }
+.pyk-debug-node .row {
+  display: flex; align-items: baseline; gap: .5rem; padding: .05rem .7rem;
+  white-space: nowrap;
+}
+.pyk-debug-node .row.expandable { cursor: pointer; }
+.pyk-debug-node .row:hover { background: var(--pyk-control); }
+.pyk-debug-node .children { padding-left: 1rem; }
+.pyk-debug-node .twisty { width: .8rem; flex: none; color: var(--pyk-dim); }
+.pyk-debug-node .name { color: var(--pyk-text); font-weight: 600; }
+.pyk-debug-node.scope > .row .name { font-weight: 400; color: var(--pyk-dim); }
+.pyk-debug-node .value {
+  color: var(--pyk-repl-value); overflow: hidden; text-overflow: ellipsis;
+  flex: 0 1 auto; min-width: 0;
+}
+.pyk-debug-node .value.unavailable { color: var(--pyk-bad); font-style: italic; white-space: normal; }
+.pyk-debug-node .type { color: var(--pyk-repl-type); margin-left: auto; flex: none; }
+.pyk-debug-watch-row { display: flex; align-items: flex-start; }
+.pyk-debug-watch-row > .pyk-debug-node { flex: 1 1 auto; min-width: 0; }
+.pyk-debug-watch-row > .pyk-icon { flex: none; font-size: .75rem; }
+.pyk-playground .pyk-debug-frame {
+  display: flex; width: 100%; box-sizing: border-box; gap: .6rem; text-align: left;
+  background: transparent; border: none; border-radius: 0;
+  padding: .12rem .7rem; height: auto; font: inherit; color: var(--pyk-text);
+}
+.pyk-playground .pyk-debug-frame:hover { background: var(--pyk-control); }
+.pyk-playground .pyk-debug-frame.active { background: var(--pyk-primary-bg); color: var(--pyk-primary-text); }
+.pyk-debug-frame.library { opacity: .6; }
+.pyk-debug-frame .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pyk-debug-frame .where { margin-left: auto; color: var(--pyk-dim); flex: none; }
+.pyk-debug-frame.active .where { color: inherit; }
+.pyk-debug-bp {
+  display: flex; align-items: center; gap: .4rem; padding: .1rem .7rem;
+}
+.pyk-debug-bp.unverified .pyk-link { text-decoration: line-through; }
+.pyk-debug-bp-field {
+  flex: 1 1 4rem; min-width: 3rem; font: inherit; font-size: .78rem;
+  color: var(--pyk-text); background: var(--pyk-bg);
+  border: 1px solid var(--pyk-edge); border-radius: 3px; padding: .05rem .3rem;
+}
+.pyk-playground .pyk-link {
+  background: none; border: none; padding: 0; height: auto; font: inherit;
+  color: var(--pyk-accent); cursor: pointer; white-space: nowrap;
+}
+
+/* The editor's margin and where the program stopped. Monaco places a
+   glyph class on a small box in the margin; these draw in it. */
+.pyk-bp-glyph { display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.pyk-bp-glyph::before {
+  content: ""; width: .6rem; height: .6rem; border-radius: 50%;
+  background: #e5484d; display: block;
+}
+.pyk-bp-glyph.pyk-bp-off::before { background: transparent; border: 1.5px solid #9aa0a6; }
+.pyk-bp-glyph.pyk-bp-unverified::before { background: transparent; border: 1.5px solid #e5484d; }
+.pyk-bp-glyph.pyk-bp-log::before { border-radius: 1px; transform: rotate(45deg); width: .5rem; height: .5rem; }
+.pyk-bp-glyph.pyk-bp-condition::before {
+  background: linear-gradient(transparent 38%, #fff 38%, #fff 62%, transparent 62%), #e5484d;
+}
+.pyk-debug-line { background: rgba(255, 213, 79, .22); }
+.pyk-debug-line-caller { background: rgba(122, 162, 247, .16); }
+.pyk-debug-span { background: rgba(255, 193, 7, .35); }
+.pyk-debug-span-caller { background: rgba(122, 162, 247, .3); }
+.pyk-debug-arrow, .pyk-debug-arrow-caller {
+  display: flex; align-items: center; justify-content: center;
+}
+.pyk-debug-arrow::after {
+  content: ""; width: 0; height: 0; display: block;
+  border-top: .35rem solid transparent; border-bottom: .35rem solid transparent;
+  border-left: .55rem solid #f5b400;
+}
+.pyk-debug-arrow-caller::after {
+  content: ""; width: 0; height: 0; display: block;
+  border-top: .35rem solid transparent; border-bottom: .35rem solid transparent;
+  border-left: .55rem solid #7aa2f7;
+}
 
 @media (max-width: 900px) {
   /* Stacked: the column gutter has nothing left to split, so it goes away

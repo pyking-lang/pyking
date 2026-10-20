@@ -1,0 +1,6 @@
+import io
+import sys
+
+line = io.read_line()
+debug("read", line)
+print("args", sys.args())

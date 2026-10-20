@@ -1,0 +1,11 @@
+# Stepping into a library's function steps over it.
+launch library.pyk
+break library.pyk 4
+configure
+wait stopped
+in
+wait stopped
+stack
+continue
+wait terminated
+disconnect

@@ -1449,6 +1449,26 @@ The bootstrap is split into one module per compiler stage:
    The REPL runs it per entry with earlier entries as `context`. Its
    refusals are `Module error`s. See `docs/modules.md`, "Submodules".
 
+28. **`src/scopes.ml`** — what the names in a module mean: the scope
+   walk the language server and the debugger share (`resolve`,
+   `use_at`, `names_at`, `bindings`), binding as `analyses.ml` does.
+
+29. **`src/debug_session.ml`** — the debugger's core, protocol-free and
+   in the library: a program run by the interpreter one step at a time
+   (`Interpreter.runner`, the same sequence `run_modules` drives), with
+   breakpoints, stepping, frames, scopes, variables, and expressions
+   checked against the names in scope where it stopped and run in that
+   frame. A session is a value; `advance t steps` runs a slice and
+   answers events, so nothing waits. A callback is debugged as a run of
+   its own, reached through the interpreter's `drive` hook. See
+   `docs/debugging.md`.
+
+30. **`src/dap.ml`** — `pyk dap`, the Debug Adapter Protocol over a
+   session, in the library like `lsp.ml`; `command_dap` in `pyk.ml` is
+   its stdio transport, which gives the program streams of its own and
+   runs it in slices between messages. The playground's Debug tab is the
+   other transport (`pykDebug*` in `web/pyking_web.ml`).
+
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add an arm to the `match rest with`
 inside `lexing`, add a corresponding `Tok*` constructor, and add an arm
@@ -1519,9 +1539,10 @@ swaps which checker runs, not how a refusal reads.
 `pykCompile`, `pykRun`, `pykRunProgram`, `pykAnalyze`, `pykTargets`,
 `pykFormatHelper`, `pykKeywords`, `pykBuiltins`, and the language server's
 `pykLsp` and `pykLspIdle` (text crossing as UTF-8, so a column means what
-it does natively), and the REPL tab's `pykReplStart`, `pykReplLine`,
+it does natively), the REPL tab's `pykReplStart`, `pykReplLine`,
 `pykReplImports` and `pykReplSubmit` (`repl_session.ml`; a shown line
-goes to `pykOnShow`) on the global object,
+goes to `pykOnShow`), and the Debug tab's `pykDebugStart`, `pykDebugRun`,
+`pykDebugCommand` and the rest (`debug_session.ml`) on the global object,
 and `stub.js`, the `//Provides:` primitives that let it. Nothing in it is
 compiler logic — every entry goes through the same functions `pyk.ml`
 calls, and reports a refusal with the same `format_error`.
@@ -1615,14 +1636,18 @@ anything both pages need there rather than copying it.
   shown only when `pykAnalyze` says the program reads them -- and
   `sys.exit` ends the run. A `debug` line is shown apart from the output,
   and on the console.
-- **The playground's right side is five tabs**: Run output (the left
+- **The playground's right side is six tabs**: Run output (the left
   Run's output), Compiled code (Target, Compile, the right Run, the code
   and its own output), Web output (a tinyweb page in a browser-window
   frame with Refresh, above the same output Run output shows, whose
   header has the "tinyweb log" switch; the frame is empty whenever no
   program runs), REPL
   (a session of `repl_session.ml` on a `PykingRuntime` of its own, its
-  environment as a table below) and Help (the help, below). It has a light and a dark theme: colour
+  environment as a table below), Debug (`debugger.js`: the program run
+  by `debug_session.ml` a slice at a time on the worker, breakpoints in
+  the editor's margin, Variables, Watch, Call stack, Breakpoints and a
+  Console; keys without F keys, changeable in Settings) and Help (the
+  help, below). It has a light and a dark theme: colour
   tokens on `.pyk-playground`, overridden under `[data-theme="light"]`,
   chosen by the header's switch or Appearance in the settings unless the
   embedding page passes `theme` and calls `setTheme`, as the website
@@ -2117,13 +2142,13 @@ a Mac and a Linux VM and the other machine's binaries cannot run here.
 Not `make clean`, which would also delete built packages and the
 website.
 
-**`make test` runs `tests/test_all.py`**, which sequences the nine
+**`make test` runs `tests/test_all.py`**, which sequences the ten
 suites below rather than each being a line of the Makefile. Three things
 follow, and all three are the point: every suite runs even when an
 earlier one failed, so one broken case does not hide what the other
-eight would have said; each suite's output is opened by a banner and
+nine would have said; each suite's output is opened by a banner and
 closed by one footer line of a fixed shape; and the run ends with a
-combined summary over all nine. Their counts reach it through
+combined summary over all ten. Their counts reach it through
 `$PYK_TEST_TALLY`, a file each suite appends one line to
 (`tests/suite.py`), so a suite run on its own prints exactly what it
 prints here. The programs suite also writes each target's counts to
@@ -2331,10 +2356,21 @@ under node (`tests/lsp/browser.mjs`), which must answer the same; then,
 where a Chromium is found and Monaco is vendored, the playground driven
 by `tests/lsp/playground.mjs` -- its editor as a language server
 client, then its tabs (the Help tab among them), its REPL (entries, the
-environment, Copy from editor, Stop) and its themes; and the editors' configuration -- the VS
+environment, Copy from editor, Stop), its Debug tab and its themes; and the editors' configuration -- the VS
 Code extension's manifest and grammar, the Emacs mode's eglot entry, and
 every snippet on the website's Editors page. `--update` rewrites the
 `.out` files; read the diffs before keeping them.
+
+**`tests/test_dap.py` is the tenth suite**, the debugger's. Each
+`tests/dap/<name>.dap` is a session script (launch, break, configure,
+wait EVENT, stack, scopes, variables, evaluate, set, continue/next/in/
+out/pause; the grammar is in the suite's docstring) run against `pyk
+dap`, and what the adapter sent is compared with `<name>.out`. Then the
+transport, then three programs through `pykDebug*` in `share/pyking.js`
+under node (`tests/dap/browser.mjs`), whose every stop must look as it
+does through `pyk dap`, then the VS Code extension's debugger and the
+Editors page. The Debug tab is `tests/lsp/playground.mjs`'s. `--update`
+rewrites the `.out` files.
 
 A fifth family covers **external modules**: `external_*` for a module
 implemented in a target language -- `external_all` on every host, and

@@ -519,8 +519,8 @@ def check_editors():
     # word, as a shell or a settings field writes it.
     names = re.compile(r'["\']pyk["\']|(?<![\w-])pyk\s+\w')
     wrong = [body.strip().splitlines()[0] for body in snippets
-             if names.search(body) and not re.search(r'["\'\s]lsp["\'\s]', body)]
-    check("every snippet on it that names pyk starts `pyk lsp`", snippets and not wrong,
+             if names.search(body) and not re.search(r'["\'\s](lsp|dap)["\'\s]', body)]
+    check("every snippet on it that names pyk starts `pyk lsp` or `pyk dap`", snippets and not wrong,
           "; ".join(wrong[:3]))
     return checks, failures, skipped
 

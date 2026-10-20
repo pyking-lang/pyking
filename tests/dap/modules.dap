@@ -1,0 +1,11 @@
+# A breakpoint in a module the program imports.
+launch modules.pyk
+break helper.pyk 3
+configure
+wait stopped
+stack
+scopes 1
+variables Locals
+continue
+wait terminated
+disconnect

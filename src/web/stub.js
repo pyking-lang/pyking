@@ -152,7 +152,9 @@ function pyk_external_text(module_, field, argsJson) {
 // {"pyk_float":text} becomes a number, and a Pyking function written as
 // {"pyk_callback":id} becomes a JavaScript function calling it back
 // through `pykCallback`. A failure in that call goes to `pykOnError`
-// where the page supplied one, and `sys.exit` to `pykOnExit`.
+// where the page supplied one, and `sys.exit` to `pykOnExit`. While a
+// program is debugged the function answers a promise of the call's end
+// (`pykDebugAwait`), since the call then runs in slices.
 function pyk_revive(value) {
   if (Array.isArray(value)) {
     return value.map(pyk_revive);
@@ -169,6 +171,11 @@ function pyk_revive(value) {
         var args = Array.prototype.slice.call(arguments);
         var answer = JSON.parse(
           globalThis.pykCallback(id + "\n" + pyk_encode(args.map(pyk_list))));
+        // Under the debugger the call runs in the session, which the page
+        // drives in slices: what it answers then is a promise of the end.
+        if (answer.ok && answer.debugging && globalThis.pykDebugAwait) {
+          return globalThis.pykDebugAwait();
+        }
         if (!answer.ok) {
           (globalThis.pykOnError || function (text) { console.error(text); })(answer.text);
         } else if (answer.exit !== undefined && globalThis.pykOnExit) {

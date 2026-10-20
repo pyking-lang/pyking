@@ -1,0 +1,6 @@
+import io
+
+print("one")
+io.write("two ")
+io.write_line("three")
+print("four")

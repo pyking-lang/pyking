@@ -36,6 +36,11 @@
       with_host state host -- the machine with another host.
       eval_statement state stmt -- runs one statement in an existing
         machine's environment (for the REPL).
+      start_modules units host / runner_step r -- a program of several
+        modules as a runner, a top-level statement at a time (for a
+        debugger).
+      statement_at / call_depth / calls / own_bindings -- what a
+        debugger reads of a machine.
       format_value value / display_value value -- formats a value as
         print emits it / as a value is shown. *)
 
@@ -450,6 +455,7 @@ and frame = {
   frame_parent : frame option;
   depth : int;
   frame_loops : loop option;
+  frame_captured : env; (* the environment the callee was written in *)
 }
 
 (** One `loop` in progress: what a `break`/`continue` in its body needs
@@ -472,13 +478,20 @@ and loop = {
 let max_call_depth = 10_000
 
 (** The part of a state that never changes while it runs: the host, the
-    call-free symbol table (see `evaluate`), and the depth limit. *)
-type runtime = { host : host; simple : IntSet.t; max_depth : int }
+    call-free symbol table (see `evaluate`), the depth limit, and how a
+    machine the host calls back into is run to its end -- stepped here,
+    unless a debugger said otherwise. *)
+type runtime = {
+  host : host;
+  simple : IntSet.t;
+  max_depth : int;
+  drive : (state -> state) option;
+}
 
 (** A machine state: what it is doing, the environment, the pending
     continuation, the call stack, the run's settings, and the loops it
     is inside. A plain value; keeping one is how a debugger pauses. *)
-type state = {
+and state = {
   control : control;
   env : env;
   kont : kont option;
@@ -1165,6 +1178,7 @@ let rec call state call_node callee args env rest =
               frame_parent = state.stack;
               depth;
               frame_loops = state.loops;
+              frame_captured = captured;
             }
           in
           let call_env = extend_all captured (List.combine params args) in
@@ -1193,14 +1207,21 @@ let rec call state call_node callee args env rest =
 and callback state info callee args =
   let rec drive state =
     match state.control with
-    | CDone value -> value
-    | CFailed (info, message) -> raise (Runtime_error (info, message))
+    | CDone _ | CFailed _ -> state
     | _ -> drive (step state)
   in
-  drive
-    (call
-       { state with control = CApply unit_value; kont = None; stack = None; loops = None }
-       (ETuple (info, [], 0)) callee args state.env None)
+  let start =
+    call
+      { state with control = CApply unit_value; kont = None; stack = None; loops = None }
+      (ETuple (info, [], 0)) callee args state.env None
+  in
+  let ended =
+    match state.runtime.drive with Some run -> run start | None -> drive start
+  in
+  match ended.control with
+  | CDone value -> value
+  | CFailed (info, message) -> raise (Runtime_error (info, message))
+  | _ -> raise (Runtime_error (info, "a callback was left unfinished"))
 
 (** Evaluates the next argument, or makes the call if todo is empty.
     state -> expr -> value -> [value] -> [expr] -> env -> kont option
@@ -1730,9 +1751,9 @@ let call_free_of_stmt stmt = snd (call_free_walk (Walk.NStmt stmt) IntSet.empty)
 (** A machine about to run stmts, not yet stepped. `env`, if given, lets
     a caller continue an earlier session (default: a fresh top level).
     [stmt] -> host -> env option -> int -> state *)
-let initial_state ?env ?(max_depth = max_call_depth) stmts host =
+let initial_state ?env ?(max_depth = max_call_depth) ?drive stmts host =
   let start = match env with None -> top_level_env () | Some env -> env in
-  let runtime = { host; simple = call_free_symbols stmts; max_depth } in
+  let runtime = { host; simple = call_free_symbols stmts; max_depth; drive } in
   let state =
     {
       control = CApply unit_value;
@@ -1823,14 +1844,14 @@ let declare_entry state stmts = { state with env = declare stmts state.env }
 (** Runs one statement in state's environment as it stands (nothing is
     declared first), with a continuation chain of its own. Answers the
     state it leaves behind. state -> stmt -> state *)
-let eval_in state stmt =
+let eval_in ?steps state stmt =
   let runtime =
     {
       state.runtime with
       simple = IntSet.union state.runtime.simple (call_free_of_stmt stmt);
     }
   in
-  run
+  run ?steps
     {
       control = CStmt stmt;
       env = state.env;
@@ -1843,21 +1864,6 @@ let eval_in state stmt =
 (** Declares and runs one statement: `eval_in` for a group of one.
     state -> stmt -> state *)
 let eval_statement state stmt = eval_in (declare_entry state [ stmt ]) stmt
-
-(** Runs a group of statements in state's environment and keeps what
-    they bind, which `enter_block` does not: a block puts the enclosing
-    scope back when it ends, and a module's top level has no enclosing
-    scope to go back to -- what it bound is what it exports. The same
-    thing the REPL does with one entry. state -> [stmt] -> state *)
-let run_entry state stmts =
-  let rec go state stmts =
-    match stmts with
-    | [] -> state
-    | statement :: rest ->
-        let state = eval_in state statement in
-        if failure state <> None then state else go state rest
-  in
-  go (declare_entry state stmts) stmts
 
 (** The top level a module runs in: the builtins, and everything its
     imports bring in -- each selected name under the name it is known by
@@ -1931,6 +1937,107 @@ let host_values signatures name host =
           | _ -> (field, externals.field name field))
         signatures
 
+(** A program of several modules in progress, one top-level statement at
+    a time: the machine running now, the statements of its module still
+    to start, the module it belongs to, the modules not started yet, and
+    what the modules finished so far export. *)
+type runner = {
+  machine : state;
+  todo : stmt list;
+  running : (string * stmt list * stmt list) option;
+  pending : (string * stmt list * stmt list) list;
+  exports : (string * (string * value) list) list;
+}
+
+(** A runner about to run units into machine, against the modules
+    `exports` already holds. One call-free table serves the whole
+    program, since a closure one module exports is called from the
+    module that imported it.
+    state -> [(string, [stmt], [stmt])] -> [(string, [(string, value)])]
+    -> runner *)
+let begin_loading machine units exports =
+  (* Symbols are unique across a program (Analyses.symbolize), so the
+     union is exactly right. *)
+  let simple =
+    List.fold_left
+      (fun simple (_, stmts, _) -> IntSet.union simple (call_free_symbols stmts))
+      machine.runtime.simple units
+  in
+  {
+    machine = { machine with runtime = { machine.runtime with simple } };
+    todo = [];
+    running = None;
+    pending = units;
+    exports;
+  }
+
+(** Whether a runner has nothing left to do: a module failed, or every
+    statement of every module has run. runner -> bool *)
+let runner_done r =
+  finished r.machine
+  && (failure r.machine <> None || (r.todo = [] && r.running = None && r.pending = []))
+
+(** One step of a runner: a step of the machine, or the next top-level
+    statement started where the last one ended, or the next module
+    started where the last one is finished. A module's own declaration
+    half is in scope in its Pyking half, unqualified and private ones
+    included, since the two files are one module; what it exports is the
+    public ones only. runner -> runner *)
+let rec runner_step r =
+  let runtime = r.machine.runtime in
+  let fresh control env =
+    { control; env; kont = None; stack = None; runtime; loops = None }
+  in
+  if not (finished r.machine) then { r with machine = step r.machine }
+  else if failure r.machine <> None then r
+  else
+    match (r.todo, r.running, r.pending) with
+    | statement :: rest, _, _ ->
+        { r with machine = fresh (CStmt statement) r.machine.env; todo = rest }
+    | [], Some (name, stmts, declarations), _ ->
+        runner_step
+          {
+            r with
+            running = None;
+            exports =
+              r.exports
+              @ [
+                  ( name,
+                    exported_values stmts r.machine
+                    @ host_values
+                        (List.map
+                           (fun (n, t, _) -> (n, t))
+                           (Module.public_declarations declarations))
+                        name runtime.host );
+                ];
+          }
+    | [], None, [] -> r
+    | [], None, (name, [], declarations) :: rest ->
+        (* Only a declaration half: there is no top level to run, and
+           what it exports is the host's. *)
+        runner_step
+          {
+            r with
+            pending = rest;
+            exports =
+              r.exports
+              @ [ (name, host_values (Module.external_signatures declarations) name runtime.host) ];
+          }
+    | [], None, ((name, stmts, declarations) as unit) :: rest ->
+        let env =
+          List.fold_left
+            (fun env (field, value) -> extend env field value)
+            (module_env stmts r.exports)
+            (host_values (Module.external_signatures declarations) name runtime.host)
+        in
+        {
+          r with
+          machine = fresh (CDone unit_value) (declare stmts env);
+          todo = stmts;
+          running = Some unit;
+          pending = rest;
+        }
+
 (** Runs modules into a machine that is already running -- what a REPL
     entry's imports do -- each in a top level of its own and in the order
     given, against the modules `exports` already holds. Answers the
@@ -1940,65 +2047,24 @@ let host_values signatures name host =
     state -> [(string, [stmt], [stmt])] -> [(string, [(string, value)])]
     -> (state, [(string, [(string, value)])]) *)
 let load_modules machine units exports =
-  (* One call-free table for the whole program, not one per module: a
-     closure a module exports is called from the module that imported
-     it, and the table it is read against is the calling machine's.
-     Symbols are unique across a program (Analyses.symbolize), so the
-     union is exactly right. *)
-  let simple =
-    List.fold_left
-      (fun simple (_, stmts, _) -> IntSet.union simple (call_free_symbols stmts))
-      machine.runtime.simple units
-  in
-  let runtime = { machine.runtime with simple } in
-  let host = runtime.host in
-  let rec go units exports =
-    match units with
-    | [] -> ({ machine with runtime }, exports)
-    | (name, [], declarations) :: rest ->
-        (* Only a declaration half: there is no top level to run, and
-           what it exports is the host's, bound here for the modules
-           that import it. *)
-        go rest
-          (exports
-          @ [ (name, host_values (Module.external_signatures declarations) name host) ])
-    | (name, stmts, declarations) :: rest ->
-        (* A module's own declaration half is in scope in its Pyking
-           half, unqualified and private ones included: the two files
-           are one module. What it *exports* is the public ones only. *)
-        let env =
-          List.fold_left
-            (fun env (field, value) -> extend env field value)
-            (module_env stmts exports)
-            (host_values (Module.external_signatures declarations) name host)
-        in
-        let state =
-          run_entry
-            {
-              control = CApply unit_value;
-              env;
-              kont = None;
-              stack = None;
-              runtime;
-              loops = None;
-            }
-            stmts
-        in
-        if failure state <> None then (state, exports)
-        else
-          go rest
-            (exports
-            @ [
-                ( name,
-                  exported_values stmts state
-                  @ host_values
-                      (List.map
-                         (fun (n, t, _) -> (n, t))
-                         (Module.public_declarations declarations))
-                      name host );
-              ])
-  in
-  go units exports
+  let rec go r = if runner_done r then r else go (runner_step r) in
+  let r = go (begin_loading machine units exports) in
+  if failure r.machine <> None then (r.machine, r.exports)
+  else ({ machine with runtime = r.machine.runtime }, r.exports)
+
+(** A runner about to run a program of several modules, each in a top
+    level of its own, in the order given -- what a debugger steps.
+    int? -> (state -> state)? -> [(string, [stmt], [stmt])] -> host
+    -> runner *)
+let start_modules ?(max_depth = max_call_depth) ?drive units host =
+  begin_loading (run (initial_state ~max_depth ?drive [] host)) units []
+
+(** The machine a runner is running now. runner -> state *)
+let runner_machine r = r.machine
+
+(** A runner with its machine replaced: how a debugger hands back a
+    machine it changed or stepped itself. runner -> state -> runner *)
+let with_machine r machine = { r with machine }
 
 (** Runs a program of several modules, each in a top level of its own,
     in the order given -- which is dependency order, so a module runs
@@ -2026,3 +2092,74 @@ let bind_imports machine stmts exports =
     machine a module implemented in a target language once an entry has
     imported one. state -> host -> state *)
 let with_host machine host = { machine with runtime = { machine.runtime with host } }
+
+(* --- what a debugger reads --- *)
+
+(** The statement a machine is about to start, or None between
+    statements. state -> stmt option *)
+let statement_at state =
+  match state.control with CStmt stmt -> Some stmt | _ -> None
+
+(** How many Pyking calls are in progress. state -> int *)
+let call_depth state =
+  match state.stack with None -> 0 | Some frame -> frame.depth
+
+(** Where the innermost call in progress was made, or None at the top
+    level. state -> info option *)
+let innermost_call_site state =
+  match state.stack with None -> None | Some frame -> Some frame.frame_info
+
+(** One call in progress, as a debugger shows it: the function's name,
+    where it was called from, the caller's environment at that call, and
+    the environment the function was written in. *)
+type call_view = {
+  call_name : string;
+  call_site : info;
+  caller_env : env;
+  written_in : env;
+}
+
+(** The calls in progress, innermost first. state -> [call_view] *)
+let calls state =
+  let rec go frame out =
+    match frame with
+    | None -> List.rev out
+    | Some f ->
+        go f.frame_parent
+          ({
+             call_name = f.frame_name;
+             call_site = f.frame_info;
+             caller_env = f.frame_env;
+             written_in = f.frame_captured;
+           }
+          :: out)
+  in
+  go state.stack []
+
+(** The names bound from env outwards up to, and not including, `upto`
+    -- every name visible where `upto` is None -- innermost first, each
+    once. env -> env option -> [(string, value)] *)
+let own_bindings env upto =
+  let rec go env seen =
+    match env with
+    | None -> seen
+    | Some e when (match upto with Some u -> e == u | None -> false) -> seen
+    | Some e ->
+        let seen =
+          SMap.fold
+            (fun name held seen ->
+              if List.mem_assoc name seen then seen else seen @ [ (name, !held) ])
+            e.bindings seen
+        in
+        go e.parent seen
+  in
+  go (Some env) []
+
+(** state with env as its environment: how a debugger evaluates in the
+    frame a reader chose. state -> env -> state *)
+let with_env state env = { state with env }
+
+(** Writes value into the cell name denotes in env, and answers whether
+    one did: what a debugger's "set value" does to a `var`.
+    env -> string -> value -> bool *)
+let assign env name value = mutate env name value

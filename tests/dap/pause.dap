@@ -1,0 +1,8 @@
+# A program that never ends, paused, then terminated.
+launch pause.pyk
+configure
+pause
+wait stopped
+stack
+request terminate {}
+disconnect

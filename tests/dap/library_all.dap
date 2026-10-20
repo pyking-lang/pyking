@@ -1,0 +1,14 @@
+# With justMyCode off, stepping goes into the library.
+launch library.pyk {"justMyCode": false}
+break library.pyk 4
+configure
+wait stopped
+in
+wait stopped
+stack
+out
+wait stopped
+stack
+continue
+wait terminated
+disconnect

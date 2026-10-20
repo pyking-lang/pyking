@@ -37,6 +37,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In teacher mode the notebook runs what `--mode test` checks and shows,
   under the rules, each exercise, each quiz and each cell, that it has
   no problems (green) or what they are (red), with a line at the top.
+- `pyk dap`, a debugger for editors over the Debug Adapter Protocol:
+  breakpoints with conditions, hit counts and log messages, stepping
+  over, into and out, pausing, the calls in progress and their
+  variables, expressions evaluated where the program stopped, a `var`
+  given a new value, a stop on a runtime error, and tinyweb's callbacks.
+  The VS Code extension adds a `pyking` debugger, and the website's
+  Editors page sets it up in every editor it covers.
+- The playground has a Debug tab: breakpoints in the editor's margin,
+  Variables, Watch, Call stack, Breakpoints and a Console, with keys
+  that need no function key and can be changed in the settings. Debug
+  with no breakpoint offers to stop at the first statement, and loading
+  an example removes the breakpoints.
+- The language server answers signature help, references, document
+  highlights, rename, inlay hints with the inferred types, folding
+  ranges, semantic tokens, and quick fixes for `+`/`++`, a misspelt
+  name and an annotation that disagrees with its value; the playground's
+  editor shows them all.
+- The `dap` test suite, the tenth of `make test`.
 
 ### Changed
 

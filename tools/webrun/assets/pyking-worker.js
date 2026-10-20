@@ -34,6 +34,9 @@
 // no reply -- turns it on or off while a run goes on: tinyweb's log, each
 // line as `debug`, which is what `pyk --tinyweb-log` prints on stderr.
 //
+// `debug` debugs a program instead of running it; see "the debugger"
+// below.
+//
 // The language server (src/lsp.ml) lives here too: `lsp` hands it one
 // JSON-RPC message and answers the messages it sends back, and `lsp-idle`
 // answers what it sends once the client has stopped typing -- the
@@ -154,7 +157,20 @@ self.onmessage = (event) => {
     case "tinywebLog":
       tinywebLog(message.on);
       return undefined;
+    case "debug":
+      return answer(() => debugRequest(message));
     case "event":
+      // While a program is debugged its page's events wait their turn:
+      // one is delivered only when nothing else runs (`deliverQueued`).
+      if (debug !== null) {
+        if (message.data?.ev === "frame") {
+          debug.queue = debug.queue.filter((queued) => !(queued.module === message.module
+                                                         && queued.data?.ev === "frame"));
+        }
+        debug.queue.push(message);
+        deliverQueued();
+        return undefined;
+      }
       try {
         live[message.module]?.pykDeliver?.(message.data);
       } catch (err) {
@@ -234,6 +250,176 @@ function run(message) {
   return Promise.all(needed.map((name) => importExternal(name)))
     .then((modules) => start(Object.fromEntries(
       needed.map((name, k) => [name, modules[k]]))));
+}
+
+// --- the debugger ---
+//
+// `debug` with an `action`: "start" begins debugging a program the way
+// `run` runs one (src/debug_session.ml, through the bundle's pykDebug*
+// entries), and the program then runs a slice at a time on this worker's
+// event loop, so a request -- a pause among them -- is answered between
+// slices. "command" goes on (continue, next, in, out, pause); the rest
+// read where it stopped ("frames", "scopes", "variables"), evaluate
+// ("evaluate", "set") or replace a file's breakpoints ("breakpoints");
+// "stop" ends it. What changes arrives unsolicited as {type: "debugger",
+// state, events}: state "running", "stopped", "idle" (the top level has
+// ended and its page's events are awaited) or "ended".
+
+// The program being debugged: whether its slices are running, the state
+// the last slice left, the page events waiting their turn, whether one
+// is being delivered, what the end of the callback running resolves,
+// and whether the program has a page whose events are awaited.
+let debug = null;
+
+/** One debugger request (see above). Object -> Object */
+function debugRequest(message) {
+  switch (message.action) {
+    case "start":
+      return debugStart(message);
+    case "command": {
+      const answer = JSON.parse(self.pykDebugCommand(message.command));
+      if (debug !== null) {
+        debug.state = answer.state;
+        debugLoop();
+      }
+      return answer;
+    }
+    case "breakpoints":
+      return JSON.parse(self.pykDebugBreakpoints(JSON.stringify({
+        file: message.file, breakpoints: message.breakpoints })));
+    case "frames":
+      return JSON.parse(self.pykDebugFrames());
+    case "scopes":
+      return JSON.parse(self.pykDebugScopes(String(message.frame)));
+    case "variables":
+      return JSON.parse(self.pykDebugVariables(String(message.ref)));
+    case "evaluate":
+      return JSON.parse(self.pykDebugEvaluate(`${message.frame ?? ""}\n${message.text}`));
+    case "set":
+      return JSON.parse(self.pykDebugSetVariable(`${message.ref}\n${message.name}\n${message.text}`));
+    case "stop":
+      self.pykDebugStop();
+      debug = null;
+      return {};
+    default:
+      throw new Error(`unknown debugger request '${message.action}'`);
+  }
+}
+
+/** Starts debugging a program, as `run` starts running one: answers
+ *  {ok:true, breakpoints} once it is ready, or a refusal. */
+function debugStart(message) {
+  if (typeof self.pykDebugStart !== "function") {
+    throw new Error("this compiler bundle has no debugger: rebuild it with make");
+  }
+  if (debug !== null) self.pykDebugStop();
+  debug = null;
+  tinywebLog(Boolean(message.tinywebLog));
+  const analysis = analyze(message);
+  if (!analysis.ok) return analysis;
+  const mine = own(message);
+  const needed = analysis.externals.filter((name) => !(name in mine));
+  runs += 1;
+  live = {};
+  const start = (imported) => {
+    live = imported;
+    self.pykExternals = { ...imported, ...pick(mine, analysis.externals) };
+    supply(message);
+    const answer = JSON.parse(self.pykDebugStart(JSON.stringify({
+      main: message.name,
+      files: [message.name],
+      stopOnEntry: Boolean(message.stopOnEntry),
+      justMyCode: message.justMyCode !== false,
+      release: Boolean(message.release),
+      breakpoints: message.breakpoints ?? [],
+    })));
+    if (answer.ok) {
+      debug = {
+        looping: false, state: "running", queue: [], delivering: false,
+        waiter: null, page: analysis.externals.includes("tinyweb"),
+      };
+      debugLoop();
+    }
+    return answer;
+  };
+  if (needed.length === 0) return start({});
+  return Promise.all(needed.map((name) => importExternal(name)))
+    .then((modules) => start(Object.fromEntries(
+      needed.map((name, k) => [name, modules[k]]))));
+}
+
+/** Runs the program a slice at a time until it stops, waits or ends,
+ *  telling the page what changed. */
+function debugLoop() {
+  if (debug === null || debug.looping) return;
+  debug.looping = true;
+  const slice = () => {
+    if (debug === null) return;
+    let answer;
+    try {
+      answer = JSON.parse(self.pykDebugRun("5000"));
+    } catch (err) {
+      answer = { state: "ended", events: [
+        { kind: "done", failure: { ok: false, text: describe(err) } }] };
+    }
+    for (const e of answer.events) {
+      if (e.kind === "callback") {
+        if (e.failure) self.pykOnError(e.failure.text);
+        const waiter = debug.waiter;
+        debug.waiter = null;
+        waiter?.();
+      }
+    }
+    let state = answer.state;
+    // A program with no page has nothing to wait for once its top level
+    // has ended.
+    if (state === "idle" && !debug.page) state = "ended";
+    const changed = state !== debug.state || answer.events.length > 0;
+    debug.state = state;
+    if (changed) self.postMessage({ type: "debugger", state, events: answer.events });
+    if (state === "ended") {
+      self.pykDebugStop();
+      debug = null;
+      return;
+    }
+    if (state === "running") {
+      setTimeout(slice, 0);
+    } else {
+      debug.looping = false;
+      if (state === "idle") deliverQueued();
+    }
+  };
+  setTimeout(slice, 0);
+}
+
+/** A callback the page made, now running in the debugger: a promise of
+ *  its end, which the slices resolve (stub.js, `pyk_revive`). */
+self.pykDebugAwait = () => new Promise((resolve) => {
+  if (debug === null) return resolve();
+  debug.waiter = resolve;
+  debug.state = "running";
+  debugLoop();
+});
+
+/** Delivers the next page event that waited, once nothing else runs. */
+function deliverQueued() {
+  if (debug === null || debug.delivering || debug.state !== "idle") return;
+  const next = debug.queue.shift();
+  if (next === undefined) return;
+  debug.delivering = true;
+  const done = () => {
+    if (debug === null) return;
+    debug.delivering = false;
+    deliverQueued();
+  };
+  let answer;
+  try {
+    answer = live[next.module]?.pykDeliver?.(next.data);
+  } catch (err) {
+    self.pykOnError(describe(err));
+  }
+  if (answer && typeof answer.then === "function") answer.then(done, done);
+  else done();
 }
 
 // The REPL's modules implemented in JavaScript: the worker's own `io`

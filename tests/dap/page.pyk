@@ -1,0 +1,7 @@
+import tinyweb as tw
+tw.web_init(0)
+var count = 0
+def pressed():
+    count := count + 1
+    print("pressed", count)
+tw.button("Count", on_click = pressed)

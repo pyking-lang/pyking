@@ -196,13 +196,19 @@ val bind_imports : state -> stmt list -> (string * (string * value) list) list -
 val with_host : state -> host -> state
 
 (** A machine about to run stmts, not yet stepped. `env`, if given, lets
-    a caller continue an earlier session (default: a fresh top level).
-    env? -> int? -> [stmt] -> host -> state *)
-val initial_state : ?env:env -> ?max_depth:int -> stmt list -> host -> state
+    a caller continue an earlier session (default: a fresh top level);
+    `drive`, how a machine the host calls back into is run to its end
+    (default: stepped until it stops).
+    env? -> int? -> (state -> state)? -> [stmt] -> host -> state *)
+val initial_state :
+  ?env:env -> ?max_depth:int -> ?drive:(state -> state) -> stmt list -> host -> state
 
 (** One small step. Total: every state, including a finished or failed
     one, has a successor. state -> state *)
 val step : state -> state
+
+(** Whether a machine has stopped, done or failed. state -> bool *)
+val finished : state -> bool
 
 (** Steps until the machine stops or `steps` steps have been taken,
     whichever comes first. int? -> state -> state *)
@@ -239,8 +245,9 @@ val declare_entry : state -> stmt list -> state
 
 (** Runs one statement in state's environment as it stands (nothing is
     declared first), with a continuation chain of its own. Answers the
-    state it leaves behind. state -> stmt -> state *)
-val eval_in : state -> stmt -> state
+    state it leaves behind, or the one `steps` steps reached first.
+    int? -> state -> stmt -> state *)
+val eval_in : ?steps:int -> state -> stmt -> state
 
 (** Declares and runs one statement: `eval_in` for a group of one.
     state -> stmt -> state *)
@@ -269,3 +276,74 @@ val describe : value -> string
 (** The two operands of a binary operator application.
     expr -> (expr, expr) option *)
 val binary_operands : expr -> (expr * expr) option
+
+(* --- a program a debugger steps --- *)
+
+(** A program of several modules in progress, one top-level statement at
+    a time. *)
+type runner
+
+(** A runner about to run a program of several modules, each in a top
+    level of its own, in the order given, as `run_modules` runs them.
+    int? -> (state -> state)? -> [(string, [stmt], [stmt])] -> host
+    -> runner *)
+val start_modules :
+  ?max_depth:int ->
+  ?drive:(state -> state) ->
+  (string * stmt list * stmt list) list ->
+  host ->
+  runner
+
+(** One step of a runner: a step of its machine, or the next top-level
+    statement or module started. runner -> runner *)
+val runner_step : runner -> runner
+
+(** Whether a runner has nothing left to do: a module failed, or every
+    statement of every module has run. runner -> bool *)
+val runner_done : runner -> bool
+
+(** The machine a runner is running now. runner -> state *)
+val runner_machine : runner -> state
+
+(** A runner with its machine replaced. runner -> state -> runner *)
+val with_machine : runner -> state -> runner
+
+(* --- what a debugger reads --- *)
+
+(** The statement a machine is about to start, or None between
+    statements. state -> stmt option *)
+val statement_at : state -> stmt option
+
+(** How many Pyking calls are in progress. state -> int *)
+val call_depth : state -> int
+
+(** Where the innermost call in progress was made, or None at the top
+    level. state -> info option *)
+val innermost_call_site : state -> info option
+
+(** One call in progress, as a debugger shows it: the function's name,
+    where it was called from, the caller's environment at that call, and
+    the environment the function was written in. *)
+type call_view = {
+  call_name : string;
+  call_site : info;
+  caller_env : env;
+  written_in : env;
+}
+
+(** The calls in progress, innermost first. state -> [call_view] *)
+val calls : state -> call_view list
+
+(** The names bound from env outwards up to, and not including, `upto`
+    -- every name visible where `upto` is None -- innermost first, each
+    once. env -> env option -> [(string, value)] *)
+val own_bindings : env -> env option -> (string * value) list
+
+(** state with env as its environment: how a debugger evaluates in the
+    frame a reader chose. state -> env -> state *)
+val with_env : state -> env -> state
+
+(** Writes value into the cell name denotes in env, and answers whether
+    one did: what a debugger's "set value" does to a `var`.
+    env -> string -> value -> bool *)
+val assign : env -> string -> value -> bool

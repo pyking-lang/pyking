@@ -5,7 +5,8 @@
 // completion offers a name, go to definition moves the cursor, the
 // outline answers; and that compiling and running still work. Then the
 // right-hand tabs, the REPL (entries, Tab completion, the environment, Copy from editor,
-// Stop), the light and dark themes, and a link holding a program (Copy
+// Stop), the Debug tab (breakpoints, stepping, the panes, a tinyweb
+// callback), the light and dark themes, and a link holding a program (Copy
 // code as link, then the link opened in the same tab). It serves nothing:
 // tests/test_lsp.py starts `pyk playground` and runs this against it.
 //
@@ -95,8 +96,8 @@ const PAGE = `(async () => { ${HELPERS}
 const TABS = `(async () => { ${HELPERS}
   const shown = (r) => !$("[data-r=" + r + "]").closest(".pyk-hidden");
   const active = () => $(".pyk-tab.active")?.dataset.tab;
-  check("there are five tabs", $$(".pyk-tab").map((t) => t.textContent).join("|")
-    === "Run output|Compiled code|Web output|REPL|Help", $$(".pyk-tab").map((t) => t.textContent));
+  check("there are six tabs", $$(".pyk-tab").map((t) => t.textContent).join("|")
+    === "Run output|Compiled code|Web output|REPL|Debug|Help", $$(".pyk-tab").map((t) => t.textContent));
   check("Compile and the targets are on the Compiled code tab only",
     $("[data-r=panelCompiled]").contains($("[data-r=compile]"))
     && $("[data-r=panelCompiled]").contains($("[data-r=target]")));
@@ -363,6 +364,119 @@ const LINK = `(async () => { ${HELPERS}
   return checks;
 })()`;
 
+// The Debug tab: a breakpoint, where it stops, the call stack, the
+// variables, a watch and the console; stepping by button and by key;
+// the end of the program; a runtime error; and a tinyweb callback,
+// stopped in when its button is pressed.
+const DEBUG = `(async () => { ${HELPERS}
+  const dbg = app.debugger;
+  const d = (name) => $("[data-d=" + name + "]");
+  const stoppedAt = (row, depth) => until(() => dbg.state === "stopped" && dbg.frames.length > 0
+    && dbg.frames[0].span.row1 === row && (depth === undefined || dbg.frames.length === depth), 20000);
+  const consoleText = () => d("console").textContent;
+  await source("def fact(n: Int) -> Int:\\n    if n <= 1:\\n        return 1\\n    return n * fact(n - 1)\\n\\nvar total = 0\\nxs = [1, 2, 3]\\nfor x in xs:\\n    total := total + fact(x)\\nprint(\\"total\\", total)\\n");
+  $("[data-tab=debug]").click();
+  check("the Debug tab shows its controls", d("start") && !d("start").classList.contains("pyk-hidden")
+    && d("variables") && d("watch") && d("stack") && d("breakpointList") && d("console"));
+  check("a control's tooltip names its key", /\\((Ctrl|Cmd)\\+'\\)/.test(d("next").title), d("next").title);
+  check("no control's key is a function key",
+    $$("[data-d]").every((b) => !/\\(F[0-9]+\\)|\\+F[0-9]+\\)/.test(b.title || "")));
+  dbg.toggleBreakpoint(3);
+  check("a breakpoint shows in the margin",
+    await until(() => $$("[data-r=leftEditor] .pyk-bp-glyph.pyk-bp").length === 1));
+  check("and in the Breakpoints pane", d("breakpointList").textContent.includes("line 3"),
+    d("breakpointList").textContent);
+  dbg.watches = ["n * 100"];
+  d("start").click();
+  check("Debug stops at the breakpoint", await stoppedAt(3, 2), JSON.stringify(dbg.frames));
+  check("the status says why", /breakpoint/.test(d("status").textContent), d("status").textContent);
+  check("the line is marked in the editor",
+    await until(() => $$("[data-r=leftEditor] .pyk-debug-line").length > 0));
+  const stack = () => $$(".pyk-debug-frame .name").map((e) => e.textContent).join(" | ");
+  check("the call stack shows the calls in progress", stack() === "fact | <module playground>", stack());
+  check("the variables show n, an Int, in the call",
+    await until(() => /n\\s*1\\s*Int/.test(d("variables").textContent)), d("variables").textContent);
+  check("a watch is evaluated where it stopped",
+    await until(() => d("watch").textContent.includes("100")), d("watch").textContent);
+  d("input").value = "fact(5)";
+  d("input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  check("the console evaluates an expression where it stopped",
+    await until(() => consoleText().includes("120 : Int")), consoleText());
+  d("continue").click();
+  check("Continue stops at the breakpoint again, one call deeper", await stoppedAt(3, 3), stack());
+  $$(".pyk-debug-frame")[2].click();
+  check("choosing a frame shows its names",
+    await until(() => /total\\s*1\\s*Int/.test(d("variables").textContent)
+      && d("variables").textContent.includes("xs")), d("variables").textContent);
+  check("and marks its line as a caller's",
+    await until(() => $$("[data-r=leftEditor] .pyk-debug-line-caller").length > 0));
+  check("a var is offered to be set", $$(".pyk-debug-node .value[title]").length > 0);
+  dbg.toggleBreakpoint(3);
+  d("out").click();
+  check("Step out stops in the caller, at the call", await stoppedAt(4, 2), stack());
+  const mac = /Cmd/.test(d("next").title);
+  const key = new KeyboardEvent("keydown",
+    { key: "'", code: "Quote", ctrlKey: !mac, metaKey: mac, bubbles: true });
+  $("[data-r=leftEditor] textarea").dispatchEvent(key);
+  check("the step-over key steps over the rest of the call, to its caller", await stoppedAt(9, 1), stack());
+  d("next").click();
+  check("Step over goes to the next turn of the loop", await stoppedAt(9, 1), stack());
+  d("in").click();
+  check("Step into goes into the call", await stoppedAt(2, 2), stack());
+  d("continue").click();
+  check("the program runs to its end",
+    await until(() => dbg.state === "off" && consoleText().includes("total 9")), consoleText());
+  check("and says it finished", consoleText().includes("finished"), consoleText());
+  check("nothing is marked once it has ended",
+    $$("[data-r=leftEditor] .pyk-debug-line").length === 0);
+
+  await source("xs = [1]\\nprint(10 / (len(xs) - 1))\\n");
+  dbg.watches = [];
+  const confirmShown = () => !$("[data-r=confirmModal]").classList.contains("pyk-hidden");
+  d("start").click();
+  check("Debug with no breakpoint asks whether to start at the first statement",
+    await until(confirmShown) && /no breakpoints/.test($("[data-r=confirmText]").textContent),
+    $("[data-r=confirmText]").textContent);
+  $("[data-r=confirmCancel]").click();
+  await sleep(300);
+  check("Cancel does not start", !confirmShown() && dbg.state === "off", dbg.state);
+  d("start").click();
+  await until(confirmShown);
+  $("[data-r=confirmOk]").click();
+  check("Continue stops at the first statement", await stoppedAt(1, 1), JSON.stringify(dbg.frames));
+  d("continue").click();
+  check("a runtime error stops the program where it happens",
+    await until(() => dbg.state === "stopped" && /runtime error/.test(d("status").textContent), 20000),
+    d("status").textContent);
+  check("the console says what the error is", consoleText().includes("division by zero"), consoleText());
+  d("stop").click();
+  check("Stop ends debugging", await until(() => dbg.state === "off"), dbg.state);
+
+  await source("import tinyweb as tw\\ntw.web_init(0)\\nvar count = 0\\ndef pressed():\\n    count := count + 1\\n    print(\\"pressed\\", count)\\ntw.button(\\"Count\\", on_click = pressed)\\n");
+  dbg.toggleBreakpoint(6);
+  d("start").click();
+  check("a tinyweb program's top level ends, and the page's events are awaited",
+    await until(() => dbg.state === "idle", 20000), dbg.state + " " + d("status").textContent);
+  const button = await until(() => $$("[data-r=page] button").find((b) => b.textContent === "Count"));
+  $("[data-tab=web]").click();
+  button?.click();
+  check("a breakpoint in a callback stops when its button is pressed", await stoppedAt(6, 1), stack());
+  check("and the Debug tab is shown again", app.tab === "debug", app.tab);
+  check("in the callback", stack() === "pressed", stack());
+  d("continue").click();
+  check("the callback runs on", await until(() => consoleText().includes("pressed 1")), consoleText());
+  check("and the page's events are awaited again", await until(() => dbg.state === "idle"), dbg.state);
+  d("stop").click();
+  check("Stop ends debugging a page", await until(() => dbg.state === "off"), dbg.state);
+  dbg.toggleBreakpoint(6);
+
+  dbg.toggleBreakpoint(1);
+  await app.loadExample(app.meta.examples[0].file);
+  check("choosing an example removes the breakpoints", await until(() => dbg.breakpoints.length === 0
+    && $$("[data-r=leftEditor] .pyk-bp-glyph.pyk-bp").length === 0), JSON.stringify(dbg.breakpoints));
+  return checks;
+})()`;
+
 const chrome = launch(browser, profile);
 
 let output = { checks: 0, failures: [] };
@@ -401,7 +515,7 @@ try {
   }
   if (!ready) throw new Error("the playground did not become ready");
   for (const [name, phase] of [["the page", PAGE], ["the language server", LSP],
-                               ["the tabs", TABS], ["the REPL", REPL],
+                               ["the tabs", TABS], ["the REPL", REPL], ["the debugger", DEBUG],
                                ["the themes", THEME], ["a link", LINK]]) {
     progress(`checking ${name}`);
     for (const [label, ok, detail] of await evaluate(phase)) {

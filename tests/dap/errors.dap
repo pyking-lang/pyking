@@ -1,0 +1,10 @@
+# A runtime error stops the program where it happens, then ends it.
+launch errors.pyk
+configure
+wait stopped
+stack
+scopes 1
+variables Locals
+continue
+wait terminated
+disconnect
