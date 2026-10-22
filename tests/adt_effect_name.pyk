@@ -1,0 +1,15 @@
+# A datatype whose name is a word OCaml 5.3 reserves (`effect`) once
+# lowercase, and a function of that name.
+
+datatype Effect:
+    Ring, Spark
+
+def name(e: Effect) -> String:
+    match e:
+        case Ring: "ring"
+        case Spark: "spark"
+
+def effect(n: Int) -> Int:
+    n * 2
+
+print(name(Ring), name(Spark), effect(21))

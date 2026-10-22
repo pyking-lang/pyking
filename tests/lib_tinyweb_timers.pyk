@@ -1,0 +1,25 @@
+# Timers and what the page reports: a timer repeating until cancelled, a
+# timer once, the beat and the sound's level and bands as the page last
+# reported them, and a text field's value.
+
+import tinyweb as tw
+import tinyweb.sound as sound
+
+tw.web_init(0)
+var ticks = 0
+var repeating = ""
+
+def tick():
+    ticks := ticks + 1
+    print("tick", ticks, tw.time())
+    if ticks == 3:
+        tw.cancel(repeating)
+
+def once():
+    print("once at", tw.time(), "beat", sound.beat(), "latency", sound.latency(), "level", sound.level())
+    print("bands", sound.bands(), sound.band(0), sound.band(1), sound.band(9))
+    print("typed", tw.value_of("name"))
+
+repeating := tw.every(0.5, tick)
+later = tw.after(2.0, once)
+print(repeating, later)

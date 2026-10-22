@@ -1,0 +1,532 @@
+## Looking inside a String: its length, its characters, finding and
+## replacing a part, and taking it apart into pieces and words.
+##
+## A position or a length counts **characters** -- Unicode code points
+## -- so `"åäö"` has length 3 and `"👑"` length 1 on every target. The
+## first character is at position 0. `upper`, `lower`, `trim` and
+## `words` know the ASCII letters and the ASCII spaces only, so every
+## target answers alike. A String is read as a number by the builtins
+## `int` and `float`, and a number written as one by `string`.
+#
+# The Pyking half of `text`. What the host provides is declared in
+# text_external.pyk beside this file and is in scope here unqualified --
+# the two files are one module -- so `host_slice` below is the host's,
+# and private to this library.
+#
+# Everything a reader sees is decided here: a position is clamped
+# before the host is asked, so no host has to agree with the others
+# about a position outside the string. A host call costs a walk from
+# the start of the string on OCaml and C, so the functions below walk a
+# string with `host_find` and `host_replace` rather than one character
+# at a time.
+
+
+# `k` held to 0..top.
+def within(k: Int, top: Int) -> Int:
+    if k < 0:
+        0
+    else if k > top:
+        top
+    else:
+        k
+
+
+# Whether a code point is an ASCII space, tab, newline or carriage return.
+def blank(c: Int) -> Bool:
+    match c:
+        case 32 | 9 | 10 | 13:
+            true
+        case _:
+            false
+
+
+def filled(s: String) -> Bool:
+    if s == "" then false else true
+
+
+## The number of characters in `s`.
+##
+## # Parameters
+## - `s`: the string.
+##
+## # Returns
+## How many characters it holds, each counted once however many bytes
+## it takes.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.length("hello"), text.length("åäö 👑"), text.length(""))
+## ```
+## ```stdout
+## 5 5 0
+## ```
+public def length(s: String) -> Int:
+    host_length(s)
+
+
+## The characters of `s` from `start` up to, but not including, `stop`.
+## A position below 0 counts as 0 and one past the end as the end.
+##
+## # Parameters
+## - `s`: the string.
+## - `start`: where the part begins.
+## - `stop`: where it ends.
+##
+## # Returns
+## That part of `s`, or `""` where `stop` is not after `start`.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.slice("hello world", 6, 11))
+## print(text.slice("åäö 👑", 2, 100))
+## print(text.slice("hello", 3, 1) == "")
+## ```
+## ```stdout
+## world
+## ö 👑
+## true
+## ```
+public def slice(s: String, start: Int, stop: Int) -> String:
+    n = host_length(s)
+    a = within(start, n)
+    b = within(stop, n)
+    if b <= a then "" else host_slice(s, a, b)
+
+
+## The character at position `k`.
+##
+## # Parameters
+## - `s`: the string.
+## - `k`: the position, 0 for the first character.
+##
+## # Returns
+## A string of that one character, or `""` where `s` has no position `k`.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.char_at("åäö 👑", 4), text.char_at("abc", 0))
+## print(text.char_at("abc", 3) == "")
+## ```
+## ```stdout
+## 👑 a
+## true
+## ```
+public def char_at(s: String, k: Int) -> String:
+    if k < 0:
+        ""
+    else if k < host_length(s):
+        host_slice(s, k, k + 1)
+    else:
+        ""
+
+
+## The number of the character at position `k`: its Unicode code point.
+##
+## # Parameters
+## - `s`: the string.
+## - `k`: the position, 0 for the first character.
+##
+## # Returns
+## The code point, or -1 where `s` has no position `k`.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.code("A", 0), text.code("åäö 👑", 4), text.code("A", 1))
+## ```
+## ```stdout
+## 65 128081 -1
+## ```
+public def code(s: String, k: Int) -> Int:
+    if k < 0:
+        -1
+    else if k < host_length(s):
+        host_code(s, k)
+    else:
+        -1
+
+
+## The character whose code point is `n`: `code`'s other way round.
+##
+## # Parameters
+## - `n`: the code point.
+##
+## # Returns
+## A string of that one character, or `""` where `n` is not a character
+## a string can hold: 0, a negative number, a surrogate (55296 to
+## 57343) or past 1114111.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.from_code(65) ++ text.from_code(229) ++ text.from_code(128081))
+## print(text.from_code(-1) == "")
+## ```
+## ```stdout
+## Aå👑
+## true
+## ```
+public def from_code(n: Int) -> String:
+    if n <= 0:
+        ""
+    else if n > 1114111:
+        ""
+    else if n < 55296:
+        host_from_code(n)
+    else if n <= 57343:
+        ""
+    else:
+        host_from_code(n)
+
+
+## Where `part` first appears in `s`, at or after position `start`.
+##
+## # Parameters
+## - `s`: the string to look in.
+## - `part`: what to look for.
+## - `start`: where to begin looking; 0, the start, by default. Below 0
+##   counts as 0.
+##
+## # Returns
+## The position `part` begins at, or -1 if it is nowhere from `start`
+## on. An empty `part` is found at once, at `start`.
+##
+## # Examples
+## ```pyking
+## import text
+## s = "one two one"
+## print(text.find(s, "one"), text.find(s, "one", 1), text.find(s, "three"))
+## print(text.find("åäö 👑", "👑"))
+## ```
+## ```stdout
+## 0 8 -1
+## 4
+## ```
+public def find(s: String, part: String, start: Int = 0) -> Int:
+    n = host_length(s)
+    if start > n:
+        -1
+    else if part == "":
+        within(start, n)
+    else:
+        host_find(s, part, within(start, n))
+
+
+## Tells whether `part` appears anywhere in `s`.
+##
+## # Parameters
+## - `s`: the string to look in.
+## - `part`: what to look for.
+##
+## # Returns
+## `true` if it does; an empty `part` is in every string.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.contains("hello", "ell"), text.contains("hello", "Hell"))
+## ```
+## ```stdout
+## true false
+## ```
+public def contains(s: String, part: String) -> Bool:
+    find(s, part) >= 0
+
+
+## Tells whether `s` begins with `prefix`.
+##
+## # Parameters
+## - `s`: the string.
+## - `prefix`: what it may begin with.
+##
+## # Returns
+## `true` if it does; every string begins with `""`.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.starts_with("hello", "he"), text.starts_with("he", "hello"))
+## ```
+## ```stdout
+## true false
+## ```
+public def starts_with(s: String, prefix: String) -> Bool:
+    slice(s, 0, host_length(prefix)) == prefix
+
+
+## Tells whether `s` ends with `suffix`.
+##
+## # Parameters
+## - `s`: the string.
+## - `suffix`: what it may end with.
+##
+## # Returns
+## `true` if it does; every string ends with `""`.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.ends_with("photo.png", ".png"), text.ends_with("photo.png", ".jpg"))
+## ```
+## ```stdout
+## true false
+## ```
+public def ends_with(s: String, suffix: String) -> Bool:
+    n = host_length(s)
+    m = host_length(suffix)
+    if m > n then false else host_slice(s, n - m, n) == suffix
+
+
+## `s` with every ASCII letter in upper case. Every other character,
+## `å` among them, is left as it is.
+##
+## # Parameters
+## - `s`: the string.
+##
+## # Returns
+## The string in upper case.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.upper("Hello, åsa!"))
+## ```
+## ```stdout
+## HELLO, åSA!
+## ```
+public def upper(s: String) -> String:
+    host_upper(s)
+
+
+## `s` with every ASCII letter in lower case. Every other character,
+## `Å` among them, is left as it is.
+##
+## # Parameters
+## - `s`: the string.
+##
+## # Returns
+## The string in lower case.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.lower("Hello, ÅSA!"))
+## ```
+## ```stdout
+## hello, Åsa!
+## ```
+public def lower(s: String) -> String:
+    host_lower(s)
+
+
+## `s` without the spaces, tabs, newlines and carriage returns at either
+## end.
+##
+## # Parameters
+## - `s`: the string.
+##
+## # Returns
+## The string from its first character that is none of those to its
+## last.
+##
+## # Examples
+## ```pyking
+## import text
+## print("[" ++ text.trim("  two words \n") ++ "]")
+## ```
+## ```stdout
+## [two words]
+## ```
+public def trim(s: String) -> String:
+    n = host_length(s)
+    first = loop i = 0 while i < n:
+        if blank(host_code(s, i)):
+            i + 1
+        else:
+            break
+    last = loop j = n while j > first:
+        if blank(host_code(s, j - 1)):
+            j - 1
+        else:
+            break
+    if last <= first then "" else host_slice(s, first, last)
+
+
+## `s` with every `old` in it replaced by `new`, from left to right: an
+## `old` that overlaps one already replaced is not replaced.
+##
+## # Parameters
+## - `s`: the string.
+## - `old`: what to replace. Where it is `""`, `s` is answered as it is.
+## - `new`: what to put in its place.
+##
+## # Returns
+## The string with the replacements made.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.replace("one two one", "one", "1"))
+## print(text.replace("aaa", "aa", "b"))
+## ```
+## ```stdout
+## 1 two 1
+## ba
+## ```
+public def replace(s: String, old: String, new: String) -> String:
+    if old == "" then s else host_replace(s, old, new)
+
+
+## `s` written `n` times, one after the other.
+##
+## # Parameters
+## - `s`: the string.
+## - `n`: how many times; 0 or less gives `""`.
+##
+## # Returns
+## The repeated string.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.repeat("ab", 3), text.repeat("-", 10))
+## ```
+## ```stdout
+## ababab ----------
+## ```
+public def repeat(s: String, n: Int) -> String:
+    # The binary digits of `n`, lowest first: `piece` is `s` written 1,
+    # 2, 4, ... times, and is added where the digit is 1.
+    (_, _, out) = loop k, piece, out = n, s, "":
+        if k <= 0:
+            break
+        else:
+            half = k / 2
+            more = if k - half * 2 == 1 then out ++ piece else out
+            (half, if half == 0 then piece else piece ++ piece, more)
+    out
+
+
+## The pieces of `s` between the occurrences of `by`, from left to
+## right.
+##
+## # Parameters
+## - `s`: the string.
+## - `by`: what separates the pieces. Where it is `""`, the one piece is
+##   `s`.
+##
+## # Returns
+## The pieces, one more than there are occurrences of `by`; a piece is
+## `""` where two of them are next to each other or one is at an end.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.split("a,b,,c", ","))
+## print(text.split("one and two", " and "))
+## ```
+## ```stdout
+## ['a', 'b', '', 'c']
+## ['one', 'two']
+## ```
+public def split(s: String, by: String) -> [String]:
+    if by == "":
+        [s]
+    else:
+        m = host_length(by)
+        (at, parts) = loop at, parts = 0, []:
+            k = host_find(s, by, at)
+            if k < 0:
+                break
+            else:
+                (k + m, parts ++ [host_slice(s, at, k)])
+        parts ++ [host_slice(s, at, host_length(s))]
+
+
+## The words of `s`: the pieces between its spaces, tabs, newlines and
+## carriage returns, however many of them there are in a row.
+##
+## # Parameters
+## - `s`: the string.
+##
+## # Returns
+## The words, none of them `""`; `[]` where `s` holds no word.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.words("  the quick\tbrown \n fox "))
+## ```
+## ```stdout
+## ['the', 'quick', 'brown', 'fox']
+## ```
+public def words(s: String) -> [String]:
+    spaced = host_replace(host_replace(host_replace(s, "\t", " "), "\n", " "), "\r", " ")
+    [w for w in split(spaced, " ") if filled(w)]
+
+
+## `parts` joined into one string, with `between` between each two.
+##
+## # Parameters
+## - `parts`: the strings to join.
+## - `between`: what goes between two of them.
+##
+## # Returns
+## The joined string; `""` where `parts` is empty.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.join(["a", "b", "c"], ", "))
+## print(text.join(text.words(" spaced   out "), "_"))
+## ```
+## ```stdout
+## a, b, c
+## spaced_out
+## ```
+public def join(parts: [String], between: String) -> String:
+    # A chunk of parts is joined before it is added to the whole, so no
+    # one `++` copies much.
+    var whole = ""
+    var chunk = ""
+    var count = 0
+    var chunks = 0
+    for part in parts:
+        chunk := if count == 0 then part else chunk ++ between ++ part
+        count := count + 1
+        if count == 128:
+            whole := if chunks == 0 then chunk else whole ++ between ++ chunk
+            chunks := chunks + 1
+            chunk := ""
+            count := 0
+    if count == 0 then whole else if chunks == 0 then chunk else whole ++ between ++ chunk
+
+
+## The lines of `s`. A line ends at a newline, or at a carriage return
+## and a newline, which is not part of it; the last line need not end
+## in one.
+##
+## # Parameters
+## - `s`: the string.
+##
+## # Returns
+## The lines, without their line endings; `[]` where `s` is `""`.
+##
+## # Examples
+## ```pyking
+## import text
+## print(text.lines("one\r\ntwo\n\nfour\n"))
+## ```
+## ```stdout
+## ['one', 'two', '', 'four']
+## ```
+public def lines(s: String) -> [String]:
+    if s == "":
+        []
+    else:
+        unix = host_replace(s, "\r\n", "\n")
+        ended = if ends_with(unix, "\n") then host_slice(unix, 0, host_length(unix) - 1) else unix
+        split(ended, "\n")

@@ -1,0 +1,26 @@
+# tinyweb's files and cursor: a canvas saved as a picture, text offered
+# as a download, a file the reader picks read as text, and the pointer's
+# look over a canvas. The .events file loads one file.
+
+import tinyweb as tw
+import tinyweb.color as color
+import tinyweb.game as game
+import tinyweb.net as net
+
+tw.web_init(0)
+c = tw.canvas(100, 100)
+tw.circle(c, 50, 50, 40, color.green)
+game.cursor(c, "crosshair")
+game.cursor(c, "none")
+net.save_canvas(c)
+net.save_canvas(c, name = "circle.png")
+net.download("notes.txt", "line one\nline \"two\"")
+print("before:", "[" ++ net.file_text() ++ "]")
+
+
+def loaded(name: String):
+    print("loaded", name, "holding", net.file_text())
+
+
+picker = net.file_button("Open", on_load = loaded)
+print(picker)

@@ -1,0 +1,89 @@
+load "piano_c1.wav"
+canvas "canvas" 320 140
+label "Click a key, or press a s d f g h j k."
+clear "canvas" #333333
+rect "canvas" 1 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 41 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 81 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 121 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 161 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 201 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 241 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 281 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 28 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 68 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 148 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 188 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 228 0 24 85 0 "#000000" "" 1.000 1.000
+on_mouse "canvas"
+on_key
+splash
+> mouse "canvas" 20 120
+play "piano_c1.wav" 0.0 1.0 1.0 0.0 0 0
+set_text "Click a key, or press a s d f g h j k." "C4 at 261.6255653005986 Hz"
+clear "canvas" #333333
+rect "canvas" 1 0 38 140 0 "#ffd166" "#000000" 1.000 1.000
+rect "canvas" 41 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 81 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 121 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 161 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 201 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 241 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 281 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 28 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 68 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 148 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 188 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 228 0 24 85 0 "#000000" "" 1.000 1.000
+> mouse "canvas" 35 40
+play "piano_c1.wav" 0.0 1.0 1.0594630943592953 0.0 0 0
+set_text "Click a key, or press a s d f g h j k." "C#4 at 277.1826309768721 Hz"
+clear "canvas" #333333
+rect "canvas" 1 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 41 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 81 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 121 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 161 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 201 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 241 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 281 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 28 0 24 85 0 "#ffd166" "" 1.000 1.000
+rect "canvas" 68 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 148 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 188 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 228 0 24 85 0 "#000000" "" 1.000 1.000
+> mouse "canvas" 125 40
+play "piano_c1.wav" 0.0 1.0 1.3348398541700344 0.0 0 0
+set_text "Click a key, or press a s d f g h j k." "F4 at 349.2282314330039 Hz"
+clear "canvas" #333333
+rect "canvas" 1 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 41 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 81 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 121 0 38 140 0 "#ffd166" "#000000" 1.000 1.000
+rect "canvas" 161 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 201 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 241 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 281 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 28 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 68 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 148 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 188 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 228 0 24 85 0 "#000000" "" 1.000 1.000
+> key k
+play "piano_c1.wav" 0.0 1.0 2.0 0.0 0 0
+set_text "Click a key, or press a s d f g h j k." "C5 at 523.2511306011972 Hz"
+clear "canvas" #333333
+rect "canvas" 1 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 41 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 81 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 121 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 161 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 201 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 241 0 38 140 0 "#ffffff" "#000000" 1.000 1.000
+rect "canvas" 281 0 38 140 0 "#ffd166" "#000000" 1.000 1.000
+rect "canvas" 28 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 68 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 148 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 188 0 24 85 0 "#000000" "" 1.000 1.000
+rect "canvas" 228 0 24 85 0 "#000000" "" 1.000 1.000
+> key x

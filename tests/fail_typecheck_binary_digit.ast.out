@@ -1,0 +1,2 @@
+'tests/fail_typecheck_binary_digit.pyk' 1:6-1:12 Lexing error: '2' is
+  not a binary digit, in '0b1012'

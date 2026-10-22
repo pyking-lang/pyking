@@ -1,0 +1,29 @@
+# What the host does with a String, counted in code points.
+#
+# This is the external half of the module `text`; `text.pyk` beside it
+# is the other half, written in Pyking against what is declared here.
+# The two files are one module (docs/modules.md, "A module in two
+# halves").
+#
+# Every declaration is **private**: text.pyk is what a program calls,
+# and it is where a position is clamped, an empty part is answered and
+# everything built from these is written. So each of these is called
+# only with what it can answer: `start`, `stop` and `k` inside the
+# string (`k` below its length, `stop` at most its length, `start` at
+# most `stop`), `n` a code point that is not a surrogate, `old` not
+# empty. Every type is an Int or a String, so the boundary carries all
+# of it on every target.
+#
+# A position counts code points on every host: OCaml and C walk the
+# UTF-8 bytes, JavaScript and Java step over a surrogate pair as one.
+# `host_upper` and `host_lower` change the ASCII letters and nothing
+# else.
+
+def host_length(s: String) -> Int
+def host_slice(s: String, start: Int, stop: Int) -> String
+def host_find(s: String, part: String, start: Int) -> Int
+def host_code(s: String, k: Int) -> Int
+def host_from_code(n: Int) -> String
+def host_replace(s: String, old: String, by: String) -> String
+def host_upper(s: String) -> String
+def host_lower(s: String) -> String

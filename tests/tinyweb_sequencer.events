@@ -1,0 +1,8 @@
+mouse "canvas" 50 10
+report "beat" 0 0.1
+cb "beat" "beat"
+report "beat" 1 0.37
+cb "beat" "beat"
+slide "slider" 150
+report "beat" 9 2.5
+cb "beat" "beat"

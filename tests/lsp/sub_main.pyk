@@ -1,0 +1,6 @@
+import sub_shapes as s
+import sub_shapes.shapes as shapes
+
+print(s.area(2, 3))
+print(s.shapes.size(s.shapes.Box(1, 2)))
+print(shapes.size(shapes.Box(3, 4)))

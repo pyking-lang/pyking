@@ -1,0 +1,15 @@
+# A module with two submodules, for completion after `m.` and `m.sub.`.
+
+public def area(w: Int, h: Int) -> Int:
+    w * h
+
+public struct shapes.Box(w: Int, h: Int)
+
+public def shapes.size(b: shapes.Box) -> Int:
+    b.w * b.h
+
+def shapes.hidden(b: shapes.Box) -> Int:
+    b.w
+
+public def colors.dark(n: Int) -> Int:
+    n / 2

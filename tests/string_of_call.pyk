@@ -1,0 +1,15 @@
+# `string` of a call: the call's value as text, on every target, whether
+# the result is compared, bound or joined.
+
+def zero() -> Int:
+    0
+
+def half() -> Float:
+    0.5
+
+def pair() -> (Int, Float):
+    (1, 2.5)
+
+print(string(zero()) == "0", string(zero()) == "zero")
+x = string(zero())
+print(x ++ "!", string(half()), string(pair()), string(half()) == "0.5")

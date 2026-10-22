@@ -1,0 +1,15 @@
+# An `if` expression evaluated for its effect alone, reading a `var` the
+# function changed: on Java it is an if statement, which may read a
+# variable a lambda could not.
+
+def show(x: Int):
+    print(x)
+
+def g():
+    var n = 1
+    n := 2
+    if n == 0 then () else show(n)
+    n := 3
+    if n == 3 then show(n) else ()
+
+g()

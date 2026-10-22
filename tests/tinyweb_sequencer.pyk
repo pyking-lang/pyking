@@ -1,0 +1,79 @@
+# A step sequencer: three drums over eight steps, a cell clicked on the
+# grid to turn it on or off, and the beat playing every cell that is on.
+# Each row is kept as one number, a bit per step, so no list is needed.
+
+import tinyweb as tw
+import tinyweb.color as color
+import tinyweb.sound as sound
+
+tw.web_init(0)
+kick = tw.load_sample("kick1.wav")
+snare = tw.load_sample("snare1.wav")
+hihat = tw.load_sample("hihat1.wav")
+
+steps = 8
+size = 40
+c = tw.canvas(steps * size, 3 * size)
+var kicks = 17
+var snares = 68
+var hihats = 255
+var playing = -1
+
+def power(k: Int) -> Int:
+    if k == 0 then 1 else 2 * power(k - 1)
+
+def on(row: Int, step: Int) -> Bool:
+    pattern = match row:
+        case 0: kicks
+        case 1: snares
+        case _: hihats
+    pattern / power(step) - pattern / power(step + 1) * 2 == 1
+
+def flipped(pattern: Int, step: Int) -> Int:
+    bit = power(step)
+    was_on = pattern / bit - pattern / (bit * 2) * 2 == 1
+    if was_on then pattern - bit else pattern + bit
+
+def draw():
+    tw.clear(c, color.hex(0x222222))
+    for row in range(3):
+        for step in range(steps):
+            lit = on(row, step)
+            fill = if lit then color.hex(0xffb703) else color.hex(0x444444)
+            edge = if step == playing then color.white else color.none
+            x = step * size + 3
+            y = row * size + 3
+            tw.rect(c, x, y, size - 6, size - 6, fill,
+                    stroke = edge, width = 2, radius = 6)
+
+def clicked(x: Int, y: Int):
+    step = x / size
+    row = y / size
+    if row == 0:
+        kicks := flipped(kicks, step)
+    else if row == 1:
+        snares := flipped(snares, step)
+    else:
+        hihats := flipped(hihats, step)
+    draw()
+
+def each(n: Int, time: Float):
+    step = n - n / steps * steps
+    if on(0, step):
+        tw.play(kick, at = time)
+    if on(1, step):
+        tw.play(snare, at = time, volume = 0.8)
+    if on(2, step):
+        tw.play(hihat, at = time, volume = 0.4)
+    playing := step
+    draw()
+
+def faster(bpm: Int):
+    sound.tempo(float(bpm))
+
+draw()
+tw.on_click(c, clicked)
+tw.label("Tempo")
+tw.slider(60, 180, 110, on_change = faster)
+sound.tempo(110.0)
+sound.on_beat(each, steps = 2)

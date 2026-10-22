@@ -1,0 +1,18 @@
+# A struct and a datatype of a submodule, reached through an import of
+# the submodule and through the module.
+
+import module_submodule_struct_mod1 as m
+import module_submodule_struct_mod1.shapes as shapes
+
+box = shapes.Box(3, h = 4)
+wider = shapes.Box(w = 5, ..box)
+print(shapes.area(box), shapes.area(wider), m.shapes.area(m.shapes.Box(2)))
+match shapes.Fill(7):
+    case shapes.Fill(level):
+        print("level", level)
+    case shapes.Empty:
+        print("empty")
+print(m.box_area(m.Box(6)))
+match m.Fill(2):
+    case m.Fill(amount):
+        print("amount", amount)

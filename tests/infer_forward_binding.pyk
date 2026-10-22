@@ -1,0 +1,15 @@
+# A definition worked out from a call written above it -- an annotated
+# def's body calls one whose result is not written -- still sees the
+# bindings written above the call.
+
+q = false
+limit = 3
+
+def g(x: Int) -> Int:
+    f(x)
+    x
+
+def f(x: Int):
+    print(q, x, x < limit)
+
+print(g(5))

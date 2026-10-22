@@ -1,0 +1,6 @@
+mouse "canvas" 50 50
+key s
+cb "timer" "timer"
+key h
+mouse "canvas" 105 50
+mouse "canvas" 260 90

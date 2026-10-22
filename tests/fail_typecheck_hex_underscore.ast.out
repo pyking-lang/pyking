@@ -1,0 +1,2 @@
+'tests/fail_typecheck_hex_underscore.pyk' 1:6-1:11 Lexing error: in
+  '0x_ff', '_' may only stand between two digits

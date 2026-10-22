@@ -1,0 +1,150 @@
+load "kick1.wav"
+load "snare1.wav"
+load "hihat1.wav"
+canvas "canvas" 320 120
+clear "canvas" #222222
+rect "canvas" 3 3 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 43 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 83 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 123 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 163 3 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 203 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 243 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 283 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 3 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 43 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 83 43 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 123 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 163 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 203 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 243 43 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 283 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 3 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 43 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 83 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 123 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 163 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 203 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 243 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 283 83 34 34 6 "#ffb703" "" 2.000 1.000
+on_mouse "canvas"
+label "Tempo"
+slider "slider" 60 180 110
+tempo "" 110.0
+beat "beat" 2
+splash
+> mouse "canvas" 50 10
+clear "canvas" #222222
+rect "canvas" 3 3 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 43 3 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 83 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 123 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 163 3 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 203 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 243 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 283 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 3 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 43 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 83 43 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 123 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 163 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 203 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 243 43 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 283 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 3 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 43 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 83 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 123 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 163 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 203 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 243 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 283 83 34 34 6 "#ffb703" "" 2.000 1.000
+> report "beat" 0 0.1
+> cb "beat" "beat"
+play "kick1.wav" 0.1 1.0 1.0 0.0 0 0
+play "hihat1.wav" 0.1 0.4 1.0 0.0 0 0
+clear "canvas" #222222
+rect "canvas" 3 3 34 34 6 "#ffb703" "#ffffff" 2.000 1.000
+rect "canvas" 43 3 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 83 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 123 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 163 3 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 203 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 243 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 283 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 3 43 34 34 6 "#444444" "#ffffff" 2.000 1.000
+rect "canvas" 43 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 83 43 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 123 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 163 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 203 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 243 43 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 283 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 3 83 34 34 6 "#ffb703" "#ffffff" 2.000 1.000
+rect "canvas" 43 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 83 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 123 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 163 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 203 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 243 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 283 83 34 34 6 "#ffb703" "" 2.000 1.000
+> report "beat" 1 0.37
+> cb "beat" "beat"
+play "kick1.wav" 0.37 1.0 1.0 0.0 0 0
+play "hihat1.wav" 0.37 0.4 1.0 0.0 0 0
+clear "canvas" #222222
+rect "canvas" 3 3 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 43 3 34 34 6 "#ffb703" "#ffffff" 2.000 1.000
+rect "canvas" 83 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 123 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 163 3 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 203 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 243 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 283 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 3 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 43 43 34 34 6 "#444444" "#ffffff" 2.000 1.000
+rect "canvas" 83 43 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 123 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 163 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 203 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 243 43 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 283 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 3 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 43 83 34 34 6 "#ffb703" "#ffffff" 2.000 1.000
+rect "canvas" 83 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 123 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 163 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 203 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 243 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 283 83 34 34 6 "#ffb703" "" 2.000 1.000
+> slide "slider" 150
+tempo "" 150.0
+> report "beat" 9 2.5
+> cb "beat" "beat"
+play "kick1.wav" 2.5 1.0 1.0 0.0 0 0
+play "hihat1.wav" 2.5 0.4 1.0 0.0 0 0
+clear "canvas" #222222
+rect "canvas" 3 3 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 43 3 34 34 6 "#ffb703" "#ffffff" 2.000 1.000
+rect "canvas" 83 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 123 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 163 3 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 203 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 243 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 283 3 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 3 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 43 43 34 34 6 "#444444" "#ffffff" 2.000 1.000
+rect "canvas" 83 43 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 123 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 163 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 203 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 243 43 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 283 43 34 34 6 "#444444" "" 2.000 1.000
+rect "canvas" 3 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 43 83 34 34 6 "#ffb703" "#ffffff" 2.000 1.000
+rect "canvas" 83 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 123 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 163 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 203 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 243 83 34 34 6 "#ffb703" "" 2.000 1.000
+rect "canvas" 283 83 34 34 6 "#ffb703" "" 2.000 1.000

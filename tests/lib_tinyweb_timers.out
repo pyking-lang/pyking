@@ -1,0 +1,7 @@
+timer timer1
+tick 1 0.5
+tick 2 1.0
+tick 3 1.0
+once at 1.0 beat 3.5 latency 0.01 level 0.5
+bands 3 0.25 0.5 0.0
+typed Ada "the first"

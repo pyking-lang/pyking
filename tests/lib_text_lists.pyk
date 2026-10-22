@@ -1,0 +1,28 @@
+# The text library's functions that take or answer a list: split, words,
+# join and lines, on ASCII and non-ASCII text and on empty strings.
+
+import text
+
+print(text.split("a,b,,c", ","))
+print(text.split("one and two", " and "))
+print(text.split("", ","), text.split("abc", ""), text.split("abc", "abc"))
+print(text.split(",a,", ","), text.split("åä👑öä👑", "👑"))
+print(text.split("aaa", "aa"))
+
+print(text.words("  the quick\tbrown \n fox "))
+print(text.words(""), text.words(" \t\n\r "), text.words("one"))
+print(text.words("åäö 👑\n🎉"))
+
+print(text.join(["a", "b", "c"], ", "))
+print("[" ++ text.join([], ", ") ++ "]", text.join(["only"], "-"), text.join(["", ""], "+"))
+print(text.join(text.words(" spaced   out "), "_"), text.join(["å", "👑"], ""))
+many = [string(i) for i in range(300)]
+joined = text.join(many, ",")
+print(text.length(joined), text.slice(joined, 0, 10), text.ends_with(joined, "298,299"))
+print(len(text.split(joined, ",")), text.join(text.split(joined, ","), ",") == joined)
+
+print(text.lines("one\r\ntwo\n\nfour\n"))
+print(text.lines(""), text.lines("\n"), text.lines("no ending"), text.lines("a\n\n"))
+print(text.lines("åäö\n👑"))
+for line in text.lines("first\nsecond"):
+    print(text.upper(line), text.length(line))

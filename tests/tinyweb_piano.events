@@ -1,0 +1,5 @@
+mouse "canvas" 20 120
+mouse "canvas" 35 40
+mouse "canvas" 125 40
+key k
+key x

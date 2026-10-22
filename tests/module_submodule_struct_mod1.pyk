@@ -1,0 +1,22 @@
+# A struct and a datatype in a submodule, each with a constructor of its
+# own name: imported through the submodule, each is one name. The module
+# has a struct of the submodule's struct's last name, and a constructor
+# of the submodule's datatype's, which are other names.
+
+public struct Box(side: Int)
+
+public datatype Level:
+    Fill(amount: Int)
+
+public struct shapes.Box(w: Int, h = 1)
+
+public datatype shapes.Fill:
+    Fill(level: Int)
+    Empty
+
+public def shapes.area(b: shapes.Box) -> Int:
+    b.w * b.h
+
+
+public def box_area(b: Box) -> Int:
+    b.side * b.side

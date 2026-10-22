@@ -1,0 +1,46 @@
+load "kick1.wav"
+load "hihat1.wav"
+tempo "" 120.0
+swing "" 0.2
+listen "" 8 0.5
+beat "beat" 2
+button "Listen"
+checkbox "Playing" true
+render "render" "song.wav" 2.0
+play "kick1.wav" 0.0 1.0 1.0 0.0 0 0
+play "kick1.wav" 0.5 1.0 1.0 0.0 0 0
+tone "" "sine" 220.0 1.0 0.25 0.5 0.0 0
+render_end "render"
+render "render1" "tinyweb.wav" 1.0
+play "kick1.wav" 0.0 1.0 1.0 0.0 0 0
+play "kick1.wav" 0.5 1.0 1.0 0.0 0 0
+tone "" "sine" 220.0 1.0 0.25 0.5 0.0 0
+render_end "render1"
+splash
+> report "clock" 0.0 0.02 1
+> report "beat" 0 0.15
+> cb "beat" "beat"
+play "kick1.wav" 0.15 1.0 1.0 0.0 0 0
+play "hihat1.wav" 0.15 0.3 1.0 0.0 0 0
+> report "clock" 0.5 0.02 1
+> report "beat" 1 0.4
+> cb "beat" "beat"
+play "hihat1.wav" 0.4 0.3 1.0 0.0 0 0
+> report "beat" 2 0.65
+> cb "beat" "beat"
+play "hihat1.wav" 0.65 0.3 1.0 0.0 0 0
+tempo "" 90.0
+> report "beat" 3 0.98
+> cb "beat" "beat"
+play "hihat1.wav" 0.98 0.3 1.0 0.0 0 0
+> report "level" 0.42
+> report "band" 0.9 0.8 0.7 0.6 0.5 0.4 0.3 0.2
+> report "wave" 0.0 0.5 1.0 -0.5
+> click "Listen"
+> check "Playing" false
+audio "" "pause"
+> check "Playing" true
+audio "" "resume"
+> report "rendered" 0.125 0.875
+> cb "render" "rendered"
+> cb "render1" "rendered"

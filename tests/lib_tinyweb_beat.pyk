@@ -1,0 +1,61 @@
+# tinyweb's beat, listening and rendering: a step sequencer's callback
+# told each step and when it sounds, the tempo and swing changed, the
+# sound paused and resumed, the level, bands and wave the page reports,
+# and a few seconds rendered into a file. The .events file stands in
+# for the page.
+
+import tinyweb as tw
+import tinyweb.sound as sound
+
+tw.web_init(0)
+kick = tw.load_sample("kick1.wav")
+hat = tw.load_sample("hihat1.wav")
+sound.tempo(120.0)
+sound.swing(0.2)
+sound.listen(bins = 8, smoothing = 0.5)
+
+
+def step(n: Int, time: Float):
+    print("step", n, "at", time, "beat", sound.beat())
+    if n - n / 4 * 4 == 0:
+        tw.play(kick, at = time)
+    tw.play(hat, at = time, volume = 0.3)
+    if n == 2:
+        sound.tempo(90.0)
+
+
+steps = sound.on_beat(step, steps = 2)
+print(steps)
+
+
+def listened():
+    print("level", sound.level(), "bands", sound.bands(), sound.band(0), sound.band(7), "wave", sound.wave(0), sound.wave(3))
+
+
+tw.button("Listen", on_click = listened)
+
+
+def toggle(on: Bool):
+    if on:
+        sound.resume()
+    else:
+        sound.pause()
+    print("playing", on)
+
+
+tw.checkbox("Playing", checked = true, on_change = toggle)
+
+
+def song():
+    tw.play(kick)
+    tw.play(kick, at = 0.5)
+    sound.tone(220.0, at = 1.0, duration = 0.25)
+
+
+def done(took: Float, peak: Float):
+    print("rendered in", took, "seconds, peak", peak)
+
+
+sound.render_wav(2.0, song, name = "song.wav", on_rendered = done)
+sound.render_wav(1.0, song)
+print("latency", sound.latency())

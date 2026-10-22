@@ -1,0 +1,15 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "inlayHintProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open sub_main.pyk
+> idle
+diagnostics $CASES/sub_main.pyk v1 []
+> complete sub_main.pyk 4:9
+{"isIncomplete": false, "items": [{"detail": "submodule", "kind": 9, "label": "colors"}, {"detail": "submodule", "kind": 9, "label": "shapes"}, {"detail": "(Int, Int) -> Int", "kind": 3, "label": "area"}]}
+> complete sub_main.pyk 5:16
+{"isIncomplete": false, "items": [{"detail": "datatype sub_shapes.Shapes__Box", "kind": 6, "label": "Box"}, {"detail": "(sub_shapes.Shapes__Box) -> Int", "kind": 3, "label": "size"}]}
+> complete sub_main.pyk 6:14
+{"isIncomplete": false, "items": [{"kind": 6, "label": "Box"}, {"detail": "(Shapes__Box) -> Int", "kind": 3, "label": "size"}]}
+> shutdown
+null
+> exit
+> exit status 0

@@ -1,0 +1,15 @@
+# The splash screen for a program that plays only through tones and
+# voices of `tinyweb.sound`: the compiler adds the call as it does for
+# `play`. The tone the top level plays waits for the splash; the voice
+# starts once the reader presses the button.
+
+import tinyweb as tw
+import tinyweb.sound as sound
+
+tw.web_init(0)
+sound.tone(sound.note("A4"), duration = 0.25)
+
+def hum():
+    print(sound.start(tw.load_sample("piano_c1.wav"), looping = true, volume = 0.3))
+
+tw.button("Hum", on_click = hum)

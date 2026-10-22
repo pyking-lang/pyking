@@ -1,0 +1,69 @@
+load "kick1.wav"
+load "snare1.wav"
+load "hihat1.wav"
+canvas "canvas" 330 120
+label "Click a pad, or press k, s or h."
+label "element" ""
+clear "canvas" #1d3557
+rect "canvas" 10 10 90 100 12 "#e63946" "" 1.000 1.000
+text "canvas" 55.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "kick"
+rect "canvas" 120 10 90 100 12 "#457b9d" "" 1.000 1.000
+text "canvas" 165.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "snare"
+rect "canvas" 230 10 90 100 12 "#2a9d8f" "" 1.000 1.000
+text "canvas" 275.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "hihat"
+on_mouse "canvas"
+on_key
+splash
+> mouse "canvas" 50 50
+play "kick1.wav" 0.0 1.0 1.0 0.0 0 0
+set_text "element" "kick"
+after "timer" 0.15
+clear "canvas" #1d3557
+rect "canvas" 10 10 90 100 12 "#ffffff" "" 1.000 1.000
+text "canvas" 55.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "kick"
+rect "canvas" 120 10 90 100 12 "#457b9d" "" 1.000 1.000
+text "canvas" 165.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "snare"
+rect "canvas" 230 10 90 100 12 "#2a9d8f" "" 1.000 1.000
+text "canvas" 275.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "hihat"
+> key s
+play "snare1.wav" 0.0 0.8 1.0 0.0 0 0
+set_text "element" "snare"
+after "timer1" 0.15
+clear "canvas" #1d3557
+rect "canvas" 10 10 90 100 12 "#e63946" "" 1.000 1.000
+text "canvas" 55.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "kick"
+rect "canvas" 120 10 90 100 12 "#ffffff" "" 1.000 1.000
+text "canvas" 165.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "snare"
+rect "canvas" 230 10 90 100 12 "#2a9d8f" "" 1.000 1.000
+text "canvas" 275.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "hihat"
+> cb "timer" "timer"
+clear "canvas" #1d3557
+rect "canvas" 10 10 90 100 12 "#e63946" "" 1.000 1.000
+text "canvas" 55.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "kick"
+rect "canvas" 120 10 90 100 12 "#457b9d" "" 1.000 1.000
+text "canvas" 165.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "snare"
+rect "canvas" 230 10 90 100 12 "#2a9d8f" "" 1.000 1.000
+text "canvas" 275.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "hihat"
+> key h
+play "hihat1.wav" 0.0 0.5 1.0 0.0 0 0
+set_text "element" "hihat"
+after "timer2" 0.15
+clear "canvas" #1d3557
+rect "canvas" 10 10 90 100 12 "#e63946" "" 1.000 1.000
+text "canvas" 55.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "kick"
+rect "canvas" 120 10 90 100 12 "#457b9d" "" 1.000 1.000
+text "canvas" 165.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "snare"
+rect "canvas" 230 10 90 100 12 "#ffffff" "" 1.000 1.000
+text "canvas" 275.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "hihat"
+> mouse "canvas" 105 50
+> mouse "canvas" 260 90
+play "hihat1.wav" 0.0 0.5 1.0 0.0 0 0
+set_text "element" "hihat"
+after "timer3" 0.15
+clear "canvas" #1d3557
+rect "canvas" 10 10 90 100 12 "#e63946" "" 1.000 1.000
+text "canvas" 55.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "kick"
+rect "canvas" 120 10 90 100 12 "#457b9d" "" 1.000 1.000
+text "canvas" 165.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "snare"
+rect "canvas" 230 10 90 100 12 "#ffffff" "" 1.000 1.000
+text "canvas" 275.000 60.000 "#1d3557" 18 "" center middle true "" 1.000 1.000 "hihat"

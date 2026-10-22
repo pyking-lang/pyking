@@ -1,0 +1,2 @@
+'tests/fail_typecheck_hex_too_large.pyk' 1:6-1:17 Lexing error:
+  integer literal '0x8000_0000' is too large

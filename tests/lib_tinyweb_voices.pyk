@@ -1,0 +1,49 @@
+# tinyweb's sound: samples played with settings and with a voice's,
+# voices started, faded and stopped, the mixer's channels and their
+# effects, tones, and notes by name. The .events file presses the
+# buttons.
+
+import tinyweb as tw
+import tinyweb.sound as sound
+
+tw.web_init(0)
+kick = tw.load_sample("kick1.wav")
+piano = tw.load_sample("piano_c1.wav")
+sound.master_volume(0.8)
+sound.channel_style(1, volume = 0.7, pan = -0.5, echo = 0.4, echo_time = 0.25, feedback = 0.5)
+sound.channel_style(2, reverb = 0.6, low_pass = 1200.0)
+sound.channel_style(1, volume = 0.9)
+tw.play(kick)
+tw.play(kick, at = 0.5, volume = 0.5, rate = 2.0, pan = 1.0)
+soft = sound.Voice(volume = 0.25, channel = 1)
+tw.play(kick, voice = soft)
+tw.play(kick, volume = 0.75, voice = soft)
+tw.play(piano, voice = sound.Voice(reverse = true, channel = 2))
+hum = sound.start(piano, looping = true, volume = 0.3)
+other = sound.start(piano, at = 1.0, voice = sound.Voice(looping = true, rate = 0.5, channel = 2))
+print(hum, other)
+sound.tone(440.0)
+sound.tone(sound.note("C5"), at = 0.25, duration = 0.125, wave = "square", volume = 0.2, pan = 0.5, channel = 1)
+print(sound.note("A4"), sound.note("C4"), sound.note("C#4"), sound.note("Db4"), sound.note("H2"), sound.note("C"))
+print(sound.rate_of("C5"), sound.rate_of("C3"), sound.rate_of("G4", base = "G3"), sound.rate_of("nothing"))
+
+
+def quieter():
+    sound.fade(hum, 0.0, over = 2.0)
+    print("fading")
+
+
+def stop():
+    sound.stop(other)
+    sound.stop(hum, at = 3.0)
+    print("stopped")
+
+
+def silence():
+    sound.stop_all()
+    print("silence")
+
+
+tw.button("Quieter", on_click = quieter)
+tw.button("Stop", on_click = stop)
+tw.button("Silence", on_click = silence)

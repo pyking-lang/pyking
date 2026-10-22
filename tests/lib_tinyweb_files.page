@@ -1,0 +1,11 @@
+canvas "canvas" 100 100
+circle "canvas" 50 50 40 "#008000" "" 1.000 1.000
+cursor "canvas" "crosshair"
+cursor "canvas" "none"
+save_canvas "canvas" "canvas.png"
+save_canvas "canvas" "circle.png"
+download "notes.txt" "line one\nline \"two\""
+file_button "Open" "Open"
+> report_text "file" "data.txt"
+> report_text "file.text" "1 2 3"
+> cb "Open" "loaded"

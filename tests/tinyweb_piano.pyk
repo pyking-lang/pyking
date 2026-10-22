@@ -1,0 +1,82 @@
+# A small piano: one octave of white and black keys, played by clicking
+# them or with the keys a to k for the white ones. One sample of a C is
+# played faster or slower to sound every other note.
+
+import tinyweb as tw
+import tinyweb.color as color
+import tinyweb.sound as sound
+
+tw.web_init(0)
+piano = tw.load_sample("piano_c1.wav")
+c = tw.canvas(320, 140)
+shown = tw.label("Click a key, or press a s d f g h j k.")
+white = 40
+
+def white_note(k: Int) -> String:
+    match k:
+        case 0: "C4"
+        case 1: "D4"
+        case 2: "E4"
+        case 3: "F4"
+        case 4: "G4"
+        case 5: "A4"
+        case 6: "B4"
+        case _: "C5"
+
+# The black key to the right of white key k, or "" where there is none.
+def black_note(k: Int) -> String:
+    match k:
+        case 0: "C#4"
+        case 1: "D#4"
+        case 3: "F#4"
+        case 4: "G#4"
+        case 5: "A#4"
+        case _: ""
+
+def draw(lit: String):
+    tw.clear(c, color.hex(0x333333))
+    for k in range(8):
+        fill = if white_note(k) == lit then color.hex(0xffd166) else color.white
+        tw.rect(c, k * white + 1, 0, white - 2, 140, fill, stroke = color.black)
+    for k in range(7):
+        if black_note(k) == "":
+            ()
+        else:
+            lit_black = black_note(k) == lit
+            fill = if lit_black then color.hex(0xffd166) else color.black
+            tw.rect(c, k * white + 28, 0, 24, 85, fill)
+
+def play(note: String):
+    tw.play(piano, rate = sound.rate_of(note, base = "C4"))
+    tw.set_text(shown, note ++ " at " ++ string(sound.note(note)) ++ " Hz")
+    draw(note)
+
+# The note under (x, y): a black key where one is, else a white one.
+def note_at(x: Int, y: Int) -> String:
+    k = x / white
+    left = x - k * white
+    right_black = if left >= 28 then black_note(k) else ""
+    before = if k > 0 then black_note(k - 1) else ""
+    left_black = if left < 12 then before else ""
+    either = if right_black == "" then left_black else right_black
+    black = if y >= 85 then "" else either
+    if black == "" then white_note(k) else black
+
+def clicked(x: Int, y: Int):
+    play(note_at(x, y))
+
+def pressed(key: String):
+    match key:
+        case "a": play("C4")
+        case "s": play("D4")
+        case "d": play("E4")
+        case "f": play("F4")
+        case "g": play("G4")
+        case "h": play("A4")
+        case "j": play("B4")
+        case "k": play("C5")
+        case _: ()
+
+draw("")
+tw.on_click(c, clicked)
+tw.on_key(pressed)
