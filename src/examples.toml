@@ -18,3 +18,18 @@ description = "Use program args and print using loop"
 source = "tests/lib_tinyweb_sound_graphics1.pyk"
 name = "tinyweb1.pyk"
 description = "Draws simple graphics and plays sound when pressing buttons."
+
+[[examples]]
+source = "tests/tinyweb_drum_pad.pyk"
+name = "drum_pad.pyk"
+description = "A drum pad: three drums, played by clicking or with keys."
+
+[[examples]]
+source = "tests/tinyweb_sequencer.pyk"
+name = "sequencer.pyk"
+description = "A step sequencer: a grid of drum steps played on the beat."
+
+[[examples]]
+source = "tests/tinyweb_piano.pyk"
+name = "piano.pyk"
+description = "A small piano: one octave, from one sample at many rates."

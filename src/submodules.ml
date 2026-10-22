@@ -309,6 +309,12 @@ let members info table publics module_name path alias =
         else None)
       table
   in
+  (* A datatype and a constructor of its own name, as a struct has, are
+     one name: taken once. *)
+  let fields =
+    List.rev
+      (List.fold_left (fun kept f -> if List.mem f kept then kept else f :: kept) [] fields)
+  in
   if fields = [] then
     raise
       (Error

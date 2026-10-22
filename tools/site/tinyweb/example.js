@@ -15,11 +15,11 @@ tw.draw_shape(canvas, "circle", "100 50 20", "#000000", "", 1.0, 1.0);
 
 let presses = 0;
 
-tw.make_button("Play kick", () => tw.play_sample(kick, 0.0, 1.0, 1.0));
+tw.make_button("Play kick", () => tw.command("play", kick, "", "0.0 1.0 1.0 0.0 0 0", 2));
 tw.make_button("Play snare", () => {
   presses += 1;
   console.log(`snare, press ${presses}`);
-  tw.play_sample(snare, 0.0, 0.5, 1.0);
+  tw.command("play", snare, "", "0.0 0.5 1.0 0.0 0 0", 2);
 });
 tw.make_button("Does nothing", () => {});
 tw.splash();

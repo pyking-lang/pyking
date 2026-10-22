@@ -14,11 +14,11 @@ public final class Example {
         String canvas = Tinyweb.canvas(400, 200);
         Tinyweb.draw_shape(canvas, "circle", "100 50 30", "#ff0000", "", 1.0, 1.0);
         Tinyweb.draw_shape(canvas, "circle", "100 50 20", "#000000", "", 1.0, 1.0);
-        Tinyweb.make_button("Play kick", () -> Tinyweb.play_sample(kick, 0.0, 1.0, 1.0));
+        Tinyweb.make_button("Play kick", () -> Tinyweb.command("play", kick, "", "0.0 1.0 1.0 0.0 0 0", 2));
         Tinyweb.make_button("Play snare", () -> {
             presses += 1;
             System.out.println("snare, press " + presses);
-            Tinyweb.play_sample(snare, 0.0, 0.5, 1.0);
+            Tinyweb.command("play", snare, "", "0.0 0.5 1.0 0.0 0 0", 2);
         });
         Tinyweb.make_button("Does nothing", () -> { });
         Tinyweb.splash();

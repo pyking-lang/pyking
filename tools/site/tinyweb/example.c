@@ -13,14 +13,14 @@ static int presses = 0;
 
 static void play_kick(void)
 {
-    tinyweb_play_sample(kick, 0.0, 1.0, 1.0);
+    tinyweb_command("play", kick, "", "0.0 1.0 1.0 0.0 0 0", 2);
 }
 
 static void play_snare(void)
 {
     presses += 1;
     printf("snare, press %d\n", presses);
-    tinyweb_play_sample(snare, 0.0, 0.5, 1.0);
+    tinyweb_command("play", snare, "", "0.0 0.5 1.0 0.0 0 0", 2);
 }
 
 static void nothing(void)

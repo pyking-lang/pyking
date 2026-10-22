@@ -6,7 +6,8 @@
 
     Functions:
       word_before line col -- the word ending at col, and its `m.`.
-      qualifier line col -- the `m` of an `m.` before the cursor.
+      qualifier line col -- the `m` of an `m.` before the cursor, dotted
+        where a submodule is named, as in `m.sub.`.
       hidden name -- whether a pass made the name up.
       matching prefix candidates -- the candidates starting with prefix.
       common_prefix names -- what every name starts with. *)
@@ -17,7 +18,8 @@
 val word_before : string -> int -> int * string * string option
 
 (** The qualifier written before the cursor, as in `m.` or `m.pa`, if
-    there is one. string -> int -> string? *)
+    there is one, with the submodules in it: `m.sub.` is `m.sub`.
+    string -> int -> string? *)
 val qualifier : string -> int -> string option
 
 (** Whether a name was made up by a pass rather than written: a default

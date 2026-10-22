@@ -168,13 +168,13 @@ class Help {
       if (!groups.has(page.section)) groups.set(page.section, []);
       groups.get(page.section).push(page);
     }
-    const link = (href, text, current) =>
-      `<a href="${href}"${current ? ' aria-current="page"' : ""}>${escape(text)}</a>`;
+    const link = (href, text, current, sub = false) =>
+      `<a href="${href}"${sub ? ' class="pyk-help-sub"' : ""}${current ? ' aria-current="page"' : ""}>${escape(text)}</a>`;
     const current = this.pages.find((p) => p.slug === this.slug);
     this.sections.innerHTML = [...groups].map(([label, pages]) => `
       <div class="pyk-help-group">
         <p class="pyk-help-label">${escape(label)}</p>
-        ${pages.map((p) => link(`/${p.slug}/`, p.label, p.slug === this.slug)).join("")}
+        ${pages.map((p) => link(`/${p.slug}/`, p.label, p.slug === this.slug, !!p.parent)).join("")}
       </div>`).join("");
     this.headings.innerHTML = current?.headings.length ? `
       <div class="pyk-help-group">

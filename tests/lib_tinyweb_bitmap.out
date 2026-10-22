@@ -1,6 +1,4 @@
-a new bitmap is white: 16777215
-or its background: 32768
-orange is 16746496 255 136 0
-clamped: 16711750
-pixel (4, 2): 16746496 outside: 0
+a new bitmap is white: 255 255 255
+or its background: 0 128 0
+pixel (4, 2): 255 136 0 outside: 0 0 0 1.0
 filled: 255

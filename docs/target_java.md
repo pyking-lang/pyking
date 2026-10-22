@@ -168,7 +168,11 @@ A field every constructor has is a method of the base type,
 ## Functions as values
 
 A def's name used as a value is a lambda calling its method, of the
-interface its type at that use names. A Pyking lambda is a Java lambda.
+interface its type at that use names. A call answering nothing used as
+a value is `PykRuntime.unit(() -> call)`; an `if ... then ... else`
+evaluated for its effect alone is an if statement instead, so a branch
+calling one may read a variable the method changes, which a lambda may
+not. A Pyking lambda is a Java lambda.
 A function answering unit answers `null` as a value, so one interface
 serves both.
 

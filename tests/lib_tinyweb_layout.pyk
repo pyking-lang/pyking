@@ -1,14 +1,15 @@
 # tinyweb's layout: a page centred, rows of elements side by side,
 # columns inside a row, and back to the page below them; a heading made
-# bold, and a canvas stretched to another size.
+# bold, a canvas stretched to another size, and a text area.
 import tinyweb as tw
+import tinyweb.layout as layout
 
 tw.web_init()
 tw.page_style(align = "center")
 title = tw.label("Layout")
 tw.set_style(title, size = 28, weight = 700)
-buttons = tw.row()
-tw.inside(buttons)
+buttons = layout.row()
+layout.inside(buttons)
 
 
 def clicked():
@@ -17,26 +18,35 @@ def clicked():
 
 tw.button("one", on_click = clicked)
 tw.button("two")
-tw.outside()
+layout.outside()
 tw.canvas(100, 40)
-controls = tw.row()
-tw.inside(controls)
+controls = layout.row()
+layout.inside(controls)
 tw.label("speed")
 tw.slider(0, 10, 5)
-tw.inside(buttons)
+layout.inside(buttons)
 tw.button("three")
-tw.outside()
-figures = tw.row()
-tw.inside(figures)
-left = tw.column()
-tw.inside(left)
+layout.outside()
+figures = layout.row()
+layout.inside(figures)
+left = layout.column()
+layout.inside(left)
 small = tw.canvas(50, 20)
 tw.set_style(small, width = 100, height = 40)
 tw.label("stretched")
-tw.inside(figures)
-right = tw.column()
-tw.inside(right)
+layout.inside(figures)
+right = layout.column()
+layout.inside(right)
 tw.canvas(100, 40)
 tw.label("as it is")
-tw.outside()
+layout.outside()
+
+
+def edited(words: String):
+    print("notes:", words)
+
+
+notes = layout.text_area("first line\nsecond \"line\"", rows = 3, columns = 30, on_change = edited)
+layout.text_area()
 tw.label("the end")
+print(notes, tw.value_of(notes))

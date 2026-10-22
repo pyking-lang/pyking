@@ -117,7 +117,9 @@ def _copy_sources(directory):
 
 def _pages(directory, section):
     """A section's pages, in menu order: {slug, file, title, label,
-    headings}.
+    headings, parent}. A page whose front matter names a `sidebar.parent`
+    comes after that page, by its `sidebar.position`, and `parent` is the
+    parent's slug.
     Path -> {...} -> [{...}]"""
     root = directory / section["id"]
     if (directory / f"{section['id']}.md").is_file():
@@ -133,6 +135,8 @@ def _pages(directory, section):
             slug = slug[:-len("/index")]
         order = fields.get("sidebar.order", "")
         title = fields.get("title", page.stem)
+        parent = fields.get("sidebar.parent", "")
+        position = fields.get("sidebar.position", "")
         pages.append({
             "slug": slug,
             "file": page.relative_to(directory).as_posix(),
@@ -140,8 +144,18 @@ def _pages(directory, section):
             "label": fields.get("sidebar.label") or title,
             "order": int(order) if order.lstrip("-").isdigit() else 1000,
             "headings": headings(text),
+            "parent": parent,
+            "position": int(position) if position.isdigit() else 0,
         })
-    pages.sort(key=lambda p: (p["order"], p["label"]))
+    labels = {p["label"]: p for p in pages if not p["parent"]}
+    for page in pages:
+        if page["parent"]:
+            page["order"] = labels[page["parent"]]["order"] if page["parent"] in labels else 1000
+    pages.sort(key=lambda p: (p["order"], p["parent"] or p["label"], 1 if p["parent"] else 0,
+                              p["position"], p["label"]))
+    for page in pages:
+        page["parent"] = (labels[page["parent"]]["slug"]
+                          if page["parent"] in labels else "")
     return pages
 
 
@@ -160,7 +174,8 @@ def write(directory=OUTPUT):
         pages = _pages(directory, section)
         index["sections"].append({
             "id": section["id"], "label": section["label"],
-            "pages": [{k: v for k, v in p.items() if k != "order"} for p in pages],
+            "pages": [{k: v for k, v in p.items() if k not in ("order", "position")}
+                      for p in pages],
             "help": [p["slug"] for p in pages if section["help"]
                      and p["slug"] in section.get("pages", [p["slug"]])],
         })

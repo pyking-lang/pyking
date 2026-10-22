@@ -40,7 +40,7 @@ ace.define("ace/mode/pyking_highlight_rules", [], function (require, exports) {
         { token: "string", regex: "'(?:[^'\\\\]|\\\\.)*'" },
         { token: "string", regex: '"(?:[^"\\\\]|\\\\.)*"' },
         { token: "string", regex: "['\"].*$" },
-        { token: "constant.numeric", regex: "\\b\\d+(?:\\.\\d+)?\\b" },
+        { token: "constant.numeric", regex: "\\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\\d+(?:\\.\\d+)?)\\b" },
         // `def name` -- colour the name being defined, not just the keyword.
         { token: ["keyword", "text", "entity.name.function"],
           regex: "(\\bdef\\b)(\\s+)([A-Za-z_][A-Za-z_0-9]*)" },

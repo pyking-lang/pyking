@@ -2396,22 +2396,37 @@ let rec check_stmts stmts env return_type acc_type store =
   in
   (* A statement extends the environment for the ones after it, so the
      environment is threaded through the sequence as well. *)
-  let result, _, _, store =
+  let result, _, _, store, _ =
     List.fold_left
-      (fun (result, left, env, store) statement ->
+      (fun (result, left, env, store, rest) statement ->
+        let rest = match rest with _ :: rest -> rest | [] -> [] in
+        let before = env in
         let supplied, env, store =
           check_stmt statement env return_type acc_type store
         in
+        let store = if env == before then store else sharpened rest env store in
         if left then
           (* Everything from here on is unreachable: something above said
              what happens next on every path through it. It is still
              checked -- unreachable code is code -- but what the block is
              worth was settled where the block was left. *)
-          (result, left, env, store)
-        else (supplied, ends_here statement, env, store))
-      (start, false, env, store) stmts
+          (result, left, env, store, rest)
+        else (supplied, ends_here statement, env, store, rest))
+      (start, false, env, store, stmts) stmts
   in
   (result, store)
+
+(** store with every unannotated `def` among `rest` recorded as written
+    in `env`: what a body worked out before its `def` is reached sees
+    the bindings above it. [stmt] -> env -> store -> store *)
+and sharpened rest env store =
+  List.fold_left
+    (fun store statement ->
+      match statement with
+      | SFunctionDef _ when environment_of store (stmt_sym statement) <> None ->
+          with_environment store (stmt_sym statement) env
+      | _ -> store)
+    store rest
 
 (** Checks one statement. Answers what it supplies, the environment the
     statements after it should see, and the store.

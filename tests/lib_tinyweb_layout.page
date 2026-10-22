@@ -29,5 +29,10 @@ inside "column1"
 canvas "canvas2" 100 40
 label "as it is"
 outside
+text_area "text" "first line\nsecond \"line\"" 3 30
+text_area "text1" 4 40
 label "the end"
 > click "one"
+> report_text "value.text" "edited \"text\""
+> cb "text" "change"
+> cb "text1" "change"

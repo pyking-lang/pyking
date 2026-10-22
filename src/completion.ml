@@ -6,7 +6,8 @@
 
     Functions:
       word_before line col -- the word ending at col, and its `m.`.
-      qualifier line col -- the `m` of an `m.` before the cursor.
+      qualifier line col -- the `m` of an `m.` before the cursor, dotted
+        where a submodule is named, as in `m.sub.`.
       hidden name -- whether a pass made the name up.
       matching prefix candidates -- the candidates starting with prefix.
       common_prefix names -- what every name starts with. *)
@@ -36,10 +37,19 @@ let word_before line col =
   (start, prefix, module_)
 
 (** The qualifier written before the cursor, as in `m.` or `m.pa`, if
-    there is one. string -> int -> string? *)
+    there is one, with the submodules in it: `m.sub.` is `m.sub`.
+    string -> int -> string? *)
 let qualifier line col =
-  let _, _, module_ = word_before line col in
-  module_
+  let start, _, module_ = word_before line col in
+  match module_ with
+  | None -> None
+  | Some _ ->
+      let rec chain stop =
+        let first = back line stop in
+        if first > 0 && line.[first - 1] = '.' && back line (first - 1) < first - 1 then chain (first - 1)
+        else String.sub line first (start - 1 - first)
+      in
+      Some (chain (start - 1))
 
 (** Whether a name was made up by a pass rather than written: a default
     argument's helper, an elaborated overload. string -> bool *)

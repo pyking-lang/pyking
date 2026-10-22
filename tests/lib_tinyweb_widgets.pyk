@@ -1,5 +1,6 @@
-# Checkboxes, radio buttons, a text field and a number field, and what
-# the reader does with them.
+# Checkboxes, radio buttons, a text field and a number field, what the
+# reader does with them, and the page changed while it shows: a label's
+# text, an element hidden, shown, disabled and removed.
 
 import tinyweb as tw
 
@@ -7,16 +8,16 @@ tw.web_init(0)
 shown = tw.label("nothing yet")
 
 def trails(on: Bool):
-    tw.set_label(shown, if on then "trails on" else "trails off")
+    tw.set_text(shown, if on then "trails on" else "trails off")
 
 def mode(title: String):
-    tw.set_label(shown, "mode: " ++ title)
+    tw.set_text(shown, "mode: " ++ title)
 
 def entered(name: String):
-    tw.set_label(shown, "hello, " ++ name)
+    tw.set_text(shown, "hello, " ++ name)
 
 def balls(n: Int):
-    tw.set_label(shown, string(n) ++ " balls")
+    tw.set_text(shown, string(n) ++ " balls")
 
 box = tw.checkbox("Trails", on_change = trails)
 tw.checkbox("Slow frames", checked = true)
@@ -32,4 +33,13 @@ tw.set_checked(box, true)
 tw.set_checked(frame_based, true)
 tw.set_value(count, 5)
 tw.set_value(speed, 8)
-print(frame_based)
+gone = tw.label("going")
+tw.hide(gone)
+tw.show(gone)
+tw.disable(speed)
+tw.enable(speed)
+tw.disable(box)
+tw.remove(gone)
+blank = tw.label("")
+tw.set_text(blank, "filled in")
+print(frame_based, blank)

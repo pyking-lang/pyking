@@ -10,13 +10,11 @@
 // reload, and in both drawing.md beside it saves its picture there.
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
-import { connect, launch, progress } from "../chromium.mjs";
+import { progress, start } from "../chromium.mjs";
 
 const [browser, url, mode, served] = process.argv.slice(2);
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), "pyk-notebook-"));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // What runs in the page: helpers, then one script per phase, each
@@ -141,9 +139,9 @@ const STUDENT = [`(async () => { ${HELPERS}
 // an exercise submitted with git, and -- for a student -- answers that
 // fail, the diff of the first test that did not match, and answers that
 // pass.
-const SQUARE = (color, grow = "") => JSON.stringify("import tinyweb as tw\nimport io\n"
+const SQUARE = (color, grow = "") => JSON.stringify("import tinyweb as tw\nimport tinyweb.color as color\nimport io\n"
   + `size = int(io.read_line())${grow}\nc = tw.canvas(100, 100)\n`
-  + `tw.rect(c, 10, 10, size, size, "${color}")\nprint(size)\n`);
+  + `tw.rect(c, 10, 10, size, size, color.hex(0x${color.slice(1)}))\nprint(size)\n`);
 const DOUBLING = (second) => JSON.stringify("import io\na = int(io.read_line())\n"
   + `b = int(io.read_line())\nprint(a * 2, ${second})\n`);
 const DRAWING = `(async () => { ${HELPERS}
@@ -273,11 +271,11 @@ const TEACHER = [`(async () => { ${HELPERS}
   return checks;
 })()`];
 
-const chrome = launch(browser, profile);
-
 let output = { checks: 0, failures: [] };
+let chrome = null;
 try {
-  const { send, close } = await connect(profile);
+  chrome = await start(browser, "pyk-notebook-");
+  const { send } = chrome;
   const { targetId } = await send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
   await send("Runtime.enable", {}, sessionId);
@@ -359,12 +357,9 @@ try {
   }
   output.checks += 1;
   if (!written) output.failures.push(`${mode}: the picture is saved beside the document as a PNG`);
-  close();
 } catch (error) {
   output = { checks: output.checks + 1, failures: [...output.failures, `${mode}: ${error.message}`] };
 } finally {
-  chrome.kill();
-  await sleep(200);
-  fs.rmSync(profile, { recursive: true, force: true });
+  if (chrome) await chrome.stop();
 }
 process.stdout.write(JSON.stringify(output));

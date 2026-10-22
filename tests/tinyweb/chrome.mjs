@@ -16,11 +16,10 @@
 // Writes [{record, stdout} | {error}] as JSON, one per URL.
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { connect, launch, progress } from "../chromium.mjs";
+import { progress, start } from "../chromium.mjs";
 
 const [browser, eventsFile, ...urls] = process.argv.slice(2);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -28,10 +27,8 @@ const injected = fs.readFileSync(path.join(HERE, "chrome_page.js"), "utf8");
 const events = fs.existsSync(eventsFile)
   ? fs.readFileSync(eventsFile, "utf8").split("\n").filter((l) => l.trim() !== "")
   : [];
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), "pyk-chrome-"));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const chrome = launch(browser, profile);
 
 
 async function evaluate(protocol, session, expression) {
@@ -90,15 +87,13 @@ async function run(protocol, given) {
 }
 
 let results = [];
+let protocol = null;
 try {
-  const protocol = await connect(profile);
+  protocol = await start(browser, "pyk-chrome-");
   for (const url of urls) results.push(await run(protocol, url));
-  protocol.close();
 } catch (error) {
   results = urls.map(() => ({ error: error.message }));
 } finally {
-  chrome.kill();
-  await sleep(200);
-  fs.rmSync(profile, { recursive: true, force: true });
+  if (protocol) await protocol.stop();
 }
 process.stdout.write(JSON.stringify(results));

@@ -1,1 +1,4 @@
 click "one"
+report_text "value.text" "edited \"text\""
+cb "text" "change"
+cb "text1" "change"

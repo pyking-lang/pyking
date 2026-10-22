@@ -14,17 +14,29 @@
 // its port before it has finished starting, and a call made then may
 // never be answered.
 //
+// A browser that never becomes ready is killed and started again on a
+// fresh profile (`start`): a full Chrome on a busy Mac sometimes starts
+// without ever answering, and waiting longer does not help.
+//
 // Functions:
 //   launch(browser, profile) -- starts Chromium on a fresh profile.
 //   connect(profile, onEvent) -- {send, close} over its DevTools socket.
+//   start(browser, prefix, onEvent) -- a started and connected Chromium.
 //   progress(text) -- says how far a driver has got, for the suite to show.
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 /** How long one call to Chromium may take before it is reported as hung. */
 const CALL_TIMEOUT = 60000;
+
+/** How long a started Chromium may take to show a page. */
+const READY_TIMEOUT = 20000;
+
+/** How many times `start` starts Chromium before giving up. */
+const ATTEMPTS = 3;
 
 const FLAGS = [
   "--headless", "--no-sandbox", "--disable-gpu", "--no-first-run",
@@ -107,10 +119,17 @@ export async function connect(profile, onEvent = () => {}) {
   const send = (method, params = {}, sessionId = undefined) =>
     call(method, params, sessionId, CALL_TIMEOUT);
   let started = false;
-  for (let i = 0; i < 60 && !started; i++) {
+  const until = Date.now() + READY_TIMEOUT;
+  for (let i = 0; Date.now() < until && !started; i++) {
     try {
       const { targetInfos } = await call("Target.getTargets", {}, undefined, 2000);
       started = targetInfos.some((target) => target.type === "page");
+      // A browser that answers but has shown no page after 5 s is asked to
+      // open one: its first page can be lost when the machine is busy.
+      if (!started && i >= 20) {
+        await call("Target.createTarget", { url: "about:blank" }, undefined, 10000);
+        started = true;
+      }
     } catch {
       started = false;
     }
@@ -118,4 +137,29 @@ export async function connect(profile, onEvent = () => {}) {
   }
   if (!started) throw new Error("Chromium started but never showed a page");
   return { send, close: () => socket.close() };
+}
+
+/** Starts Chromium on a fresh profile named from `prefix` and connects to
+ *  it, starting it again where it never becomes ready. `stop` closes the
+ *  connection, ends the browser and removes its profile. String ->
+ *  String -> (Object -> ())? -> Promise<{send, close, stop}> */
+export async function start(browser, prefix, onEvent = () => {}) {
+  let failure = null;
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    const profile = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    const chrome = launch(browser, profile);
+    const stop = async () => {
+      chrome.kill();
+      await sleep(200);
+      try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* left behind */ }
+    };
+    try {
+      const { send, close } = await connect(profile, onEvent);
+      return { send, close, stop: async () => { close(); await stop(); } };
+    } catch (error) {
+      failure = error;
+      await stop();
+    }
+  }
+  throw new Error(`${failure.message} (started ${ATTEMPTS} times)`);
 }

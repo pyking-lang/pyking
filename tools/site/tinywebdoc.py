@@ -64,7 +64,7 @@ DESCRIPTIONS = {
                   "\"ellipse\", \"arc\", \"line\", \"lines\", \"curve\", "
                   "\"bezier\", \"polygon\", \"path\" or \"erase\", and `numbers` "
                   "its numbers as words: x y width height radius for a rect, x y r for a "
-                  "circle, x y rx ry for an ellipse, x y r start end (degrees) for an arc, "
+                  "circle, x y rx ry for an ellipse, x y r start end (radians) for an arc, "
                   "x1 y1 x2 y2 for a line, x1 y1 x2 y2 for each of many lines, x1 y1 cx cy "
                   "x2 y2 for a curve, x1 y1 ax ay bx by x2 y2 for a bezier, x y x y ... "
                   "for a polygon or a path, and x y width height for the rectangle "
@@ -132,7 +132,7 @@ DESCRIPTIONS = {
                "there.",
     "set_state": "Changes what the next drawing on the canvas `c` is drawn with. "
                  "`kind` \"translate\", \"rotate\" or \"scale\" take their numbers "
-                 "(x y, degrees, sx sy) in `numbers`; \"push\" and \"pop\" save and "
+                 "(x y, radians, sx sy) in `numbers`; \"push\" and \"pop\" save and "
                  "restore the state; \"reset\" takes every transformation off; "
                  "\"shadow\" takes a color in `value` (\"\" for none) and blur dx dy in "
                  "`numbers`; \"blend\" takes \"normal\" or \"add\" in `value`; "
@@ -193,9 +193,47 @@ DESCRIPTIONS = {
                    "runs first, and then among the samples tinyweb ships in "
                    "`tinyweb_assets/`: kick1.wav, snare1.wav, hihat1.wav and "
                    "piano_c1.wav.",
-    "play_sample": "Plays the sample `sample`: at the time `at` on the page's clock, or "
-                   "now if that has passed; `volume` times as loud, and `rate` times as "
-                   "fast, which raises its pitch as much.",
+    "fresh_id": "A new element's identifier: `name`, with a number added where "
+                "something on the page has that name already. Sends nothing; what "
+                "`command` makes takes it.",
+    "command": "Sends the page one command, by `kind`, with an element `id`, a "
+               "`text` and its `numbers` as words. Sound: \"play\" (id the sample; "
+               "numbers at volume rate pan channel reverse), \"start\" (id a new "
+               "voice, text the sample, numbers as play's then loop), \"stop\" (at), "
+               "\"fade\" (volume over), \"stop_all\", \"tone\" (text the wave; "
+               "frequency at duration volume pan channel), \"master\" (volume), "
+               "\"tempo\" (bpm), \"swing\" (amount), \"beat\" (steps; reports "
+               "\"beat\" for `id`), \"channel\" (id the channel; volume pan echo "
+               "echo_time feedback reverb low_pass), \"listen\" (bins smoothing), "
+               "\"audio\" (text pause or resume), \"render\" and \"render_end\". "
+               "Timers: \"after\" and \"every\" (seconds; reports \"timer\"), "
+               "\"cancel\". The page: \"set_text\", \"visible\" and "
+               "\"enabled\" (1 or 0), \"remove\", \"text_area\" (rows columns), "
+               "\"file_button\", \"cursor\", \"save_canvas\", \"download\". "
+               "`mode` says what a page connecting later is sent again: 0 kept, 1 "
+               "the last of its kind and id, 2 like a sound, 3 nothing.",
+    "watch": "Calls `f` each time the page reports `kind` for the element `id`: a "
+             "timer's \"timer\", a beat's \"beat\", a text area's \"change\", a "
+             "file button's \"loaded\", a rendering's \"rendered\".",
+    "report_number": "The `k`th number the page last reported under `name`: "
+                     "\"clock\" (the beat, the latency, whether sound runs), \"beat\" "
+                     "(a beat's step and time), \"level\", \"band\" and \"wave\" once "
+                     "listening, \"rendered\" (seconds taken, peak). 0.0 where there is "
+                     "none.",
+    "report_text": "The text the page last reported under `name`: \"value.\" and an "
+                   "input's identifier for what it holds, \"file\" and \"file.text\" "
+                   "for a file loaded. Empty where there is none.",
+    "report_count": "How many numbers the page last reported under `name`.",
+    "watch_text": "Calls `f` each time the page reports `kind` for the element `id`, "
+                  "with the text it last reported under `name`: a text area's "
+                  "\"change\" with \"value.\" and its identifier, a file button's "
+                  "\"loaded\" with \"file\".",
+    "watch_step": "Calls `f` each time the page reports `kind` for the element `id`, "
+                  "with the first number reported under `kind` as a whole number and "
+                  "the second: a beat's step and when it sounds.",
+    "watch_pair": "Calls `f` each time the page reports `kind` for the element `id`, "
+                  "with the first two numbers reported under `kind`: a rendering's "
+                  "seconds taken and its peak.",
     "splash": "Shows the splash screen: the page dimmed, and a message asking the "
               "reader to click, since a browser plays no sound before the reader has "
               "clicked or pressed a key. The page waits there -- what the program "

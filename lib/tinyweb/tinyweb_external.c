@@ -95,7 +95,16 @@ void tinyweb_set_checked(const char *id, bool checked);
 void tinyweb_set_value(const char *id, int value);
 void tinyweb_apply_style(const char *id, const char *kind, const char *property, const char *value);
 const char *tinyweb_load_sample(const char *name);
-void tinyweb_play_sample(const char *sample, double at, double volume, double rate);
+const char *tinyweb_fresh_id(const char *name);
+void tinyweb_command(const char *kind, const char *id, const char *text, const char *numbers,
+                     int mode);
+void tinyweb_watch(const char *id, const char *kind, void (*f)(void));
+double tinyweb_report_number(const char *name, int k);
+const char *tinyweb_report_text(const char *name);
+int tinyweb_report_count(const char *name);
+void tinyweb_watch_text(const char *id, const char *kind, const char *name, void (*f)(const char *));
+void tinyweb_watch_step(const char *id, const char *kind, void (*f)(int, double));
+void tinyweb_watch_pair(const char *id, const char *kind, void (*f)(double, double));
 void tinyweb_splash(void);
 void tinyweb_set_splash(const char *message);
 double tinyweb_time(void);
@@ -420,7 +429,6 @@ static const char *const tinyweb_page_js[] = {
     "// arc is a slice from its centre is `slice`'s.\n",
     "// Context -> String -> [Float] -> Bool -> ()\n",
     "function shapePath(g, kind, n, slice) {\n",
-    "  const degrees = Math.PI / 180;\n",
     "  switch (kind) {\n",
     "    case \"rect\":\n",
     "      if (n[4] > 0) roundedRect(g, n[0], n[1], n[2], n[3], n[4]);\n",
@@ -434,7 +442,7 @@ static const char *const tinyweb_page_js[] = {
     "      break;\n",
     "    case \"arc\":\n",
     "      if (slice) g.moveTo(n[0], n[1]);\n",
-    "      g.arc(n[0], n[1], Math.max(0, n[2]), n[3] * degrees, n[4] * degrees);\n",
+    "      g.arc(n[0], n[1], Math.max(0, n[2]), n[3], n[4]);\n",
     "      if (slice) g.closePath();\n",
     "      break;\n",
     "    case \"line\":\n",
@@ -488,7 +496,7 @@ static const char *const tinyweb_page_js[] = {
     "  else if (kind === \"radial-gradient\")\n",
     "    gradient = g.createRadialGradient(n[0], n[1], Math.max(0, n[2]), n[3], n[4], Math.max(0, n[5]));\n",
     "  else if (kind === \"conic-gradient\" && typeof g.createConicGradient === \"function\")\n",
-    "    gradient = g.createConicGradient((n[2] * Math.PI) / 180, n[0], n[1]);\n",
+    "    gradient = g.createConicGradient(n[2], n[0], n[1]);\n",
     "  else return \"#000000\";\n",
     "  // A stop's color may itself hold brackets and commas, \"rgba(0, 0, 0, 0.5)\",\n",
     "  // but never a semicolon.\n",
@@ -611,7 +619,7 @@ static const char *const tinyweb_page_js[] = {
     "      g.translate(n[0], n[1]);\n",
     "      break;\n",
     "    case \"rotate\":\n",
-    "      g.rotate((n[0] * Math.PI) / 180);\n",
+    "      g.rotate(n[0]);\n",
     "      break;\n",
     "    case \"scale\":\n",
     "      g.scale(n[0], n[1]);\n",
@@ -836,7 +844,697 @@ static const char *const tinyweb_page_js[] = {
     "  const target = event.target;\n",
     "  return !!target && typeof target.tagName === \"string\"\n",
     "    && (target.tagName === \"SELECT\"\n",
+    "      || target.tagName === \"TEXTAREA\"\n",
     "      || (target.tagName === \"INPUT\" && (target.type === \"text\" || target.type === \"number\")));\n",
+    "}\n",
+    "\n",
+    "// --- the engine: sound, the beat, timers and changing the page ---\n",
+    "// What every `cmd` command does, the same for the page a program sends\n",
+    "// commands to and for web, which calls it directly: makeEngine(host)\n",
+    "// answers {command(cmd), reports(withSound), frozen(), held(cmd), close()}.\n",
+    "// `host` is what the engine needs of the page:\n",
+    "//   audio() -- the AudioContext once sound has started, or null\n",
+    "//   startAudio() -- starts sound, where the reader has already done something\n",
+    "//   clock() -- the page's clock, in seconds\n",
+    "//   toAudio(t) -- a time on the page's clock as a time on the audio clock\n",
+    "//   thaw(t) -- the clock goes on from `t` after a pause\n",
+    "//   sample(id) -- a sample's loading, a Promise of its AudioBuffer (or null)\n",
+    "//   addSample(id, loading) -- a sample loaded another way: a file the reader chose\n",
+    "//   element(id) -- an element by its identifier; forget(id) when it is removed\n",
+    "//   remember(id, element), place(element) -- a new element, put on the page\n",
+    "//   canvas(id) -- a canvas's {element, width, height}\n",
+    "//   send(event) -- reports an event to the program\n",
+    "\n",
+    "// How far ahead the beat is scheduled, and how often it is looked at.\n",
+    "const LOOKAHEAD = 0.15;\n",
+    "const TICK_MS = 25;\n",
+    "\n",
+    "// The numbers a command carries. String -> [Float]\n",
+    "function engineNumbers(text) {\n",
+    "  return text === \"\" || text === undefined ? [] : String(text).trim().split(/\\s+/).map(Number);\n",
+    "}\n",
+    "\n",
+    "// A buffer played backwards, made once per buffer. AudioContext -> AudioBuffer -> AudioBuffer\n",
+    "const reversedBuffers = new WeakMap();\n",
+    "function reversedOf(context, buffer) {\n",
+    "  let done = reversedBuffers.get(buffer);\n",
+    "  if (done) return done;\n",
+    "  done = context.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);\n",
+    "  for (let k = 0; k < buffer.numberOfChannels; k++) {\n",
+    "    const from = buffer.getChannelData(k);\n",
+    "    const to = done.getChannelData(k);\n",
+    "    for (let i = 0, n = from.length; i < n; i++) to[i] = from[n - 1 - i];\n",
+    "  }\n",
+    "  reversedBuffers.set(buffer, done);\n",
+    "  return done;\n",
+    "}\n",
+    "\n",
+    "// A reverb's impulse: two seconds of noise dying away. AudioContext -> AudioBuffer\n",
+    "function impulseOf(context) {\n",
+    "  const length = Math.round(context.sampleRate * 2);\n",
+    "  const impulse = context.createBuffer(2, length, context.sampleRate);\n",
+    "  // The same noise every time, so a render comes out the same.\n",
+    "  let seed = 22222;\n",
+    "  const random = () => {\n",
+    "    seed = (seed * 1103515245 + 12345) % 2147483648;\n",
+    "    return seed / 2147483648;\n",
+    "  };\n",
+    "  for (let k = 0; k < 2; k++) {\n",
+    "    const data = impulse.getChannelData(k);\n",
+    "    for (let i = 0; i < length; i++) data[i] = (random() * 2 - 1) * Math.pow(1 - i / length, 3);\n",
+    "  }\n",
+    "  return impulse;\n",
+    "}\n",
+    "\n",
+    "// A channel's settings as `channel_style` gives them.\n",
+    "const CHANNEL_DEFAULT = { volume: 1, pan: 0, echo: 0, echoTime: 0.3, feedback: 0.35, reverb: 0, lowPass: 0 };\n",
+    "\n",
+    "// The sound graph of one AudioContext: a master volume, an analyser on\n",
+    "// it, and the channels each sound goes through: volume, pan, a low-pass\n",
+    "// filter, and sends to an echo and a reverb. AudioContext -> {..}\n",
+    "function soundGraph(context) {\n",
+    "  const master = context.createGain();\n",
+    "  const analyser = context.createAnalyser ? context.createAnalyser() : null;\n",
+    "  if (analyser) {\n",
+    "    master.connect(analyser);\n",
+    "    analyser.connect(context.destination);\n",
+    "  } else {\n",
+    "    master.connect(context.destination);\n",
+    "  }\n",
+    "  const channels = new Map();\n",
+    "  let impulse = null;\n",
+    "  function channel(n) {\n",
+    "    let ch = channels.get(n);\n",
+    "    if (ch) return ch;\n",
+    "    const input = context.createGain();\n",
+    "    const panner = context.createStereoPanner ? context.createStereoPanner() : null;\n",
+    "    const filter = context.createBiquadFilter();\n",
+    "    filter.type = \"lowpass\";\n",
+    "    filter.frequency.value = 22050;\n",
+    "    const out = context.createGain();\n",
+    "    if (panner) input.connect(panner).connect(filter);\n",
+    "    else input.connect(filter);\n",
+    "    filter.connect(out);\n",
+    "    out.connect(master);\n",
+    "    const delay = context.createDelay(5);\n",
+    "    const feedback = context.createGain();\n",
+    "    const echo = context.createGain();\n",
+    "    echo.gain.value = 0;\n",
+    "    out.connect(echo);\n",
+    "    echo.connect(delay);\n",
+    "    delay.connect(feedback);\n",
+    "    feedback.connect(delay);\n",
+    "    delay.connect(master);\n",
+    "    const reverb = context.createGain();\n",
+    "    reverb.gain.value = 0;\n",
+    "    let convolver = null;\n",
+    "    ch = { input, panner, filter, out, delay, feedback, echo, reverb, convolver };\n",
+    "    channels.set(n, ch);\n",
+    "    return ch;\n",
+    "  }\n",
+    "  function style(n, settings) {\n",
+    "    const ch = channel(n);\n",
+    "    ch.out.gain.value = settings.volume;\n",
+    "    if (ch.panner) ch.panner.pan.value = Math.max(-1, Math.min(1, settings.pan));\n",
+    "    ch.filter.frequency.value = settings.lowPass > 0 ? settings.lowPass : 22050;\n",
+    "    ch.echo.gain.value = settings.echo;\n",
+    "    ch.delay.delayTime.value = Math.max(0.001, Math.min(5, settings.echoTime));\n",
+    "    ch.feedback.gain.value = Math.max(0, Math.min(0.95, settings.feedback));\n",
+    "    if (settings.reverb > 0 && ch.convolver === null && context.createConvolver) {\n",
+    "      if (impulse === null) impulse = impulseOf(context);\n",
+    "      ch.convolver = context.createConvolver();\n",
+    "      ch.convolver.buffer = impulse;\n",
+    "      ch.out.connect(ch.reverb);\n",
+    "      ch.reverb.connect(ch.convolver);\n",
+    "      ch.convolver.connect(master);\n",
+    "    }\n",
+    "    ch.reverb.gain.value = settings.reverb;\n",
+    "  }\n",
+    "  return { context, master, analyser, channel, style };\n",
+    "}\n",
+    "\n",
+    "// A WAV file of a rendered buffer, 16 bits, as bytes. AudioBuffer -> Uint8Array\n",
+    "function wavBytes(buffer) {\n",
+    "  const channels = buffer.numberOfChannels;\n",
+    "  const frames = buffer.length;\n",
+    "  const bytes = new Uint8Array(44 + frames * channels * 2);\n",
+    "  const view = new DataView(bytes.buffer);\n",
+    "  const text = (at, s) => { for (let i = 0; i < s.length; i++) bytes[at + i] = s.charCodeAt(i); };\n",
+    "  text(0, \"RIFF\");\n",
+    "  view.setUint32(4, 36 + frames * channels * 2, true);\n",
+    "  text(8, \"WAVEfmt \");\n",
+    "  view.setUint32(16, 16, true);\n",
+    "  view.setUint16(20, 1, true);\n",
+    "  view.setUint16(22, channels, true);\n",
+    "  view.setUint32(24, buffer.sampleRate, true);\n",
+    "  view.setUint32(28, buffer.sampleRate * channels * 2, true);\n",
+    "  view.setUint16(32, channels * 2, true);\n",
+    "  view.setUint16(34, 16, true);\n",
+    "  text(36, \"data\");\n",
+    "  view.setUint32(40, frames * channels * 2, true);\n",
+    "  const data = [];\n",
+    "  for (let k = 0; k < channels; k++) data.push(buffer.getChannelData(k));\n",
+    "  let at = 44;\n",
+    "  for (let i = 0; i < frames; i++) {\n",
+    "    for (let k = 0; k < channels; k++) {\n",
+    "      const v = Math.max(-1, Math.min(1, data[k][i]));\n",
+    "      view.setInt16(at, v < 0 ? v * 0x8000 : v * 0x7fff, true);\n",
+    "      at += 2;\n",
+    "    }\n",
+    "  }\n",
+    "  return bytes;\n",
+    "}\n",
+    "\n",
+    "// Offers `blob` to the reader as a file called `name`. Blob -> String -> ()\n",
+    "function offerDownload(blob, name) {\n",
+    "  const link = document.createElement(\"a\");\n",
+    "  link.href = URL.createObjectURL(blob);\n",
+    "  link.download = name;\n",
+    "  link.style.display = \"none\";\n",
+    "  document.body.appendChild(link);\n",
+    "  link.click();\n",
+    "  link.remove();\n",
+    "  setTimeout(() => URL.revokeObjectURL(link.href), 10000);\n",
+    "}\n",
+    "\n",
+    "function makeEngine(host) {\n",
+    "  let graph = null;              // the live context's sound graph\n",
+    "  const settings = new Map();    // channel -> its settings, for every graph\n",
+    "  let masterVolume = 1;\n",
+    "  const voices = new Map();      // voice -> {source, gain}\n",
+    "  const sounding = new Set();    // every source started and not yet ended\n",
+    "  // The beat: tempo and swing, and where the beat was at some time, so a\n",
+    "  // change of tempo goes on from where the beat is.\n",
+    "  let bpm = 120;\n",
+    "  let swingAmount = 0;\n",
+    "  let anchor = null;             // {time, beat}\n",
+    "  const beats = new Map();       // watcher -> {steps, next}\n",
+    "  const timers = new Map();      // timer -> {at, every}\n",
+    "  let ticker = 0;\n",
+    "  let frozen = null;             // the clock, while the program has paused it\n",
+    "  let listening = null;          // {bins, smoothing}\n",
+    "  let rendering = null;          // {id, name, seconds, commands}\n",
+    "  let closed = false;\n",
+    "\n",
+    "  function live() {\n",
+    "    const context = host.audio();\n",
+    "    if (!context) return null;\n",
+    "    if (graph === null || graph.context !== context) {\n",
+    "      graph = soundGraph(context);\n",
+    "      graph.master.gain.value = masterVolume;\n",
+    "      for (const [n, s] of settings) graph.style(n, s);\n",
+    "      if (listening) listen(listening.bins, listening.smoothing);\n",
+    "    }\n",
+    "    return graph;\n",
+    "  }\n",
+    "\n",
+    "  function beatAt(t) {\n",
+    "    return anchor === null ? 0 : anchor.beat + ((t - anchor.time) * bpm) / 60;\n",
+    "  }\n",
+    "\n",
+    "  // When step `k` of a beat cut into `steps` steps sounds. Int -> Int -> Float\n",
+    "  function stepTime(k, steps) {\n",
+    "    const at = anchor.time + ((k / steps - anchor.beat) * 60) / bpm;\n",
+    "    return k % 2 === 1 ? at + (swingAmount * 60) / bpm / steps : at;\n",
+    "  }\n",
+    "\n",
+    "  function tick() {\n",
+    "    if (closed) return;\n",
+    "    const t = host.clock();\n",
+    "    if (frozen !== null) return;\n",
+    "    for (const [id, timer] of [...timers]) {\n",
+    "      if (t + 0.0005 < timer.at) continue;\n",
+    "      if (timer.every > 0) {\n",
+    "        while (timer.at <= t + 0.0005) timer.at += timer.every;\n",
+    "      } else {\n",
+    "        timers.delete(id);\n",
+    "      }\n",
+    "      host.send({ ev: \"cb\", id, kind: \"timer\" });\n",
+    "    }\n",
+    "    for (const [id, watcher] of beats) {\n",
+    "      for (let guard = 0; guard < 64; guard++) {\n",
+    "        const at = stepTime(watcher.next, watcher.steps);\n",
+    "        if (at > t + LOOKAHEAD) break;\n",
+    "        host.send({ ev: \"cb\", id, kind: \"beat\",\n",
+    "          reports: { beat: [watcher.next, Math.max(at, t), beatAt(t)] } });\n",
+    "        watcher.next += 1;\n",
+    "      }\n",
+    "    }\n",
+    "    if (timers.size === 0 && beats.size === 0) {\n",
+    "      clearInterval(ticker);\n",
+    "      ticker = 0;\n",
+    "    }\n",
+    "  }\n",
+    "\n",
+    "  function ticking() {\n",
+    "    if (ticker === 0 && !closed) ticker = setInterval(tick, TICK_MS);\n",
+    "  }\n",
+    "\n",
+    "  // Starts one sound on `g`'s context: a sample (`play` and `start`) or a\n",
+    "  // tone, at `at` on that context's clock. Answers its source.\n",
+    "  function sound(g, kind, sample, buffer, n, toTime) {\n",
+    "    const context = g.context;\n",
+    "    if (kind === \"tone\") {\n",
+    "      const [frequency, at, duration, volume, pan, channel] = n;\n",
+    "      const when = Math.max(context.currentTime, toTime(at));\n",
+    "      const length = Math.max(0.02, duration);\n",
+    "      const oscillator = context.createOscillator();\n",
+    "      oscillator.type = [\"sine\", \"square\", \"triangle\", \"sawtooth\"].includes(sample) ? sample : \"sine\";\n",
+    "      oscillator.frequency.value = frequency;\n",
+    "      const gain = context.createGain();\n",
+    "      const attack = Math.min(0.01, length / 4);\n",
+    "      const release = Math.min(0.05, length / 4);\n",
+    "      gain.gain.setValueAtTime(0, when);\n",
+    "      gain.gain.linearRampToValueAtTime(volume, when + attack);\n",
+    "      gain.gain.setValueAtTime(volume, when + length - release);\n",
+    "      gain.gain.linearRampToValueAtTime(0, when + length);\n",
+    "      const panner = pan !== 0 && context.createStereoPanner ? context.createStereoPanner() : null;\n",
+    "      if (panner) panner.pan.value = Math.max(-1, Math.min(1, pan));\n",
+    "      oscillator.connect(gain);\n",
+    "      (panner ? gain.connect(panner) : gain).connect(g.channel(channel || 0).input);\n",
+    "      oscillator.start(when);\n",
+    "      oscillator.stop(when + length + 0.01);\n",
+    "      return { source: oscillator, gain };\n",
+    "    }\n",
+    "    const [at, volume, rate, pan, channel, reverse, loop] = n;\n",
+    "    const source = context.createBufferSource();\n",
+    "    source.buffer = reverse ? reversedOf(context, buffer) : buffer;\n",
+    "    source.playbackRate.value = rate > 0 ? rate : 1;\n",
+    "    source.loop = !!loop;\n",
+    "    const gain = context.createGain();\n",
+    "    gain.gain.value = volume;\n",
+    "    const panner = pan !== 0 && context.createStereoPanner ? context.createStereoPanner() : null;\n",
+    "    if (panner) panner.pan.value = Math.max(-1, Math.min(1, pan));\n",
+    "    source.connect(gain);\n",
+    "    (panner ? gain.connect(panner) : gain).connect(g.channel(channel || 0).input);\n",
+    "    source.start(Math.max(context.currentTime, toTime(at)));\n",
+    "    return { source, gain };\n",
+    "  }\n",
+    "\n",
+    "  // A sound command on the live context.\n",
+    "  function playLive(cmd) {\n",
+    "    const n = engineNumbers(cmd.numbers);\n",
+    "    if (cmd.kind === \"tone\") {\n",
+    "      host.startAudio();\n",
+    "      const g = live();\n",
+    "      if (!g) return;\n",
+    "      const made = sound(g, \"tone\", cmd.text, null, n, host.toAudio);\n",
+    "      sounding.add(made.source);\n",
+    "      made.source.onended = () => sounding.delete(made.source);\n",
+    "      return;\n",
+    "    }\n",
+    "    const sample = cmd.kind === \"play\" ? cmd.id : cmd.text;\n",
+    "    host.startAudio();\n",
+    "    const loading = host.sample(sample);\n",
+    "    if (!loading) return;\n",
+    "    const voice = cmd.kind === \"start\" ? cmd.id : null;\n",
+    "    if (voice !== null) voices.set(voice, { source: null, gain: null, stopped: null });\n",
+    "    loading.then((buffer) => {\n",
+    "      const g = live();\n",
+    "      if (buffer === null || closed || !g) return;\n",
+    "      const entry = voice === null ? null : voices.get(voice);\n",
+    "      if (entry && entry.stopped !== null && entry.stopped <= host.clock()) return;\n",
+    "      const made = sound(g, \"sample\", sample, buffer, n, host.toAudio);\n",
+    "      sounding.add(made.source);\n",
+    "      made.source.onended = () => {\n",
+    "        sounding.delete(made.source);\n",
+    "        if (voice !== null && voices.get(voice)?.source === made.source) voices.delete(voice);\n",
+    "      };\n",
+    "      if (entry) {\n",
+    "        entry.source = made.source;\n",
+    "        entry.gain = made.gain;\n",
+    "        if (entry.stopped !== null) made.source.stop(Math.max(g.context.currentTime, host.toAudio(entry.stopped)));\n",
+    "        if (entry.fade) fadeVoice(entry, ...entry.fade);\n",
+    "      }\n",
+    "    });\n",
+    "  }\n",
+    "\n",
+    "  function fadeVoice(entry, volume, over) {\n",
+    "    const g = live();\n",
+    "    if (!g || entry.gain === null) {\n",
+    "      entry.fade = [volume, over];\n",
+    "      return;\n",
+    "    }\n",
+    "    const now = g.context.currentTime;\n",
+    "    const param = entry.gain.gain;\n",
+    "    param.cancelScheduledValues(now);\n",
+    "    param.setValueAtTime(param.value, now);\n",
+    "    if (over > 0) param.linearRampToValueAtTime(volume, now + over);\n",
+    "    else param.setValueAtTime(volume, now);\n",
+    "  }\n",
+    "\n",
+    "  function stopAll() {\n",
+    "    const g = live();\n",
+    "    for (const source of sounding) {\n",
+    "      try {\n",
+    "        source.stop(g ? g.context.currentTime : 0);\n",
+    "      } catch {\n",
+    "        // already stopped\n",
+    "      }\n",
+    "    }\n",
+    "    sounding.clear();\n",
+    "    for (const entry of voices.values()) entry.stopped = -Infinity;\n",
+    "    voices.clear();\n",
+    "  }\n",
+    "\n",
+    "  function listen(bins, smoothing) {\n",
+    "    listening = { bins, smoothing };\n",
+    "    const g = graph;\n",
+    "    if (!g || !g.analyser) return;\n",
+    "    let size = 32;\n",
+    "    while (size < bins * 2 && size < 32768) size *= 2;\n",
+    "    g.analyser.fftSize = size;\n",
+    "    g.analyser.smoothingTimeConstant = Math.max(0, Math.min(0.99, smoothing));\n",
+    "  }\n",
+    "\n",
+    "  // What the page reports with an event: where the beat is, how late\n",
+    "  // sound comes out, whether it is running; and with a frame, what the\n",
+    "  // program listens to. Bool -> {..}\n",
+    "  // The analyser's arrays, kept from frame to frame.\n",
+    "  const scratch = { spectrum: new Uint8Array(0), samples: new Float32Array(0) };\n",
+    "\n",
+    "  function reports(withSound) {\n",
+    "    const context = host.audio();\n",
+    "    const t = host.clock();\n",
+    "    const latency = context ? (context.outputLatency || 0) + (context.baseLatency || 0) : 0;\n",
+    "    const out = { clock: [beatAt(t), latency, context && context.state === \"running\" ? 1 : 0] };\n",
+    "    if (withSound && listening !== null) {\n",
+    "      const g = live();\n",
+    "      const bins = listening.bins;\n",
+    "      const level = [0];\n",
+    "      const band = new Array(bins).fill(0);\n",
+    "      const wave = new Array(bins).fill(0);\n",
+    "      if (g && g.analyser && g.analyser.getByteFrequencyData) {\n",
+    "        const a = g.analyser;\n",
+    "        if (scratch.spectrum.length !== a.frequencyBinCount) {\n",
+    "          scratch.spectrum = new Uint8Array(a.frequencyBinCount);\n",
+    "          scratch.samples = new Float32Array(a.fftSize);\n",
+    "        }\n",
+    "        const spectrum = scratch.spectrum;\n",
+    "        a.getByteFrequencyData(spectrum);\n",
+    "        const per = spectrum.length / bins;\n",
+    "        for (let k = 0; k < bins; k++) {\n",
+    "          let peak = 0;\n",
+    "          for (let i = Math.floor(k * per); i < Math.max(Math.floor((k + 1) * per), Math.floor(k * per) + 1); i++) {\n",
+    "            peak = Math.max(peak, spectrum[Math.min(i, spectrum.length - 1)]);\n",
+    "          }\n",
+    "          band[k] = Math.round((peak / 255) * 1000) / 1000;\n",
+    "        }\n",
+    "        const samples = scratch.samples;\n",
+    "        a.getFloatTimeDomainData(samples);\n",
+    "        let sum = 0;\n",
+    "        for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];\n",
+    "        level[0] = Math.round(Math.min(1, Math.sqrt(sum / samples.length) * Math.SQRT2) * 1000) / 1000;\n",
+    "        const step = samples.length / bins;\n",
+    "        for (let k = 0; k < bins; k++) wave[k] = Math.round(samples[Math.floor(k * step)] * 1000) / 1000;\n",
+    "      }\n",
+    "      out.level = level;\n",
+    "      out.band = band;\n",
+    "      out.wave = wave;\n",
+    "    }\n",
+    "    return out;\n",
+    "  }\n",
+    "\n",
+    "  // Renders what was scheduled between `render` and `render_end` offline,\n",
+    "  // offers it as a WAV file and reports how long that took and how loud\n",
+    "  // its loudest sample is.\n",
+    "  function finishRender(job) {\n",
+    "    const Offline = globalThis.OfflineAudioContext;\n",
+    "    const done = (took, peak) =>\n",
+    "      host.send({ ev: \"cb\", id: job.id, kind: \"rendered\", reports: { rendered: [took, peak] } });\n",
+    "    if (!Offline) {\n",
+    "      done(0, 0);\n",
+    "      return;\n",
+    "    }\n",
+    "    const rate = 44100;\n",
+    "    const context = new Offline(2, Math.max(1, Math.ceil(job.seconds * rate)), rate);\n",
+    "    const g = soundGraph(context);\n",
+    "    g.master.gain.value = masterVolume;\n",
+    "    for (const [n, s] of settings) g.style(n, s);\n",
+    "    const wanted = job.commands.filter((c) => c.kind !== \"tone\")\n",
+    "      .map((c) => host.sample(c.kind === \"play\" ? c.id : c.text) || Promise.resolve(null));\n",
+    "    Promise.all(wanted).then((buffers) => {\n",
+    "      let b = 0;\n",
+    "      for (const c of job.commands) {\n",
+    "        const n = engineNumbers(c.numbers);\n",
+    "        if (c.kind === \"tone\") {\n",
+    "          sound(g, \"tone\", c.text, null, n, (t) => t);\n",
+    "        } else {\n",
+    "          const buffer = buffers[b++];\n",
+    "          if (buffer) sound(g, \"sample\", null, buffer, n, (t) => t);\n",
+    "        }\n",
+    "      }\n",
+    "      const started = typeof performance !== \"undefined\" ? performance.now() : Date.now();\n",
+    "      return context.startRendering().then((buffer) => {\n",
+    "        const took = ((typeof performance !== \"undefined\" ? performance.now() : Date.now()) - started) / 1000;\n",
+    "        let peak = 0;\n",
+    "        for (let k = 0; k < buffer.numberOfChannels; k++) {\n",
+    "          const data = buffer.getChannelData(k);\n",
+    "          for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));\n",
+    "        }\n",
+    "        offerDownload(new Blob([wavBytes(buffer)], { type: \"audio/wav\" }), job.name);\n",
+    "        done(Math.round(took * 1000) / 1000, Math.round(peak * 1000) / 1000);\n",
+    "      });\n",
+    "    }).catch((error) => {\n",
+    "      console.error(`tinyweb: rendering ${job.name} failed: ${error.message}`);\n",
+    "      done(0, 0);\n",
+    "    });\n",
+    "  }\n",
+    "\n",
+    "  // An element whose `display` the program sets: a slider's row, not\n",
+    "  // its input.\n",
+    "  function shown(element) {\n",
+    "    return element.tagName === \"INPUT\" && element.type === \"range\" ? element.parentNode : element;\n",
+    "  }\n",
+    "\n",
+    "  function value(id, text) {\n",
+    "    host.send({ ev: \"report\", reports: { [\"value.\" + id]: String(text) } });\n",
+    "  }\n",
+    "\n",
+    "  function command(cmd) {\n",
+    "    const n = engineNumbers(cmd.numbers);\n",
+    "    if (rendering !== null && [\"play\", \"start\", \"tone\"].includes(cmd.kind)) {\n",
+    "      rendering.commands.push(cmd);\n",
+    "      return;\n",
+    "    }\n",
+    "    switch (cmd.kind) {\n",
+    "      // --- sound ---\n",
+    "      case \"play\":\n",
+    "      case \"start\":\n",
+    "      case \"tone\":\n",
+    "        playLive(cmd);\n",
+    "        break;\n",
+    "      case \"stop\": {\n",
+    "        const entry = voices.get(cmd.id);\n",
+    "        if (!entry) break;\n",
+    "        const at = n[0] || 0;\n",
+    "        entry.stopped = at;\n",
+    "        const g = live();\n",
+    "        if (entry.source && g) entry.source.stop(Math.max(g.context.currentTime, host.toAudio(at)));\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"fade\": {\n",
+    "        const entry = voices.get(cmd.id);\n",
+    "        if (entry) fadeVoice(entry, n[0] ?\? 0, n[1] ?\? 0);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"stop_all\":\n",
+    "        stopAll();\n",
+    "        break;\n",
+    "      case \"master\": {\n",
+    "        masterVolume = n[0] ?\? 1;\n",
+    "        const g = live();\n",
+    "        if (g) g.master.gain.value = masterVolume;\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"channel\": {\n",
+    "        const ch = Number(cmd.id) || 0;\n",
+    "        const s = { volume: n[0] ?\? 1, pan: n[1] ?\? 0, echo: n[2] ?\? 0, echoTime: n[3] ?\? 0.3,\n",
+    "          feedback: n[4] ?\? 0.35, reverb: n[5] ?\? 0, lowPass: n[6] ?\? 0 };\n",
+    "        settings.set(ch, s);\n",
+    "        const g = live();\n",
+    "        if (g) g.style(ch, s);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"listen\":\n",
+    "        listen(Math.max(1, Math.min(1024, Math.round(n[0] || 32))), n[1] ?\? 0.8);\n",
+    "        live();\n",
+    "        break;\n",
+    "      case \"tempo\": {\n",
+    "        const t = host.clock();\n",
+    "        anchor = anchor === null ? null : { time: t, beat: beatAt(t) };\n",
+    "        bpm = Math.max(1, n[0] || 120);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"swing\":\n",
+    "        swingAmount = Math.max(0, Math.min(0.9, n[0] || 0));\n",
+    "        break;\n",
+    "      case \"beat\": {\n",
+    "        const t = host.clock();\n",
+    "        const steps = Math.max(1, Math.round(n[0] || 1));\n",
+    "        if (anchor === null) anchor = { time: t + 0.05, beat: 0 };\n",
+    "        // The first step not yet passed, from where the beat is.\n",
+    "        // `+ 0` makes a -0 at the very start a 0: a step is a whole number.\n",
+    "        let next = Math.ceil(beatAt(t) * steps - 1e-9) + 0;\n",
+    "        while (stepTime(next, steps) < t) next += 1;\n",
+    "        beats.set(cmd.id, { steps, next });\n",
+    "        ticking();\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"beat_stop\":\n",
+    "        beats.delete(cmd.id);\n",
+    "        break;\n",
+    "      case \"audio\": {\n",
+    "        const context = host.audio();\n",
+    "        if (cmd.text === \"pause\" && frozen === null) {\n",
+    "          frozen = host.clock();\n",
+    "          if (context && context.state === \"running\") context.suspend();\n",
+    "        } else if (cmd.text === \"resume\" && frozen !== null) {\n",
+    "          const at = frozen;\n",
+    "          if (context) {\n",
+    "            context.resume().then(() => {\n",
+    "              host.thaw(at);\n",
+    "              frozen = null;\n",
+    "            });\n",
+    "          } else {\n",
+    "            host.thaw(at);\n",
+    "            frozen = null;\n",
+    "          }\n",
+    "        }\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"render\":\n",
+    "        rendering = { id: cmd.id, name: cmd.text, seconds: n[0] || 1, commands: [] };\n",
+    "        break;\n",
+    "      case \"render_end\":\n",
+    "        if (rendering !== null) {\n",
+    "          const job = rendering;\n",
+    "          rendering = null;\n",
+    "          finishRender(job);\n",
+    "        }\n",
+    "        break;\n",
+    "      // --- timers ---\n",
+    "      case \"after\":\n",
+    "      case \"every\": {\n",
+    "        const seconds = Math.max(0, n[0] || 0);\n",
+    "        timers.set(cmd.id, { at: host.clock() + seconds, every: cmd.kind === \"every\" ? Math.max(0.001, seconds) : 0 });\n",
+    "        ticking();\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"cancel\":\n",
+    "        timers.delete(cmd.id);\n",
+    "        beats.delete(cmd.id);\n",
+    "        break;\n",
+    "      // --- changing what is on the page ---\n",
+    "      case \"set_text\": {\n",
+    "        const element = host.element(cmd.id);\n",
+    "        if (!element) break;\n",
+    "        if (element.tagName === \"INPUT\" || element.tagName === \"TEXTAREA\") element.value = cmd.text;\n",
+    "        else element.textContent = cmd.text;\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"visible\": {\n",
+    "        const element = host.element(cmd.id);\n",
+    "        if (element) shown(element).style.display = n[0] ? \"\" : \"none\";\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"enabled\": {\n",
+    "        const element = host.element(cmd.id);\n",
+    "        if (element) element.disabled = !n[0];\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"remove\": {\n",
+    "        const element = host.element(cmd.id);\n",
+    "        if (element) shown(element).remove();\n",
+    "        host.forget(cmd.id);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"text_area\": {\n",
+    "        const area = document.createElement(\"textarea\");\n",
+    "        area.setAttribute(\"data-tinyweb-id\", String(cmd.id));\n",
+    "        area.value = cmd.text;\n",
+    "        area.rows = Math.max(1, Math.round(n[0] || 4));\n",
+    "        area.cols = Math.max(1, Math.round(n[1] || 40));\n",
+    "        area.addEventListener(\"input\", () => {\n",
+    "          host.send({ ev: \"cb\", id: cmd.id, kind: \"change\", reports: { [\"value.\" + cmd.id]: area.value } });\n",
+    "        });\n",
+    "        host.remember(cmd.id, area);\n",
+    "        host.place(area);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"file_button\": {\n",
+    "        const button = document.createElement(\"button\");\n",
+    "        button.setAttribute(\"data-tinyweb-id\", String(cmd.id));\n",
+    "        button.textContent = cmd.text;\n",
+    "        const input = document.createElement(\"input\");\n",
+    "        input.type = \"file\";\n",
+    "        input.style.display = \"none\";\n",
+    "        button.addEventListener(\"click\", () => {\n",
+    "          host.startAudio();\n",
+    "          input.click();\n",
+    "        });\n",
+    "        // The input is inside the button: its own click is not the button's.\n",
+    "        input.addEventListener(\"click\", (event) => event.stopPropagation());\n",
+    "        input.addEventListener(\"change\", () => {\n",
+    "          const file = input.files && input.files[0];\n",
+    "          if (!file) return;\n",
+    "          file.arrayBuffer().then((bytes) => {\n",
+    "            if (/^audio\\//.test(file.type) || /\\.(wav|mp3|ogg|m4a|flac|aac)$/i.test(file.name)) {\n",
+    "              const decoder = new OfflineAudioContext(1, 1, 44100);\n",
+    "              const loading = decoder.decodeAudioData(bytes).catch(() => null);\n",
+    "              host.addSample(cmd.id, loading);\n",
+    "              loading.then(() => host.send({ ev: \"cb\", id: cmd.id, kind: \"loaded\",\n",
+    "                reports: { file: file.name, [\"file.text\"]: \"\" } }));\n",
+    "            } else {\n",
+    "              const text = new TextDecoder().decode(bytes);\n",
+    "              host.send({ ev: \"cb\", id: cmd.id, kind: \"loaded\", reports: { file: file.name, [\"file.text\"]: text } });\n",
+    "            }\n",
+    "          });\n",
+    "        });\n",
+    "        host.remember(cmd.id, button);\n",
+    "        host.place(button);\n",
+    "        button.appendChild(input);\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"cursor\": {\n",
+    "        const target = cmd.id === \"\" ? document.body : host.canvas(cmd.id)?.element;\n",
+    "        if (target) target.style.cursor = cmd.text || \"auto\";\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"save_canvas\": {\n",
+    "        const entry = host.canvas(cmd.id);\n",
+    "        if (!entry || !entry.element.toBlob) break;\n",
+    "        const out = document.createElement(\"canvas\");\n",
+    "        out.width = entry.width;\n",
+    "        out.height = entry.height;\n",
+    "        const g = out.getContext(\"2d\");\n",
+    "        g.fillStyle = \"#ffffff\";\n",
+    "        g.fillRect(0, 0, out.width, out.height);\n",
+    "        g.drawImage(entry.element, 0, 0, out.width, out.height);\n",
+    "        out.toBlob((blob) => { if (blob) offerDownload(blob, cmd.text); }, \"image/png\");\n",
+    "        break;\n",
+    "      }\n",
+    "      case \"download\":\n",
+    "        offerDownload(new Blob([cmd.text], { type: \"text/plain\" }), cmd.id);\n",
+    "        break;\n",
+    "    }\n",
+    "  }\n",
+    "\n",
+    "  return {\n",
+    "    command,\n",
+    "    reports,\n",
+    "    value,\n",
+    "    // The clock while the program has paused it, or null.\n",
+    "    frozen: () => frozen,\n",
+    "    // Whether a command needs sound, which may need the splash screen first.\n",
+    "    sounds: (cmd) => [\"play\", \"start\", \"tone\"].includes(cmd.kind),\n",
+    "    close() {\n",
+    "      closed = true;\n",
+    "      clearInterval(ticker);\n",
+    "      ticker = 0;\n",
+    "      stopAll();\n",
+    "    },\n",
+    "  };\n",
     "}\n",
     "// END tinyweb style\n",
     "\n",
@@ -879,6 +1577,8 @@ static const char *const tinyweb_page_js[] = {
     "  let frameWaiting = false;\n",
     "  let frameRequest = 0;\n",
     "  let closed = false;\n",
+    "  // Sound, the beat, timers and page changes (the `cmd` commands).\n",
+    "  let engine = null;\n",
     "  // Inside another page the keys go to the element the page is mounted\n",
     "  // in, which takes the focus when anything in it is clicked; that page\n",
     "  // shows the focus (:focus-within).\n",
@@ -916,11 +1616,17 @@ static const char *const tinyweb_page_js[] = {
     "\n",
     "  function clockNow() {\n",
     "    if (held !== null) return heldClock;\n",
+    "    const paused = engine === null ? null : engine.frozen();\n",
+    "    if (paused !== null) return paused;\n",
     "    return running() ? audio.currentTime + offset : (now() - start) / 1000;\n",
     "  }\n",
     "\n",
+    "  // Every event carries where the beat is and how late sound comes out,\n",
+    "  // and a frame what the program listens to.\n",
     "  function report(event) {\n",
-    "    if (!closed && held === null) sendEvent({ ...event, t: clockNow(), running: running() });\n",
+    "    if (closed || held !== null) return;\n",
+    "    const reports = { ...engine.reports(event.ev === \"frame\"), ...(event.reports || {}) };\n",
+    "    sendEvent({ ...event, t: clockNow(), running: running(), reports });\n",
     "  }\n",
     "\n",
     "  // Whether a sound now would need the splash screen first.\n",
@@ -967,13 +1673,34 @@ static const char *const tinyweb_page_js[] = {
     "      audio = new Context();\n",
     "      offset = before - audio.currentTime;\n",
     "      audio.onstatechange = () => {\n",
-    "        if (audio.state === \"running\") offset = (now() - start) / 1000 - audio.currentTime;\n",
+    "        if (audio.state !== \"running\") return;\n",
+    "        const paused = engine.frozen();\n",
+    "        offset = (paused !== null ? paused : (now() - start) / 1000) - audio.currentTime;\n",
     "      };\n",
     "    }\n",
     "    if (audio.state === \"suspended\") audio.resume();\n",
     "  }\n",
     "\n",
     "  box.addEventListener(\"pointerdown\", startAudio);\n",
+    "\n",
+    "  engine = makeEngine({\n",
+    "    audio: () => audio,\n",
+    "    startAudio,\n",
+    "    clock: clockNow,\n",
+    "    toAudio: (t) => t - offset,\n",
+    "    thaw: (t) => {\n",
+    "      start = now() - t * 1000;\n",
+    "      if (running()) offset = t - audio.currentTime;\n",
+    "    },\n",
+    "    sample: (id) => samples.get(id),\n",
+    "    addSample: (id, loading) => samples.set(id, loading),\n",
+    "    element: (id) => look.elements.get(id),\n",
+    "    forget: (id) => look.elements.delete(id),\n",
+    "    remember: (id, made) => remember(look, id, made),\n",
+    "    place: (made) => parent.appendChild(made),\n",
+    "    canvas: (id) => canvases.get(id),\n",
+    "    send: (event) => report(event),\n",
+    "  });\n",
     "\n",
     "  function onKey(event) {\n",
     "    if (held !== null) {\n",
@@ -1019,22 +1746,6 @@ static const char *const tinyweb_page_js[] = {
     "        console.error(`tinyweb: cannot load the sample ${name}: ${error.message}`);\n",
     "        return null;\n",
     "      });\n",
-    "  }\n",
-    "\n",
-    "  function play({ sample, at, volume, rate }) {\n",
-    "    startAudio();\n",
-    "    const loading = samples.get(sample);\n",
-    "    if (!loading || audio === null) return;\n",
-    "    loading.then((buffer) => {\n",
-    "      if (buffer === null || closed) return;\n",
-    "      const source = audio.createBufferSource();\n",
-    "      source.buffer = buffer;\n",
-    "      source.playbackRate.value = rate;\n",
-    "      const gain = audio.createGain();\n",
-    "      gain.gain.value = volume;\n",
-    "      source.connect(gain).connect(audio.destination);\n",
-    "      source.start(Math.max(audio.currentTime, at - offset));\n",
-    "    });\n",
     "  }\n",
     "\n",
     "  function frame() {\n",
@@ -1152,7 +1863,8 @@ static const char *const tinyweb_page_js[] = {
     "        const { row, input } = choiceRow(\"checkbox\", command.id, command.title, command.checked);\n",
     "        input.addEventListener(\"change\", () => {\n",
     "          startAudio();\n",
-    "          report({ ev: \"check\", id: command.id, checked: input.checked });\n",
+    "          report({ ev: \"check\", id: command.id, checked: input.checked,\n",
+    "            reports: { [\"value.\" + command.id]: String(input.checked) } });\n",
     "        });\n",
     "        checks.set(command.id, (on) => { input.checked = on; });\n",
     "        remember(look, command.id, input);\n",
@@ -1188,7 +1900,8 @@ static const char *const tinyweb_page_js[] = {
     "        const select = choiceElement(command.id, command.options, command.chosen);\n",
     "        select.addEventListener(\"change\", () => {\n",
     "          startAudio();\n",
-    "          report({ ev: \"choose\", id: command.id, value: Number(select.value) });\n",
+    "          report({ ev: \"choose\", id: command.id, value: Number(select.value),\n",
+    "            reports: { [\"value.\" + command.id]: select.value } });\n",
     "        });\n",
     "        values.set(command.id, (value) => { select.value = String(value); });\n",
     "        remember(look, command.id, select);\n",
@@ -1197,6 +1910,7 @@ static const char *const tinyweb_page_js[] = {
     "      }\n",
     "      case \"text_input\": {\n",
     "        const input = textInputElement(command.id, command.placeholder);\n",
+    "        input.addEventListener(\"input\", () => engine.value(command.id, input.value));\n",
     "        input.addEventListener(\"keydown\", (event) => {\n",
     "          if (event.key === \"Enter\") {\n",
     "            startAudio();\n",
@@ -1211,7 +1925,8 @@ static const char *const tinyweb_page_js[] = {
     "        const input = numberElement(command.id, command.low, command.high, command.value);\n",
     "        input.addEventListener(\"change\", () => {\n",
     "          startAudio();\n",
-    "          report({ ev: \"slide\", id: command.id, value: Number(input.value) });\n",
+    "          report({ ev: \"slide\", id: command.id, value: Number(input.value),\n",
+    "            reports: { [\"value.\" + command.id]: input.value } });\n",
     "        });\n",
     "        values.set(command.id, (value) => { input.value = String(value); });\n",
     "        remember(look, command.id, input);\n",
@@ -1281,7 +1996,8 @@ static const char *const tinyweb_page_js[] = {
     "        shown.textContent = input.value;\n",
     "        input.addEventListener(\"input\", () => {\n",
     "          shown.textContent = input.value;\n",
-    "          report({ ev: \"slide\", id: command.id, value: Number(input.value) });\n",
+    "          report({ ev: \"slide\", id: command.id, value: Number(input.value),\n",
+    "            reports: { [\"value.\" + command.id]: input.value } });\n",
     "        });\n",
     "        row.append(input, shown);\n",
     "        values.set(command.id, (value) => {\n",
@@ -1298,12 +2014,12 @@ static const char *const tinyweb_page_js[] = {
     "      case \"load\":\n",
     "        samples.set(command.id, loadSample(command.name));\n",
     "        break;\n",
-    "      case \"play\":\n",
-    "        if (splashWanted()) {\n",
+    "      case \"cmd\":\n",
+    "        if (engine.sounds(command) && splashWanted()) {\n",
     "          showSplash();\n",
     "          held.push(command);\n",
     "        } else {\n",
-    "          play(command);\n",
+    "          engine.command(command);\n",
     "        }\n",
     "        break;\n",
     "      case \"splash\":\n",
@@ -1358,6 +2074,7 @@ static const char *const tinyweb_page_js[] = {
     "    keyTarget.removeEventListener(\"keyup\", onKeyUp);\n",
     "    window.removeEventListener(\"blur\", onBlur);\n",
     "    if (!standalone) element.removeEventListener(\"click\", takeFocus);\n",
+    "    engine.close();\n",
     "    if (audio !== null) audio.close();\n",
     "  }\n",
     "\n",
@@ -1459,7 +2176,8 @@ static void tw_quote(tw_text *out, const char *text)
 
 /* One command: its JSON for the page, its line for the log, and what a
    later command can make invisible -- the canvas it draws on, the label
-   it sets. */
+   it sets, a `cmd`'s kind and id (`key`, NULL for any other op), which
+   `replacing` hides where earlier commands have the same. */
 typedef struct {
     char *json;
     char *line;
@@ -1467,6 +2185,8 @@ typedef struct {
     const char *canvas;
     int setting;
     const char *id;
+    char *key;
+    int replacing;
 } tw_command;
 
 static const char *tw_log = NULL;
@@ -1652,10 +2372,12 @@ static void tw_keep(tw_command command)
         tw_command *old = &tw_history[i];
         int hidden =
             (command.drawing == 2 && old->drawing && tw_same(old->canvas, command.canvas))
-            || (command.setting && old->setting && tw_same(old->id, command.id));
+            || (command.setting && old->setting && tw_same(old->id, command.id))
+            || (command.replacing && tw_same(old->key, command.key));
         if (hidden) {
             free(old->json);
             free(old->line);
+            free(old->key);
         } else {
             tw_history[kept++] = *old;
         }
@@ -1673,8 +2395,9 @@ static void tw_keep(tw_command command)
    `drawing` is 1 for a command drawing on canvas `canvas` and 2 for one
    clearing it, `setting` 1 for one setting label `id`, and `kept` 0 for
    one a late page is not sent. */
-static void tw_send(const char *op, const char *fields, const char *line,
-                    int drawing, const char *canvas, int setting, const char *id, int kept)
+static void tw_send_keyed(const char *op, const char *fields, const char *line,
+                          int drawing, const char *canvas, int setting, const char *id,
+                          int kept, const char *key, int replacing)
 {
     tw_text json = { NULL, 0, 0 };
     tw_ready();
@@ -1697,12 +2420,20 @@ static void tw_send(const char *op, const char *fields, const char *line,
         command.canvas = canvas;
         command.setting = setting;
         command.id = id;
+        command.key = key == NULL ? NULL : tw_copy(key);
+        command.replacing = replacing;
         tw_keep(command);
     }
     if (tw_pending.length > 0) tw_puts(&tw_pending, ",");
     tw_puts(&tw_pending, json.text);
     free(json.text);
     if (!tw_batching) tw_flush();
+}
+
+static void tw_send(const char *op, const char *fields, const char *line,
+                    int drawing, const char *canvas, int setting, const char *id, int kept)
+{
+    tw_send_keyed(op, fields, line, drawing, canvas, setting, id, kept, NULL, 0);
 }
 
 /* A field `,"name":value` of a command's JSON, and the same value as a
@@ -1773,9 +2504,12 @@ static void tw_field_text(tw_text *json, tw_text *line, const char *name,
    from 1 that makes it one nothing on the page has. */
 static const char *tw_fresh(const char *name)
 {
-    char *found = tw_copy(name);
+    char *found;
     unsigned long n = 0;
     size_t i;
+    /* An empty name would be the page's own identifier. */
+    if (name[0] == '\0') name = "element";
+    found = tw_copy(name);
     for (;;) {
         int taken = 0;
         for (i = 0; i < tw_name_count; i++) {
@@ -2387,15 +3121,132 @@ const char *tinyweb_load_sample(const char *name)
     return id;
 }
 
-void tinyweb_play_sample(const char *sample, double at, double volume, double rate)
+const char *tinyweb_fresh_id(const char *name)
 {
-    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
-    tw_puts(&line, "play");
-    tw_field_string(&json, &line, "sample", sample, 0);
-    tw_field_float(&json, &line, "at", at);
-    tw_field_float(&json, &line, "volume", volume);
-    tw_field_float(&json, &line, "rate", rate);
-    tw_finish("play", &json, &line, 0, NULL, 0, NULL, !tw_delivered);
+    tw_ready();
+    return tw_fresh(name);
+}
+
+/* `mode` says what a page connecting later is sent again: 0 the command,
+   1 the command in place of the last of its kind and id, 2 the command
+   while no event has been delivered, 3 nothing. */
+void tinyweb_command(const char *kind, const char *id, const char *text, const char *numbers,
+                     int mode)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 }, key = { NULL, 0, 0 };
+    tw_field_json(&json, "kind", kind);
+    tw_field_json(&json, "id", id);
+    tw_field_json(&json, "text", text);
+    tw_field_json(&json, "numbers", numbers);
+    tw_puts(&json, ",\"mode\":");
+    tw_int(&json, mode);
+    tw_puts(&line, kind);
+    tw_puts(&line, " ");
+    tw_quote(&line, id);
+    if (text[0] != '\0') {
+        tw_puts(&line, " ");
+        tw_quote(&line, text);
+    }
+    if (numbers[0] != '\0') {
+        tw_puts(&line, " ");
+        tw_puts(&line, numbers);
+    }
+    tw_puts(&key, kind);
+    tw_add(&key, "\n", 1);
+    tw_puts(&key, id);
+    tw_send_keyed("cmd", json.text, line.text, 0, NULL, 0, NULL,
+                  mode == 3 ? 0 : mode == 2 ? !tw_delivered : 1, key.text, mode == 1);
+    free(json.text);
+    free(line.text);
+    free(key.text);
+}
+
+/* The functions `watch` and its kin handed over, by element and kind:
+   `f`, or one called with the text reported under `name` (`text`), or
+   with the first two numbers reported under `kind` (`step`, `pair`). */
+typedef struct {
+    char *id;
+    char *kind;
+    void (*f)(void);
+    char *name;
+    void (*text)(const char *);
+    void (*step)(int, double);
+    void (*pair)(double, double);
+} tw_callback;
+static tw_callback *tw_callbacks = NULL;
+static size_t tw_callback_count = 0;
+
+/* Adds a watcher of `kind` for `id`, calling nothing yet; answers it. */
+static tw_callback *tw_watching(const char *id, const char *kind)
+{
+    tw_callback *added;
+    tw_ready();
+    tw_callbacks = (tw_callback *) tw_grow(tw_callbacks, tw_callback_count, sizeof(tw_callback));
+    added = &tw_callbacks[tw_callback_count++];
+    added->id = tw_copy(id);
+    added->kind = tw_copy(kind);
+    added->f = NULL;
+    added->name = NULL;
+    added->text = NULL;
+    added->step = NULL;
+    added->pair = NULL;
+    return added;
+}
+
+void tinyweb_watch(const char *id, const char *kind, void (*f)(void))
+{
+    tw_watching(id, kind)->f = f;
+}
+
+void tinyweb_watch_text(const char *id, const char *kind, const char *name, void (*f)(const char *))
+{
+    tw_callback *added = tw_watching(id, kind);
+    added->name = tw_copy(name);
+    added->text = f;
+}
+
+void tinyweb_watch_step(const char *id, const char *kind, void (*f)(int, double))
+{
+    tw_watching(id, kind)->step = f;
+}
+
+void tinyweb_watch_pair(const char *id, const char *kind, void (*f)(double, double))
+{
+    tw_watching(id, kind)->pair = f;
+}
+
+/* What the page last reported, by name: numbers, or a text where `text`
+   is not NULL. */
+typedef struct { char *name; char *text; double *numbers; size_t count; } tw_report;
+static tw_report *tw_reports = NULL;
+static size_t tw_report_count = 0;
+
+static tw_report *tw_report_named(const char *name)
+{
+    size_t i;
+    for (i = 0; i < tw_report_count; i++) {
+        if (strcmp(tw_reports[i].name, name) == 0) return &tw_reports[i];
+    }
+    return NULL;
+}
+
+double tinyweb_report_number(const char *name, int k)
+{
+    tw_report *found = tw_report_named(name);
+    if (found == NULL || found->text != NULL || k < 0 || (size_t) k >= found->count) return 0.0;
+    return found->numbers[k];
+}
+
+const char *tinyweb_report_text(const char *name)
+{
+    tw_report *found = tw_report_named(name);
+    return found == NULL || found->text == NULL ? "" : found->text;
+}
+
+int tinyweb_report_count(const char *name)
+{
+    tw_report *found = tw_report_named(name);
+    return found == NULL || found->text != NULL ? 0 : (int) found->count;
 }
 
 void tinyweb_splash(void)
@@ -2495,10 +3346,121 @@ typedef struct {
     int checked;
     char *text;
     double width;
+    char *kind;
+    char *reports;
 } tw_event;
 
 static tw_event *tw_queue = NULL;
 static size_t tw_queued = 0;
+
+/* Frees what an event holds. */
+static void tw_free_event(tw_event *event)
+{
+    if (event->c != event->id) free(event->c);
+    free(event->id);
+    free(event->key);
+    free(event->text);
+    free(event->kind);
+    free(event->reports);
+}
+
+/* Skips spaces and any of `also`. */
+static const char *tw_skip(const char *at, const char *also)
+{
+    while (*at != '\0' && (strchr(" \t\r\n", *at) != NULL || strchr(also, *at) != NULL)) at++;
+    return at;
+}
+
+/* Where the object or array starting at `at` ends: just past its closing
+   bracket, strings inside it skipped. */
+static const char *tw_nested_end(const char *at)
+{
+    int depth = 0, in_string = 0;
+    for (; *at != '\0'; at++) {
+        if (in_string) {
+            if (*at == '\\' && at[1] != '\0') at++;
+            else if (*at == '"') in_string = 0;
+        } else if (*at == '"') {
+            in_string = 1;
+        } else if (*at == '{' || *at == '[') {
+            depth++;
+        } else if (*at == '}' || *at == ']') {
+            if (--depth == 0) return at + 1;
+        }
+    }
+    return at;
+}
+
+static const char *tw_string(const char *at, tw_text *out);
+
+/* Replaces what is reported under `name`: a text, or numbers. */
+static void tw_set_report(const char *name, char *text, double *numbers, size_t count)
+{
+    tw_report *found = tw_report_named(name);
+    if (found == NULL) {
+        tw_reports = (tw_report *) tw_grow(tw_reports, tw_report_count, sizeof(tw_report));
+        found = &tw_reports[tw_report_count++];
+        found->name = tw_copy(name);
+    } else {
+        free(found->text);
+        free(found->numbers);
+    }
+    found->text = text;
+    found->numbers = numbers;
+    found->count = count;
+}
+
+/* The entries of a `reports` object, as the page sends them: each name
+   with an array of numbers, a number, or a string. */
+static void tw_merge_reports(const char *text)
+{
+    const char *at = text;
+    for (;;) {
+        tw_text name = { NULL, 0, 0 };
+        at = tw_skip(at, ",:{");
+        if (*at != '"') return;
+        at = tw_string(at + 1, &name);
+        if (name.text == NULL) tw_puts(&name, "");
+        at = tw_skip(at, ":");
+        if (*at == '"') {
+            tw_text value = { NULL, 0, 0 };
+            at = tw_string(at + 1, &value);
+            tw_set_report(name.text, value.text == NULL ? tw_copy("") : value.text, NULL, 0);
+        } else if (*at == '[') {
+            double *numbers = NULL;
+            size_t count = 0;
+            at++;
+            for (;;) {
+                char *end;
+                double number;
+                at = tw_skip(at, ",");
+                if (*at == '\0' || *at == ']') break;
+                number = strtod(at, &end);
+                if (end == at) {
+                    while (*at != '\0' && *at != ',' && *at != ']') at++;
+                } else {
+                    numbers = (double *) tw_grow(numbers, count, sizeof(double));
+                    numbers[count++] = number;
+                    at = end;
+                }
+            }
+            if (*at == ']') at++;
+            if (numbers == NULL) numbers = (double *) tw_grow(NULL, 0, sizeof(double));
+            tw_set_report(name.text, NULL, numbers, count);
+        } else {
+            char *end;
+            double number = strtod(at, &end);
+            if (end != at) {
+                double *numbers = (double *) tw_grow(NULL, 0, sizeof(double));
+                numbers[0] = number;
+                tw_set_report(name.text, NULL, numbers, 1);
+                at = end;
+            }
+            while (*at != '\0' && *at != ',' && *at != '}') at++;
+        }
+        free(name.text);
+    }
+}
 
 /* Calls what the program handed over for one event, in the order it was
    handed over. */
@@ -2507,7 +3469,27 @@ static void tw_deliver(const tw_event *event)
     size_t i;
     tw_delivered = 1;
     if (event->has_t) tw_clock = event->t;
-    if (strcmp(event->ev, "click") == 0) {
+    if (event->reports != NULL) tw_merge_reports(event->reports);
+    if (strcmp(event->ev, "cb") == 0) {
+        size_t count = tw_callback_count;
+        for (i = 0; i < count; i++) {
+            if (tw_same(tw_callbacks[i].id, event->id) && tw_same(tw_callbacks[i].kind, event->kind)) {
+                /* Copied first: a callback may add watchers, moving the table. */
+                tw_callback called = tw_callbacks[i];
+                if (called.f != NULL) {
+                    called.f();
+                } else if (called.text != NULL) {
+                    called.text(tinyweb_report_text(called.name));
+                } else if (called.step != NULL) {
+                    called.step((int) tinyweb_report_number(called.kind, 0),
+                                tinyweb_report_number(called.kind, 1));
+                } else if (called.pair != NULL) {
+                    called.pair(tinyweb_report_number(called.kind, 0),
+                                tinyweb_report_number(called.kind, 1));
+                }
+            }
+        }
+    } else if (strcmp(event->ev, "click") == 0) {
         for (i = 0; i < tw_button_count; i++) {
             if (tw_same(tw_buttons[i].id, event->id)) tw_buttons[i].f();
         }
@@ -2646,7 +3628,8 @@ static const char *tw_string(const char *at, tw_text *out)
     return *at == '"' ? at + 1 : at;
 }
 
-/* The event a page posted: one flat JSON object. */
+/* The event a page posted: one JSON object, of strings, numbers and
+   `reports`. */
 static tw_event tw_parse_event(const char *text)
 {
     tw_event event;
@@ -2666,15 +3649,27 @@ static tw_event tw_parse_event(const char *text)
             } else if (key.text != NULL && (strcmp(key.text, "key") == 0
                                             || strcmp(key.text, "id") == 0
                                             || strcmp(key.text, "text") == 0
+                                            || strcmp(key.text, "kind") == 0
                                             || strcmp(key.text, "c") == 0)) {
                 char *text = value.text == NULL ? tw_copy("") : value.text;
-                if (strcmp(key.text, "key") == 0) event.key = text;
-                else if (strcmp(key.text, "id") == 0) event.id = text;
-                else if (strcmp(key.text, "text") == 0) event.text = text;
-                else event.c = text;
+                char **field = strcmp(key.text, "key") == 0 ? &event.key
+                    : strcmp(key.text, "id") == 0 ? &event.id
+                    : strcmp(key.text, "text") == 0 ? &event.text
+                    : strcmp(key.text, "kind") == 0 ? &event.kind : &event.c;
+                free(*field);
+                *field = text;
                 value.text = NULL;
             }
             free(value.text);
+        } else if (*at == '{' || *at == '[') {
+            const char *end = tw_nested_end(at);
+            if (key.text != NULL && strcmp(key.text, "reports") == 0) {
+                tw_text value = { NULL, 0, 0 };
+                tw_add(&value, at, (size_t) (end - at));
+                free(event.reports);
+                event.reports = value.text;
+            }
+            at = end;
         } else if (key.text != NULL && strcmp(key.text, "checked") == 0) {
             event.checked = strncmp(at, "true", 4) == 0;
             while (*at != '\0' && *at != ',' && *at != '}') at++;
@@ -2695,6 +3690,63 @@ static tw_event tw_parse_event(const char *text)
         free(key.text);
     }
     return event;
+}
+
+/* A `cb`, `report` or `report_text` line of an events file after its
+   first word: quoted strings, then numbers for a report. */
+static int tw_parse_generic(const char *word, const char *at, tw_event *event)
+{
+    tw_text first = { NULL, 0, 0 }, reports = { NULL, 0, 0 };
+    int ok = 1;
+    if (*at != '"') return 0;
+    at = tw_string(at + 1, &first);
+    if (first.text == NULL) tw_puts(&first, "");
+    at = tw_skip(at, "");
+    if (strcmp(word, "report") == 0) {
+        int count = 0;
+        strcpy(event->ev, "report");
+        tw_puts(&reports, "{");
+        tw_quote(&reports, first.text);
+        tw_puts(&reports, ":[");
+        while (*at != '\0') {
+            char *end;
+            size_t length = strcspn(at, " \t\r\n");
+            strtod(at, &end);
+            if (end != at + length) {
+                ok = 0;
+                break;
+            }
+            if (count++ > 0) tw_puts(&reports, ",");
+            tw_add(&reports, at, length);
+            at = tw_skip(end, "");
+        }
+        tw_puts(&reports, "]}");
+    } else {
+        tw_text second = { NULL, 0, 0 };
+        if (*at != '"') {
+            free(first.text);
+            return 0;
+        }
+        at = tw_string(at + 1, &second);
+        if (second.text == NULL) tw_puts(&second, "");
+        if (*tw_skip(at, "") != '\0') ok = 0;
+        if (strcmp(word, "cb") == 0) {
+            strcpy(event->ev, "cb");
+            event->id = first.text;
+            event->kind = second.text;
+            return ok;
+        }
+        strcpy(event->ev, "report");
+        tw_puts(&reports, "{");
+        tw_quote(&reports, first.text);
+        tw_puts(&reports, ":");
+        tw_quote(&reports, second.text);
+        tw_puts(&reports, "}");
+        free(second.text);
+    }
+    free(first.text);
+    event->reports = reports.text;
+    return ok;
 }
 
 /* One line of an events file as the event the page would send; 0 where
@@ -2726,6 +3778,10 @@ static int tw_parse_line(const char *line, tw_event *event)
     at += length;
     strcpy(event->ev, word);
     while (*at == ' ') at++;
+    if (strcmp(word, "cb") == 0 || strcmp(word, "report") == 0
+        || strcmp(word, "report_text") == 0) {
+        return tw_parse_generic(word, at, event);
+    }
     if (strcmp(word, "frame") == 0) {
         wanted = 1;
     } else {
@@ -2818,8 +3874,10 @@ static void tw_deliver_file(void)
             free(logged.text);
             if (tw_parse_line(line, &event)) {
                 tw_deliver(&event);
+                tw_free_event(&event);
             } else {
                 tw_text unknown = { NULL, 0, 0 };
+                tw_free_event(&event);
                 tw_puts(&unknown, "! unknown event: ");
                 tw_puts(&unknown, line);
                 tw_write_log(unknown.text);
@@ -3057,9 +4115,9 @@ static void tw_after_program(void)
         for (i = 0; i < tw_queued; i++) {
             tw_deliver(&tw_queue[i]);
             tw_send("event_done", "", "event_done", 0, NULL, 0, NULL, 0);
-            tw_flush();
             fflush(stdout);
-            free(tw_queue[i].key);
+            tw_flush();
+            tw_free_event(&tw_queue[i]);
         }
         tw_queued = 0;
     }

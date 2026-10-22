@@ -66,6 +66,8 @@
   color: var(--ph-text); text-decoration: none;
 }
 .pyk-help-menu a:hover { color: var(--ph-accent); }
+/* A module's own pages, under it: tinyweb's submodules. */
+.pyk-help-menu a.pyk-help-sub { padding-left: 1rem; font-size: .92em; }
 .pyk-help-menu a[aria-current="page"] {
   color: var(--ph-accent); font-weight: 700;
 }

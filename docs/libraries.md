@@ -15,6 +15,7 @@ lib/fs/     fs_external.pyk        fs_external.{py,c,ml}  FsExternal.java
 lib/io/     io.pyk  io_external.pyk     io_external.{py,c,ml}  IoExternal.java
 lib/math/   math.pyk  math_external.pyk  math_external.{py,c,ml}  MathExternal.java
 lib/sys/    sys.pyk  sys_external.pyk   sys_external.{py,c,ml} SysExternal.java
+lib/text/   text.pyk  text_external.pyk  text_external.{py,c,ml}  TextExternal.java
 lib/time/   time.pyk  time_external.pyk  time_external.{py,ml}
 lib/tinyweb/ tinyweb.pyk  tinyweb_external.pyk  tinyweb_external.{py,c,ml}  TinywebExternal.java
 ```
@@ -29,7 +30,7 @@ OCaml implementation to the interpreter (`tinyweb_external_plugin.ml`).
 
 `fs` is entirely the host's: every name it offers is declared, and there
 is no Pyking half because there would be nothing in it. `io`, `math`,
-`sys` and `time` have both halves -- what the host provides, and what is written
+`sys`, `text` and `time` have both halves -- what the host provides, and what is written
 in Pyking against it -- and a program importing one says `import sys`
 and reaches everything under that one name. See
 [modules.md](modules.md), "A module in two halves".
@@ -98,6 +99,31 @@ every host answers alike:
 The rest is the host's own answer, which may differ between hosts in the
 last bit; the tests print those to six decimals
 (`tests/lib_math_approx.pyk`).
+
+`text` is what is inside a String. A position or a length counts
+**code points** on every host: OCaml and C walk the UTF-8 bytes, and
+JavaScript and Java, whose strings are UTF-16, count a surrogate pair as
+one. Its declaration half is eight private primitives (`host_length`,
+`host_slice`, `host_find`, `host_code`, `host_from_code`,
+`host_replace`, `host_upper`, `host_lower`), each called only with
+positions inside the string, so no host has to agree with the others
+about one outside it:
+
+- **Positions are clamped in `text.pyk`**: `slice` holds both ends to
+  the string, `char_at` and `code` answer `""` and -1 outside it, and
+  `from_code` answers `""` for what a string cannot hold (0, a
+  surrogate, past U+10FFFF) -- C could not carry the first.
+- **`upper`, `lower`, `trim` and `words` know ASCII only**, since the
+  hosts' own case tables differ.
+- **`split`, `words`, `join` and `lines` take or answer a list**, so
+  they are written in Pyking over the primitives and do not reach C;
+  everything else does. `words` and `lines` replace the line endings
+  first and then `split`, so a string is walked with `host_find` rather
+  than one code point at a time, which costs a walk from the start on
+  OCaml and C. `repeat` doubles, and `join` joins in chunks, so neither
+  copies the whole string once per piece.
+- There is no `to_int` or `to_float`: the builtins `int` and `float`
+  read a String.
 
 `now` is one call, which is what makes a reading atomic: six separate
 clock calls could straddle a second and report a date that never
@@ -337,10 +363,12 @@ dropped. The drawing itself is the style block's `drawShape`,
 `drawText`, `canvasState`, `freshState`, `paint` and `loadPicture`, so
 the web page and the command page draw alike; a shape sets the alpha
 it draws at and puts it back, rather than saving and restoring the
-whole context. The colour helpers, `rgb`, `rgba`, `hsl`, `palette` and
-the gradients, are Pyking with no command, in the submodule
-`tinyweb.colors` (not `color`: `color` is a parameter name throughout
-the file, and a submodule's name is taken in its whole file). The
+whole context. A colour is a `color.Color`, a struct of the submodule
+`tinyweb.color`; `rgb`, `rgba`, `hsl`, `hex`, `palette` and the
+gradients (the datatype `color.Paint`) are Pyking with no command, and
+the Pyking half writes a colour into a command as CSS (`color.css`). A
+submodule's name is taken in its whole file, so a shape's colours are
+the parameters `fill` and `stroke`. Every angle is in radians. The
 submodule `tinyweb.smooth` holds the shapes again with Float
 coordinates and widths, for drawing between pixels, and `smooth.lines`
 and `smooth.circles` draw many in one command.
@@ -350,14 +378,14 @@ per button, grouped by name), `choice` (a dropdown, its options one per
 line in one string), `text_input` and `number_input` are a command
 each, built by the style block's `choiceRow`, `choiceElement`,
 `textInputElement` and `numberElement`; `set_checked` and `set_value`
-change one, and `set_label` a button's title as well as a label's text.
+change one, and `set_text` a button's title as well as a label's text.
 A key typed into a text or number field is not reported as a key
 (`typedInField`). `on_press`, `on_release`, `on_move` and `on_drag` are
 one host function, `watch_pointer`, which sends `on_pointer` once per
 canvas; the page then reports `press`, `release` and `move` events,
 and each host calls a `drag` watcher for a move while the button is
-down and keeps where the pointer was last seen, which `mouse_x`,
-`mouse_y` and `mouse_down` read (`pointer`). `on_key_up` and
+down and keeps where the pointer was last seen, which `mouse` reads
+(`pointer`). `on_key_up` and
 `key_down` are the other half of the keyboard: the page reports
 `key_up`, and lets go of every key held when it loses the focus; each
 host keeps the keys held from the `key` and `key_up` events it
@@ -371,14 +399,65 @@ y, scale, rect, data}`: the changed rectangle's bytes, base64 from a
 host on the other side of a socket and the bytes themselves from one in
 the page. The page keeps each bitmap as a canvas of its own and draws
 it scaled, sharp above 1.0 and smooth below. The log writes the
-rectangle and an FNV-1a digest of its bytes. `pixel_color`, `red`,
-`green` and `blue` are Pyking.
+rectangle and an FNV-1a digest of its bytes. The functions are the
+submodule `tinyweb.bitmap`; a pixel crosses the boundary as one Int,
+`0xRRGGBB`, which `color.hex` and `color.to_hex` turn into a `Color` and
+back.
 
-**Layout (part of step 5).** `row` and `column` add a box,
+**Layout (part of step 5).** The submodule `tinyweb.layout`: `row` and
+`column` add a box,
 `{op: "row", id}` or `{op: "column", id}`, and `inside` and `outside`
 say where the elements made next go -- the page keeps the box it is
 adding to. `page_style(align = ...)` sets where the page's elements
 stand across it, and `set_style` takes a `weight` and a `height`.
+
+**Commands of one shape (step 3).** What came with step 3 -- sound,
+timers, changing the page, files -- needs no host function of its own.
+`fresh_id(name)` answers a new element's identifier, and
+`command(kind, id, text, numbers, mode)` sends `{op: "cmd", kind, id,
+text, numbers, mode}`, logged as `kind "id" "text" numbers` (the text
+and the numbers left out where empty). `mode` says what a page that
+connects later is sent again: 0 the command, 1 only the last of its
+kind and id (a channel's settings, a label's text), 2 what sound, a
+download or a rendering is (dropped once an event has been delivered,
+so the top level's still reach a page that connects after it), 3
+nothing.
+The page answers with `{ev: "cb", id, kind}`, which calls every
+function `watch(id, kind, f)` handed over, in order, and any event may
+carry `reports`, values by name merged into what the host keeps before
+the event is handled: `report_number`, `report_text` and `report_count`
+read them. `watch_text`, `watch_step` and `watch_pair` call their
+function with the text reported under a name, or the first two numbers
+under the kind -- what a text area, a beat and a rendering hand over,
+since C and Java cannot be handed a function that captures one. Every
+event reports `clock` (where the beat is, the output latency, whether
+sound runs), every frame the analyser's `level`, `band` and `wave` once
+`sound.listen` asked, and each input its value as `value.<id>`, which
+`value_of` reads. An events file says `cb "id" "kind"`, `report "name"
+n ...` and `report_text "name" "text"`.
+
+**Sound (step 3).** The page's sound is one engine, `makeEngine` in the
+style block, so `web` and the command page play alike. Every sound goes
+through a channel -- a gain, a stereo panner, a low-pass filter, an echo
+(a delay feeding itself) and a reverb (a convolver over an impulse made
+once, the same on every page) -- into the master gain and the analyser
+`listen` reads. `play` and `start` take `at volume rate pan channel
+reverse` (and `loop` for `start`, whose voice `stop` and `fade` find by
+its identifier); a reversed sample is reversed once and kept. `tone` is
+an oscillator with a short attack and release. The beat is scheduled
+ahead: every 25 ms the engine reports each step that falls within the
+next 0.15 seconds, with its exact time, so a sample played `at` it
+lands on it however far away the program runs; a change of tempo goes
+on from where the beat is, and `swing` delays every odd step. Timers
+(`after`, `every`) run on the same tick and the page's clock. `pause`
+suspends the audio and freezes the clock, timers and the beat with it,
+and `resume` thaws them. `render_wav` collects the sound commands
+between its `render` and `render_end`, plays them into an
+`OfflineAudioContext` with the same channels, offers the result as a
+WAV file and reports `rendered` with how long that took and the loudest
+sample. `save_canvas`, `download`, `file_button` and `cursor` are
+commands of the same shape; a file picked is reported as `file` and,
+unless it is a sample, its text as `file.text`.
 
 **Where the page is.** A program starts with `web_init(port)` -- `port`
 defaults to 0, so `web_init()` will do -- and what that does depends on
@@ -464,7 +543,8 @@ id, kind, prop, value}`, through the one declaration `apply_style`:
 `element` (`prop` of the element `id`). `prop` is one of `background`,
 `color`, `border`, `radius`, `font`, `size`, `padding`, `gap`, `accent`
 and `width`, and `value` is CSS; the Pyking half turns a pixel count
-into `"Npx"` and leaves out what the call did not name. The renderer
+into `"Npx"` and a `Color` into CSS, and leaves out what the call did
+not name (`color.theme`, or a negative number). The renderer
 keeps a stylesheet of the page's own, scoped to the element the page is
 mounted in by a `data-tinyweb-page` attribute written three times over,
 so the host page's rules for a button or a body do not outweigh it: a
@@ -512,8 +592,8 @@ playground and a notebook never show it.
 
 **The compiler calls it.** A sound a callback plays comes after the
 reader clicked something, but the callback may be a frame's, which no
-click starts. So a program any of whose modules can call `play` or
-`play_file` ends its own top level with `tinyweb.splash()`: `splash.ml`
+click starts. So a program any of whose modules can call `play`,
+`play_file`, `sound.start` or `sound.tone` ends its own top level with `tinyweb.splash()`: `splash.ml`
 adds the call, and an import of tinyweb where the program's own module
 has none, inside `module.load`, so every target and the interpreter run
 it. Where the top level played a sound the splash screen has already
@@ -542,6 +622,7 @@ block, so the two draw the same one.
 | `math` | yes | yes | yes | yes | yes | yes | yes | yes |
 | `random` | yes | yes | yes | yes | yes, but `choice` and `shuffle` take a list | yes | yes | yes |
 | `sys` | yes | yes | `exit` only | `exit` only | `exit` only | yes | yes | yes |
+| `text` | yes | yes | yes | yes | yes, but not `split`, `words`, `join` or `lines` | yes | yes | yes |
 | `time` | yes | yes | yes | yes | yes | yes | yes | yes |
 | `tinyweb` | yes | yes | yes | yes | yes | yes | yes | yes |
 

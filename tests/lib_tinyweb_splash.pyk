@@ -4,15 +4,16 @@
 # clicks the one button.
 
 import tinyweb as tw
+import tinyweb.color as color
 
 tw.web_init(0)
 tw.set_splash("Click for drums")
 
 c = tw.canvas(200, 100)
-tw.clear(c, "#202020")
+tw.clear(c, color.hex(0x202020))
 kick = tw.load_sample("kick1.wav")
 tw.play(kick, at = 0.25)
-tw.circle(c, 100, 50, 30, "#ffcc00")
+tw.circle(c, 100, 50, 30, color.hex(0xffcc00))
 
 def again():
     tw.play(kick)

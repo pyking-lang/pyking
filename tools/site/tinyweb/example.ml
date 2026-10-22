@@ -11,12 +11,12 @@ let () =
   Tinyweb.draw_shape canvas "circle" "100 50 30" "#ff0000" "" 1.0 1.0;
   Tinyweb.draw_shape canvas "circle" "100 50 20" "#000000" "" 1.0 1.0;
   let presses = ref 0 in
-  ignore (Tinyweb.make_button "Play kick" (fun () -> Tinyweb.play_sample kick 0.0 1.0 1.0));
+  ignore (Tinyweb.make_button "Play kick" (fun () -> Tinyweb.command "play" kick "" "0.0 1.0 1.0 0.0 0 0" 2));
   ignore
     (Tinyweb.make_button "Play snare" (fun () ->
          incr presses;
          Printf.printf "snare, press %d\n" !presses;
-         Tinyweb.play_sample snare 0.0 0.5 1.0));
+         Tinyweb.command "play" snare "" "0.0 0.5 1.0 0.0 0 0" 2));
   ignore (Tinyweb.make_button "Does nothing" (fun () -> ()));
   Tinyweb.splash ();
   print_endline "built the page"

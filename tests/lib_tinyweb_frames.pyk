@@ -4,6 +4,7 @@
 # .events file delivers four frames.
 
 import tinyweb as tw
+import tinyweb.color as color
 
 tw.web_init(0)
 
@@ -13,8 +14,8 @@ beat = 0.5
 var next_beat = 0.0
 
 def draw(t: Float):
-    tw.clear(c, "#111111")
-    tw.circle(c, int(t * 100.0), 50, 10, "#ffcc00")
+    tw.clear(c, color.hex(0x111111))
+    tw.circle(c, int(t * 100.0), 50, 10, color.hex(0xffcc00))
     if t >= next_beat:
         print("beat scheduled at " ++ string(next_beat + beat) ++ ", drawn at " ++ string(t))
         tw.play(kick, at = next_beat + beat)

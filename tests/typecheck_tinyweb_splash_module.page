@@ -2,4 +2,4 @@ button "Kick"
 splash
 > click "Kick"
 load "kick1.wav"
-play "kick1.wav" 0.000 1.000 1.000
+play "kick1.wav" 0.0 1.0 1.0 0.0 0 0

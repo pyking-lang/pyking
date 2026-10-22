@@ -455,9 +455,10 @@ let rec translate_expr e scope =
       (* What `print` would write, from the formatter the runtime holds:
          a Float's text is its type's, which the argument's own shape
          cannot say. *)
-      match printed_argument argument scope with
-      | JsCall _ as formatted -> formatted
-      | translated -> JsCall (info, JsVar (info, "pykFormat"), [ translated ]))
+      match type_of argument scope with
+      | Some (TFloat _) -> printed_argument argument scope
+      | Some type_ when holds_float type_ -> printed_argument argument scope
+      | _ -> JsCall (info, JsVar (info, "pykFormat"), [ translate_expr argument scope ]))
   | ECall (info, EVar (_, (("int" | "float" | "bool") as name), _), [ (_, argument) ], _)
     when not (SMap.mem name scope.names) -> (
       (* A JavaScript number is already a double, so widening an Int is the

@@ -2,8 +2,8 @@
 
 A plan for what tinyweb could offer next, in five steps, each usable on
 its own, and two for later: sprites, and sessions with a storage
-library. Step 1 is built, and so are the widgets, the mouse and the
-keyboard of step 2 and the bitmaps, gradients and layout of step 5
+library. Steps 1 and 3 are built, and so are the widgets, the mouse and
+the keyboard of step 2 and the bitmaps, gradients and layout of step 5
 (marked below); the rest is not. The aim is the one tinyweb started with:
 an API a beginner can use from the first line, which still takes a
 program all the way to every example in `web_examples/` -- the canvas,
@@ -197,7 +197,9 @@ strings for generative art. Built in the submodule `tinyweb.colors` --
 `colors` rather than `color`, since `color` is a parameter name all
 through `tinyweb.pyk` and a submodule's name is taken in its whole file
 -- as `colors.palette(name)` with the palettes ocean, candy, forest,
-sunset and neon.
+sunset and neon. Since step 3 it is `tinyweb.color`: a colour is a
+`color.Color` value rather than a string, and the colour parameters are
+`fill` and `stroke`.
 
 **Shadows and blending**: `shadow(c, color, blur, dx, dy)` and
 `blend(c, mode)` with `"normal"` and `"add"` (additive light, for the
@@ -414,6 +416,25 @@ was scheduled and when, as `play` lines do today.
 
 Examples ported: sound3 (a step sequencer), sound4 (an on-screen piano,
 an arpeggiator), graphicsmusic1, 2, 3 and 4.
+
+**Built**, in the submodule `tinyweb.sound`, with what step 2 still
+lacked (timers, changing the page) and the extras the examples use. The
+differences from the above: `on_beat` calls back with the step and its
+time, as planned; `start` takes `looping` (`loop` is a keyword) and a
+`sound.Voice` whose settings `play` and `start` take where an argument
+is left at its default, and a voice may play its sample reversed;
+`channel_style` adds `echo_time` and `feedback`; listening is asked for
+(`listen(bins, smoothing)`), and then `level()`, `band(k)`, `bands()`
+and `wave(k)` are as of the last frame; `latency()`, `pause()`,
+`resume()` and `render_wav(seconds, f, name, on_rendered)` are new. No
+host function was added for any of it but the generic six (`fresh_id`,
+`command`, `watch`, `report_number`, `report_text`, `report_count`) and
+three that call back with what was reported (`watch_text`,
+`watch_step`, `watch_pair`); see docs/libraries.md, "Commands of one
+shape" and "Sound". Tests: `lib_tinyweb_voices`, `lib_tinyweb_beat`,
+`lib_tinyweb_timers`, `lib_tinyweb_files`, and the examples
+`tinyweb_drum_pad`, `tinyweb_sequencer` and `tinyweb_piano`. Every
+example of this step is ported in `pyking-web-examples/`.
 
 ---
 

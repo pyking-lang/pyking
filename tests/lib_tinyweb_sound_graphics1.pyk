@@ -2,6 +2,7 @@
 # first tinyweb program.
 
 import tinyweb as tw
+import tinyweb.color as color
 
 tw.web_init(0)
 
@@ -10,8 +11,8 @@ snare = tw.load_sample("snare1.wav")
 
 canvas = tw.canvas(400, 200)
 
-tw.circle(canvas, 100, 50, 30, "#ff0000")   # canvas, x, y, radius, color
-tw.circle(canvas, 100, 50, 20)              # the color defaults to "#000000"
+tw.circle(canvas, 100, 50, 30, color.red)   # canvas, x, y, radius, colour
+tw.circle(canvas, 100, 50, 20)              # the colour defaults to black
 
 var presses = 0
 

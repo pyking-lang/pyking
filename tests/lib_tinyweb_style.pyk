@@ -3,28 +3,29 @@
 # changes the theme and one label while the page is showing.
 
 import tinyweb as tw
+import tinyweb.color as color
 
 tw.web_init(0)
 
 tw.theme("paper")
 tw.theme("no such theme")
-tw.page_style(background = "#fdf6e3", color = "#586e75", font = "serif", size = 18, padding = 12, gap = 16)
-tw.button_style(background = "#268bd2", color = "white", border = "none", radius = 14, font = "monospace", size = 16, padding = 8)
-tw.label_style(background = "lightyellow", color = "#333333", border = "1px solid gold", radius = 4, font = "sans-serif", size = 14, padding = 6)
-tw.slider_style(accent = "crimson", width = 240, color = "crimson", font = "monospace", size = 20)
-tw.canvas_style(border = "3px solid teal", radius = 10)
+tw.page_style(background = color.hex(0xfdf6e3), foreground = color.hex(0x586e75), font = "serif", size = 18, padding = 12, gap = 16)
+tw.button_style(background = color.hex(0x268bd2), foreground = color.white, border = color.none, radius = 14, font = "monospace", size = 16, padding = 8)
+tw.label_style(background = color.hex(0xffffe0), foreground = color.hex(0x333333), border = color.hex(0xffd700), border_width = 1, radius = 4, font = "sans-serif", size = 14, padding = 6)
+tw.slider_style(accent = color.hex(0xdc143c), width = 240, foreground = color.hex(0xdc143c), font = "monospace", size = 20)
+tw.canvas_style(border = color.teal, border_width = 3, radius = 10)
 
 title = tw.label("Styled")
-tw.set_style(title, background = "navy", color = "white", border = "2px dashed orange", radius = 0, font = "Georgia", size = 28, padding = 10, width = 300)
+tw.set_style(title, background = color.navy, foreground = color.white, border = color.orange, border_width = 2, radius = 0, font = "Georgia", size = 28, padding = 10, width = 300)
 level = tw.slider(0, 10, 4)
-tw.set_colors(level, color = "seagreen")
+tw.set_style(level, foreground = color.hex(0x2e8b57))
 c = tw.canvas(120, 60)
-tw.set_style(c, border = "1px solid black")
+tw.set_style(c, border = color.black, border_width = 1)
 
 def pressed():
     tw.theme("retro")
-    tw.set_colors(title, background = "black")
+    tw.set_style(title, background = color.black)
     print("now retro")
 
 ok = tw.button("Retro", on_click = pressed)
-tw.set_colors(ok, color = "black", background = "gold")
+tw.set_style(ok, foreground = color.black, background = color.rgba(255, 215, 0, 0.5))

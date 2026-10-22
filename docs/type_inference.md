@@ -330,6 +330,13 @@ things:
    offset = 10
    print(f(1))           # ... even though it is in scope here
    ```
+
+   A body can be worked out before its `def` is reached -- a call in an
+   annotated function written above it. The scope recorded for it is
+   then the block's as far as checking has got: `check_stmts` sharpens
+   it after every statement that binds something (`sharpened`), so the
+   bindings above the call are seen and those between the call and the
+   `def` are not yet.
 3. **Errors stay local.** Because solving happens at the demand,
    a failure is reported at the construct that made it, in the words the
    checker already uses:

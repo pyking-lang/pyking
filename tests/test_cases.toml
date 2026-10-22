@@ -56,6 +56,18 @@ file = "evaluation_order.pyk"
 file = "evaluation_order_branches.pyk"
 
 [[cases]]
+file = "int_literals_hex_binary.pyk"
+
+[[cases]]
+file = "fail_typecheck_hex_underscore.pyk"
+
+[[cases]]
+file = "fail_typecheck_hex_too_large.pyk"
+
+[[cases]]
+file = "fail_typecheck_binary_digit.pyk"
+
+[[cases]]
 file = "fail_typecheck_binding_annotation.pyk"
 
 [[cases]]
@@ -1229,6 +1241,10 @@ file = "module_submodule.pyk"
 modules = ["module_submodule_mod1.pyk"]
 
 [[cases]]
+file = "module_submodule_struct.pyk"
+modules = ["module_submodule_struct_mod1.pyk"]
+
+[[cases]]
 file = "module_submodule_ext.pyk"
 modules = ["module_submodule_ext_mod1_external.pyk", "module_submodule_ext_mod1.pyk"]
 
@@ -1556,22 +1572,36 @@ file = "fail_typecheck_str_removed.pyk"
 # form, and tests/test_tinyweb.py holds it to drawing what these do.
 [[cases]]
 file = "lib_tinyweb_sound_graphics1.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "lib_text_basic.pyk"
+libs = ["text"]
+
+[[cases]]
+file = "lib_text_lists.pyk"
+libs = ["text"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "lib_tinyweb_timers.pyk"
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_frames.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_input.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_style.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 # The splash screen a sound needs before the reader has clicked: shown by
@@ -1584,32 +1614,32 @@ excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks 
 # a case of its own, so C runs the rest.
 [[cases]]
 file = "lib_tinyweb_shapes.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_polygons.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "lib_tinyweb_transform.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_image.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_widgets.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_choice.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
 
 # random: a generator written in Pyking, so a seed gives the same numbers
@@ -1625,17 +1655,17 @@ excluded = { c = "lists need a heap, and C has no garbage collector to free one"
 
 [[cases]]
 file = "lib_tinyweb_splash.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_splash_off.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "typecheck_tinyweb_splash_module.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 modules = ["typecheck_tinyweb_splash_module_drums.pyk"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
@@ -1828,27 +1858,27 @@ excluded = { c = "lists need a heap, and C has no garbage collector to free one"
 
 [[cases]]
 file = "lib_tinyweb_pointer.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_bitmap.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_paint.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
 file = "lib_tinyweb_smooth.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "lib_tinyweb_layout.pyk"
-libs = ["tinyweb"]
+libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
@@ -1903,3 +1933,50 @@ file = "fail_typecheck_struct_field_line.pyk"
 
 [[cases]]
 file = "struct_submodule.pyk"
+
+[[cases]]
+file = "lib_tinyweb_voices.pyk"
+libs = ["math", "text", "tinyweb"]
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "lib_tinyweb_beat.pyk"
+libs = ["math", "text", "tinyweb"]
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "lib_tinyweb_files.pyk"
+libs = ["math", "text", "tinyweb"]
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "tinyweb_drum_pad.pyk"
+libs = ["math", "text", "tinyweb"]
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "tinyweb_sequencer.pyk"
+libs = ["math", "text", "tinyweb"]
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "tinyweb_piano.pyk"
+libs = ["math", "text", "tinyweb"]
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
+file = "adt_effect_name.pyk"
+
+[[cases]]
+file = "java_if_effect.pyk"
+
+[[cases]]
+file = "infer_forward_binding.pyk"
+
+[[cases]]
+file = "string_of_call.pyk"
+
+[[cases]]
+file = "lib_tinyweb_splash_voice.pyk"
+libs = ["math", "text", "tinyweb"]
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }

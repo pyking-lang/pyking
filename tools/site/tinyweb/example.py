@@ -17,14 +17,14 @@ presses = 0
 
 
 def play_kick():
-    tw.play_sample(kick, 0.0, 1.0, 1.0)
+    tw.command("play", kick, "", "0.0 1.0 1.0 0.0 0 0", 2)
 
 
 def play_snare():
     global presses
     presses += 1
     print(f"snare, press {presses}")
-    tw.play_sample(snare, 0.0, 0.5, 1.0)
+    tw.command("play", snare, "", "0.0 0.5 1.0 0.0 0 0", 2)
 
 
 tw.make_button("Play kick", play_kick)

@@ -640,8 +640,9 @@ An OCaml value name must start with a lowercase letter or an underscore
 and must not be a keyword, so a Pyking `Total` becomes `v_Total` and a
 Pyking `method` becomes `method_`. `_` is on the keyword list for
 OCaml's own reason: it is the wildcard pattern rather than a name, so
-`let _ = 2` binds nothing and `_` is not an expression. Everything else
-reaches the output unchanged.
+`let _ = 2` binds nothing and `_` is not an expression. `effect`, a
+keyword from OCaml 5.3, is on the list too, so a datatype `Effect` is the
+type `effect_`. Everything else reaches the output unchanged.
 
 Neither rule is injective on its own — `mod` and `mod_` both want
 `mod_`, and `Foo` and `v_Foo` both want `v_Foo` — and two Pyking names

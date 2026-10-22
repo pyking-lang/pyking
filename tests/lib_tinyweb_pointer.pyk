@@ -2,36 +2,43 @@
 # canvas, the pointer's last position and state read back, and keys held
 # down and let go.
 import tinyweb as tw
+import tinyweb.color as color
 
 tw.web_init(0)
 c = tw.canvas(200, 100)
 other = tw.canvas(50, 50)
+tw.track_mouse(c)
 
 
 def pressed(x: Int, y: Int):
-    print("press at", x, y, "down", tw.mouse_down(c))
-    tw.circle(c, x, y, 4, "crimson")
+    print("press at", x, y, "down", tw.mouse(c).down)
+    tw.circle(c, x, y, 4, color.hex(0xdc143c))
 
 
 def dragged(x: Int, y: Int):
-    print("drag to", x, y)
-    tw.line(c, tw.mouse_x(c), tw.mouse_y(c), x, y, "black", 2)
+    print("drag to", x, y, "down", tw.mouse(c).down)
+    tw.line(c, 0, 0, x, y, color.black, 2)
 
 
 def moved(x: Int, y: Int):
-    print("move to", x, y, "down", tw.mouse_down(c))
+    print("move to", x, y, "down", tw.mouse(c).down)
 
 
 def released(x: Int, y: Int):
-    print("release at", x, y, "down", tw.mouse_down(c))
+    print("release at", x, y, "down", tw.mouse(c).down)
+
+
+def nothing(x: Int, y: Int):
+    ()
 
 
 tw.on_press(c, pressed)
 tw.on_drag(c, dragged)
 tw.on_move(c, moved)
 tw.on_release(c, released)
-tw.on_move(other, tw.ignore2)
-print("before any event", tw.mouse_x(c), tw.mouse_y(c), tw.mouse_down(c))
+tw.on_move(other, nothing)
+start = tw.mouse(c)
+print("before any event", start.x, start.y, start.down)
 
 
 def let_go(key: String):

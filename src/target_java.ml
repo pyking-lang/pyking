@@ -1444,6 +1444,13 @@ and lambda ctx st scope e params body =
 and effect_of ctx st scope e =
   match e with
   | ETuple (_, [], _) -> ([], st)
+  | EIf (_, c, a, b, _) ->
+      (* An `if` evaluated for its effect is an if statement, so neither
+         branch is a lambda reading the method's variables. *)
+      let cv, st = expr ctx st scope c in
+      let thens, st = effect_of ctx st scope a in
+      let elses, st = effect_of ctx st scope b in
+      ([ JIf (cv.text, thens, if elses = [] then None else Some elses) ], st)
   | ECall (_, EVar (_, name, callee), args, _)
     when Builtin.crosses_host name && not (IntMap.mem callee ctx.tmap) ->
       let line, st = print_text ctx st scope (arg_exprs args) in

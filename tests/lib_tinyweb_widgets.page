@@ -13,13 +13,22 @@ set_checked "Trails" true
 set_checked "frame-based" true
 set_value "number" 5
 set_value "slider" 8
+label "going"
+visible "going" 0
+visible "going" 1
+enabled "slider" 0
+enabled "slider" 1
+enabled "Trails" 0
+remove "going"
+label "element" ""
+set_text "element" "filled in"
 > check "Trails" false
-set_label "nothing yet" "trails off"
+set_text "nothing yet" "trails off"
 > pick "time-based"
-set_label "nothing yet" "mode: time-based"
+set_text "nothing yet" "mode: time-based"
 > enter "your name" "Ada"
-set_label "nothing yet" "hello, Ada"
+set_text "nothing yet" "hello, Ada"
 > slide "number" 12
-set_label "nothing yet" "12 balls"
+set_text "nothing yet" "12 balls"
 > check "Trails" true
-set_label "nothing yet" "trails on"
+set_text "nothing yet" "trails on"

@@ -1416,7 +1416,8 @@ The bootstrap is split into one module per compiler stage:
 
 26. **`src/splash.ml`** — tinyweb's splash screen, which a browser
    needs before it plays a sound: a program any of whose modules can
-   call tinyweb's `play` or `play_file` (named through a plain import, or
+   call tinyweb's `play`, `play_file`, `sound.start` or `sound.tone`
+   (named through a plain import, or
    taken with `from`) ends its own top level with `tinyweb.splash()`,
    after an import of tinyweb under a name the module does not use where
    it has no plain one. Run by `Module.load` (`with_splash`) on the
@@ -2425,7 +2426,11 @@ file and a `.page` file -- `lib_tinyweb_shapes`, `_polygons`,
 widgets, `_paint` and `_smooth` for drawing between pixels, gradients,
 dashes and clipping, `_pointer`, `_bitmap` and `_layout` for the
 mouse, the keyboard, bitmaps and rows, what takes a list split off so C
-runs the rest, and
+runs the rest, `_voices`, `_beat`, `_timers` and `_files` for step 3's
+sound, the beat, listening, rendering, timers and files, the
+playground's sound examples `tinyweb_drum_pad`, `_sequencer` and
+`_piano` (each listing `math` and `text` before `tinyweb` under `libs`,
+since tinyweb imports them), and
 `lib_random_*` for the `random` library -- `lib_tinyweb_splash*` and
 `typecheck_tinyweb_splash_module` for the splash screen and the call the
 compiler adds -- run headless on every target but web --

@@ -1,28 +1,31 @@
 # Transformations, shadows and blending, on a frame: each frame starts
-# from `clear`, which drops what the frame before left.
+# from `clear`, which drops what the frame before left. Angles are in
+# radians.
 
+import math
 import tinyweb as tw
+import tinyweb.color as color
 
 tw.web_init(0)
 c = tw.canvas(200, 200)
 
 def draw(t: Float):
-    tw.clear(c, "black")
+    tw.clear(c, color.black)
     tw.push(c)
     tw.translate(c, 100.0, 100.0)
-    tw.rotate(c, t * 90.0)
-    tw.rect(c, -20, -20, 40, 40, "crimson")
+    tw.rotate(c, t * math.pi / 2.0)
+    tw.rect(c, -20, -20, 40, 40, color.hex(0xdc143c))
     tw.push(c)
     tw.scale(c, 0.5, 2.0)
-    tw.circle(c, 60, 0, 10, "white")
+    tw.circle(c, 60, 0, 10, color.white)
     tw.pop(c)
     tw.pop(c)
-    tw.shadow(c, "white", 12)
-    tw.circle(c, 30, 30, 10, "gold")
-    tw.shadow(c, "")
+    tw.shadow(c, color.white, 12)
+    tw.circle(c, 30, 30, 10, color.hex(0xffd700))
+    tw.shadow(c, color.none)
     tw.blend(c, "add")
-    tw.circle(c, 160, 160, 20, "#800000")
-    tw.circle(c, 175, 160, 20, "#000080")
+    tw.circle(c, 160, 160, 20, color.hex(0x800000))
+    tw.circle(c, 175, 160, 20, color.hex(0x000080))
     tw.blend(c, "normal")
     tw.blend(c, "multiply")
     tw.reset(c)

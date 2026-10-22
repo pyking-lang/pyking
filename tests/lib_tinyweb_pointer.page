@@ -6,11 +6,11 @@ on_key
 on_frame
 > move "canvas" 20 30
 > press "canvas" 40 50
-circle "canvas" 40 50 4 "crimson" "" 1.000 1.000
+circle "canvas" 40 50 4 "#dc143c" "" 1.000 1.000
 > move "canvas" 60 55
-line "canvas" 60 55 60 55 "" "black" 2.000 1.000
+line "canvas" 0 0 60 55 "" "#000000" 2.000 1.000
 > move "canvas" 80 60
-line "canvas" 80 60 80 60 "" "black" 2.000 1.000
+line "canvas" 0 0 80 60 "" "#000000" 2.000 1.000
 > release "canvas" 90 62
 > move "canvas" 95 64
 > move "canvas1" 10 10

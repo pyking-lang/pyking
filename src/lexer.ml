@@ -409,6 +409,45 @@ let lexing file chars =
                        "unindent does not match any outer indentation level" ));
               lex ys r (c + width) stack depth false tokens
         | _ -> lex ys r (c + width) stack depth line_start tokens)
+    (* Hexadecimal or binary integer: `0xff8800`, `0b0001_0101` *)
+    | '0' :: (('x' | 'X' | 'b' | 'B') as base) :: after ->
+        let word, ys = string_until (fun ch -> is_digit_letter ch || ch = '_') after in
+        let width = 2 + String.length word in
+        let text = String.make 1 '0' ^ String.make 1 base ^ word in
+        let hex = base = 'x' || base = 'X' in
+        let digit ch =
+          match ch with
+          | '0' .. '9' -> Some (Char.code ch - Char.code '0')
+          | 'a' .. 'f' when hex -> Some (Char.code ch - Char.code 'a' + 10)
+          | 'A' .. 'F' when hex -> Some (Char.code ch - Char.code 'A' + 10)
+          | _ -> None
+        in
+        let radix = if hex then 16 else 2 in
+        let fail message = raise (Lex_error (fi r c width, message)) in
+        let kind = if hex then "hexadecimal" else "binary" in
+        if word = "" then fail (Printf.sprintf "'%s' has no %s digits after it" text kind);
+        if word.[0] = '_' || word.[String.length word - 1] = '_' then
+          fail (Printf.sprintf "in '%s', '_' may only stand between two digits" text);
+        let rec contains_double i =
+          i + 1 < String.length word && ((word.[i] = '_' && word.[i + 1] = '_') || contains_double (i + 1))
+        in
+        if contains_double 0 then
+          fail (Printf.sprintf "in '%s', '_' may only stand between two digits" text);
+        let value =
+          String.fold_left
+            (fun acc ch ->
+              if ch = '_' then acc
+              else
+                match digit ch with
+                | Some d when d < radix ->
+                    let next = (acc * radix) + d in
+                    if next > max_int_literal then
+                      fail (Printf.sprintf "integer literal '%s' is too large" text)
+                    else next
+                | _ -> fail (Printf.sprintf "'%c' is not a %s digit, in '%s'" ch kind text))
+            0 word
+        in
+        lex ys r (c + width) stack depth line_start (TokInt (fi r c width, value) :: tokens)
     (* Integer, or float *)
     | x :: _ when is_digit x ->
         let y, ys = string_until is_digit rest in

@@ -23,10 +23,11 @@ print("Add your code here")
 
 ```pyking solution stdin = "40" save_canvas = "canvas" file = "square.png"
 import tinyweb as tw
+import tinyweb.color as color
 import io
 size = int(io.read_line())
 c = tw.canvas(100, 100)
-tw.rect(c, 10, 10, size, size, "#ff0000")
+tw.rect(c, 10, 10, size, size, color.red)
 print(size)
 ```
 

@@ -1,21 +1,34 @@
-# Step 1's shapes and text, with outlines and transparency, and colors
-# from the `colors` submodule.
+# Step 1's shapes and text, with outlines and transparency, and colours
+# from the `color` submodule.
 
+import math
 import tinyweb as tw
-import tinyweb.colors as colors
+import tinyweb.color as color
 
 tw.web_init(0)
 c = tw.canvas(300, 200)
-tw.clear(c, colors.rgb(17, 17, 17))
-tw.circle(c, 50, 50, 30, "gold", outline = "white", outline_width = 3)
-tw.circle(c, 80, 50, 30, colors.rgba(0, 128, 255, 0.5))
-tw.rect(c, 120, 20, 60, 40, "", outline = colors.hsl(120, 100, 50), radius = 8)
-tw.ellipse(c, 220, 40, 50, 20, "orchid", alpha = 0.75)
-tw.arc(c, 50, 140, 40, 30.0, 330.0, "yellow")
-tw.arc(c, 150, 140, 40, 180.0, 360.0, "", outline = "red", outline_width = 4)
-tw.line(c, 200, 100, 290, 190, "cyan", 2)
-tw.curve(c, 200, 190, 245, 60, 290, 190, "white", 2, alpha = 0.5)
-tw.text(c, 150, 180, "Step 1", "white", 18, font = "serif", align = "center", bold = true)
-print(colors.rgb(255, 136, 0))
-print(colors.rgb(-5, 300, 16))
-print(colors.hsl(200, 50, 25))
+tw.clear(c, color.rgb(17, 17, 17))
+gold = color.hex(0xffd700)
+tw.circle(c, 50, 50, 30, gold, stroke = color.white, width = 3)
+tw.circle(c, 80, 50, 30, color.rgba(0, 128, 255, 0.5))
+tw.rect(c, 120, 20, 60, 40, color.none, stroke = color.hsl(120.0, 100.0, 50.0), radius = 8)
+tw.ellipse(c, 220, 40, 50, 20, color.hex(0xda70d6), alpha = 0.75)
+tw.arc(c, 50, 140, 40, math.pi / 6.0, 11.0 * math.pi / 6.0, color.yellow)
+tw.arc(c, 150, 140, 40, math.pi, 2.0 * math.pi, color.none, stroke = color.red, width = 4)
+tw.line(c, 200, 100, 290, 190, color.cyan, 2)
+tw.curve(c, 200, 190, 245, 60, 290, 190, color.white, 2, alpha = 0.5)
+tw.text(c, 150, 180, "Step 1", color.white, 18, font = "serif", align = "center", bold = true)
+
+
+def show(c: color.Color) -> String:
+    string(c.r) ++ " " ++ string(c.g) ++ " " ++ string(c.b) ++ " " ++ string(c.a)
+
+
+print(show(color.rgb(255, 136, 0)))
+print(show(color.rgb(-5, 300, 16)))
+print(show(color.hsl(200.0, 50.0, 25.0)))
+print(color.to_hex(color.hex(0xff8800)), color.to_hex(color.rgb(1, 2, 3)))
+print(color.same(color.hex(0x00ffff), color.cyan), color.same(color.red, color.blue))
+print(show(color.mix(color.black, color.white, 0.5)))
+print(show(color.with_alpha(color.red, 0.25)))
+print(show(color.rgba(10, 20, 30, 0.5)), show(color.none))

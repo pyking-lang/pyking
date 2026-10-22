@@ -39,7 +39,7 @@ export function registerPyking(monaco, words) {
         [/'(?:[^'\\]|\\.)*'/, "string"],
         [/"(?:[^"\\]|\\.)*"/, "string"],
         [/['"].*$/, "string.invalid"],
-        [/\d+(?:\.\d+)?/, "number"],
+        [/0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d+(?:\.\d+)?/, "number"],
         // `def name` -- the name being defined, not just the keyword.
         [/(def)(\s+)([A-Za-z_][A-Za-z_0-9]*)/, ["keyword", "white", "function"]],
         // ':=' must not lex as ':' + '=', '=>' not as '=' + '>', '++' not

@@ -158,7 +158,8 @@ restriction of it, but these are genuinely new.
 Expressions:
 
 - Comments
-- Integer and string literals (with backslash escapes)
+- Integer literals (decimal, hexadecimal `0xff`, binary `0b101`) and
+  string literals (with backslash escapes)
 - Float literals (`1.0`, `0.5`, `1e9`, `1.5e-3`) — IEEE 754 binary64,
   with a digit required on each side of the point
 - Boolean literals (`true`, `false`) — Pyking extension; spelled
@@ -536,7 +537,12 @@ tuple_lit   = "(" , ")"
             | "(" , expr , ( "," , expr )+ , [ "," ] , ")" ;
 
 ident       = letter , { letter | digit } ;
-int         = digit , { digit } ;
+int         = digit , { digit }
+            | "0" , ( "x" | "X" ) , hex_digit , { [ "_" ] , hex_digit }
+            | "0" , ( "b" | "B" ) , bin_digit , { [ "_" ] , bin_digit } ;
+hex_digit   = digit | "a" | "b" | "c" | "d" | "e" | "f"
+            | "A" | "B" | "C" | "D" | "E" | "F" ;
+bin_digit   = "0" | "1" ;
 (* A point needs a digit on each side, so `1.` and `.5` are not floats.
    An exponent alone makes one: `1e9` is a Float. *)
 float       = digits , "." , digits , [ exponent ]
@@ -980,7 +986,19 @@ print(x)
 
 ### Integer and string literals
 
-Integers are sequences of digits. Strings are delimited by either single or
+Integers are sequences of digits, or hexadecimal or binary ones: `0x`
+or `0X` before hexadecimal digits (either case), `0b` or `0B` before
+binary ones. In those two, `_` may stand between two digits to make a
+long number readable, and means nothing: `0b0001_0101` is `0b00010101`
+is 21. It may not come first, last, twice in a row, or right after the
+`0x` or `0b`. Each is an ordinary `Int`.
+
+```pyking
+orange = 0xff8800
+print(orange, 0b0001_0101, 0x7fff_ffff)
+```
+
+Strings are delimited by either single or
 double quotes, and support backslash escapes: `\n`, `\t`, `\r`, `\\`, `\'`,
 and `\"` (so a string can contain its own delimiter, or the other quote
 character, once escaped).
@@ -1007,6 +1025,7 @@ front end refuses the same programs wherever it runs:
 ```pyking error
 biggest = 2147483647      # fine
 too_big = 2147483648      # Lexing error: integer literal is too large
+also = 0x8000_0000        # Lexing error, as is the same number in binary
 ```
 
 The lower end is one short of the range for a reason worth knowing: a

@@ -103,6 +103,39 @@ def page_cases():
     return cases
 
 
+def engine_event(case):
+    """The first line of a case's events that stands for what the page's
+    own engine sends -- a beat, a timer, a rendering, a report -- which a
+    page under a driver makes itself rather than being told, or None. A
+    text area's change and a file picked a driver causes as a reader
+    would. (Path, [String], [String], String) -> String?"""
+    for line in case[1]:
+        words = line.split()
+        if not words:
+            continue
+        if words[0] == "report":
+            return line
+        if words[0] == "report_text" and not re.match(r'report_text "(value\.|file)', line):
+            return line
+        if words[0] == "cb" and not re.search(r'"(change|loaded)"$', line.strip()):
+            return line
+    return None
+
+
+def drawn_cases(skipped, where):
+    """The page cases a page can be driven through; the rest are named in
+    `skipped`. [String] -> String -> [case]"""
+    cases = []
+    for case in page_cases():
+        line = engine_event(case)
+        if line is None:
+            cases.append(case)
+        else:
+            skipped.append(f"{case[0].name}.pyk {where}: its events stand for the page's own "
+                           f"engine ({line})")
+    return cases
+
+
 def excluded(stem, target):
     """Whether tests/test_cases.toml leaves `target` out for the case
     `stem` -- C, for a program holding a list. Path -> String -> Bool"""
@@ -193,8 +226,8 @@ def log_line(command):
         "set_checked": lambda: f"set_checked {q('id')} {flag('checked')}",
         "set_value": lambda: f"set_value {q('id')} {c('value')}",
         "load": lambda: f"load {named('id', 'name')}",
-        "play": lambda: (f"play {q('sample')} {seconds(c('at'))} {seconds(c('volume'))} "
-                         f"{seconds(c('rate'))}"),
+        "cmd": lambda: (f"{c('kind')} {q('id')}" + ("" if c("text") == "" else " " + q("text"))
+                        + ("" if c("numbers") == "" else " " + c("numbers"))),
         "on_mouse": lambda: f"on_mouse {q('c')}",
         "style": lambda: f"style {q('id')} {c('kind')} {c('prop')} {q('value')}",
         "splash_text": lambda: f"splash_text {q('text')}",
@@ -223,6 +256,14 @@ def split_line(line):
     return first, id, rest[end:].split()
 
 
+# What a page connecting later is sent again of a generic command, by
+# its first word: the last of its kind and element only, or nothing
+# (tinyweb.pyk gives each kind its mode; sound before any event is kept
+# as everything else is).
+REPLACED = ("set_text", "visible", "enabled", "master", "tempo", "swing", "channel", "listen",
+            "cursor")
+NOT_KEPT = ("render", "render_end", "download", "save_canvas", "audio")
+
 # The first word of every line that draws on a canvas, which a `clear`
 # of that canvas makes invisible to a page connecting later.
 DRAWING = ("clear", "rect", "circle", "ellipse", "arc", "line", "lines", "curve", "bezier",
@@ -242,7 +283,9 @@ def compacted(lines):
         if op == "clear":
             kept = [k for k in kept
                     if not (split_line(k)[0] in DRAWING and split_line(k)[1] == id)]
-        if op in ("set_label", "set_checked", "set_value"):
+        if op in NOT_KEPT:
+            continue
+        if op in ("set_label", "set_checked", "set_value") + REPLACED:
             kept = [k for k in kept
                     if not (split_line(k)[0] == op and split_line(k)[1] == id)]
         kept.append(line)
@@ -275,6 +318,12 @@ def event_of(line):
         return {"ev": kind, "c": id, "x": int(words[0]), "y": int(words[1])}
     if kind == "measured":
         return {"ev": "measured", "id": id, "width": float(words[0])}
+    if kind == "cb":
+        return {"ev": "cb", "id": id, "kind": json.loads(" ".join(words))}
+    if kind == "report":
+        return {"ev": "report", "reports": {id: [float(w) for w in words]}}
+    if kind == "report_text":
+        return {"ev": "report", "reports": {id: json.loads(" ".join(words))}}
     return {"ev": kind}
 
 
@@ -332,17 +381,36 @@ class Served:
             self.output.append(line)
         return None
 
+    def settle(self, expected, seconds=2.0):
+        """Reads what the program prints until it is `expected` or
+        `seconds` have passed: a host may write its output after telling
+        the page an event is done. String -> Float -> ()"""
+        deadline = time.time() + seconds
+        while "".join(self.output) != expected and time.time() < deadline:
+            try:
+                line = self.lines.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            if line is None:
+                self.lines.put(None)
+                return
+            self.output.append(line)
+
     def stop(self):
         """Stops the program and answers everything it printed after the
         address. () -> String"""
         try:
             os.killpg(self.process.pid, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # macOS answers EPERM for a group whose process has exited.
             pass
         try:
             self.process.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            os.killpg(self.process.pid, signal.SIGKILL)
+            try:
+                os.killpg(self.process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
             self.process.wait()
         while True:
             try:
@@ -498,8 +566,9 @@ def check_served(compiler, case, target):
             if not delivered:
                 time.sleep(0.5)
         finally:
+            expected = "".join(l for l in expected_out.splitlines(keepends=True))
+            served.settle(expected)
             output = served.stop()
-        expected = "".join(l for l in expected_out.splitlines(keepends=True))
         if output != expected:
             return f"it printed\n{output}\nwhere the .out file says\n{expected}"
     return None
@@ -847,22 +916,22 @@ def main(argv):
             except Exception as error:  # noqa: BLE001 -- reported, not raised
                 problem = f"{type(error).__name__}: {error}"
             record((name, problem))
+    skipped = []
     if only in (None, "browser"):
-        for case in sampled(page_cases(), "browser"):
+        for case in sampled(drawn_cases(skipped, "on a page under node"), "browser"):
             name = f"{case[0].name}.pyk drawn directly and through commands, on a page under node"
             try:
                 problem = check_fake_page(compiler, case)
             except Exception as error:  # noqa: BLE001 -- reported, not raised
                 problem = f"{type(error).__name__}: {error}"
             record((name, problem))
-    skipped = []
     if only in (None, "browser", "chromium"):
         chromium = suite.find_chromium()
         if chromium is None:
             skipped.append("in a real browser: no Chromium found ($PYKING_CHROME, the PATH, "
                            "or Playwright's download)")
         else:
-            for case in sampled(page_cases(), "chromium"):
+            for case in sampled(drawn_cases(skipped, "in Chromium"), "chromium"):
                 name = (f"{case[0].name}.pyk drawn directly, through commands and "
                         f"interpreted, in Chromium")
                 try:
@@ -871,7 +940,7 @@ def main(argv):
                     problem = f"{type(error).__name__}: {error}"
                 record((name, problem))
             for case, target in sampled(
-                    [(c, t) for c in page_cases() for t in CHROMIUM_SERVED_TARGETS],
+                    [(c, t) for c in drawn_cases([], "") for t in CHROMIUM_SERVED_TARGETS],
                     "chromium served"):
                 name = (f"{case[0].name}.pyk served on {target}, in Chromium, drawn as "
                         f"the web page draws it")

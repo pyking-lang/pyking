@@ -2,9 +2,9 @@ before any event 0 0 false
 move to 20 30 down false
 press at 40 50 down true
 move to 60 55 down true
-drag to 60 55
+drag to 60 55 down true
 move to 80 60 down true
-drag to 80 60
+drag to 80 60 down true
 release at 90 62 down false
 move to 95 64 down false
 frame 0.5 left false right false

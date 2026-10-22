@@ -234,7 +234,10 @@ builtin.")
    ;; literal value is a literal value, whether spelled with digits or
    ;; with `true'/`false', and this makes that a single fact in the code,
    ;; not two rules that could drift apart under a future edit.
-   (cons (concat "\\_<[0-9]+\\_>\\|" pyking-mode-constants-regexp)
+   ;; Hexadecimal (`0xff_88') and binary (`0b0101') integers are one
+   ;; symbol too, and come first so their prefix is not read as a `0'.
+   (cons (concat "\\_<0[xX][0-9a-fA-F_]+\\_>\\|\\_<0[bB][01_]+\\_>\\|\\_<[0-9]+\\_>\\|"
+                 pyking-mode-constants-regexp)
          'font-lock-constant-face)
    ;; Known Python builtins (see `pyking-mode-builtins'); matched as a
    ;; plain symbol, not conditionally on being followed by "(", matching

@@ -205,7 +205,12 @@ let value_of_json text =
     else
     match int_of_string_opt (String.sub text i (!j - i)) with
     | Some n -> (Interpreter.VInt n, !j)
-    | None -> fail ()
+    | None -> (
+        (* Too wide for this build's int: a whole number all the same,
+           which a declared Float takes as it is. *)
+        match float_of_string_opt (String.sub text i (!j - i)) with
+        | Some x -> (Interpreter.VFloat x, !j)
+        | None -> fail ())
   and string_at i out =
     if i >= length then fail ()
     else
@@ -325,6 +330,9 @@ let next_callback = ref 0
 let rec coerce type_ value =
   match (type_, value) with
   | Syntax.TFloat _, Interpreter.VInt n -> Interpreter.VFloat (float_of_int n)
+  (* A JavaScript number that is whole, -0 among them, where an Int is
+     declared. *)
+  | Syntax.TInt _, Interpreter.VFloat x when Float.is_integer x -> Interpreter.VInt (int_of_float x)
   | Syntax.TList (_, element, _), Interpreter.VList items ->
       Interpreter.VList (List.map (coerce element) items)
   | Syntax.TTuple (_, types, _), (Interpreter.VTuple items | Interpreter.VList items)

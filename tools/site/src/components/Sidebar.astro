@@ -34,7 +34,14 @@ const within = (page) => current(page.link)
             {page.items && within(page) && (
               <ul class="pyking-sidebar-headings">
                 {page.items.map((item) => (
-                  <li><a href={base + item.link} aria-current={current(item.link) ? "page" : undefined}>{item.label}</a></li>
+                  <li>
+                    <a href={base + item.link} aria-current={current(item.link) ? "page" : undefined}>{item.label}</a>
+                    {current(item.link) && (item.headings ?? []).length > 0 && (
+                      <ul class="pyking-sidebar-headings">
+                        {item.headings.map((h) => <li><a href={`#${h.anchor}`}>{h.text}</a></li>)}
+                      </ul>
+                    )}
+                  </li>
                 ))}
               </ul>
             )}

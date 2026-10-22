@@ -1,7 +1,7 @@
 canvas "canvas" 300 200
 rect "canvas" 0 0 300 200 0 "#eeeeee" "" 1.000 1.000
 line "canvas" 0 0 300 200 "" "#000000" 1.000 1.000
-line "canvas" 0 200 300 0 "" "red" 3.000 1.000
+line "canvas" 0 200 300 0 "" "#ff0000" 3.000 1.000
 text "canvas" 10.000 10.000 "#000000" 20 "" left top false "" 1.000 1.000 "click \"me\""
 label "nothing yet"
 on_mouse "canvas"
@@ -10,12 +10,12 @@ slider "slider" 0 10 5
 slider "slider1" 1 3 2
 splash
 > mouse "canvas" 10 20
-set_label "nothing yet" "clicked at 10, 20"
-circle "canvas" 10 20 5 "blue" "" 1.000 1.000
+set_text "nothing yet" "clicked at 10, 20"
+circle "canvas" 10 20 5 "#0000ff" "" 1.000 1.000
 > key a
 > key Enter
 load "snare1.wav"
-play "snare1.wav" 0.000 1.000 1.000
+play "snare1.wav" 0.0 1.0 1.0 0.0 0 0
 > slide "slider" 7
-set_label "nothing yet" "slider at 7"
+set_text "nothing yet" "slider at 7"
 > slide "slider1" 1

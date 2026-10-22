@@ -2,9 +2,9 @@ splash_text "Click for drums"
 canvas "canvas" 200 100
 clear "canvas" #202020
 load "kick1.wav"
-play "kick1.wav" 0.250 1.000 1.000
+play "kick1.wav" 0.25 1.0 1.0 0.0 0 0
 circle "canvas" 100 50 30 "#ffcc00" "" 1.000 1.000
 button "Again"
 splash
 > click "Again"
-play "kick1.wav" 0.000 1.000 1.000
+play "kick1.wav" 0.0 1.0 1.0 0.0 0 0

@@ -1,6 +1,7 @@
 # Pictures: loaded once, then drawn each frame at any size.
 
 import tinyweb as tw
+import tinyweb.color as color
 
 tw.web_init(0)
 c = tw.canvas(200, 100)
@@ -10,7 +11,7 @@ again = tw.load_image("ball.png")
 print(again)
 
 def draw(t: Float):
-    tw.clear(c, "#202040")
+    tw.clear(c, color.hex(0x202040))
     tw.image(c, ball, int(t * 100.0), 20, 40, 40)
     tw.image(c, star, 140, 20, 50, 50, alpha = 0.5)
 

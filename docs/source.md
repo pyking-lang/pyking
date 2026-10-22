@@ -138,6 +138,9 @@ imported by every other one.
   -> …`), carrying row, column, the indentation stack and the tokens so
   far along as parameters rather than mutating anything. Indentation is turned into `TokIndent`/`TokDedent` here, which
   is what lets the parser treat a block as a bracketed construct.
+  A hexadecimal (`0xff8800`) or binary (`0b0101`) literal is read here
+  too, its `_` between digits dropped, and becomes the same `TokInt` a
+  decimal one does, held to the same bound (`max_int_literal`).
 - **`string_until(pred, chars)`** — the longest prefix satisfying `pred`,
   used for numbers and identifiers.
 - **`scan_string(file, r, c, quote, chars)`** — a string literal, with
@@ -466,12 +469,14 @@ entry, with the earlier entries as `context`.
 
 **tinyweb's splash screen, called where a program can play a sound.** A
 browser plays no sound before the reader has clicked or pressed a key,
-so a program any of whose modules can call tinyweb's `play` or
-`play_file` gets `tinyweb.splash()` as the last statement of its own
+so a program any of whose modules can call tinyweb's `play`,
+`play_file`, `sound.start` or `sound.tone` gets `tinyweb.splash()` as the last statement of its own
 top level -- after an import of tinyweb, under a name the module does
 not use, where it has no plain one. "Can call" is syntactic: a module
-names `play` or `play_file` through a plain import of tinyweb, or takes
-one with `from`. Runs inside `module.load`, on the parsed modules,
+names one through a plain import of tinyweb, or uses one it took with
+`from` -- by the plain name submodules.ml gave it (`sound__start`),
+since the pass runs after that one, and an import of `tinyweb.sound`
+becomes a `from` line taking every member, used or not. Runs inside `module.load`, on the parsed modules,
 before the sugar is removed and anything is symbolized, so the call is
 checked and compiled like one the program wrote, on every target and
 the interpreter. The REPL has no end of a top level, and does not run
@@ -2029,7 +2034,11 @@ holds the state between messages. See
   reached the document's own module. `open_call` reads the call a
   position is inside from the text, since a call being typed seldom
   parses; `rename` refuses a new name that would mean something else
-  at any place the old one is written.
+  at any place the old one is written. After `m.` completion offers
+  what `m` exports and its submodules, after `m.sub.` that submodule's
+  public names (`submodule_items`, from the module's `dotted` table),
+  and after a submodule imported under a name of its own the names it
+  brought in.
 - **`position` / `row_col`** -- the one conversion between
   `Lexer.info` (rows from 1, byte columns) and LSP positions (lines from
   0, UTF-16 columns).
@@ -2114,7 +2123,8 @@ reported) and runs the program in slices between messages. See
 ## `completion.ml`
 
 **What completion needs whoever asks**: the word ending at a column and
-the module written before it with a `.` (`word_before`, `qualifier`),
+the module written before it with a `.` (`word_before`, `qualifier`,
+which reads the whole `m.sub.` before the cursor),
 which names a pass made up (`hidden`), the candidates fitting a prefix
 (`matching`) and what they have in common (`common_prefix`). `lsp.ml`
 and `repl_session.ml` (`completions`) each work their candidates out

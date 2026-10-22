@@ -1,38 +1,43 @@
 canvas "canvas" 300 200
-clear "canvas" linear-gradient(0.0 0.0 0.0 200.0); 0.0 #1a237e; 1.0 #ffb74d; 0.6 #e91e63
-circle "canvas" 50 50 30 "radial-gradient(40.0 40.0 4.0 50.0 50.0 30.0); 0.0 white; 1.0 crimson" "" 1.000 1.000
-circle "canvas" 150 50 30 "conic-gradient(150.0 50.0 90.0); 0.0 red; 1.0 red; 0.33 lime; 0.67 blue" "white" 2.000 1.000
+rect "canvas" 0 0 300 200 0 "linear-gradient(0.0 0.0 0.0 200.0); 0.0 #1a237e; 1.0 #ffb74d; 0.6 #e91e63" "" 1.000 1.000
+circle "canvas" 50 50 30 "radial-gradient(40.0 40.0 4.0 50.0 50.0 30.0); 0.0 #ffffff; 1.0 #dc143c" "" 1.000 1.000
+circle "canvas" 150 50 30 "conic-gradient(150.0 50.0 1.5707963267948966); 0.0 #ff0000; 1.0 #ff0000; 0.33 #00ff00; 0.67 #0000ff" "#ffffff" 2.000 1.000
 push "canvas"
 line_style "canvas" "butt bevel" 2.0 8.0 4.0
-rect "canvas" 200 20 80 60 0 "" "white" 3.000 1.000
+rect "canvas" 200 20 80 60 0 "" "#ffffff" 3.000 1.000
 line_style "canvas" "round round" 0.0 3.0 3.0
-line "canvas" 200 90 280 90 "" "yellow" 2.000 1.000
+line "canvas" 200 90 280 90 "" "#ffff00" 2.000 1.000
 pop "canvas"
 push "canvas"
 clip "canvas" "rect" 10 100 60 40 0
-circle "canvas" 40 120 35 "orange" "" 1.000 1.000
+circle "canvas" 40 120 35 "#ffa500" "" 1.000 1.000
 pop "canvas"
 push "canvas"
 clip "canvas" "circle" 120 130 25
-rect "canvas" 90 100 60 60 0 "teal" "" 1.000 1.000
+rect "canvas" 90 100 60 60 0 "#008080" "" 1.000 1.000
 pop "canvas"
-bezier "canvas" 160 160 190 100 230 200 260 120 "" "black" 3.000 1.000
+bezier "canvas" 160 160 190 100 230 200 260 120 "" "#000000" 3.000 1.000
 erase "canvas" 270 150 20 20 "" "" 0.000 1.000
-text "canvas" 10.000 190.000 "white" 14 "" left bottom false "black" 3.000 1.000 "bottom"
-text "canvas" 80.000 185.000 "white" 14 "" left middle false "" 1.000 1.000 "middle"
-text "canvas" 150.000 185.000 "" 14 "" left alphabetic false "white" 1.000 1.000 "alphabetic"
-circle "canvas" 250.5 130.25 6.5 "gold" "black" 0.500 1.000
-rect "canvas" 200.5 100.5 30.0 15.0 4.0 "" "white" 1.000 1.000
-ellipse "canvas" 100.0 180.0 12.5 6.25 "plum" "" 1.000 1.000
-arc "canvas" 30.0 170.0 10.0 0.0 270.0 "" "cyan" 2.500 1.000
-line "canvas" 0.0 199.5 300.0 198.5 "" "white" 0.800 1.000
-curve "canvas" 5.0 5.0 50.0 0.5 95.0 5.0 "" "white" 1.500 1.000
-bezier "canvas" 5.0 95.0 30.0 70.0 70.0 120.0 95.0 95.0 "" "white" 1.500 0.500
-text "canvas" 150.500 100.250 "white" 12 "" center middle false "" 1.000 1.000 "smooth"
+text "canvas" 10.000 190.000 "#ffffff" 14 "" left bottom false "#000000" 3.000 1.000 "bottom"
+text "canvas" 80.000 185.000 "#ffffff" 14 "" left middle false "" 1.000 1.000 "middle"
+text "canvas" 150.000 185.000 "" 14 "" left alphabetic false "#ffffff" 1.000 1.000 "alphabetic"
+circle "canvas" 250.5 130.25 6.5 "#ffd700" "#000000" 0.500 1.000
+rect "canvas" 200.5 100.5 30.0 15.0 4.0 "" "#ffffff" 1.000 1.000
+ellipse "canvas" 100.0 180.0 12.5 6.25 "#dda0dd" "" 1.000 1.000
+arc "canvas" 30.0 170.0 10.0 0.0 4.71238898038469 "" "#00ffff" 2.500 1.000
+line "canvas" 0.0 199.5 300.0 198.5 "" "#ffffff" 0.800 1.000
+curve "canvas" 5.0 5.0 50.0 0.5 95.0 5.0 "" "#ffffff" 1.500 1.000
+bezier "canvas" 5.0 95.0 30.0 70.0 70.0 120.0 95.0 95.0 "" "#ffffff" 1.500 0.500
+text "canvas" 150.500 100.250 "#ffffff" 12 "" center middle false "" 1.000 1.000 "smooth"
 push "canvas"
 clip "canvas" "circle" 50.5 50.5 20.0
-rect "canvas" 30 30 20 40 0 "black" "" 1.000 0.300
+rect "canvas" 30 30 20 40 0 "#000000" "" 1.000 0.300
 pop "canvas"
+circle "canvas" 20 20 8 "#000080" "#ffff00" 2.000 0.800
+rect "canvas" 40 10 20 20 0 "#ff0000" "#ffff00" 2.000 0.800
+line "canvas" 0 0 30 30 "" "#ffff00" 2.000 0.800
+circle "canvas" 70 20 8 "radial-gradient(40.0 40.0 4.0 50.0 50.0 30.0); 0.0 #ffffff; 1.0 #dc143c" "" 1.000 1.000
+circle "canvas" 90.0 20.0 8.0 "#000080" "#ffff00" 2.000 0.800
 measure "measure" 20 "" true "Hello, canvas!"
 > measured "measure" 133.5
-line "canvas" 10 60 143 60 "" "white" 2.000 1.000
+line "canvas" 10 60 143 60 "" "#ffffff" 2.000 1.000

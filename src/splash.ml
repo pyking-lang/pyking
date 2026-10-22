@@ -1,6 +1,7 @@
 (** tinyweb's splash screen, called where a program would otherwise
     start a sound no browser lets it play: a program any of whose
-    modules can call tinyweb's `play` or `play_file` gets a call to
+    modules can call tinyweb's `play` or `play_file`, or `start` or
+    `tone` of its submodule `tinyweb.sound`, gets a call to
     `tinyweb.splash()` as the last statement of its own top level, and
     an import of tinyweb where it has none. Pyking AST in, Pyking AST
     out, run by `module.ml`'s `load` before the modules are made ready,
@@ -16,31 +17,47 @@ open Syntax
 (** The module whose sounds need the splash. *)
 let library = "tinyweb"
 
-(** The library's functions that start a sound. *)
-let players = [ "play"; "play_file" ]
+(** The library's functions that start a sound, by the plain names
+    they have once submodules are settled (submodules.ml). *)
+let players = [ "play"; "play_file"; "sound__start"; "sound__tone" ]
 
-(** The names one module reaches tinyweb by with a plain import.
-    [stmt] -> [string] *)
-let aliases stmts =
+(** The names one module reaches `module_` by with a plain import.
+    string -> [stmt] -> [string] *)
+let aliases module_ stmts =
   List.filter_map
     (fun statement ->
       match statement with
-      | SImport (_, name, local, false, _, _) when name = library -> Some local
+      | SImport (_, name, local, false, _, _) when name = module_ -> Some local
       | _ -> None)
     stmts
 
 (** Whether one module can call a function that starts a sound: it names
-    one through a plain import of tinyweb, or takes one with `from`.
+    one through a plain import of tinyweb, or uses one it took with
+    `from`.
     [stmt] -> bool *)
 let plays stmts =
-  let reached = aliases stmts in
-  List.exists
-    (fun statement ->
-      match statement with
-      | SImport (_, name, _, true, fields, _) when name = library ->
-          List.exists (fun (field, _) -> List.mem field players) fields
-      | _ -> false)
-    stmts
+  let reached = aliases library stmts in
+  (* The names a `from` line took a player under -- an import of a
+     submodule becomes one taking all its members, so only a name the
+     module uses counts. *)
+  let taken =
+    List.concat_map
+      (fun statement ->
+        match statement with
+        | SImport (_, name, _, true, fields, _) when name = library ->
+            List.filter_map
+              (fun (field, local) -> if List.mem field players then Some local else None)
+              fields
+        | _ -> [])
+      stmts
+  in
+  (taken <> []
+   && Walk.exists_stmts
+        (fun node ->
+          match node with
+          | Walk.NExpr (EVar (_, name, _)) -> List.mem name taken
+          | _ -> false)
+        stmts)
   || reached <> []
      && Walk.exists_stmts
           (fun node ->
@@ -95,7 +112,7 @@ let program name file modules main =
   else
     let at = end_of file main in
     let alias, main =
-      match aliases main with
+      match aliases library main with
       | alias :: _ -> (alias, main)
       | [] ->
           let alias = fresh_alias main in

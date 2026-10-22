@@ -429,9 +429,17 @@ let imported_modules stmts =
 let datatype_names statement =
   match statement with
   | SDatatype (_, name, _, constructors, _, _) ->
+      (* A dotted datatype's constructors are in its submodule. *)
+      let path =
+        match String.rindex_opt name '.' with
+        | Some k -> String.sub name 0 (k + 1)
+        | None -> ""
+      in
       name
       :: List.filter_map
-           (fun (Constructor (_, n, _, _)) -> if n = name then None else Some n)
+           (fun (Constructor (_, n, _, _)) ->
+             let n = path ^ n in
+             if n = name then None else Some n)
            constructors
   | _ -> []
 

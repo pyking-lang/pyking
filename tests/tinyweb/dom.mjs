@@ -110,6 +110,12 @@ class FakeNode {
     return { left: 0, top: 0, width, height };
   }
 
+  // A link clicked to offer a file records the file's name.
+  click() {
+    if (this.tagName === "A" && this.download) record?.push(`download: ${this.download}`);
+    this.dispatch("click");
+  }
+
   getContext() {
     if (!this.context) this.context = recordingContext(this);
     return this.context;
@@ -302,9 +308,39 @@ export function install() {
     });
   };
 
+  // An AudioParam: a value, and the schedule calls the page makes on it.
+  const fakeParam = (value) => ({
+    value,
+    setValueAtTime(v) { this.value = v; return this; },
+    linearRampToValueAtTime(v) { this.value = v; return this; },
+    exponentialRampToValueAtTime(v) { this.value = v; return this; },
+    setTargetAtTime(v) { this.value = v; return this; },
+    cancelScheduledValues() { return this; },
+  });
+  // A buffer of `length` frames, silent.
+  const fakeBuffer = (channels, length, sampleRate, sample) => {
+    const data = Array.from({ length: channels }, () => new Float32Array(length));
+    return {
+      sample,
+      numberOfChannels: channels,
+      length,
+      sampleRate,
+      duration: length / sampleRate,
+      getChannelData: (k) => data[k],
+    };
+  };
+  // A node of the sound graph: connect answers what it was connected to,
+  // so chains read as the page writes them.
+  const fakeNode = (fields) => ({
+    connect: (to) => to,
+    disconnect: () => {},
+    ...fields,
+  });
+
   class FakeAudioContext {
     constructor() {
       this.state = "running";
+      this.sampleRate = 44100;
       this.destination = { node: "speakers" };
       record.push("audio: started");
     }
@@ -315,32 +351,90 @@ export function install() {
 
     resume() {
       this.state = "running";
+      return Promise.resolve();
+    }
+
+    suspend() {
+      this.state = "suspended";
+      return Promise.resolve();
     }
 
     close() {
       this.state = "closed";
+      return Promise.resolve();
     }
 
     createBufferSource() {
       const source = {
         buffer: null,
-        playbackRate: { value: 1 },
+        loop: false,
+        playbackRate: fakeParam(1),
         gainNode: null,
+        onended: null,
         connect: (gain) => {
           source.gainNode = gain;
           return gain;
         },
+        disconnect: () => {},
         start: (when) => {
           record.push(`audio: play ${source.buffer.sample} at ${when.toFixed(3)} ` +
-            `rate ${source.playbackRate.value} volume ${source.gainNode.gain.value}`);
+            `rate ${source.playbackRate.value} volume ${source.gainNode.gain.value}` +
+            (source.loop ? " looping" : ""));
         },
+        stop: () => {},
       };
       return source;
     }
 
+    createOscillator() {
+      const oscillator = {
+        type: "sine",
+        frequency: fakeParam(440),
+        onended: null,
+        connect: (to) => to,
+        disconnect: () => {},
+        start: (when) => {
+          record.push(`audio: tone ${oscillator.type} ${oscillator.frequency.value} at ${when.toFixed(3)}`);
+        },
+        stop: () => {},
+      };
+      return oscillator;
+    }
+
     createGain() {
-      const gain = { gain: { value: 1 }, connect: (to) => to };
-      return gain;
+      return fakeNode({ gain: fakeParam(1) });
+    }
+
+    createStereoPanner() {
+      return fakeNode({ pan: fakeParam(0) });
+    }
+
+    createBiquadFilter() {
+      return fakeNode({ type: "lowpass", frequency: fakeParam(350), Q: fakeParam(1) });
+    }
+
+    createDelay() {
+      return fakeNode({ delayTime: fakeParam(0) });
+    }
+
+    createConvolver() {
+      return fakeNode({ buffer: null });
+    }
+
+    createAnalyser() {
+      const analyser = fakeNode({
+        fftSize: 2048,
+        smoothingTimeConstant: 0.8,
+        getByteFrequencyData: (array) => array.fill(0),
+        getFloatTimeDomainData: (array) => array.fill(0),
+        getByteTimeDomainData: (array) => array.fill(128),
+      });
+      Object.defineProperty(analyser, "frequencyBinCount", { get: () => analyser.fftSize / 2 });
+      return analyser;
+    }
+
+    createBuffer(channels, length, sampleRate) {
+      return fakeBuffer(channels, length, sampleRate, "made");
     }
   }
 
@@ -355,9 +449,28 @@ export function install() {
       setTimeout(() => (found ? this.onload?.() : this.onerror?.()), 0);
     }
   };
-  globalThis.OfflineAudioContext = class {
+  // Decodes a sample, and renders a sound offline into silence of the
+  // length asked for.
+  globalThis.OfflineAudioContext = class extends FakeAudioContext {
+    constructor(channels = 1, length = 1, sampleRate = 44100) {
+      super();
+      record.pop();
+      this.channels = channels;
+      this.length = length;
+      this.sampleRate = sampleRate;
+    }
+
+    get currentTime() {
+      return 0;
+    }
+
     decodeAudioData(bytes) {
-      return Promise.resolve({ sample: bytes.sample });
+      return Promise.resolve(fakeBuffer(1, 4410, 44100, bytes.sample));
+    }
+
+    startRendering() {
+      record.push(`audio: rendered ${(this.length / this.sampleRate).toFixed(3)} seconds`);
+      return Promise.resolve(fakeBuffer(this.channels, this.length, this.sampleRate, "rendered"));
     }
   };
 
@@ -371,6 +484,8 @@ export function install() {
     for (const node of body.walk()) if (node.className === "tinyweb-page") return node;
     return null;
   };
+  // The file a `cb "id" "loaded"` picks, as the report lines before it say.
+  const picked = {};
   // A gesture reaches the page's box on its way to what was touched.
   const touch = () => pageBox()?.dispatch("pointerdown");
   // A reader facing the splash screen clicks it away before anything
@@ -406,6 +521,35 @@ export function install() {
       const words = eventWords(line);
       const target = element(words[1]);
       switch (words[0]) {
+        // What the page reports of a text area or a file picked, caused as
+        // a reader would: the text typed, or the file chosen.
+        case "report_text": {
+          if (words[1].startsWith("value.")) {
+            const area = element(words[1].slice(6));
+            if (area === null) return false;
+            area.value = words[2];
+            return true;
+          }
+          if (words[1] !== "file" && words[1] !== "file.text") return false;
+          picked[words[1]] = words[2];
+          return true;
+        }
+        case "cb": {
+          if (target === null) return false;
+          if (words[2] === "change") {
+            touch();
+            target.dispatch("input");
+            return true;
+          }
+          const input = words[2] === "loaded"
+            ? target.children.find((c) => c.tagName === "INPUT" && c.type === "file") : undefined;
+          if (input === undefined) return false;
+          const text = picked["file.text"] || "";
+          input.files = [{ name: picked.file || "file.txt", type: "",
+            arrayBuffer: () => Promise.resolve(new TextEncoder().encode(text).buffer) }];
+          input.dispatch("change");
+          return true;
+        }
         case "click":
           if (target === null) return false;
           touch();

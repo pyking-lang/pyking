@@ -4,20 +4,22 @@
 ## A program builds its page by calling the functions below: each
 ## canvas, button, label and slider goes below the ones before it. A
 ## canvas is drawn on with `clear`, `circle`, `rect`, `line` and `text`,
-## in pixels from its top left corner, and a color is a CSS color such
-## as "#ff0000" or "red".
+## in pixels from its top left corner; a shape takes a `fill` and a
+## `stroke` colour from the submodule `tinyweb.color`, or a `Style`
+## holding both.
 ##
-## Shapes also come as `ellipse`, `arc`, `polygon`, `path` and `curve`,
-## each with an outline and transparency; `translate`, `rotate`, `scale`,
-## `push` and `pop` move what is drawn after them, `image` draws a
-## picture, and `shadow` and `blend` give it a glow. Colors can be built
-## with the submodule `tinyweb.colors` (`import tinyweb.colors as
-## colors`, then `colors.rgb(255, 136, 0)`). Checkboxes, radio buttons, a
-## dropdown and fields to type into sit beside the buttons and sliders.
+## What the first programs need is here, in `tinyweb` itself; what comes
+## later is a submodule of it, named for its subject:
 ##
-## A page has a look of its own, the same wherever it is shown: `theme`
-## picks one of tinyweb's, the `_style` functions change every element
-## of one kind, and `set_style` and `set_colors` change one element.
+## | Submodule | What it holds |
+## |---|---|
+## | `tinyweb.color` | colours, and the paints and gradients shapes are filled with |
+## | `tinyweb.sound` | voices that can be stopped and faded, tones, the beat, channels and listening |
+## | `tinyweb.bitmap` | pictures built pixel by pixel |
+## | `tinyweb.layout` | rows, columns and a box of text |
+## | `tinyweb.net` | saving and loading files |
+## | `tinyweb.game` | the mouse's cursor |
+## | `tinyweb.smooth` | the shapes, with positions between pixels |
 ##
 ## A program that handed the page a function -- `on_click`, `on_frame`
 ## and the rest -- keeps running after its last line: the page calls the
@@ -34,7 +36,16 @@
 #
 # The Pyking half of `tinyweb`. The host's half is declared in
 # tinyweb_external.pyk beside this file and is in scope here
-# unqualified; what is written here is what needs a default.
+# unqualified; what is written here is what needs a default, a struct,
+# or no host function of its own. Most of it is written over the
+# generic host functions (`command`, `watch`, `report_number`, ...).
+#
+# Comments read by tools/help/libdoc.py: a `##` block followed by
+# `# submodule NAME` describes a submodule, and `# topic: NAME` starts
+# the topic the exports after it are listed under.
+
+import math
+import text as strings
 
 
 def nothing():
@@ -53,26 +64,11 @@ def ignore_text(value: String):
     ()
 
 
-## Fills the whole canvas `c` with one color, wiping out what was drawn,
-## and starts it afresh: no transformation, shadow or blending is kept.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `color`: a CSS color, such as `"#ff0000"` or `"red"`; white by
-##   default.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 60)
-## tw.clear(c, "navy")
-## ```
-## ```stdout
-## ```
-public def clear(c: String, color: String = "#ffffff") -> ():
-    fill_canvas(c, color)
+def ignore_float(value: Float):
+    ()
 
+
+# --- writing numbers for the page ---
 
 # A shape's numbers, as the words the page reads.
 def numbers2(a: Int, b: Int) -> String:
@@ -111,13 +107,13 @@ def joined(words: [String]) -> String:
 
 
 # Points as the words `x y x y ...`.
-def points_text(points: [(Int, Int)]) -> String:
-    joined([numbers2(x, y) for (x, y) in points])
+def points_text(points: [Point]) -> String:
+    joined([numbers2(p.x, p.y) for p in points])
 
 
 # Segments as the words `x1 y1 x2 y2 ...`.
-def segments_text(segments: [(Int, Int, Int, Int)]) -> String:
-    joined([numbers4(x1, y1, x2, y2) for (x1, y1, x2, y2) in segments])
+def segments_text(segments: [(Point, Point)]) -> String:
+    joined([numbers4(a.x, a.y, b.x, b.y) for (a, b) in segments])
 
 
 # The same for numbers with a fraction, which `tinyweb.smooth` draws with.
@@ -133,707 +129,310 @@ def floats4(a: Float, b: Float, c: Float, d: Float) -> String:
     floats2(a, b) ++ " " ++ floats2(c, d)
 
 
-def float_points_text(points: [(Float, Float)]) -> String:
-    joined([floats2(x, y) for (x, y) in points])
+def float_points_text(points: [smooth.Point]) -> String:
+    joined([floats2(p.x, p.y) for p in points])
 
 
-## Starts the program's page. Run as `pyk program.pyk` or compiled, it
-## serves the page on `port` and prints the address to open; in a browser,
-## the notebook or the playground the page is already there and it does
-## nothing. Call it before any other tinyweb function.
+def bit(on: Bool) -> String:
+    if on then "1" else "0"
+
+
+# --- tinyweb.color ---
+
+## Colours, and the paints a shape can be filled with.
 ##
-## # Parameters
-## - `port`: the port to serve on; 0, the default, picks any free one.
+## A colour is a `Color`: how much red, green and blue, each from 0 to
+## 255, and how opaque it is, from 0.0 (not at all) to 1.0. Make one with
+## `rgb`, `rgba`, `hsl` or `hex`, take one of the named ones (`black`,
+## `white`, `red`, ...), or write `Color(255, 136, 0)`. `none` is fully
+## transparent: a shape with `stroke = color.none` has no outline.
 ##
-## # Examples
+## A `Paint` is what fills a shape: a plain colour, or a linear, radial
+## or conic gradient between two colours, with more stops added by `stop`.
+##
 ## ```pyking
 ## import tinyweb as tw
-## tw.web_init()
-## tw.label("The page is ready.")
-## ```
-## ```stdout
-## ```
-public def web_init(port: Int = 0) -> ():
-    web_start(port)
-
-
-## Draws a circle on the canvas `c`: filled, outlined, or both.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the centre, in pixels from the canvas's top left corner.
-## - `radius`: the radius in pixels.
-## - `color`: a CSS color to fill it with; black by default, and `""` for
-##   none.
-## - `outline`: a CSS color to outline it with; `""`, none, by default.
-## - `outline_width`: how thick the outline is, in pixels; 1 by default.
-## - `alpha`: how opaque it is, from 0.0 (not at all) to 1.0, the
-##   default.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
+## import tinyweb.color as color
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## tw.circle(c, 100, 50, 40, "gold")
-## tw.circle(c, 100, 50, 20)
-## tw.circle(c, 40, 50, 25, "", outline = "red", outline_width = 3)
-## tw.circle(c, 160, 50, 25, "blue", alpha = 0.3)
+## tw.clear(c, color.navy)
+## tw.circle(c, 50, 50, 30, color.rgb(255, 136, 0), stroke = color.white)
+## sky = color.Linear(0.0, 0.0, 0.0, 100.0, color.blue, color.white)
+## tw.rect(c, 110, 10, 80, 80, paint = sky)
 ## ```
-## ```stdout
-## ```
-public def circle(c: String, x: Int, y: Int, radius: Int, color: String = "#000000", outline: String = "", outline_width: Int = 1, alpha: Float = 1.0) -> ():
-    draw_shape(c, "circle", numbers3(x, y, radius), color, outline, float(outline_width), alpha)
+# submodule color
 
+# topic: Colours
 
-## Draws a rectangle on the canvas `c`, with square or rounded corners.
+## A colour: its red, green and blue parts, each from 0 to 255, and how
+## opaque it is, from 0.0 (not at all) to 1.0.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the top left corner, in pixels from the canvas's top left
-##   corner.
-## - `width`, `height`: the size in pixels.
-## - `color`: a CSS color to fill it with; black by default, and `""` for
-##   none.
-## - `outline`: a CSS color to outline it with; `""`, none, by default.
-## - `outline_width`: how thick the outline is, in pixels; 1 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
-## - `radius`: how round its corners are, in pixels; 0 by default.
+## - `r`, `g`, `b`: how much red, green and blue.
+## - `a`: how opaque; 1.0 by default.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.rect(c, 20, 20, 160, 60, "#4caf50")
-## tw.rect(c, 40, 30, 120, 40, "white", outline = "black", outline_width = 2, radius = 10)
+## import tinyweb.color as color
+## faded = color.Color(255, 0, 0, a = 0.5)
+## print(faded.r, faded.g, faded.b, faded.a)
 ## ```
 ## ```stdout
+## 255 0 0 0.5
 ## ```
-public def rect(c: String, x: Int, y: Int, width: Int, height: Int, color: String = "#000000", outline: String = "", outline_width: Int = 1, alpha: Float = 1.0, radius: Int = 0) -> ():
-    draw_shape(c, "rect", numbers4(x, y, width, height) ++ " " ++ string(radius), color, outline, float(outline_width), alpha)
+public struct color.Color(r: Int, g: Int, b: Int, a = 1.0)
 
-
-## Draws an ellipse on the canvas `c`: a circle stretched to `rx` across
-## and `ry` up and down.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the centre, in pixels.
-## - `rx`, `ry`: the radius across and the radius up and down, in pixels.
-## - `color`: a CSS color to fill it with; black by default, and `""` for
-##   none.
-## - `outline`: a CSS color to outline it with; `""`, none, by default.
-## - `outline_width`: how thick the outline is, in pixels; 1 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## Black.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.ellipse(c, 100, 50, 80, 30, "skyblue", outline = "navy")
+## import tinyweb.color as color
+## print(color.black.r, color.black.g, color.black.b)
 ## ```
 ## ```stdout
+## 0 0 0
 ## ```
-public def ellipse(c: String, x: Int, y: Int, rx: Int, ry: Int, color: String = "#000000", outline: String = "", outline_width: Int = 1, alpha: Float = 1.0) -> ():
-    draw_shape(c, "ellipse", numbers4(x, y, rx, ry), color, outline, float(outline_width), alpha)
+public color.black: color.Color = color.Color(0, 0, 0)
 
-
-## Draws a slice of a circle on the canvas `c`, from the angle `start` to
-## the angle `end`, in degrees: 0 points right, and angles turn
-## clockwise, as the canvas's `y` grows downwards.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the centre of the circle, in pixels.
-## - `radius`: its radius in pixels.
-## - `start`, `end`: where the slice starts and ends, in degrees.
-## - `color`: a CSS color to fill it with; black by default, and `""` for
-##   none, which leaves only the curved edge to outline.
-## - `outline`: a CSS color to outline it with; `""`, none, by default.
-## - `outline_width`: how thick the outline is, in pixels; 1 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## White.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.arc(c, 60, 50, 40, 30.0, 330.0, "gold")
-## tw.arc(c, 150, 50, 40, 180.0, 360.0, "", outline = "red", outline_width = 4)
+## import tinyweb.color as color
+## print(color.white.r, color.white.g, color.white.b)
 ## ```
 ## ```stdout
+## 255 255 255
 ## ```
-public def arc(c: String, x: Int, y: Int, radius: Int, start: Float, end: Float, color: String = "#000000", outline: String = "", outline_width: Int = 1, alpha: Float = 1.0) -> ():
-    draw_shape(c, "arc", numbers3(x, y, radius) ++ " " ++ string(start) ++ " " ++ string(end), color, outline, float(outline_width), alpha)
+public color.white: color.Color = color.Color(255, 255, 255)
 
-
-## Draws a closed shape through the points, in order, back to the first:
-## a triangle, a star, any outline.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `points`: the corners, each `(x, y)` in pixels.
-## - `color`: a CSS color to fill it with; black by default, and `""` for
-##   none.
-## - `outline`: a CSS color to outline it with; `""`, none, by default.
-## - `outline_width`: how thick the outline is, in pixels; 1 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## Grey, halfway between black and white.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.polygon(c, [(100, 10), (160, 90), (40, 90)], "orange", outline = "black")
+## import tinyweb.color as color
+## print(color.gray.r, color.gray.g, color.gray.b)
 ## ```
 ## ```stdout
+## 128 128 128
 ## ```
-public def polygon(c: String, points: [(Int, Int)], color: String = "#000000", outline: String = "", outline_width: Int = 1, alpha: Float = 1.0) -> ():
-    draw_shape(c, "polygon", points_text(points), color, outline, float(outline_width), alpha)
+public color.gray: color.Color = color.Color(128, 128, 128)
 
-
-## Draws a straight line on the canvas `c`.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x1`, `y1`: where the line starts, in pixels.
-## - `x2`, `y2`: where it ends, in pixels.
-## - `color`: a CSS color; black by default.
-## - `width`: how thick it is, in pixels; 1 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## Red.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.line(c, 0, 0, 200, 100)
-## tw.line(c, 0, 100, 200, 0, "red", 4)
+## import tinyweb.color as color
+## print(color.red.r, color.red.g, color.red.b)
 ## ```
 ## ```stdout
+## 255 0 0
 ## ```
-public def line(c: String, x1: Int, y1: Int, x2: Int, y2: Int, color: String = "#000000", width: Int = 1, alpha: Float = 1.0) -> ():
-    draw_shape(c, "line", numbers4(x1, y1, x2, y2), "", color, float(width), alpha)
+public color.red: color.Color = color.Color(255, 0, 0)
 
-
-## Draws an open line through the points, in order: a zigzag, a graph,
-## a trail.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `points`: the points, each `(x, y)` in pixels.
-## - `color`: a CSS color; black by default.
-## - `width`: how thick it is, in pixels; 1 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## Green.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.path(c, [(10, 90), (60, 20), (110, 70), (190, 10)], "teal", 3)
+## import tinyweb.color as color
+## print(color.green.r, color.green.g, color.green.b)
 ## ```
 ## ```stdout
+## 0 128 0
 ## ```
-public def path(c: String, points: [(Int, Int)], color: String = "#000000", width: Int = 1, alpha: Float = 1.0) -> ():
-    draw_shape(c, "path", points_text(points), "", color, float(width), alpha)
+public color.green: color.Color = color.Color(0, 128, 0)
 
-
-## Draws a curve from (`x1`, `y1`) to (`x2`, `y2`), pulled towards the
-## control point (`cx`, `cy`) on the way: a quadratic Bézier curve.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x1`, `y1`: where the curve starts, in pixels.
-## - `cx`, `cy`: the point it bends towards, in pixels.
-## - `x2`, `y2`: where it ends, in pixels.
-## - `color`: a CSS color; black by default.
-## - `width`: how thick it is, in pixels; 1 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## Blue.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.curve(c, 10, 90, 100, -40, 190, 90, "purple", 3)
+## import tinyweb.color as color
+## print(color.blue.r, color.blue.g, color.blue.b)
 ## ```
 ## ```stdout
+## 0 0 255
 ## ```
-public def curve(c: String, x1: Int, y1: Int, cx: Int, cy: Int, x2: Int, y2: Int, color: String = "#000000", width: Int = 1, alpha: Float = 1.0) -> ():
-    draw_shape(c, "curve", numbers2(x1, y1) ++ " " ++ numbers4(cx, cy, x2, y2), "", color, float(width), alpha)
+public color.blue: color.Color = color.Color(0, 0, 255)
 
-
-## Draws many separate straight lines in one go, all of one color and
-## width: far quicker than one `line` each, for a flow field, a grid or
-## the branches of a tree.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `segments`: the lines, each `(x1, y1, x2, y2)` in pixels.
-## - `color`: a CSS color; black by default.
-## - `width`: how thick they are, in pixels; 1 by default.
-## - `alpha`: how opaque they are, from 0.0 to 1.0; 1.0 by default.
+## Yellow.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.lines(c, [(x, 0, x, 100) for x in range(0, 200, 20)], "#cccccc")
+## import tinyweb.color as color
+## print(color.yellow.r, color.yellow.g, color.yellow.b)
 ## ```
 ## ```stdout
+## 255 255 0
 ## ```
-public def lines(c: String, segments: [(Int, Int, Int, Int)], color: String = "#000000", width: Int = 1, alpha: Float = 1.0) -> ():
-    draw_shape(c, "lines", segments_text(segments), "", color, float(width), alpha)
+public color.yellow: color.Color = color.Color(255, 255, 0)
 
-
-## Draws a curve from (`x1`, `y1`) to (`x2`, `y2`) pulled towards two
-## control points, the first near the start and the second near the end:
-## a cubic Bézier curve, which can bend two ways like an S.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x1`, `y1`: where the curve starts, in pixels.
-## - `ax`, `ay`: the control point near the start.
-## - `bx`, `by`: the control point near the end.
-## - `x2`, `y2`: where it ends, in pixels.
-## - `color`: a CSS color; black by default.
-## - `width`: how thick it is, in pixels; 1 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## Orange.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.bezier(c, 10, 50, 60, -20, 140, 120, 190, 50, "crimson", 3)
+## import tinyweb.color as color
+## print(color.orange.r, color.orange.g, color.orange.b)
 ## ```
 ## ```stdout
+## 255 165 0
 ## ```
-public def bezier(c: String, x1: Int, y1: Int, ax: Int, ay: Int, bx: Int, by: Int, x2: Int, y2: Int, color: String = "#000000", width: Int = 1, alpha: Float = 1.0) -> ():
-    draw_shape(c, "bezier", numbers4(x1, y1, ax, ay) ++ " " ++ numbers4(bx, by, x2, y2), "", color, float(width), alpha)
+public color.orange: color.Color = color.Color(255, 165, 0)
 
-
-## Erases a rectangle of the canvas `c`: what was drawn there goes, and
-## the page behind the canvas shows through.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the top left corner, in pixels.
-## - `width`, `height`: the size in pixels.
+## Purple.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.rect(c, 20, 20, 160, 60, "#444444")
-## tw.erase(c, 60, 35, 80, 30)
+## import tinyweb.color as color
+## print(color.purple.r, color.purple.g, color.purple.b)
 ## ```
 ## ```stdout
+## 128 0 128
 ## ```
-public def erase(c: String, x: Int, y: Int, width: Int, height: Int) -> ():
-    draw_shape(c, "erase", numbers4(x, y, width, height), "", "", 0.0, 1.0)
+public color.purple: color.Color = color.Color(128, 0, 128)
 
-
-## Sets how lines drawn on the canvas `c` after it end and turn their
-## corners, and makes them dashed, until `pop` or the next `clear`.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `cap`: how a line ends: `"round"`, the default, `"butt"` (cut off
-##   square at its end) or `"square"` (cut off half its width beyond).
-## - `join`: how a corner turns: `"round"`, the default, `"miter"`
-##   (sharp) or `"bevel"` (cut off).
-## - `dash`: how long each dash is, in pixels; 0.0, a solid line, by
-##   default.
-## - `gap`: how long the gap between two dashes is; as long as a dash by
-##   default.
-## - `offset`: how far into the dashes the line starts; moving it a
-##   little each frame makes the dashes march.
-## - `dash2`, `gap2`: a second dash and gap, taking turns with the first:
-##   a long dash and a dot, say. None by default.
+## Pink.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.line_style(c, dash = 10.0, gap = 6.0)
-## tw.rect(c, 20, 20, 160, 60, "", outline = "black", outline_width = 2)
-## tw.line_style(c, cap = "butt", join = "miter")
-## tw.path(c, [(30, 70), (100, 30), (170, 70)], "red", 8)
-## tw.line_style(c, cap = "butt", dash = 16.0, gap = 4.0, dash2 = 2.0)
-## tw.line(c, 20, 90, 180, 90, "purple", 3)
+## import tinyweb.color as color
+## print(color.pink.r, color.pink.g, color.pink.b)
 ## ```
 ## ```stdout
+## 255 192 203
 ## ```
-public def line_style(c: String, cap: String = "round", join: String = "round", dash: Float = 0.0, gap: Float = 0.0, offset: Float = 0.0, dash2: Float = 0.0, gap2: Float = 0.0) -> ():
-    first = if dash <= 0.0 then "" else if gap <= 0.0 then " " ++ floats2(dash, dash) else " " ++ floats2(dash, gap)
-    second = if dash <= 0.0 then "" else if dash2 <= 0.0 then "" else if gap2 <= 0.0 then " " ++ floats2(dash2, dash2) else " " ++ floats2(dash2, gap2)
-    set_state(c, "line_style", cap ++ " " ++ join, string(offset) ++ first ++ second)
+public color.pink: color.Color = color.Color(255, 192, 203)
 
-
-## Keeps everything drawn on the canvas `c` after it inside a rectangle:
-## what falls outside it is not drawn. `push` before and `pop` after to
-## stop clipping; a second clip keeps drawing inside both.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the rectangle's top left corner, in pixels.
-## - `width`, `height`: its size in pixels.
+## Navy, a dark blue.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.push(c)
-## tw.clip_rect(c, 50, 25, 100, 50)
-## tw.circle(c, 100, 50, 45, "orange")
-## tw.pop(c)
+## import tinyweb.color as color
+## print(color.navy.r, color.navy.g, color.navy.b)
 ## ```
 ## ```stdout
+## 0 0 128
 ## ```
-public def clip_rect(c: String, x: Int, y: Int, width: Int, height: Int) -> ():
-    set_state(c, "clip", "rect", numbers4(x, y, width, height) ++ " 0")
+public color.navy: color.Color = color.Color(0, 0, 128)
 
-
-## Keeps everything drawn on the canvas `c` after it inside a circle,
-## as `clip_rect` does inside a rectangle.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the centre, in pixels.
-## - `radius`: the radius in pixels.
+## Teal, a dark cyan.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.push(c)
-## tw.clip_circle(c, 100, 50, 40)
-## tw.lines(c, [(x, 0, x - 60, 100) for x in range(0, 260, 8)], "navy", 3)
-## tw.pop(c)
+## import tinyweb.color as color
+## print(color.teal.r, color.teal.g, color.teal.b)
 ## ```
 ## ```stdout
+## 0 128 128
 ## ```
-public def clip_circle(c: String, x: Int, y: Int, radius: Int) -> ():
-    set_state(c, "clip", "circle", numbers3(x, y, radius))
+public color.teal: color.Color = color.Color(0, 128, 128)
 
-
-## Keeps everything drawn on the canvas `c` after it inside a polygon,
-## as `clip_rect` does inside a rectangle.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `points`: the corners, each `(x, y)` in pixels.
+## Brown.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.push(c)
-## tw.clip_polygon(c, [(100, 5), (190, 95), (10, 95)])
-## for y in range(0, 100, 10):
-##     tw.rect(c, 0, y, 200, 5, "teal")
-## tw.pop(c)
+## import tinyweb.color as color
+## print(color.brown.r, color.brown.g, color.brown.b)
 ## ```
 ## ```stdout
+## 139 69 19
 ## ```
-public def clip_polygon(c: String, points: [(Int, Int)]) -> ():
-    set_state(c, "clip", "polygon", points_text(points))
+public color.brown: color.Color = color.Color(139, 69, 19)
 
-
-## Writes text on the canvas `c`.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: where the text goes, in pixels: its top left corner, or with
-##   `align` its top centre or top right corner.
-## - `words`: the text to write.
-## - `color`: a CSS color; black by default.
-## - `size`: the height of the letters in pixels; 16 by default.
-## - `font`: a font, such as `"serif"` or `"monospace"`; the page's own
-##   by default.
-## - `align`: `"left"`, the default, `"center"` or `"right"`.
-## - `bold`: `true` for bold letters.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
-## - `baseline`: what `y` is: the letters' `"top"`, the default, their
-##   `"middle"`, the `"alphabetic"` line they sit on, or their `"bottom"`.
-## - `outline`: a CSS color to outline the letters with, drawn under
-##   their color; `""`, none, by default. With `color` set to `""` the
-##   letters are outlined only.
-## - `outline_width`: how thick the outline is, in pixels; 1 by default.
+## Cyan.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 90)
-## tw.text(c, 10, 10, "Score: 42", "purple", 24)
-## tw.text(c, 100, 36, "centred", size = 14, align = "center", bold = true)
-## tw.text(c, 10, 80, "outlined", "white", 20, baseline = "bottom", outline = "black", outline_width = 3)
+## import tinyweb.color as color
+## print(color.cyan.r, color.cyan.g, color.cyan.b)
 ## ```
 ## ```stdout
+## 0 255 255
 ## ```
-public def text(c: String, x: Int, y: Int, words: String, color: String = "#000000", size: Int = 16, font: String = "", align: String = "left", bold: Bool = false, alpha: Float = 1.0, baseline: String = "top", outline: String = "", outline_width: Int = 1) -> ():
-    draw_text(c, float(x), float(y), words, color, size, font, align, baseline, bold, outline, float(outline_width), alpha)
+public color.cyan: color.Color = color.Color(0, 255, 255)
 
-
-## Asks the page how wide a text is, written in a given font, so that
-## something can be drawn to fit it. The page answers once it has
-## measured: `answer` is called with the width, after the code calling
-## `measure_text` has finished, as an event's function is.
-##
-## # Parameters
-## - `words`: the text to measure.
-## - `answer`: the function to call; it is given the width in pixels.
-## - `size`: the height of the letters in pixels; 16 by default.
-## - `font`: a font, such as `"serif"`; the page's own by default.
-## - `bold`: `true` for bold letters.
+## Magenta.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(240, 60)
-## tw.text(c, 10, 20, "Hello, canvas!", size = 20)
-## def measured(width: Float):
-##     tw.line(c, 10, 46, 10 + int(width), 46, "teal", 2)
-## tw.measure_text("Hello, canvas!", measured, size = 20)
+## import tinyweb.color as color
+## print(color.magenta.r, color.magenta.g, color.magenta.b)
 ## ```
 ## ```stdout
+## 255 0 255
 ## ```
-public def measure_text(words: String, answer: (Float) -> (), size: Int = 16, font: String = "", bold: Bool = false) -> ():
-    measure(words, size, font, bold, answer)
+public color.magenta: color.Color = color.Color(255, 0, 255)
 
-
-## Moves where (0, 0) is for everything drawn on the canvas `c` after it,
-## until `reset` or the next `clear`.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: how far to move it, in pixels.
+## No colour at all: fully transparent. A shape filled with it shows only
+## its outline, and one stroked with it has none.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.translate(c, 100.0, 50.0)
-## tw.circle(c, 0, 0, 30, "teal")
+## import tinyweb.color as color
+## print(color.none.a)
 ## ```
 ## ```stdout
+## 0.0
 ## ```
-public def translate(c: String, x: Float, y: Float) -> ():
-    set_state(c, "translate", "", string(x) ++ " " ++ string(y))
+public color.none: color.Color = color.Color(0, 0, 0, a = 0.0)
 
-
-## Turns everything drawn on the canvas `c` after it, around (0, 0):
-## `translate` first to turn around another point.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `degrees`: how far to turn, clockwise.
+## The theme's own colour: what a `_style` function leaves as it is.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.translate(c, 100.0, 50.0)
-## tw.rotate(c, 45.0)
-## tw.rect(c, -20, -20, 40, 40, "crimson")
+## import tinyweb.color as color
+## print(color.theme.a < 0.0)
 ## ```
 ## ```stdout
+## true
 ## ```
-public def rotate(c: String, degrees: Float) -> ():
-    set_state(c, "rotate", "", string(degrees))
+public color.theme: color.Color = color.Color(-1, -1, -1, a = -1.0)
+
+# The red, green and blue of one sixth of the colour wheel.
+def color.sector(sector: Int, chroma: Float, x: Float) -> (Float, Float, Float):
+    match sector:
+        case 0: (chroma, x, 0.0)
+        case 1: (x, chroma, 0.0)
+        case 2: (0.0, chroma, x)
+        case 3: (0.0, x, chroma)
+        case 4: (x, 0.0, chroma)
+        case _: (chroma, 0.0, x)
 
 
-## Stretches everything drawn on the canvas `c` after it: 2.0 doubles,
-## 0.5 halves, and a negative factor mirrors.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `sx`: the factor across.
-## - `sy`: the factor up and down.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.scale(c, 2.0, 1.0)
-## tw.circle(c, 50, 50, 20, "orange")
-## ```
-## ```stdout
-## ```
-public def scale(c: String, sx: Float, sy: Float) -> ():
-    set_state(c, "scale", "", string(sx) ++ " " ++ string(sy))
+# A part of a colour, 0 to 255.
+def color.part(n: Int) -> Int:
+    if n < 0 then 0 else if n > 255 then 255 else n
 
 
-## Remembers how the canvas `c` draws now -- its transformation, shadow and
-## blending -- so that `pop` can go back to it. Pairs may nest.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.push(c)
-## tw.translate(c, 50.0, 50.0)
-## tw.circle(c, 0, 0, 20, "red")
-## tw.pop(c)
-## tw.circle(c, 20, 20, 10, "blue")
-## ```
-## ```stdout
-## ```
-public def push(c: String) -> ():
-    set_state(c, "push", "", "")
+def color.unit(x: Float) -> Float:
+    if x < 0.0 then 0.0 else if x > 1.0 then 1.0 else x
 
 
-## Goes back to how the canvas `c` drew at the last `push`.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.push(c)
-## tw.rotate(c, 10.0)
-## tw.rect(c, 60, 20, 80, 40, "gold")
-## tw.pop(c)
-## tw.rect(c, 60, 20, 80, 40, "", outline = "black")
-## ```
-## ```stdout
-## ```
-public def pop(c: String) -> ():
-    set_state(c, "pop", "", "")
+# A part from 0.0 to 1.0, as 0 to 255, rounded.
+def color.byte(x: Float) -> Int:
+    color.part(int(color.unit(x) * 255.0 + 0.5))
 
 
-## Takes every transformation off the canvas `c`: (0, 0) is its top left
-## corner again, nothing is turned and nothing is stretched.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.translate(c, 100.0, 50.0)
-## tw.circle(c, 0, 0, 10)
-## tw.reset(c)
-## tw.circle(c, 10, 10, 10, "red")
-## ```
-## ```stdout
-## ```
-public def reset(c: String) -> ():
-    set_state(c, "reset", "", "")
+def color.absolute(x: Float) -> Float:
+    if x < 0.0 then -x else x
 
 
-## Gives what is drawn on the canvas `c` after it a shadow, until it is
-## turned off with a `color` of `""`.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `color`: a CSS color for the shadow, or `""` for none.
-## - `blur`: how soft its edge is, in pixels; 10 by default.
-## - `dx`, `dy`: how far it falls from the shape, in pixels; 0 by
-##   default, which makes a glow.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.shadow(c, "rgba(0, 0, 0, 0.5)", 8, 4, 4)
-## tw.rect(c, 50, 25, 100, 50, "gold")
-## tw.shadow(c, "")
-## ```
-## ```stdout
-## ```
-public def shadow(c: String, color: String, blur: Int = 10, dx: Int = 0, dy: Int = 0) -> ():
-    set_state(c, "shadow", color, numbers3(blur, dx, dy))
+# x wrapped into [0, m).
+def color.wrap(x: Float, m: Float) -> Float:
+    r = x - float(int(x / m)) * m
+    if r < 0.0 then r + m else r
 
 
-## Says how what is drawn on the canvas `c` after it mixes with what is
-## there: `"normal"` paints over it, and `"add"` adds the light of the two,
-## so overlapping colors glow.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `mode`: `"normal"` or `"add"`.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.clear(c, "black")
-## tw.blend(c, "add")
-## tw.circle(c, 80, 50, 35, "#c03000")
-## tw.circle(c, 120, 50, 35, "#0030c0")
-## tw.blend(c, "normal")
-## ```
-## ```stdout
-## ```
-public def blend(c: String, mode: String) -> ():
-    match mode:
-        case "normal" | "add":
-            set_state(c, "blend", mode, "")
-        case _:
-            debug("tinyweb: there is no blending called \"" ++ mode ++ "\"; the modes are normal and add")
-
-
-## Draws a picture `load_image` loaded on the canvas `c`, stretched to
-## the size given.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `picture`: the picture, as `load_image` answered.
-## - `x`, `y`: its top left corner, in pixels.
-## - `width`, `height`: its size on the canvas, in pixels.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## star = tw.load_image("star.png")
-## def draw(t: Float):
-##     tw.clear(c, "midnightblue")
-##     tw.image(c, star, 70, 20, 60, 60, alpha = 0.8)
-## tw.on_frame(draw)
-## ```
-## ```stdout
-## ```
-public def image(c: String, picture: String, x: Int, y: Int, width: Int, height: Int, alpha: Float = 1.0) -> ():
-    draw_image(c, picture, x, y, width, height, alpha)
+def color.between(a: Int, b: Int, t: Float) -> Float:
+    float(a) + float(b - a) * t
 
 
 # A number from 0 to 255 as two hexadecimal digits.
-def colors.hex2(n: Int) -> String:
-    clamped = if n < 0 then 0 else if n > 255 then 255 else n
-    colors.hex_digit(clamped / 16) ++ colors.hex_digit(clamped - clamped / 16 * 16)
+def color.hex2(n: Int) -> String:
+    clamped = color.part(n)
+    color.hex_digit(clamped / 16) ++ color.hex_digit(clamped - clamped / 16 * 16)
 
 
-def colors.hex_digit(d: Int) -> String:
+def color.hex_digit(d: Int) -> String:
     match d:
         case 0: "0"
         case 1: "1"
@@ -853,226 +452,1161 @@ def colors.hex_digit(d: Int) -> String:
         case _: "f"
 
 
-## A CSS color from its red, green and blue parts.
+# A colour as the page reads it: `#rrggbb` where it is opaque, and
+# `rgba(r, g, b, a)` where it is not.
+def color.css(c: color.Color) -> String:
+    if c.a >= 1.0:
+        "#" ++ color.hex2(c.r) ++ color.hex2(c.g) ++ color.hex2(c.b)
+    else:
+        "rgba(" ++ string(color.part(c.r)) ++ ", " ++ string(color.part(c.g)) ++ ", " ++ string(color.part(c.b)) ++ ", " ++ string(color.unit(c.a)) ++ ")"
+
+
+# A colour a shape is drawn with: "" where there is none to draw.
+def color.drawn(c: color.Color) -> String:
+    if c.a <= 0.0 then "" else color.css(c)
+
+
+# What the page reads for a paint: a colour, or a gradient written out.
+def color.paint_text(p: color.Paint) -> String:
+    match p:
+        case color.Plain(c): color.drawn(c)
+        case color.Linear(x1, y1, x2, y2, start, end, stops):
+            "linear-gradient(" ++ floats4(x1, y1, x2, y2) ++ "); 0.0 " ++ color.css(start) ++ "; 1.0 " ++ color.css(end) ++ stops
+        case color.Radial(x1, y1, r1, x2, y2, r2, start, end, stops):
+            "radial-gradient(" ++ floats3(x1, y1, r1) ++ " " ++ floats3(x2, y2, r2) ++ "); 0.0 " ++ color.css(start) ++ "; 1.0 " ++ color.css(end) ++ stops
+        case color.Conic(x, y, angle, start, end, stops):
+            "conic-gradient(" ++ floats3(x, y, angle) ++ "); 0.0 " ++ color.css(start) ++ "; 1.0 " ++ color.css(end) ++ stops
+
+
+# Whether a paint was given: anything but the plain transparent colour
+# a shape's `paint` defaults to.
+def color.painted(p: color.Paint) -> Bool:
+    match p:
+        case color.Plain(c): c.a > 0.0
+        case _: true
+
+
+# Whether a colour is the theme's own, which a style leaves as it is.
+def color.is_theme(c: color.Color) -> Bool:
+    c.a < 0.0
+
+
+## A colour from its red, green and blue parts.
 ##
 ## # Parameters
-## - `r`, `g`, `b`: red, green and blue, each from 0 to 255; a number
-##   outside that range is taken as the nearest end of it.
+## - `r`, `g`, `b`: how much red, green and blue, each from 0 to 255.
 ##
 ## # Returns
-## The color, such as `"#ff8800"`.
+## The colour, fully opaque.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb.colors as colors
-## print(colors.rgb(255, 136, 0))
+## import tinyweb.color as color
+## orange = color.rgb(255, 136, 0)
+## print(orange.r, orange.g, orange.b)
 ## ```
 ## ```stdout
-## #ff8800
+## 255 136 0
 ## ```
-public def colors.rgb(r: Int, g: Int, b: Int) -> String:
-    "#" ++ colors.hex2(r) ++ colors.hex2(g) ++ colors.hex2(b)
+public def color.rgb(r: Int, g: Int, b: Int) -> color.Color:
+    color.Color(color.part(r), color.part(g), color.part(b))
 
 
-## A CSS color from its red, green and blue parts and how opaque it is.
+## A colour from its red, green and blue parts and how opaque it is.
 ##
 ## # Parameters
-## - `r`, `g`, `b`: red, green and blue, each from 0 to 255.
-## - `a`: how opaque it is, from 0.0 (not at all) to 1.0.
+## - `r`, `g`, `b`: how much red, green and blue, each from 0 to 255.
+## - `a`: how opaque, from 0.0 (not at all) to 1.0.
 ##
 ## # Returns
-## The color, such as `"rgba(255, 0, 0, 0.5)"`.
+## The colour.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb.colors as colors
-## print(colors.rgba(255, 0, 0, 0.5))
+## import tinyweb.color as color
+## print(color.rgba(0, 0, 0, 0.25).a)
 ## ```
 ## ```stdout
-## rgba(255, 0, 0, 0.5)
+## 0.25
 ## ```
-public def colors.rgba(r: Int, g: Int, b: Int, a: Float) -> String:
-    "rgba(" ++ string(r) ++ ", " ++ string(g) ++ ", " ++ string(b) ++ ", " ++ string(a) ++ ")"
+public def color.rgba(r: Int, g: Int, b: Int, a: Float) -> color.Color:
+    color.Color(color.part(r), color.part(g), color.part(b), a = if a < 0.0 then 0.0 else if a > 1.0 then 1.0 else a)
 
 
-## A CSS color from its hue, saturation and lightness: the easy way to
-## walk round the rainbow.
+## A colour from its hue, saturation and lightness: the easy way to walk
+## round the colour wheel.
 ##
 ## # Parameters
-## - `h`: the hue, in degrees round the color wheel: 0 is red, 120 green
-##   and 240 blue.
-## - `s`: the saturation, from 0 (grey) to 100 (full color).
-## - `l`: the lightness, from 0 (black) through 50 to 100 (white).
+## - `h`: the hue, an angle on the colour wheel in degrees: 0 is red, 120
+##   green and 240 blue.
+## - `s`: the saturation, from 0 (grey) to 100 (the purest colour).
+## - `l`: the lightness, from 0 (black) to 100 (white); 50 is the colour
+##   itself.
 ##
 ## # Returns
-## The color, such as `"hsl(120, 100%, 50%)"`.
+## The colour, fully opaque.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb.colors as colors
-## print(colors.hsl(120, 100, 50))
+## import tinyweb.color as color
+## green = color.hsl(120.0, 100.0, 50.0)
+## print(green.r, green.g, green.b)
 ## ```
 ## ```stdout
-## hsl(120, 100%, 50%)
+## 0 255 0
 ## ```
-public def colors.hsl(h: Int, s: Int, l: Int) -> String:
-    "hsl(" ++ string(h) ++ ", " ++ string(s) ++ "%, " ++ string(l) ++ "%)"
+public def color.hsl(h: Float, s: Float, l: Float) -> color.Color:
+    hue = color.wrap(h, 360.0) / 60.0
+    sat = color.unit(s / 100.0)
+    light = color.unit(l / 100.0)
+    chroma = (1.0 - color.absolute(2.0 * light - 1.0)) * sat
+    x = chroma * (1.0 - color.absolute(color.wrap(hue, 2.0) - 1.0))
+    m = light - chroma / 2.0
+    (r, g, b) = color.sector(int(hue), chroma, x)
+    color.Color(color.byte(r + m), color.byte(g + m), color.byte(b + m))
 
 
-## A few colors that go together, for generative art: `"ocean"`,
-## `"candy"`, `"forest"`, `"sunset"` and `"neon"`. A name that is none of
-## these answers no colors, and says so with `debug`.
+## A colour from one number holding its red, green and blue parts, as a
+## hexadecimal literal writes it: `0xff8800` is red 255, green 136, blue 0.
 ##
 ## # Parameters
-## - `name`: the palette.
+## - `n`: the colour, `0xRRGGBB`.
 ##
 ## # Returns
-## Its colors, as CSS colors.
+## The colour, fully opaque.
 ##
 ## # Examples
 ## ```pyking
-## from tinyweb.colors import palette
-## print(palette("ocean"))
+## import tinyweb.color as color
+## orange = color.hex(0xff8800)
+## print(orange.r, orange.g, orange.b)
 ## ```
 ## ```stdout
-## ['#03045e', '#0077b6', '#00b4d8', '#90e0ef', '#caf0f8']
+## 255 136 0
 ## ```
-public def colors.palette(name: String) -> [String]:
+public def color.hex(n: Int) -> color.Color:
+    color.Color(color.part(n / 65536), color.part(n / 256 - n / 65536 * 256), color.part(n - n / 256 * 256))
+
+
+## A colour as one number, `0xRRGGBB`: what `hex` takes. How opaque it is
+## is left out.
+##
+## # Parameters
+## - `c`: the colour.
+##
+## # Returns
+## Its red part times 65536, plus its green part times 256, plus its blue part.
+##
+## # Examples
+## ```pyking
+## import tinyweb.color as color
+## print(color.to_hex(color.rgb(255, 136, 0)) == 0xff8800)
+## ```
+## ```stdout
+## true
+## ```
+public def color.to_hex(c: color.Color) -> Int:
+    color.part(c.r) * 65536 + color.part(c.g) * 256 + color.part(c.b)
+
+
+## The same colour with another opacity.
+##
+## # Parameters
+## - `c`: the colour.
+## - `a`: how opaque, from 0.0 to 1.0.
+##
+## # Returns
+## The colour.
+##
+## # Examples
+## ```pyking
+## import tinyweb.color as color
+## print(color.with_alpha(color.red, 0.5).a)
+## ```
+## ```stdout
+## 0.5
+## ```
+public def color.with_alpha(c: color.Color, a: Float) -> color.Color:
+    color.Color(a = color.unit(a), ..c)
+
+
+## A colour between two others: `t` 0.0 is `a`, 1.0 is `b`, 0.5 halfway.
+##
+## # Parameters
+## - `a`, `b`: the two colours.
+## - `t`: how far from `a` towards `b`, from 0.0 to 1.0.
+##
+## # Returns
+## The colour, each part and the opacity taken that far.
+##
+## # Examples
+## ```pyking
+## import tinyweb.color as color
+## grey = color.mix(color.black, color.white, 0.5)
+## print(grey.r, grey.g, grey.b)
+## ```
+## ```stdout
+## 128 128 128
+## ```
+public def color.mix(a: color.Color, b: color.Color, t: Float) -> color.Color:
+    k = color.unit(t)
+    color.Color(color.byte(color.between(a.r, b.r, k) / 255.0), color.byte(color.between(a.g, b.g, k) / 255.0), color.byte(color.between(a.b, b.b, k) / 255.0), a = a.a + (b.a - a.a) * k)
+
+
+## Whether two colours are the same: every part and the opacity.
+##
+## # Parameters
+## - `a`, `b`: the colours.
+##
+## # Returns
+## `true` when they are the same colour.
+##
+## # Examples
+## ```pyking
+## import tinyweb.color as color
+## print(color.same(color.rgb(255, 0, 0), color.red), color.same(color.red, color.blue))
+## ```
+## ```stdout
+## true false
+## ```
+public def color.same(a: color.Color, b: color.Color) -> Bool:
+    if a.r == b.r then if a.g == b.g then if a.b == b.b then a.a == b.a else false else false else false
+
+
+## Five colours that go together, for a picture that should look
+## designed.
+##
+## # Parameters
+## - `name`: `"ocean"`, `"candy"`, `"forest"`, `"sunset"` or `"neon"`.
+##
+## # Returns
+## The five colours, darkest or first first; no colours for a name there
+## is none of, which is reported on the debug output.
+##
+## # Examples
+## ```pyking
+## import tinyweb.color as color
+## ocean = color.palette("ocean")
+## match ocean:
+##     case [darkest, ..rest]:
+##         print(len(ocean), darkest.b, len(rest))
+##     case []:
+##         print("none")
+## ```
+## ```stdout
+## 5 94 4
+## ```
+public def color.palette(name: String) -> [color.Color]:
     match name:
         case "ocean":
-            ["#03045e", "#0077b6", "#00b4d8", "#90e0ef", "#caf0f8"]
+            [color.hex(0x03045e), color.hex(0x0077b6), color.hex(0x00b4d8), color.hex(0x90e0ef), color.hex(0xcaf0f8)]
         case "candy":
-            ["#ff70a6", "#ff9770", "#ffd670", "#e9ff70", "#70d6ff"]
+            [color.hex(0xff70a6), color.hex(0xff9770), color.hex(0xffd670), color.hex(0xe9ff70), color.hex(0x70d6ff)]
         case "forest":
-            ["#2d6a4f", "#40916c", "#52b788", "#95d5b2", "#d8f3dc"]
+            [color.hex(0x2d6a4f), color.hex(0x40916c), color.hex(0x52b788), color.hex(0x95d5b2), color.hex(0xd8f3dc)]
         case "sunset":
-            ["#f94144", "#f3722c", "#f8961e", "#f9c74f", "#90be6d"]
+            [color.hex(0xf94144), color.hex(0xf3722c), color.hex(0xf8961e), color.hex(0xf9c74f), color.hex(0x90be6d)]
         case "neon":
-            ["#ff00ff", "#00ffff", "#39ff14", "#ffff00", "#ff3131"]
+            [color.hex(0xff00ff), color.hex(0x00ffff), color.hex(0x39ff14), color.hex(0xffff00), color.hex(0xff3131)]
         case _:
             debug("tinyweb: there is no palette called \"" ++ name ++ "\"; the palettes are ocean, candy, forest, sunset and neon")
             []
 
 
-## A color that changes along a line, for filling or outlining anything:
-## `start` where the line starts and `end` where it ends, blending
-## between them; `colors.stop` adds colors in between. Where it is drawn
-## the coordinates mean what the shape's own do, moved, turned and
-## scaled alike.
+# topic: Paints and gradients
+
+## What fills a shape: a plain colour, or a gradient between two colours
+## across a line (`Linear`), out from a circle (`Radial`) or round a
+## point (`Conic`). Positions are in the canvas's pixels, and an angle is
+## in radians. `stop` adds a colour on the way; `stops` is how those are
+## kept, and is left out when one is written.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## glow = color.Radial(100.0, 50.0, 0.0, 100.0, 50.0, 50.0, color.yellow, color.none)
+## tw.circle(c, 100, 50, 50, paint = glow)
+## ```
+## ```stdout
+## ```
+public datatype color.Paint:
+    Plain(color.Color)
+    Linear(x1: Float, y1: Float, x2: Float, y2: Float, start: color.Color, end: color.Color, stops = "")
+    Radial(x1: Float, y1: Float, r1: Float, x2: Float, y2: Float, r2: Float, start: color.Color, end: color.Color, stops = "")
+    Conic(x: Float, y: Float, angle: Float, start: color.Color, end: color.Color, stops = "")
+
+## A gradient with one more colour on the way: `at` 0.0 is where it
+## starts and 1.0 where it ends. A plain colour is left as it is.
 ##
 ## # Parameters
-## - `x1`, `y1`: where the gradient starts, in pixels.
+## - `paint`: the gradient.
+## - `at`: where the colour is, from 0.0 to 1.0.
+## - `c`: the colour.
+##
+## # Returns
+## The gradient.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 40)
+## rainbow = color.stop(color.Linear(0.0, 0.0, 200.0, 0.0, color.red, color.blue), 0.5, color.green)
+## tw.rect(c, 0, 0, 200, 40, paint = rainbow)
+## ```
+## ```stdout
+## ```
+public def color.stop(paint: color.Paint, at: Float, c: color.Color) -> color.Paint:
+    more = "; " ++ string(at) ++ " " ++ color.css(c)
+    match paint:
+        case color.Plain(_): paint
+        case color.Linear(x1, y1, x2, y2, start, end, stops):
+            color.Linear(x1, y1, x2, y2, start, end, stops = stops ++ more)
+        case color.Radial(x1, y1, r1, x2, y2, r2, start, end, stops):
+            color.Radial(x1, y1, r1, x2, y2, r2, start, end, stops = stops ++ more)
+        case color.Conic(x, y, angle, start, end, stops):
+            color.Conic(x, y, angle, start, end, stops = stops ++ more)
+
+
+# --- tinyweb: the page, canvases and drawing ---
+
+# topic: Page
+
+## Starts the program's page. Run as `pyk program.pyk` or compiled, it
+## serves the page on `port` and prints its address; in a browser it does
+## nothing, since the page is there already.
+##
+## # Parameters
+## - `port`: the port to serve the page on; 0, the default, takes any
+##   free one.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.label("Hello")
+## ```
+## ```stdout
+## ```
+public def web_init(port: Int = 0) -> ():
+    web_start(port)
+
+
+# topic: Points and styles
+
+## A point on a canvas, in whole pixels from its top left corner: what
+## `polygon` and `path` take a list of.
+##
+## # Parameters
+## - `x`: how far right.
+## - `y`: how far down.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## p = tw.Point(10, 20)
+## print(p.x, p.y, tw.Point(x = 5, ..p).x)
+## ```
+## ```stdout
+## 10 20 5
+## ```
+public struct Point(x: Int, y: Int)
+
+## How a shape is drawn, defined once and given to as many shapes as
+## look alike with `style = ...`. A shape's own argument left at its
+## default takes the style's value, and one written wins.
+##
+## # Parameters
+## - `fill`: the colour inside; black by default.
+## - `stroke`: the colour of the outline, or of a line; `color.none` (no
+##   outline) by default.
+## - `width`: how thick the outline or line is, in pixels; 1 by default.
+## - `alpha`: how opaque, from 0.0 to 1.0; 1.0 by default.
+## - `paint`: a gradient to fill with instead of `fill`.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 80)
+## glow = tw.Style(fill = color.yellow, stroke = color.orange, width = 3)
+## tw.circle(c, 40, 40, 30, style = glow)
+## tw.circle(c, 120, 40, 30, color.red, style = glow)
+## tw.circle(c, 170, 40, 20, style = tw.Style(alpha = 0.5, ..glow))
+## ```
+## ```stdout
+## ```
+public struct Style(fill: color.Color = color.black, stroke: color.Color = color.none, width = 1, alpha = 1.0, paint: color.Paint = color.Plain(color.none))
+
+## Where the pointer is on a canvas, and whether its button is held: what
+## `mouse` answers.
+##
+## # Parameters
+## - `x`: how far right, in the canvas's pixels.
+## - `y`: how far down.
+## - `down`: whether the button is held.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## p = tw.Pointer(3, 4, true)
+## print(p.x, p.y, p.down)
+## ```
+## ```stdout
+## 3 4 true
+## ```
+public struct Pointer(x: Int, y: Int, down: Bool)
+
+# A shape's fill, outline, width and opacity, from its own arguments and
+# its style: an argument left at its default takes the style's value.
+def fill_of(fill: color.Color, paint: color.Paint, style: Style) -> String:
+    if color.painted(paint):
+        color.paint_text(paint)
+    else if not_default_fill(fill):
+        color.drawn(fill)
+    else if color.painted(style.paint):
+        color.paint_text(style.paint)
+    else:
+        color.drawn(style.fill)
+
+
+def not_default_fill(fill: color.Color) -> Bool:
+    if color.same(fill, color.black) then false else true
+
+
+def stroke_of(stroke: color.Color, style: Style) -> String:
+    color.drawn(if color.same(stroke, color.none) then style.stroke else stroke)
+
+
+# A line's colour: its own, else the style's stroke, else its fill.
+def line_of(stroke: color.Color, style: Style) -> String:
+    if not_default_fill(stroke):
+        color.drawn(stroke)
+    else if color.same(style.stroke, color.none):
+        color.drawn(style.fill)
+    else:
+        color.drawn(style.stroke)
+
+
+def width_of(width: Int, style: Style) -> Float:
+    float(if width == 1 then style.width else width)
+
+
+def alpha_of(alpha: Float, style: Style) -> Float:
+    if alpha == 1.0 then style.alpha else alpha
+
+
+def shape(c: String, kind: String, numbers: String, fill: color.Color, stroke: color.Color, width: Int, alpha: Float, paint: color.Paint, style: Style) -> ():
+    draw_shape(c, kind, numbers, fill_of(fill, paint, style), stroke_of(stroke, style), width_of(width, style), alpha_of(alpha, style))
+
+
+def stroked(c: String, kind: String, numbers: String, stroke: color.Color, width: Int, alpha: Float, style: Style) -> ():
+    draw_shape(c, kind, numbers, "", line_of(stroke, style), width_of(width, style), alpha_of(alpha, style))
+
+
+# topic: Canvas
+
+## Fills the whole canvas `c` with one colour, wiping out what was drawn,
+## and starts it afresh: no transformation, shadow or blending is kept.
+##
+## # Parameters
+## - `c`: the canvas, as `canvas` answered.
+## - `fill`: the colour; white by default.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 60)
+## tw.clear(c, color.navy)
+## ```
+## ```stdout
+## ```
+public def clear(c: String, fill: color.Color = color.white) -> ():
+    fill_canvas(c, color.css(fill))
+
+
+# topic: Shapes
+
+## Draws a circle on the canvas `c`: filled, outlined, or both.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x`, `y`: its centre.
+## - `radius`: its radius.
+## - `fill`: the colour inside; black by default, `color.none` for none.
+## - `stroke`: the outline's colour; none by default.
+## - `width`: the outline's width; 1 by default.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `paint`: a gradient to fill with instead of `fill`.
+## - `style`: a `Style` for what is not given here.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.circle(c, 50, 50, 40, color.orange)
+## tw.circle(c, 150, 50, 40, color.none, stroke = color.blue, width = 4)
+## ```
+## ```stdout
+## ```
+public def circle(c: String, x: Int, y: Int, radius: Int, fill: color.Color = color.black, stroke: color.Color = color.none, width: Int = 1, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style()) -> ():
+    shape(c, "circle", numbers3(x, y, radius), fill, stroke, width, alpha, paint, style)
+
+
+## Draws a rectangle on the canvas `c`, with square or rounded corners.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x`, `y`: its top left corner.
+## - `w`, `h`: its width and height.
+## - `fill`: the colour inside; black by default.
+## - `stroke`: the outline's colour; none by default.
+## - `width`: the outline's width; 1 by default.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `paint`: a gradient to fill with instead of `fill`.
+## - `style`: a `Style` for what is not given here.
+## - `radius`: how round its corners are; 0, square, by default.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.rect(c, 10, 10, 80, 60, color.teal)
+## tw.rect(c, 110, 10, 80, 60, color.pink, radius = 12)
+## ```
+## ```stdout
+## ```
+public def rect(c: String, x: Int, y: Int, w: Int, h: Int, fill: color.Color = color.black, stroke: color.Color = color.none, width: Int = 1, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style(), radius: Int = 0) -> ():
+    shape(c, "rect", numbers4(x, y, w, h) ++ " " ++ string(radius), fill, stroke, width, alpha, paint, style)
+
+
+## Draws an ellipse on the canvas `c`: a circle stretched to `rx` across
+## and `ry` up and down.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x`, `y`: its centre.
+## - `rx`, `ry`: its radius across and up and down.
+## - `fill`: the colour inside; black by default.
+## - `stroke`: the outline's colour; none by default.
+## - `width`: the outline's width; 1 by default.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `paint`: a gradient to fill with instead of `fill`.
+## - `style`: a `Style` for what is not given here.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.ellipse(c, 100, 50, 80, 30, color.purple)
+## ```
+## ```stdout
+## ```
+public def ellipse(c: String, x: Int, y: Int, rx: Int, ry: Int, fill: color.Color = color.black, stroke: color.Color = color.none, width: Int = 1, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style()) -> ():
+    shape(c, "ellipse", numbers4(x, y, rx, ry), fill, stroke, width, alpha, paint, style)
+
+
+## Draws a slice of a circle on the canvas `c`, from the angle `start` to
+## the angle `end`, both in radians, clockwise from the right: a pie
+## slice when filled, a bow when only stroked.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x`, `y`: the circle's centre.
+## - `radius`: its radius.
+## - `start`, `end`: where the slice starts and ends, in radians.
+## - `fill`: the colour inside; black by default.
+## - `stroke`: the outline's colour; none by default.
+## - `width`: the outline's width; 1 by default.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `paint`: a gradient to fill with instead of `fill`.
+## - `style`: a `Style` for what is not given here.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## import math
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.arc(c, 100, 50, 40, 0.0, math.pi * 1.5, color.yellow)
+## ```
+## ```stdout
+## ```
+public def arc(c: String, x: Int, y: Int, radius: Int, start: Float, end: Float, fill: color.Color = color.black, stroke: color.Color = color.none, width: Int = 1, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style()) -> ():
+    shape(c, "arc", numbers3(x, y, radius) ++ " " ++ floats2(start, end), fill, stroke, width, alpha, paint, style)
+
+
+## Draws a closed shape through the points, in order, back to the first:
+## a triangle, a star, any outline.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `points`: the corners.
+## - `fill`: the colour inside; black by default.
+## - `stroke`: the outline's colour; none by default.
+## - `width`: the outline's width; 1 by default.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `paint`: a gradient to fill with instead of `fill`.
+## - `style`: a `Style` for what is not given here.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.polygon(c, [tw.Point(100, 10), tw.Point(160, 90), tw.Point(40, 90)], color.green)
+## ```
+## ```stdout
+## ```
+public def polygon(c: String, points: [Point], fill: color.Color = color.black, stroke: color.Color = color.none, width: Int = 1, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style()) -> ():
+    shape(c, "polygon", points_text(points), fill, stroke, width, alpha, paint, style)
+
+
+## Draws a straight line on the canvas `c`.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x1`, `y1`: where it starts.
 ## - `x2`, `y2`: where it ends.
-## - `start`: the CSS color at the start.
-## - `end`: the CSS color at the end.
-##
-## # Returns
-## A color, which any function taking one takes.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## import tinyweb.colors as colors
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## sky = colors.linear_gradient(0.0, 0.0, 0.0, 100.0, "navy", "skyblue")
-## tw.rect(c, 0, 0, 200, 100, sky)
-## ```
-## ```stdout
-## ```
-public def colors.linear_gradient(x1: Float, y1: Float, x2: Float, y2: Float, start: String, end: String) -> String:
-    "linear-gradient(" ++ floats4(x1, y1, x2, y2) ++ "); 0.0 " ++ start ++ "; 1.0 " ++ end
-
-
-## A color that changes outwards from one circle to another: `start` at
-## the inner circle and `end` at the outer, for a ball lit from one side,
-## a glow or a sun.
-##
-## # Parameters
-## - `x1`, `y1`, `r1`: the inner circle's centre and radius, in pixels.
-## - `x2`, `y2`, `r2`: the outer circle's.
-## - `start`: the CSS color at the inner circle.
-## - `end`: the CSS color at the outer circle.
-##
-## # Returns
-## A color, which any function taking one takes.
+## - `stroke`: its colour; black by default.
+## - `width`: how thick it is; 1 by default.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
-## import tinyweb.colors as colors
+## import tinyweb.color as color
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## ball = colors.radial_gradient(85.0, 35.0, 4.0, 100.0, 50.0, 40.0, "white", "crimson")
-## tw.circle(c, 100, 50, 40, ball)
+## tw.line(c, 10, 90, 190, 10, color.red, width = 3)
 ## ```
 ## ```stdout
 ## ```
-public def colors.radial_gradient(x1: Float, y1: Float, r1: Float, x2: Float, y2: Float, r2: Float, start: String, end: String) -> String:
-    "radial-gradient(" ++ floats3(x1, y1, r1) ++ " " ++ floats3(x2, y2, r2) ++ "); 0.0 " ++ start ++ "; 1.0 " ++ end
+public def line(c: String, x1: Int, y1: Int, x2: Int, y2: Int, stroke: color.Color = color.black, width: Int = 1, alpha: Float = 1.0, style: Style = Style()) -> ():
+    stroked(c, "line", numbers4(x1, y1, x2, y2), stroke, width, alpha, style)
 
 
-## A color that changes around a point, like the hand of a clock sweeping
-## round from `start` to `end`: a color wheel, a pie, a radar.
+## Draws an open line through the points, in order: a zigzag, a graph,
+## a path walked.
 ##
 ## # Parameters
-## - `x`, `y`: the point it turns around, in pixels.
-## - `angle`: where it starts, in degrees clockwise from the right.
-## - `start`: the CSS color where it starts.
-## - `end`: the CSS color it has come to all the way round.
-##
-## # Returns
-## A color, which any function taking one takes.
+## - `c`: the canvas.
+## - `points`: the points it goes through.
+## - `stroke`: its colour; black by default.
+## - `width`: how thick it is; 1 by default.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
-## import tinyweb.colors as colors
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## wheel = colors.conic_gradient(100.0, 50.0, 0.0, "red", "red")
-## wheel2 = colors.stop(colors.stop(wheel, 0.33, "lime"), 0.67, "blue")
-## tw.circle(c, 100, 50, 45, wheel2)
+## tw.path(c, [tw.Point(10, 90), tw.Point(60, 20), tw.Point(110, 70), tw.Point(190, 10)], width = 2)
 ## ```
 ## ```stdout
 ## ```
-public def colors.conic_gradient(x: Float, y: Float, angle: Float, start: String, end: String) -> String:
-    "conic-gradient(" ++ floats3(x, y, angle) ++ "); 0.0 " ++ start ++ "; 1.0 " ++ end
+public def path(c: String, points: [Point], stroke: color.Color = color.black, width: Int = 1, alpha: Float = 1.0, style: Style = Style()) -> ():
+    stroked(c, "path", points_text(points), stroke, width, alpha, style)
 
 
-## A gradient with one more color in it: `color` at `at` of the way from
-## its start to its end. Stops can be added in any order.
+## Draws a curve from (`x1`, `y1`) to (`x2`, `y2`), pulled towards the
+## point (`cx`, `cy`) on the way.
 ##
 ## # Parameters
-## - `gradient`: a gradient, as `linear_gradient`, `radial_gradient` or
-##   `conic_gradient` made it.
-## - `at`: where the color goes, from 0.0 at the start to 1.0 at the end.
-## - `color`: the CSS color there.
-##
-## # Returns
-## The gradient with the stop added.
+## - `c`: the canvas.
+## - `x1`, `y1`: where it starts.
+## - `cx`, `cy`: the point it is pulled towards.
+## - `x2`, `y2`: where it ends.
+## - `stroke`: its colour; black by default.
+## - `width`: how thick it is; 1 by default.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
-## import tinyweb.colors as colors
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## sunset = colors.stop(colors.linear_gradient(0.0, 0.0, 0.0, 100.0, "#1a237e", "#ffb74d"), 0.6, "#e91e63")
-## tw.rect(c, 0, 0, 200, 100, sunset)
+## tw.curve(c, 10, 90, 100, 0, 190, 90, width = 2)
 ## ```
 ## ```stdout
 ## ```
-public def colors.stop(gradient: String, at: Float, color: String) -> String:
-    gradient ++ "; " ++ string(at) ++ " " ++ color
+public def curve(c: String, x1: Int, y1: Int, cx: Int, cy: Int, x2: Int, y2: Int, stroke: color.Color = color.black, width: Int = 1, alpha: Float = 1.0, style: Style = Style()) -> ():
+    stroked(c, "curve", numbers2(x1, y1) ++ " " ++ numbers4(cx, cy, x2, y2), stroke, width, alpha, style)
 
 
-## Adds a button below everything already on the page.
+## Draws many separate straight lines in one go, all of one colour and
+## width: quicker than calling `line` for each.
 ##
 ## # Parameters
-## - `title`: the text on the button.
-## - `on_click`: the function to call each time it is pressed; by default
-##   nothing happens.
+## - `c`: the canvas.
+## - `segments`: each line, from its first point to its second.
+## - `stroke`: their colour; black by default.
+## - `width`: how thick they are; 1 by default.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `Style` for what is not given here.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.lines(c, [(tw.Point(x, 10), tw.Point(x, 90)) for x in range(10, 200, 20)])
+## ```
+## ```stdout
+## ```
+public def lines(c: String, segments: [(Point, Point)], stroke: color.Color = color.black, width: Int = 1, alpha: Float = 1.0, style: Style = Style()) -> ():
+    stroked(c, "lines", segments_text(segments), stroke, width, alpha, style)
+
+
+## Draws a curve from (`x1`, `y1`) to (`x2`, `y2`) pulled towards two
+## points on the way, (`ax`, `ay`) first and then (`bx`, `by`): an S, a
+## wave.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x1`, `y1`: where it starts.
+## - `ax`, `ay`: the first point it is pulled towards.
+## - `bx`, `by`: the second.
+## - `x2`, `y2`: where it ends.
+## - `stroke`: its colour; black by default.
+## - `width`: how thick it is; 1 by default.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `Style` for what is not given here.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.bezier(c, 10, 50, 60, 0, 140, 100, 190, 50, width = 3)
+## ```
+## ```stdout
+## ```
+public def bezier(c: String, x1: Int, y1: Int, ax: Int, ay: Int, bx: Int, by: Int, x2: Int, y2: Int, stroke: color.Color = color.black, width: Int = 1, alpha: Float = 1.0, style: Style = Style()) -> ():
+    stroked(c, "bezier", numbers4(x1, y1, ax, ay) ++ " " ++ numbers4(bx, by, x2, y2), stroke, width, alpha, style)
+
+
+## Erases a rectangle of the canvas `c`: what was drawn there goes, and
+## what is behind the canvas shows through.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x`, `y`: the rectangle's top left corner.
+## - `w`, `h`: its width and height.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.rect(c, 0, 0, 200, 100)
+## tw.erase(c, 50, 25, 100, 50)
+## ```
+## ```stdout
+## ```
+public def erase(c: String, x: Int, y: Int, w: Int, h: Int) -> ():
+    draw_shape(c, "erase", numbers4(x, y, w, h), "", "", 0.0, 1.0)
+
+
+# topic: Lines and clipping
+
+## Sets how lines drawn on the canvas `c` after it end and turn their
+## corners, and whether they are dashed.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `cap`: how a line ends: `"round"` (the default), `"butt"` or `"square"`.
+## - `join`: how a corner turns: `"round"` (the default), `"miter"` or `"bevel"`.
+## - `dash`: how long a dash is; 0.0, a solid line, by default.
+## - `gap`: how long the gap after it is; the dash's length unless given.
+## - `offset`: how far into the pattern the line starts.
+## - `dash2`, `gap2`: a second dash and gap, for a dash-dot pattern.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 60)
+## tw.line_style(c, cap = "butt", dash = 10.0, gap = 5.0)
+## tw.line(c, 10, 30, 190, 30, width = 4)
+## ```
+## ```stdout
+## ```
+public def line_style(c: String, cap: String = "round", join: String = "round", dash: Float = 0.0, gap: Float = 0.0, offset: Float = 0.0, dash2: Float = 0.0, gap2: Float = 0.0) -> ():
+    first = if dash <= 0.0 then "" else if gap <= 0.0 then " " ++ floats2(dash, dash) else " " ++ floats2(dash, gap)
+    second = if dash <= 0.0 then "" else if dash2 <= 0.0 then "" else if gap2 <= 0.0 then " " ++ floats2(dash2, dash2) else " " ++ floats2(dash2, gap2)
+    set_state(c, "line_style", cap ++ " " ++ join, string(offset) ++ first ++ second)
+
+
+## Keeps everything drawn on the canvas `c` after it inside a rectangle:
+## what falls outside is not drawn, until `pop` or `reset`.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x`, `y`: the rectangle's top left corner.
+## - `w`, `h`: its width and height.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.push(c)
+## tw.clip_rect(c, 50, 25, 100, 50)
+## tw.circle(c, 100, 50, 60)
+## tw.pop(c)
+## ```
+## ```stdout
+## ```
+public def clip_rect(c: String, x: Int, y: Int, w: Int, h: Int) -> ():
+    set_state(c, "clip", "rect", numbers4(x, y, w, h) ++ " 0")
+
+
+## Keeps everything drawn on the canvas `c` after it inside a circle,
+## until `pop` or `reset`.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x`, `y`: the circle's centre.
+## - `radius`: its radius.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.clip_circle(c, 100, 50, 40)
+## tw.rect(c, 0, 0, 200, 100)
+## ```
+## ```stdout
+## ```
+public def clip_circle(c: String, x: Int, y: Int, radius: Int) -> ():
+    set_state(c, "clip", "circle", numbers3(x, y, radius))
+
+
+## Keeps everything drawn on the canvas `c` after it inside a polygon,
+## until `pop` or `reset`.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `points`: the polygon's corners.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.clip_polygon(c, [tw.Point(100, 0), tw.Point(200, 100), tw.Point(0, 100)])
+## tw.rect(c, 0, 0, 200, 100)
+## ```
+## ```stdout
+## ```
+public def clip_polygon(c: String, points: [Point]) -> ():
+    set_state(c, "clip", "polygon", points_text(points))
+
+
+# topic: Text
+
+## Writes text on the canvas `c`.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x`, `y`: where the text goes: its top left corner, unless `align`
+##   and `baseline` say otherwise.
+## - `words`: what is written.
+## - `fill`: its colour; black by default.
+## - `size`: its size in pixels; 16 by default.
+## - `font`: the font's name, such as `"serif"`; the page's own by default.
+## - `align`: which part of the text is at `x`: `"left"`, `"center"` or `"right"`.
+## - `bold`: whether it is bold.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `baseline`: which part is at `y`: `"top"`, `"middle"`, `"alphabetic"` or `"bottom"`.
+## - `stroke`: the colour of an outline round each letter; none by default.
+## - `width`: the outline's width.
+## - `paint`: a gradient to fill the letters with instead of `fill`.
+## - `style`: a `Style` for what is not given here.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 60)
+## tw.text(c, 100, 30, "Hello!", color.navy, size = 24, align = "center", baseline = "middle")
+## ```
+## ```stdout
+## ```
+public def text(c: String, x: Int, y: Int, words: String, fill: color.Color = color.black, size: Int = 16, font: String = "", align: String = "left", bold: Bool = false, alpha: Float = 1.0, baseline: String = "top", stroke: color.Color = color.none, width: Int = 1, paint: color.Paint = color.Plain(color.none), style: Style = Style()) -> ():
+    draw_text(c, float(x), float(y), words, fill_of(fill, paint, style), size, font, align, baseline, bold, stroke_of(stroke, style), width_of(width, style), alpha_of(alpha, style))
+
+
+## Asks the page how wide a text is, written in a given font, so that
+## something can be placed beside it. The page answers by calling
+## `answer` with the width in pixels, a moment later.
+##
+## # Parameters
+## - `words`: the text.
+## - `answer`: what is called with its width.
+## - `size`: its size in pixels; 16 by default.
+## - `font`: the font's name; the page's own by default.
+## - `bold`: whether it is bold.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(300, 60)
+## def underline(w: Float):
+##     tw.line(c, 10, 40, 10 + int(w), 40)
+## tw.text(c, 10, 10, "Underlined", size = 20)
+## tw.measure_text("Underlined", underline, size = 20)
+## ```
+## ```stdout
+## ```
+public def measure_text(words: String, answer: (Float) -> (), size: Int = 16, font: String = "", bold: Bool = false) -> ():
+    measure(words, size, font, bold, answer)
+
+
+# topic: Transformations
+
+## Moves where (0, 0) is for everything drawn on the canvas `c` after it,
+## until `pop` or `reset`.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x`, `y`: how far right and down (0, 0) moves.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.translate(c, 100.0, 50.0)
+## tw.circle(c, 0, 0, 20)
+## ```
+## ```stdout
+## ```
+public def translate(c: String, x: Float, y: Float) -> ():
+    set_state(c, "translate", "", floats2(x, y))
+
+
+## Turns everything drawn on the canvas `c` after it, around (0, 0), by
+## an angle in radians, clockwise: `translate` first to turn round
+## another point.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `angle`: how far to turn, in radians: `math.pi / 2.0` is a quarter turn.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import math
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.translate(c, 100.0, 50.0)
+## tw.rotate(c, math.pi / 4.0)
+## tw.rect(c, -20, -20, 40, 40)
+## ```
+## ```stdout
+## ```
+public def rotate(c: String, angle: Float) -> ():
+    set_state(c, "rotate", "", string(angle))
+
+
+## Stretches everything drawn on the canvas `c` after it: 2.0 doubles,
+## 0.5 halves, and -1.0 mirrors.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `sx`: across.
+## - `sy`: up and down.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.scale(c, 2.0, 1.0)
+## tw.circle(c, 50, 50, 20)
+## ```
+## ```stdout
+## ```
+public def scale(c: String, sx: Float, sy: Float) -> ():
+    set_state(c, "scale", "", floats2(sx, sy))
+
+
+## Remembers how the canvas `c` draws now -- its transformation, shadow,
+## blending, line style and clipping -- so that `pop` can go back to it.
+##
+## # Parameters
+## - `c`: the canvas.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.push(c)
+## tw.translate(c, 100.0, 50.0)
+## tw.circle(c, 0, 0, 10)
+## tw.pop(c)
+## tw.circle(c, 10, 10, 10)
+## ```
+## ```stdout
+## ```
+public def push(c: String) -> ():
+    set_state(c, "push", "", "")
+
+
+## Goes back to how the canvas `c` drew at the last `push`.
+##
+## # Parameters
+## - `c`: the canvas.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.push(c)
+## tw.scale(c, 3.0, 3.0)
+## tw.pop(c)
+## tw.circle(c, 50, 50, 10)
+## ```
+## ```stdout
+## ```
+public def pop(c: String) -> ():
+    set_state(c, "pop", "", "")
+
+
+## Takes every transformation off the canvas `c`: (0, 0) is its top left
+## corner again, nothing is turned or stretched, and nothing is clipped.
+##
+## # Parameters
+## - `c`: the canvas.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.translate(c, 50.0, 50.0)
+## tw.reset(c)
+## tw.circle(c, 10, 10, 10)
+## ```
+## ```stdout
+## ```
+public def reset(c: String) -> ():
+    set_state(c, "reset", "", "")
+
+
+## Gives what is drawn on the canvas `c` after it a shadow, until it is
+## given `color.none` or the canvas is `reset`.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `shade`: the shadow's colour; `color.none` turns shadows off.
+## - `blur`: how blurred it is, in pixels; 10 by default.
+## - `dx`, `dy`: how far right and down it falls.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.shadow(c, color.gray, blur = 8, dx = 4, dy = 4)
+## tw.rect(c, 50, 25, 100, 50, color.orange)
+## ```
+## ```stdout
+## ```
+public def shadow(c: String, shade: color.Color, blur: Int = 10, dx: Int = 0, dy: Int = 0) -> ():
+    set_state(c, "shadow", color.drawn(shade), numbers3(blur, dx, dy))
+
+
+## Says how what is drawn on the canvas `c` after it mixes with what is
+## there: `"normal"` covers it, `"add"` adds the colours, so overlapping
+## light glows.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `mode`: `"normal"` or `"add"`.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.clear(c, color.black)
+## tw.blend(c, "add")
+## tw.circle(c, 80, 50, 40, color.red)
+## tw.circle(c, 120, 50, 40, color.blue)
+## ```
+## ```stdout
+## ```
+public def blend(c: String, mode: String) -> ():
+    match mode:
+        case "normal" | "add":
+            set_state(c, "blend", mode, "")
+        case _:
+            debug("tinyweb: there is no blending called \"" ++ mode ++ "\"; the modes are normal and add")
+
+
+# topic: Images
+
+## Draws a picture `load_image` loaded on the canvas `c`, stretched to
+## the rectangle given. A picture not loaded yet is not drawn: the next
+## frame draws it.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `picture`: the picture, as `load_image` answered.
+## - `x`, `y`: where its top left corner goes.
+## - `w`, `h`: how wide and tall it is drawn.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## ball = tw.load_image("ball.png")
+## tw.image(c, ball, 70, 20, 60, 60)
+## ```
+## ```stdout
+## ```
+public def image(c: String, picture: String, x: Int, y: Int, w: Int, h: Int, alpha: Float = 1.0) -> ():
+    draw_image(c, picture, x, y, w, h, alpha)
+
+
+# topic: Widgets
+
+## A button showing `title`, below what the page already holds. Pressing
+## it calls `on_click`.
+##
+## # Parameters
+## - `title`: what the button says.
+## - `on_click`: what is called when it is pressed.
 ##
 ## # Returns
 ## The button's identifier: its title, with a number added where
@@ -1082,25 +1616,24 @@ public def colors.stop(gradient: String, at: Float, color: String) -> String:
 ## ```pyking
 ## import tinyweb as tw
 ## tw.web_init(0)
-## var count = 0
-## def pressed():
-##     count := count + 1
-##     print("pressed", count, "times")
-## tw.button("Count", on_click = pressed)
+## def hello():
+##     print("hello")
+## print(tw.button("Say hello", on_click = hello))
 ## ```
 ## ```stdout
+## Say hello
 ## ```
 public def button(title: String, on_click: () -> () = nothing) -> String:
     make_button(title, on_click)
 
 
-## Adds a slider below everything already on the page.
+## A slider from `low` to `high`, standing at `value`. Moving it calls
+## `on_change` with where it stands.
 ##
 ## # Parameters
-## - `low`, `high`: the smallest and largest values it can be set to.
+## - `low`, `high`: its two ends.
 ## - `value`: where it starts.
-## - `on_change`: the function to call with each new value it is moved
-##   to; by default nothing happens.
+## - `on_change`: what is called with each new value.
 ##
 ## # Returns
 ## The slider's identifier: `"slider"`, with a number added where
@@ -1110,70 +1643,64 @@ public def button(title: String, on_click: () -> () = nothing) -> String:
 ## ```pyking
 ## import tinyweb as tw
 ## tw.web_init(0)
-## shown = tw.label("50")
-## def moved(value: Int):
-##     tw.set_label(shown, string(value))
-## tw.slider(0, 100, 50, on_change = moved)
+## def moved(v: Int):
+##     print(v)
+## print(tw.slider(0, 100, 50, on_change = moved))
 ## ```
 ## ```stdout
+## slider
 ## ```
 public def slider(low: Int, high: Int, value: Int, on_change: (Int) -> () = ignore) -> String:
     make_slider(low, high, value, on_change)
 
 
-## Adds a checkbox, with its title beside it, below everything already on
-## the page.
+## A box to tick, with `title` beside it. Ticking or unticking it calls
+## `on_change` with whether it is ticked.
 ##
 ## # Parameters
-## - `title`: the text beside the box.
-## - `checked`: whether it starts ticked; `false` by default.
-## - `on_change`: the function to call each time the reader ticks or
-##   clears it, with whether it is ticked now; by default nothing happens.
+## - `title`: what it says.
+## - `checked`: whether it starts ticked.
+## - `on_change`: what is called with each change.
 ##
 ## # Returns
-## The checkbox's identifier: its title, with a number added where
-## something on the page has that name already.
+## Its identifier: its title, with a number added where something on the
+## page has that name already.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
 ## tw.web_init(0)
-## shown = tw.label("trails are off")
-## def changed(on: Bool):
-##     tw.set_label(shown, if on then "trails are on" else "trails are off")
-## tw.checkbox("Trails", on_change = changed)
+## print(tw.checkbox("Sound", checked = true))
 ## ```
 ## ```stdout
+## Sound
 ## ```
 public def checkbox(title: String, checked: Bool = false, on_change: (Bool) -> () = ignore_bool) -> String:
     make_checkbox(title, checked, on_change)
 
 
-## Adds a radio button, with its title beside it, below everything already
-## on the page. Radio buttons sharing a `group` go together: choosing one
-## clears the others. The first of a group starts chosen, unless another
-## says `chosen = true`.
+## A radio button: one of the buttons sharing `group`, of which one is
+## chosen at a time. Choosing it calls `on_pick` with its title. The
+## first of a group is chosen unless another says `chosen = true`.
 ##
 ## # Parameters
-## - `group`: the name of the buttons it goes with.
-## - `title`: the text beside the button.
-## - `chosen`: whether it starts chosen; `false` by default.
-## - `on_pick`: the function to call when the reader chooses it, with its
-##   title; by default nothing happens.
+## - `group`: the buttons it belongs with.
+## - `title`: what it says.
+## - `chosen`: whether it starts chosen.
+## - `on_pick`: what is called with its title when it is chosen.
 ##
 ## # Returns
-## The radio button's identifier: its title, with a number added where
-## something on the page has that name already.
+## Its identifier: its title, with a number added where something on the
+## page has that name already.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
 ## tw.web_init(0)
-## shown = tw.label("time-based")
-## def picked(title: String):
-##     tw.set_label(shown, title)
-## tw.radio("mode", "time-based", on_pick = picked)
-## tw.radio("mode", "frame-based", on_pick = picked)
+## def picked(name: String):
+##     print("picked", name)
+## tw.radio("size", "Small", on_pick = picked)
+## tw.radio("size", "Large", chosen = true, on_pick = picked)
 ## ```
 ## ```stdout
 ## ```
@@ -1183,156 +1710,270 @@ public def radio(group: String, title: String, chosen: Bool = false, on_pick: (S
 
 # The choices as one line each.
 def lines_of(options: [String]) -> String:
-    match options:
-        case []:
-            ""
-        case [only]:
-            only
-        case [first, ..rest]:
-            first ++ "\n" ++ lines_of(rest)
+    joined_by(options, "\n")
 
 
-## Adds a dropdown to choose one of several options from, below
-## everything already on the page.
+## A dropdown of `options`. Choosing one calls `on_change` with its
+## position, from 0.
 ##
 ## # Parameters
-## - `options`: the choices, in the order they are shown.
-## - `chosen`: the position of the one chosen at first; 0, the first, by
-##   default.
-## - `on_change`: the function to call when the reader chooses another,
-##   with its position; by default nothing happens.
+## - `options`: what can be chosen.
+## - `chosen`: which one is chosen to start with; 0, the first, by default.
+## - `on_change`: what is called with the position of each choice.
 ##
 ## # Returns
-## The dropdown's identifier: `"choice"`, with a number added where
-## something on the page has that name already.
+## Its identifier: `"choice"`, with a number added where something on the
+## page has that name already.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
 ## tw.web_init(0)
-## shown = tw.label("chose 0")
-## def changed(position: Int):
-##     tw.set_label(shown, "chose " ++ string(position))
-## tw.choice(["ocean", "candy", "forest"], on_change = changed)
+## print(tw.choice(["red", "green", "blue"], chosen = 1))
 ## ```
 ## ```stdout
+## choice
 ## ```
 public def choice(options: [String], chosen: Int = 0, on_change: (Int) -> () = ignore) -> String:
     make_choice(lines_of(options), chosen, on_change)
 
 
-## Adds a line to type text into, below everything already on the page.
+## A line of text to type into. Pressing Enter in it calls `on_enter`
+## with what it holds; `value_of` reads it at any time.
 ##
 ## # Parameters
-## - `placeholder`: the grey text it shows while it is empty; none by
-##   default.
-## - `on_enter`: the function to call when the reader presses Enter in it,
-##   with what is typed there; by default nothing happens.
+## - `placeholder`: what it shows, greyed out, while it is empty.
+## - `on_enter`: what is called with the text when Enter is pressed.
 ##
 ## # Returns
-## The field's identifier: its placeholder, or `"text"` where it has
-## none, with a number added where something on the page has that name
-## already.
+## Its identifier: the placeholder, or `"text"` where there is none, with
+## a number added where something on the page has that name already.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
 ## tw.web_init(0)
-## shown = tw.label("Hello!")
-## def entered(name: String):
-##     tw.set_label(shown, "Hello, " ++ name ++ "!")
-## tw.text_input("your name", on_enter = entered)
+## def greet(name: String):
+##     print("Hello,", name)
+## print(tw.text_input("Your name", on_enter = greet))
 ## ```
 ## ```stdout
+## Your name
 ## ```
 public def text_input(placeholder: String = "", on_enter: (String) -> () = ignore_text) -> String:
     make_text_input(placeholder, on_enter)
 
 
-## Adds a field to type a whole number into, with arrows to step it,
-## below everything already on the page.
+## A field holding a whole number from `low` to `high`, with arrows to
+## step it. A new number calls `on_change`.
 ##
 ## # Parameters
-## - `low`, `high`: the smallest and largest numbers it takes.
-## - `value`: the number it starts at.
-## - `on_change`: the function to call with each new number; by default
-##   nothing happens.
+## - `low`, `high`: the smallest and largest number.
+## - `value`: the number it starts with.
+## - `on_change`: what is called with each new number.
 ##
 ## # Returns
-## The field's identifier: `"number"`, with a number added where
-## something on the page has that name already.
+## Its identifier: `"number"`, with a number added where something on the
+## page has that name already.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
 ## tw.web_init(0)
-## shown = tw.label("3 balls")
-## def changed(n: Int):
-##     tw.set_label(shown, string(n) ++ " balls")
-## tw.number_input(1, 20, 3, on_change = changed)
+## print(tw.number_input(1, 12, 3))
 ## ```
 ## ```stdout
+## number
 ## ```
 public def number_input(low: Int, high: Int, value: Int, on_change: (Int) -> () = ignore) -> String:
     make_number_input(low, high, value, on_change)
 
 
+# topic: Changing the page
+
+## Changes the text of a label or a button, or what a text field or a
+## text area holds.
+##
+## # Parameters
+## - `id`: the element, as the function that made it answered.
+## - `words`: its new text.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## score = tw.label("Score: 0")
+## tw.set_text(score, "Score: 10")
+## ```
+## ```stdout
+## ```
+public def set_text(id: String, words: String) -> ():
+    command("set_text", id, words, "", 1)
+
+
+## Shows an element `hide` hid.
+##
+## # Parameters
+## - `id`: the element.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## secret = tw.label("Surprise!")
+## tw.hide(secret)
+## tw.show(secret)
+## ```
+## ```stdout
+## ```
+public def show(id: String) -> ():
+    command("visible", id, "", "1", 1)
+
+
+## Hides an element without removing it: `show` brings it back where it
+## was.
+##
+## # Parameters
+## - `id`: the element.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.hide(tw.label("Not yet"))
+## ```
+## ```stdout
+## ```
+public def hide(id: String) -> ():
+    command("visible", id, "", "0", 1)
+
+
+## Lets a button, or any widget, be used again after `disable`.
+##
+## # Parameters
+## - `id`: the widget.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## go = tw.button("Go")
+## tw.disable(go)
+## tw.enable(go)
+## ```
+## ```stdout
+## ```
+public def enable(id: String) -> ():
+    command("enabled", id, "", "1", 1)
+
+
+## Greys a button, or any widget, out, so it cannot be used until
+## `enable`.
+##
+## # Parameters
+## - `id`: the widget.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.disable(tw.button("Next level"))
+## ```
+## ```stdout
+## ```
+public def disable(id: String) -> ():
+    command("enabled", id, "", "0", 1)
+
+
+## Removes an element from the page for good.
+##
+## # Parameters
+## - `id`: the element.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## tw.remove(tw.label("Loading..."))
+## ```
+## ```stdout
+## ```
+public def remove(id: String) -> ():
+    command("remove", id, "", "", 0)
+
+
+## What a widget holds now, as text, as the page last reported it: a
+## text field's or text area's text, a slider's or number field's number,
+## a dropdown's position, a checkbox's `"true"` or `"false"`. Empty until
+## the reader has changed it.
+##
+## # Parameters
+## - `id`: the widget.
+##
+## # Returns
+## Its value, as text.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## name = tw.text_input("Your name")
+## def check():
+##     print("typed:", tw.value_of(name))
+## tw.button("Check", on_click = check)
+## ```
+## ```stdout
+## ```
+public def value_of(id: String) -> String:
+    report_text("value." ++ id)
+
+
+# topic: Styles
+
 def known_theme(name: String) -> Bool:
     match name:
-        case "light":
-            true
-        case "dark":
-            true
-        case "plain":
-            true
-        case "paper":
-            true
-        case "retro":
-            true
-        case _:
-            false
+        case "light" | "dark" | "plain" | "paper" | "retro": true
+        case _: false
 
 
-# One property of a kind of element, or of the element `id`; "" leaves
-# it as it is.
+# One property of a kind of element, or of the element `id`.
 def style_text(id: String, kind: String, property: String, value: String):
-    if value == "":
-        ()
+    if value == "" then () else apply_style(id, kind, property, value)
+
+
+# A colour; the theme's own leaves it as it is.
+def style_color(id: String, kind: String, property: String, c: color.Color):
+    if color.is_theme(c) then () else apply_style(id, kind, property, color.css(c))
+
+
+# A border: its colour, and how wide it is; either left out keeps it.
+def style_border(id: String, kind: String, border: color.Color, width: Int):
+    if color.is_theme(border):
+        if width >= 0 then apply_style(id, kind, "border", string(width) ++ "px solid currentColor") else ()
+    else if border.a <= 0.0:
+        apply_style(id, kind, "border", "none")
     else:
-        apply_style(id, kind, property, value)
+        apply_style(id, kind, "border", string(if width >= 0 then width else 1) ++ "px solid " ++ color.css(border))
 
 
 # A length in pixels; a negative one leaves it as it is.
 def style_pixels(id: String, kind: String, property: String, value: Int):
-    if value < 0:
-        ()
-    else:
-        apply_style(id, kind, property, string(value) ++ "px")
+    if value < 0 then () else apply_style(id, kind, property, string(value) ++ "px")
 
 
-## Gives the whole page one of tinyweb's looks: its colors, fonts, and
-## how buttons, sliders and canvases are drawn. A page starts in
-## `"light"`, which looks the same wherever it is shown. Call it before
-## any of the `_style` functions, since it forgets what they changed.
-##
-## The themes are `"light"`, `"dark"`, `"plain"` (the browser's own
-## buttons and sliders, on white), `"paper"` (ink on warm paper, with a
-## serif font) and `"retro"` (green on black, in a typewriter font). A
-## name that is none of these changes nothing, and says so with `debug`.
+## Gives the page one of tinyweb's looks, forgetting what was changed
+## with the `_style` functions.
 ##
 ## # Parameters
-## - `name`: the theme.
+## - `name`: `"light"` (the default), `"dark"`, `"plain"`, `"paper"` or
+##   `"retro"`.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
 ## tw.web_init(0)
 ## tw.theme("dark")
-## tw.label("A dark page")
-## tw.button("Press me")
-## tw.slider(0, 10, 3)
-## c = tw.canvas(160, 40)
-## tw.circle(c, 20, 20, 12, "orange")
+## tw.label("Dark")
 ## ```
 ## ```stdout
 ## ```
@@ -1343,33 +1984,30 @@ public def theme(name: String) -> ():
         debug("tinyweb: there is no theme called \"" ++ name ++ "\"; the themes are light, dark, plain, paper and retro")
 
 
-## Changes the page itself: its background, and the text and spacing
-## everything on it shares. Only what is named changes; the rest stays
-## as the theme has it.
+## Changes the page's look: its colours, its text, and the space round
+## and between what it holds. What is not given stays as it is.
 ##
 ## # Parameters
-## - `background`: a CSS color for the page.
-## - `color`: a CSS color for its text.
-## - `font`: a font, such as `"serif"`, `"monospace"` or `"Georgia"`.
-## - `size`: the size of its text, in pixels.
-## - `padding`: the space around everything on it, in pixels.
+## - `background`: the page's colour.
+## - `foreground`: its text's colour.
+## - `font`: its font's name.
+## - `size`: its text's size, in pixels.
+## - `padding`: the space round the page's edge, in pixels.
 ## - `gap`: the space between one element and the next, in pixels.
-## - `align`: where each element stands across the page: `"left"`, as a
-##   theme has it, `"center"` or `"right"`.
+## - `align`: where elements stand: `"left"`, `"center"` or `"right"`.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.color as color
 ## tw.web_init(0)
-## tw.page_style(background = "#fdf6e3", color = "#586e75", font = "serif", size = 18, gap = 16, align = "center")
-## tw.label("Solarized, with room to breathe")
-## tw.button("OK")
+## tw.page_style(background = color.hex(0x111111), foreground = color.hex(0xeeeeee), align = "center")
 ## ```
 ## ```stdout
 ## ```
-public def page_style(background: String = "", color: String = "", font: String = "", size: Int = -1, padding: Int = -1, gap: Int = -1, align: String = "") -> ():
-    style_text("", "page", "background", background)
-    style_text("", "page", "color", color)
+public def page_style(background: color.Color = color.theme, foreground: color.Color = color.theme, font: String = "", size: Int = -1, padding: Int = -1, gap: Int = -1, align: String = "") -> ():
+    style_color("", "page", "background", background)
+    style_color("", "page", "color", foreground)
     style_text("", "page", "font", font)
     style_pixels("", "page", "size", size)
     style_pixels("", "page", "padding", padding)
@@ -1377,205 +2015,426 @@ public def page_style(background: String = "", color: String = "", font: String 
     style_text("", "page", "align", align)
 
 
-## Changes every button on the page, those made already and those made
-## later. Only what is named changes; the rest stays as the theme has it.
+## Changes the look of every button. What is not given stays as it is.
 ##
 ## # Parameters
-## - `background`: a CSS color for the button.
-## - `color`: a CSS color for its text.
-## - `border`: a CSS border, such as `"2px solid navy"` or `"none"`.
+## - `background`: the button's colour.
+## - `foreground`: its title's colour.
+## - `border`: its border's colour; `color.none` for no border.
+## - `border_width`: its border's width, in pixels.
 ## - `radius`: how round its corners are, in pixels.
-## - `font`: a font, such as `"serif"` or `"monospace"`.
-## - `size`: the size of its text, in pixels.
-## - `padding`: the space between its text and its edge, in pixels.
+## - `font`: its title's font.
+## - `size`: its title's size, in pixels.
+## - `padding`: the space round its title, in pixels.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.color as color
 ## tw.web_init(0)
-## tw.button_style(background = "#2f6fdd", color = "white", border = "none", radius = 14, padding = 10)
-## tw.button("Start")
-## tw.button("Stop")
+## tw.button_style(background = color.teal, foreground = color.white, radius = 12)
+## tw.button("Round")
 ## ```
 ## ```stdout
 ## ```
-public def button_style(background: String = "", color: String = "", border: String = "", radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1) -> ():
-    style_text("", "button", "background", background)
-    style_text("", "button", "color", color)
-    style_text("", "button", "border", border)
+public def button_style(background: color.Color = color.theme, foreground: color.Color = color.theme, border: color.Color = color.theme, border_width: Int = -1, radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1) -> ():
+    style_color("", "button", "background", background)
+    style_color("", "button", "color", foreground)
+    style_border("", "button", border, border_width)
     style_pixels("", "button", "radius", radius)
     style_text("", "button", "font", font)
     style_pixels("", "button", "size", size)
     style_pixels("", "button", "padding", padding)
 
 
-## Changes every label on the page, those made already and those made
-## later. Only what is named changes; the rest stays as the theme has it.
+## Changes the look of every label. What is not given stays as it is.
 ##
 ## # Parameters
-## - `background`: a CSS color behind the text.
-## - `color`: a CSS color for the text.
-## - `border`: a CSS border, such as `"1px solid gray"`.
+## - `background`: the label's colour.
+## - `foreground`: its text's colour.
+## - `border`: its border's colour; `color.none` for no border.
+## - `border_width`: its border's width, in pixels.
 ## - `radius`: how round its corners are, in pixels.
-## - `font`: a font, such as `"serif"` or `"monospace"`.
-## - `size`: the size of the text, in pixels.
-## - `padding`: the space between the text and its edge, in pixels.
+## - `font`: its text's font.
+## - `size`: its text's size, in pixels.
+## - `padding`: the space round its text, in pixels.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.color as color
 ## tw.web_init(0)
-## tw.label_style(background = "lightyellow", border = "1px solid gold", radius = 6, size = 18, padding = 8)
-## tw.label("Note: labels can look like this.")
-## tw.label("And so does every other one.")
+## tw.label_style(foreground = color.navy, size = 20)
+## tw.label("Big and blue")
 ## ```
 ## ```stdout
 ## ```
-public def label_style(background: String = "", color: String = "", border: String = "", radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1) -> ():
-    style_text("", "label", "background", background)
-    style_text("", "label", "color", color)
-    style_text("", "label", "border", border)
+public def label_style(background: color.Color = color.theme, foreground: color.Color = color.theme, border: color.Color = color.theme, border_width: Int = -1, radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1) -> ():
+    style_color("", "label", "background", background)
+    style_color("", "label", "color", foreground)
+    style_border("", "label", border, border_width)
     style_pixels("", "label", "radius", radius)
     style_text("", "label", "font", font)
     style_pixels("", "label", "size", size)
     style_pixels("", "label", "padding", padding)
 
 
-## Changes every slider on the page, those made already and those made
-## later. Only what is named changes; the rest stays as the theme has it.
+## Changes the look of every slider. What is not given stays as it is.
 ##
 ## # Parameters
-## - `accent`: a CSS color for the slider's track and handle.
-## - `width`: how long the slider is, in pixels.
-## - `color`: a CSS color for the value shown beside it.
-## - `font`: a font for that value.
-## - `size`: the size of that value's text, in pixels.
+## - `accent`: the colour of its track and handle.
+## - `width`: how long it is, in pixels.
+## - `foreground`: the colour of the number beside it.
+## - `font`: that number's font.
+## - `size`: that number's size, in pixels.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.color as color
 ## tw.web_init(0)
-## tw.slider_style(accent = "crimson", width = 300, size = 20)
-## tw.slider(0, 100, 70)
+## tw.slider_style(accent = color.orange, width = 300)
+## tw.slider(0, 10, 5)
 ## ```
 ## ```stdout
 ## ```
-public def slider_style(accent: String = "", width: Int = -1, color: String = "", font: String = "", size: Int = -1) -> ():
-    style_text("", "slider", "accent", accent)
+public def slider_style(accent: color.Color = color.theme, width: Int = -1, foreground: color.Color = color.theme, font: String = "", size: Int = -1) -> ():
+    style_color("", "slider", "accent", accent)
     style_pixels("", "slider", "width", width)
-    style_text("", "slider", "color", color)
+    style_color("", "slider", "color", foreground)
     style_text("", "slider", "font", font)
     style_pixels("", "slider", "size", size)
 
 
-## Changes the frame of every canvas on the page, those made already and
-## those made later. What is drawn on a canvas is not changed.
+## Changes the look of every canvas's frame. What is not given stays as
+## it is.
 ##
 ## # Parameters
-## - `border`: a CSS border, such as `"3px solid black"` or `"none"`.
+## - `border`: the frame's colour.
+## - `border_width`: its width, in pixels; 0 for no frame.
 ## - `radius`: how round its corners are, in pixels.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.color as color
 ## tw.web_init(0)
-## tw.canvas_style(border = "3px solid teal", radius = 12)
-## c = tw.canvas(200, 80)
-## tw.rect(c, 20, 20, 160, 40, "teal")
+## tw.canvas_style(border = color.gray, border_width = 2, radius = 6)
+## tw.canvas(100, 50)
 ## ```
 ## ```stdout
 ## ```
-public def canvas_style(border: String = "", radius: Int = -1) -> ():
-    style_text("", "canvas", "border", border)
+public def canvas_style(border: color.Color = color.theme, border_width: Int = -1, radius: Int = -1) -> ():
+    style_border("", "canvas", border, border_width)
     style_pixels("", "canvas", "radius", radius)
 
 
-## Changes the colors of one button, label or slider. It wins over the
-## theme and over the `_style` functions.
+## Changes the look of one element. What is not given stays as it is.
 ##
 ## # Parameters
-## - `id`: the element, as `button`, `label` or `slider` answered.
-## - `color`: a CSS color for its text, or for a slider's track and
-##   handle.
-## - `background`: a CSS color behind it.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## ok = tw.button("OK")
-## cancel = tw.button("Cancel")
-## tw.set_colors(ok, color = "white", background = "seagreen")
-## tw.set_colors(cancel, color = "white", background = "firebrick")
-## ```
-## ```stdout
-## ```
-public def set_colors(id: String, color: String = "", background: String = "") -> ():
-    style_text(id, "element", "color", color)
-    style_text(id, "element", "accent", color)
-    style_text(id, "element", "background", background)
-
-
-## Changes how one element is drawn: a button, a label, a slider or a
-## canvas. It wins over the theme and over the `_style` functions. Only
-## what is named changes.
-##
-## # Parameters
-## - `id`: the element, as the function that made it answered.
-## - `background`: a CSS color behind it.
-## - `color`: a CSS color for its text.
-## - `border`: a CSS border, such as `"2px dashed orange"`.
+## - `id`: the element.
+## - `background`: its colour.
+## - `foreground`: its text's colour.
+## - `border`: its border's colour; `color.none` for no border.
+## - `border_width`: its border's width, in pixels.
 ## - `radius`: how round its corners are, in pixels.
-## - `font`: a font, such as `"serif"` or `"monospace"`.
-## - `size`: the size of its text, in pixels.
-## - `padding`: the space between its text and its edge, in pixels.
-## - `accent`: a CSS color for a slider's track and handle.
-## - `width`: its width, in pixels.
-## - `weight`: how heavy its letters are, from 100 (thin) to 900; 400 is
-##   normal and 700 bold.
-## - `height`: its height, in pixels. A canvas given another size than its
-##   own is stretched to it.
+## - `font`: its text's font.
+## - `size`: its text's size, in pixels.
+## - `padding`: the space round its text, in pixels.
+## - `accent`: the colour of a slider's or checkbox's marks.
+## - `width`: how wide it is, in pixels.
+## - `weight`: how bold its text is, 100 to 900; 700 is bold.
+## - `height`: how tall it is, in pixels.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.color as color
 ## tw.web_init(0)
-## tw.button("Normal")
-## big = tw.button("Important")
-## tw.set_style(big, border = "2px dashed orange", radius = 0, size = 22, padding = 12)
-## title = tw.label("A title")
-## tw.set_style(title, font = "serif", size = 28, weight = 700)
+## warning = tw.label("Careful!")
+## tw.set_style(warning, background = color.yellow, padding = 6, weight = 700)
 ## ```
 ## ```stdout
 ## ```
-public def set_style(id: String, background: String = "", color: String = "", border: String = "", radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1, accent: String = "", width: Int = -1, weight: Int = -1, height: Int = -1) -> ():
-    style_text(id, "element", "background", background)
-    style_text(id, "element", "color", color)
-    style_text(id, "element", "border", border)
+public def set_style(id: String, background: color.Color = color.theme, foreground: color.Color = color.theme, border: color.Color = color.theme, border_width: Int = -1, radius: Int = -1, font: String = "", size: Int = -1, padding: Int = -1, accent: color.Color = color.theme, width: Int = -1, weight: Int = -1, height: Int = -1) -> ():
+    style_color(id, "element", "background", background)
+    style_color(id, "element", "color", foreground)
+    style_border(id, "element", border, border_width)
     style_pixels(id, "element", "radius", radius)
     style_text(id, "element", "font", font)
     style_pixels(id, "element", "size", size)
     style_pixels(id, "element", "padding", padding)
-    style_text(id, "element", "accent", accent)
+    style_color(id, "element", "accent", accent)
     style_pixels(id, "element", "width", width)
     if weight >= 0:
         style_text(id, "element", "weight", string(weight))
     style_pixels(id, "element", "height", height)
 
 
-## Plays a sample that `load_sample` loaded.
+# topic: Mouse and keyboard
+
+## Calls `f` with where the pointer is each time the canvas `c` is
+## clicked.
 ##
 ## # Parameters
-## - `sample`: the sample's identifier, as `load_sample` answered.
-## - `at`: when to start, in seconds on the page's clock (see `time`),
-##   which counts from when the page started rather than from now: two
-##   seconds from now is `at = tw.time() + 2.0`, while `at = 2.0` is
-##   already past once the page has been open two seconds. A time already
-##   past, such as the default 0.0, means now.
-## - `volume`: how loud, as a multiple of the sample's own volume; 1.0 by
-##   default.
-## - `rate`: how fast, as a multiple of normal speed; 2.0 plays it twice
-##   as fast and an octave higher. 1.0 by default.
+## - `c`: the canvas.
+## - `f`: what is called with the pointer's `x` and `y`.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## def clicked(x: Int, y: Int):
+##     tw.circle(c, x, y, 5)
+## tw.on_click(c, clicked)
+## ```
+## ```stdout
+## ```
+public def on_click(c: String, f: (Int, Int) -> ()) -> ():
+    on_mouse(c, f)
+
+
+## Calls `f` each time the pointer's button goes down on the canvas `c`:
+## a mouse button, a pen or a finger.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `f`: what is called with the pointer's `x` and `y`.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## def pressed(x: Int, y: Int):
+##     print("down at", x, y)
+## tw.on_press(c, pressed)
+## ```
+## ```stdout
+## ```
+public def on_press(c: String, f: (Int, Int) -> ()) -> ():
+    watch_pointer(c, "press", f)
+
+
+## Calls `f` each time the pointer's button comes up over the canvas `c`.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `f`: what is called with the pointer's `x` and `y`.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## def released(x: Int, y: Int):
+##     print("up at", x, y)
+## tw.on_release(c, released)
+## ```
+## ```stdout
+## ```
+public def on_release(c: String, f: (Int, Int) -> ()) -> ():
+    watch_pointer(c, "release", f)
+
+
+## Calls `f` each time the pointer moves over the canvas `c`, at most
+## once a frame.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `f`: what is called with the pointer's `x` and `y`.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## def moved(x: Int, y: Int):
+##     tw.clear(c)
+##     tw.circle(c, x, y, 10)
+## tw.on_move(c, moved)
+## ```
+## ```stdout
+## ```
+public def on_move(c: String, f: (Int, Int) -> ()) -> ():
+    watch_pointer(c, "move", f)
+
+
+## Calls `f` each time the pointer moves over the canvas `c` with its
+## button held: dragging, and drawing with a finger.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `f`: what is called with the pointer's `x` and `y`.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## def drawing(x: Int, y: Int):
+##     tw.circle(c, x, y, 3)
+## tw.on_drag(c, drawing)
+## ```
+## ```stdout
+## ```
+public def on_drag(c: String, f: (Int, Int) -> ()) -> ():
+    watch_pointer(c, "drag", f)
+
+
+## Has the canvas `c` report where the pointer is, so `mouse` can say:
+## what watching it with `on_press`, `on_move` or the others also does.
+##
+## # Parameters
+## - `c`: the canvas.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.track_mouse(c)
+## ```
+## ```stdout
+## ```
+public def track_mouse(c: String) -> ():
+    watch_pointer(c, "move", ignore2)
+
+
+## Where the pointer was last seen on the canvas `c`, and whether its
+## button was held, as of the last event. The canvas reports the pointer
+## once it is watched: by `track_mouse`, or by `on_press` and the others.
+##
+## # Parameters
+## - `c`: the canvas.
+##
+## # Returns
+## The pointer; at (0, 0) and not held until the canvas has reported it.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## tw.track_mouse(c)
+## p = tw.mouse(c)
+## print(p.x, p.y, p.down)
+## ```
+## ```stdout
+## 0 0 false
+## ```
+public def mouse(c: String) -> Pointer:
+    Pointer(pointer(c, "x"), pointer(c, "y"), pointer(c, "down") == 1)
+
+
+def ignore2(x: Int, y: Int):
+    ()
+
+
+# topic: Time
+
+## Calls `f` once, `seconds` from now on the page's clock.
+##
+## # Parameters
+## - `seconds`: how long to wait.
+## - `f`: what is called.
+##
+## # Returns
+## The timer's identifier, which `cancel` takes: `"timer"`, with a number
+## added where something on the page has that name already.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## def ring():
+##     print("ring!")
+## print(tw.after(3.0, ring))
+## ```
+## ```stdout
+## timer
+## ```
+public def after(seconds: Float, f: () -> ()) -> String:
+    id = fresh_id("timer")
+    watch(id, "timer", f)
+    command("after", id, "", string(seconds), 0)
+    id
+
+
+## Calls `f` again and again, every `seconds` on the page's clock, until
+## `cancel` stops it.
+##
+## # Parameters
+## - `seconds`: how long from one call to the next.
+## - `f`: what is called.
+##
+## # Returns
+## The timer's identifier, which `cancel` takes.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## clock = tw.label("0")
+## var seconds = 0
+## def tick():
+##     seconds := seconds + 1
+##     tw.set_text(clock, string(seconds))
+## tw.every(1.0, tick)
+## ```
+## ```stdout
+## ```
+public def every(seconds: Float, f: () -> ()) -> String:
+    id = fresh_id("timer")
+    watch(id, "timer", f)
+    command("every", id, "", string(seconds), 0)
+    id
+
+
+## Stops a timer `after` or `every` started, or a beat `sound.on_beat`
+## started.
+##
+## # Parameters
+## - `timer`: the timer, as `after`, `every` or `sound.on_beat` answered.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## tw.web_init(0)
+## def never():
+##     print("never")
+## tw.cancel(tw.after(5.0, never))
+## ```
+## ```stdout
+## ```
+public def cancel(timer: String) -> ():
+    command("cancel", timer, "", "", 0)
+
+
+# topic: Sound
+
+# What `play` and `start` send: an argument left at its default takes
+# the voice's value.
+def sound.settings(at: Float, volume: Float, rate: Float, pan: Float, voice: sound.Voice) -> String:
+    v = if volume == 1.0 then voice.volume else volume
+    r = if rate == 1.0 then voice.rate else rate
+    p = if pan == 0.0 then voice.pan else pan
+    floats4(at, v, r, p) ++ " " ++ string(voice.channel) ++ " " ++ bit(voice.reverse)
+
+
+## Plays a sample `load_sample` loaded, once, to its end: a drum hit, a
+## click, a note. `at` is a time on the page's clock (`time`), so sounds
+## can be lined up exactly; a time already past plays now.
+##
+## # Parameters
+## - `sample`: the sample, as `load_sample` answered.
+## - `at`: when, on the page's clock; now by default.
+## - `volume`: how loud, as a multiple of the sample's own volume.
+## - `rate`: how fast: 2.0 plays it twice as fast and an octave higher.
+## - `pan`: where it is heard, from -1.0 (left) to 1.0 (right).
+## - `voice`: a `sound.Voice` for what is not given here, and its channel
+##   and direction.
 ##
 ## # Examples
 ## ```pyking
@@ -1591,8 +2450,8 @@ public def set_style(id: String, background: String = "", color: String = "", bo
 ## ```
 ## ```stdout
 ## ```
-public def play(sample: String, at: Float = 0.0, volume: Float = 1.0, rate: Float = 1.0) -> ():
-    play_sample(sample, at, volume, rate)
+public def play(sample: String, at: Float = 0.0, volume: Float = 1.0, rate: Float = 1.0, pan: Float = 0.0, voice: sound.Voice = sound.Voice()) -> ():
+    command("play", sample, "", sound.settings(at, volume, rate, pan, voice), 2)
 
 
 ## Plays a sound file now, loading it first if nothing has loaded it yet.
@@ -1600,16 +2459,15 @@ public def play(sample: String, at: Float = 0.0, volume: Float = 1.0, rate: Floa
 ## quicker.
 ##
 ## # Parameters
-## - `name`: the file's name, such as `"snare1.wav"`; see `load_sample`
-##   for where it is looked for.
+## - `name`: the file's name, beside the page or one tinyweb ships.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
 ## tw.web_init(0)
-## def hit():
-##     tw.play_file("snare1.wav")
-## tw.button("Snare", on_click = hit)
+## def boom():
+##     tw.play_file("kick1.wav")
+## tw.button("Boom", on_click = boom)
 ## ```
 ## ```stdout
 ## ```
@@ -1617,191 +2475,632 @@ public def play_file(name: String) -> ():
     play(load_sample(name))
 
 
-## Calls `f` each time the pointer -- a mouse button, a pen or a finger --
-## goes down on the canvas `c`, with where it went down.
+# --- tinyweb.sound ---
+
+## Sound beyond `play`: voices that can be stopped and faded, tones made
+## without a sample, a beat scheduled ahead of time, channels with
+## effects, and listening to what plays.
+##
+## Most sounds are fired and forgotten with `tw.play`. A sound that has
+## to be controlled while it plays -- music that loops until the level
+## ends, a note held while a key is down -- is a voice: `start` begins
+## one and answers its identifier, which `stop` and `fade` take.
+##
+## The beat is kept by the page, a little ahead of time, so it stays
+## exact however far away the program runs: `on_beat` calls a function
+## for each step with the step's exact time, and a sound played `at` that
+## time lands on it.
+##
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## kick = tw.load_sample("kick1.wav")
+## hat = tw.load_sample("hihat1.wav")
+## def step(n: Int, time: Float):
+##     if n - n / 4 * 4 == 0:
+##         tw.play(kick, at = time)
+##     tw.play(hat, at = time, volume = 0.4)
+## sound.tempo(110.0)
+## sound.on_beat(step, steps = 4)
+## ```
+# submodule sound
+
+# topic: Voices
+
+## How a sound is played, defined once and given to `tw.play` and
+## `start` as `voice = ...`. A sound's own argument left at its default
+## takes the voice's value.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `f`: the function to call; it is given `x` and `y` in pixels from the
-##   canvas's top left corner.
+## - `volume`: how loud, as a multiple of the sample's own volume.
+## - `rate`: how fast: 2.0 is twice as fast and an octave higher.
+## - `pan`: where it is heard, from -1.0 (left) to 1.0 (right).
+## - `channel`: the channel it goes through, from 0; 0 by default.
+## - `looping`: whether `start` plays it again and again until stopped.
+## - `reverse`: whether it plays backwards.
 ##
 ## # Examples
 ## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## def pressed(x: Int, y: Int):
-##     tw.circle(c, x, y, 6, "crimson")
-## tw.on_press(c, pressed)
+## import tinyweb.sound as sound
+## soft = sound.Voice(volume = 0.3, pan = -0.5)
+## print(soft.volume, soft.rate, soft.channel, sound.Voice(reverse = true, ..soft).reverse)
 ## ```
 ## ```stdout
+## 0.3 1.0 0 true
 ## ```
-public def on_press(c: String, f: (Int, Int) -> ()) -> ():
-    watch_pointer(c, "press", f)
+public struct sound.Voice(volume = 1.0, rate = 1.0, pan = 0.0, channel = 0, looping = false, reverse = false)
 
-
-## Calls `f` each time the pointer comes up after going down on the
-## canvas `c`, with where it came up -- even outside the canvas.
+## Starts playing a sample as a voice, which `stop` and `fade` can
+## change while it plays: music that loops, an engine that hums while a
+## key is held.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `f`: the function to call; it is given `x` and `y` in pixels.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## def released(x: Int, y: Int):
-##     tw.rect(c, x - 5, y - 5, 10, 10, "navy")
-## tw.on_release(c, released)
-## ```
-## ```stdout
-## ```
-public def on_release(c: String, f: (Int, Int) -> ()) -> ():
-    watch_pointer(c, "release", f)
-
-
-## Calls `f` when the pointer moves over the canvas `c`, at most once a
-## frame, with where it is now: a drawing that follows the mouse.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `f`: the function to call; it is given `x` and `y` in pixels.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## def moved(x: Int, y: Int):
-##     tw.clear(c)
-##     tw.circle(c, x, y, 10, "orange")
-## tw.on_move(c, moved)
-## ```
-## ```stdout
-## ```
-public def on_move(c: String, f: (Int, Int) -> ()) -> ():
-    watch_pointer(c, "move", f)
-
-
-## Calls `f` when the pointer moves with its button held, having gone
-## down on the canvas `c`: for painting, and for dragging things around.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `f`: the function to call; it is given `x` and `y` in pixels.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## def dragged(x: Int, y: Int):
-##     tw.circle(c, x, y, 3, "black")
-## tw.on_drag(c, dragged)
-## ```
-## ```stdout
-## ```
-public def on_drag(c: String, f: (Int, Int) -> ()) -> ():
-    watch_pointer(c, "drag", f)
-
-
-## Where the pointer was last seen on the canvas `c`, left to right. The
-## canvas reports the pointer once something has asked for it with
-## `on_press`, `on_release`, `on_move` or `on_drag`.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
+## - `sample`: the sample, as `tw.load_sample` answered.
+## - `at`: when, on the page's clock; now by default.
+## - `volume`: how loud.
+## - `rate`: how fast: 2.0 is twice as fast and an octave higher.
+## - `pan`: where it is heard, from -1.0 (left) to 1.0 (right).
+## - `looping`: whether it plays again and again until stopped.
+## - `voice`: a `Voice` for what is not given here.
 ##
 ## # Returns
-## `x` in pixels from the canvas's left edge; 0 until the pointer has
-## been seen.
+## The voice's identifier: `"voice"`, with a number added where something
+## on the page has that name already.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.sound as sound
 ## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.on_move(c, tw.ignore2)
-## def draw(t: Float):
-##     tw.clear(c)
-##     tw.circle(c, tw.mouse_x(c), tw.mouse_y(c), 8, "teal")
-## tw.on_frame(draw)
+## hum = tw.load_sample("hihat1.wav")
+## print(sound.start(hum, looping = true, volume = 0.3))
+## ```
+## ```stdout
+## voice
+## ```
+public def sound.start(sample: String, at: Float = 0.0, volume: Float = 1.0, rate: Float = 1.0, pan: Float = 0.0, looping: Bool = false, voice: sound.Voice = sound.Voice()) -> String:
+    id = fresh_id("voice")
+    looped = if looping then true else voice.looping
+    command("start", id, sample, sound.settings(at, volume, rate, pan, voice) ++ " " ++ bit(looped), 2)
+    id
+
+
+## Stops a voice, now or at a time on the page's clock.
+##
+## # Parameters
+## - `voice`: the voice, as `start` answered.
+## - `at`: when; now by default.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## music = sound.start(tw.load_sample("piano_c1.wav"), looping = true)
+## sound.stop(music, at = tw.time() + 2.0)
 ## ```
 ## ```stdout
 ## ```
-public def mouse_x(c: String) -> Int:
-    pointer(c, "x")
+public def sound.stop(voice: String, at: Float = 0.0) -> ():
+    command("stop", voice, "", string(at), 2)
 
 
-## Where the pointer was last seen on the canvas `c`, top to bottom, as
-## `mouse_x` says.
+## Changes a voice's volume smoothly, from what it is now to `volume`
+## over `over` seconds: a fade to 0.0 and then a `stop` is a fade-out.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-##
-## # Returns
-## `y` in pixels from the canvas's top edge; 0 until the pointer has
-## been seen.
+## - `voice`: the voice, as `start` answered.
+## - `volume`: the volume to reach.
+## - `over`: how long it takes, in seconds; 1.0 by default.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.sound as sound
 ## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.on_move(c, tw.ignore2)
-## print(tw.mouse_y(c))
+## music = sound.start(tw.load_sample("piano_c1.wav"), looping = true)
+## def game_over():
+##     sound.fade(music, 0.0, over = 2.0)
+##     sound.stop(music, at = tw.time() + 2.0)
+## tw.button("Game over", on_click = game_over)
+## ```
+## ```stdout
+## ```
+public def sound.fade(voice: String, volume: Float, over: Float = 1.0) -> ():
+    command("fade", voice, "", floats2(volume, over), 2)
+
+
+## Stops every sound: every voice, and every sound `play` or `tone` has
+## scheduled that has not ended -- what jumping to another place in a
+## song needs.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## tw.button("Silence", on_click = sound.stop_all)
+## ```
+## ```stdout
+## ```
+public def sound.stop_all() -> ():
+    command("stop_all", "", "", "", 2)
+
+
+## Sets how loud everything is, at once.
+##
+## # Parameters
+## - `volume`: 1.0 as it is, 0.0 silent.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## sound.master_volume(0.5)
+## ```
+## ```stdout
+## ```
+public def sound.master_volume(volume: Float) -> ():
+    command("master", "", "", string(volume), 1)
+
+
+# topic: Tones and notes
+
+## Plays a tone made without a sample: a wave at `frequency`, with a
+## short attack and release so it does not click.
+##
+## # Parameters
+## - `frequency`: how high, in hertz: 440.0 is the A above middle C.
+## - `at`: when, on the page's clock; now by default.
+## - `duration`: how long, in seconds.
+## - `wave`: its shape: `"sine"`, `"square"`, `"triangle"` or `"sawtooth"`.
+## - `volume`: how loud; 0.5 by default.
+## - `pan`: where it is heard, from -1.0 (left) to 1.0 (right).
+## - `channel`: the channel it goes through.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## def beep():
+##     sound.tone(sound.note("A4"), duration = 0.2, wave = "square", volume = 0.2)
+## tw.button("Beep", on_click = beep)
+## ```
+## ```stdout
+## ```
+public def sound.tone(frequency: Float, at: Float = 0.0, duration: Float = 0.5, wave: String = "sine", volume: Float = 0.5, pan: Float = 0.0, channel: Int = 0) -> ():
+    command("tone", "", wave, floats4(frequency, at, duration, volume) ++ " " ++ string(pan) ++ " " ++ string(channel), 2)
+
+
+## The frequency of a note named the usual way: a letter from A to G, a
+## `#` or `b` for sharp or flat, and the octave, where `"A4"` is 440 Hz
+## and `"C4"` is middle C.
+##
+## # Parameters
+## - `name`: the note, such as `"C4"`, `"F#3"` or `"Bb5"`.
+##
+## # Returns
+## Its frequency in hertz; 0.0 for a name that is not a note.
+##
+## # Examples
+## ```pyking
+## import tinyweb.sound as sound
+## print(sound.note("A4"), sound.note("A5"), sound.note("C4") > 261.0)
+## ```
+## ```stdout
+## 440.0 880.0 true
+## ```
+public def sound.note(name: String) -> Float:
+    semitones = sound.semitones(name)
+    if semitones < -1000 then 0.0 else 440.0 * math.pow(2.0, float(semitones - 57) / 12.0)
+
+
+## The `rate` that plays a sample recorded at the note `base` at the note
+## `name`: how one piano sample plays a whole melody.
+##
+## # Parameters
+## - `name`: the note to play.
+## - `base`: the note the sample is; `"C4"` by default.
+##
+## # Returns
+## The rate: 2.0 an octave up, 0.5 an octave down.
+##
+## # Examples
+## ```pyking
+## import tinyweb.sound as sound
+## print(sound.rate_of("C5"), sound.rate_of("C3"), sound.rate_of("C4"))
+## ```
+## ```stdout
+## 2.0 0.5 1.0
+## ```
+public def sound.rate_of(name: String, base: String = "C4") -> Float:
+    origin = sound.semitones(base)
+    target = sound.semitones(name)
+    if origin < -1000 then 1.0 else if target < -1000 then 1.0 else math.pow(2.0, float(target - origin) / 12.0)
+
+
+# A note's semitones from C0, or -10000 for a name that is not a note.
+def sound.semitones(name: String) -> Int:
+    base = match strings.upper(strings.char_at(name, 0)):
+        case "C": 0
+        case "D": 2
+        case "E": 4
+        case "F": 5
+        case "G": 7
+        case "A": 9
+        case "B": 11
+        case _: -10000
+    shift = match strings.char_at(name, 1):
+        case "#": 1
+        case "b": -1
+        case _: 0
+    rest = strings.slice(name, if shift == 0 then 1 else 2, strings.length(name))
+    octave = if rest == "" then 4 else int(rest)
+    valid = if base < 0 then false else if rest == "" then true else string(octave) == rest
+    if valid then base + shift + octave * 12 else -10000
+
+
+# topic: The beat
+
+## Sets the beats per minute the beat goes at; 120 until it is set. A
+## change takes effect at the next step, and the beat goes on from where
+## it is.
+##
+## # Parameters
+## - `bpm`: beats per minute.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## sound.tempo(90.0)
+## ```
+## ```stdout
+## ```
+public def sound.tempo(bpm: Float) -> ():
+    command("tempo", "", "", string(bpm), 1)
+
+
+## Delays every other step, for a shuffling, swung beat.
+##
+## # Parameters
+## - `amount`: how far each odd step is delayed, as a part of a step:
+##   0.0 straight, 0.33 a triplet shuffle.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## sound.swing(0.33)
+## ```
+## ```stdout
+## ```
+public def sound.swing(amount: Float) -> ():
+    command("swing", "", "", string(amount), 1)
+
+
+## Calls `f` a little ahead of each step of the beat, `steps` to a beat,
+## with the step's number, counting from 0 when the beat started, and
+## its exact time on the page's clock: a step sequencer is the steps to
+## play and an `on_beat` that plays them `at` that time.
+##
+## # Parameters
+## - `f`: what is called with each step and its time.
+## - `steps`: how many steps a beat is cut into: 4 is sixteenth notes.
+##
+## # Returns
+## The beat's identifier, which `tw.cancel` stops.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## kick = tw.load_sample("kick1.wav")
+## def step(n: Int, time: Float):
+##     if n - n / 4 * 4 == 0:
+##         tw.play(kick, at = time)
+## print(sound.on_beat(step))
+## ```
+## ```stdout
+## beat
+## ```
+public def sound.on_beat(f: (Int, Float) -> (), steps: Int = 4) -> String:
+    id = fresh_id("beat")
+    watch_step(id, "beat", f)
+    command("beat", id, "", string(steps), 0)
+    id
+
+
+## Where the beat is, as of the last event, as a number of beats with a
+## fraction: what a frame draws a pulse from.
+##
+## # Returns
+## The beat; 0.0 until a beat has started.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## c = tw.canvas(100, 100)
+## def frame(t: Float):
+##     phase = sound.beat() - float(int(sound.beat()))
+##     tw.clear(c)
+##     tw.circle(c, 50, 50, 40 - int(phase * 30.0))
+## tw.on_frame(frame)
+## ```
+## ```stdout
+## ```
+public def sound.beat() -> Float:
+    report_number("clock", 0)
+
+
+## How late sound comes out of the speakers after it is played, in
+## seconds, as the browser reports it: what to hold a picture back by to
+## see it with the sound.
+##
+## # Returns
+## The latency; 0.0 until sound has started.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## print(sound.latency() >= 0.0)
+## ```
+## ```stdout
+## true
+## ```
+public def sound.latency() -> Float:
+    report_number("clock", 1)
+
+
+## Pauses the page's clock, and every sound with it: everything freezes,
+## and `resume` goes on from exactly there.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## tw.button("Pause", on_click = sound.pause)
+## tw.button("Resume", on_click = sound.resume)
+## ```
+## ```stdout
+## ```
+public def sound.pause() -> ():
+    command("audio", "", "pause", "",2)
+
+
+## Lets the page's clock, and every sound, go on after `pause`.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## sound.resume()
+## ```
+## ```stdout
+## ```
+public def sound.resume() -> ():
+    command("audio", "", "resume", "",2)
+
+
+# topic: Channels and effects
+
+## Sets how a channel sounds: every sound played through it (`channel`
+## in a `Voice`, or `tone`'s) goes through its volume, pan, filter, echo
+## and reverb. Channel 0 is where every sound goes unless told otherwise.
+##
+## # Parameters
+## - `channel`: the channel, from 0.
+## - `volume`: how loud.
+## - `pan`: where it is heard, from -1.0 (left) to 1.0 (right).
+## - `echo`: how loud its echo is, 0.0 (none) to 1.0.
+## - `echo_time`: how long after the sound the echo comes, in seconds.
+## - `feedback`: how much of each echo echoes again, 0.0 to 0.95.
+## - `reverb`: how much of a room it sounds in, 0.0 to 1.0.
+## - `low_pass`: a filter's frequency in hertz: above it the sound dulls;
+##   0.0 for no filter.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## sound.channel_style(1, echo = 0.4, echo_time = 0.25, reverb = 0.3)
+## snare = tw.load_sample("snare1.wav")
+## def hit():
+##     tw.play(snare, voice = sound.Voice(channel = 1))
+## tw.button("Snare", on_click = hit)
+## ```
+## ```stdout
+## ```
+public def sound.channel_style(channel: Int, volume: Float = 1.0, pan: Float = 0.0, echo: Float = 0.0, echo_time: Float = 0.3, feedback: Float = 0.35, reverb: Float = 0.0, low_pass: Float = 0.0) -> ():
+    command("channel", string(channel), "", floats4(volume, pan, echo, echo_time) ++ " " ++ floats3(feedback, reverb, low_pass), 1)
+
+
+# topic: Listening
+
+## Starts listening to what plays: from then on every frame the page
+## reports how loud it is (`level`), how loud each of `bins` frequency
+## bands is (`band`) and the wave itself (`wave`).
+##
+## # Parameters
+## - `bins`: how many bands and wave points; 32 by default, up to 1024.
+## - `smoothing`: how much each frame's bands are kept from the last
+##   one's, 0.0 to 0.99.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## sound.listen(bins = 64)
+## ```
+## ```stdout
+## ```
+public def sound.listen(bins: Int = 32, smoothing: Float = 0.8) -> ():
+    command("listen", "", "", string(bins) ++ " " ++ string(smoothing), 1)
+
+
+## How loud what plays is, as of the last frame, once `listen` has
+## started.
+##
+## # Returns
+## From 0.0 (silent) to 1.0.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## print(sound.level())
+## ```
+## ```stdout
+## 0.0
+## ```
+public def sound.level() -> Float:
+    report_number("level", 0)
+
+
+## How loud one band of frequencies is, as of the last frame, once
+## `listen` has started: band 0 is the lowest.
+##
+## # Parameters
+## - `k`: the band, from 0 to `bands() - 1`.
+##
+## # Returns
+## From 0.0 to 1.0; 0.0 for a band there is none of.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## print(sound.band(0))
+## ```
+## ```stdout
+## 0.0
+## ```
+public def sound.band(k: Int) -> Float:
+    report_number("band", k)
+
+
+## How many bands the last frame reported.
+##
+## # Returns
+## The number of bands; 0 before `listen`.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.sound as sound
+## tw.web_init(0)
+## print(sound.bands())
 ## ```
 ## ```stdout
 ## 0
 ## ```
-public def mouse_y(c: String) -> Int:
-    pointer(c, "y")
+public def sound.bands() -> Int:
+    report_count("band")
 
 
-## Whether the pointer's button is held down, having gone down on the
-## canvas `c`.
+## One point of the wave that played, as of the last frame, once `listen`
+## has started: what an oscilloscope draws.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
+## - `k`: the point, from 0 to `bands() - 1`.
 ##
 ## # Returns
-## `true` while it is held.
+## From -1.0 to 1.0.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.sound as sound
 ## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.on_press(c, tw.ignore2)
-## print(tw.mouse_down(c))
+## print(sound.wave(0))
 ## ```
 ## ```stdout
-## false
+## 0.0
 ## ```
-public def mouse_down(c: String) -> Bool:
-    pointer(c, "down") == 1
+public def sound.wave(k: Int) -> Float:
+    report_number("wave", k)
 
 
-## A function to hand `on_move` and the others that does nothing, for a
-## program that only reads `mouse_x` and `mouse_y`.
+# topic: Rendering
+
+## Renders sound into a WAV file instead of playing it: everything `f`
+## plays or starts, with times from 0.0, through the channels as they are
+## set, much faster than it would play. The file is offered to the reader
+## to save, and `on_rendered` is called with how long rendering took and
+## how loud its loudest moment is.
 ##
 ## # Parameters
-## - `x`, `y`: where the pointer is; not used.
+## - `seconds`: how long the file is.
+## - `f`: what plays the sound, with `at` from 0.0.
+## - `name`: the file's name.
+## - `on_rendered`: what is called with the seconds rendering took and
+##   the peak level, 0.0 to 1.0.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.sound as sound
 ## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## tw.on_move(c, tw.ignore2)
+## kick = tw.load_sample("kick1.wav")
+## def beat():
+##     for k in range(4):
+##         tw.play(kick, at = float(k) * 0.5)
+## def done(took: Float, peak: Float):
+##     print("rendered in", took)
+## sound.render_wav(2.0, beat, name = "beat.wav", on_rendered = done)
 ## ```
 ## ```stdout
 ## ```
-public def ignore2(x: Int, y: Int) -> ():
+public def sound.render_wav(seconds: Float, f: () -> (), name: String = "tinyweb.wav", on_rendered: (Float, Float) -> () = sound.ignore_rendered) -> ():
+    id = fresh_id("render")
+    watch_pair(id, "rendered", on_rendered)
+    command("render", id, name, string(seconds),2)
+    f()
+    command("render_end", id, "", "",2)
+
+
+def sound.ignore_rendered(took: Float, peak: Float):
     ()
 
+
+# --- tinyweb.bitmap ---
+
+## Pictures built pixel by pixel: fire, plasma, a fractal, an image
+## filter. A bitmap is kept by the program, so setting and reading a
+## pixel sends nothing to the page; `show_bitmap` draws it on a canvas,
+## sending only what changed since it was last shown.
+##
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.bitmap as bitmap
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(64, 64)
+## b = bitmap.bitmap(64, 64)
+## for y in range(64):
+##     for x in range(64):
+##         bitmap.set_pixel(b, x, y, color.rgb(x * 4, y * 4, 128))
+## bitmap.show_bitmap(c, b)
+## ```
+# submodule bitmap
+
+# topic: Bitmaps
 
 ## Makes a bitmap: a picture the program builds pixel by pixel. Setting
 ## a pixel sends nothing to the page; `show_bitmap` draws the bitmap on a
@@ -1810,8 +3109,7 @@ public def ignore2(x: Int, y: Int) -> ():
 ## # Parameters
 ## - `width`: its width in pixels.
 ## - `height`: its height in pixels.
-## - `background`: the color every pixel starts as, as `pixel_color`
-##   makes them; white unless given.
+## - `background`: the colour every pixel starts as; white by default.
 ##
 ## # Returns
 ## The bitmap's identifier, which the other bitmap functions take as
@@ -1821,160 +3119,478 @@ public def ignore2(x: Int, y: Int) -> ():
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.bitmap as bitmap
+## import tinyweb.color as color
 ## tw.web_init(0)
-## c = tw.canvas(64, 64)
-## b = tw.bitmap(64, 64)
-## for y in range(64):
-##     for x in range(64):
-##         tw.set_pixel(b, x, y, tw.pixel_color(x * 4, y * 4, 128))
-## tw.show_bitmap(c, b)
-## white = tw.bitmap(2, 2)
-## dark = tw.bitmap(2, 2, tw.pixel_color(0, 0, 0))
-## print(tw.red(tw.get_pixel(white, 1, 1)), tw.red(tw.get_pixel(dark, 1, 1)))
+## white = bitmap.bitmap(2, 2)
+## dark = bitmap.bitmap(2, 2, color.black)
+## print(bitmap.get_pixel(white, 1, 1).r, bitmap.get_pixel(dark, 1, 1).r)
 ## ```
 ## ```stdout
 ## 255 0
 ## ```
-public def bitmap(width: Int, height: Int, background: Int = pixel_color(255, 255, 255)) -> String:
-    return make_bitmap(width, height, background)
+public def bitmap.bitmap(width: Int, height: Int, background: color.Color = color.white) -> String:
+    make_bitmap(width, height, color.to_hex(background))
 
 
-## Draws a bitmap on the canvas `c`: what changed since it was last shown
-## is sent to the page, in one go.
+## Sets one pixel of a bitmap. Nothing is sent to the page until the
+## bitmap is shown. A pixel outside the bitmap is left alone, and how
+## opaque the colour is, too: a bitmap's pixels are opaque.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
 ## - `b`: the bitmap, as `bitmap` answered.
-## - `x`, `y`: where its top left corner goes, in pixels; (0, 0) by
-##   default.
-## - `scale`: how many canvas pixels each of its pixels covers across;
-##   1.0 by default. Above 1.0 each pixel is a sharp square, for pixel
-##   art; at 0.5 a bitmap twice the canvas's size fills it, as sharp as
-##   the screen can show.
+## - `x`, `y`: the pixel, from the bitmap's top left corner.
+## - `pixel`: its colour.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.bitmap as bitmap
+## import tinyweb.color as color
 ## tw.web_init(0)
-## c = tw.canvas(160, 160)
-## b = tw.bitmap(16, 16)
-## for y in range(16):
-##     for x in range(16):
-##         tw.set_pixel(b, x, y, tw.pixel_color(x * 16, 0, y * 16))
-## tw.show_bitmap(c, b, scale = 10.0)
-## ```
-## ```stdout
-## ```
-public def show_bitmap(c: String, b: String, x: Int = 0, y: Int = 0, scale: Float = 1.0) -> ():
-    draw_bitmap(c, b, x, y, scale)
-
-
-def channel_of(n: Int) -> Int:
-    if n < 0 then 0 else if n > 255 then 255 else n
-
-
-## A pixel's color from how much red, green and blue it has.
-##
-## # Parameters
-## - `r`, `g`, `b`: each from 0 to 255; a number outside is taken as the
-##   nearest end.
-##
-## # Returns
-## The color as one number, which `set_pixel` and `fill_bitmap` take:
-## `r * 65536 + g * 256 + b`.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## print(tw.pixel_color(255, 136, 0))
-## ```
-## ```stdout
-## 16746496
-## ```
-public def pixel_color(r: Int, g: Int, b: Int) -> Int:
-    channel_of(r) * 65536 + channel_of(g) * 256 + channel_of(b)
-
-
-## How much red a pixel's color has.
-##
-## # Parameters
-## - `color`: a color as `pixel_color` makes them.
-##
-## # Returns
-## The red part, from 0 to 255.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## print(tw.red(tw.pixel_color(255, 136, 0)))
+## b = bitmap.bitmap(10, 10)
+## bitmap.set_pixel(b, 5, 5, color.red)
+## print(bitmap.get_pixel(b, 5, 5).r)
 ## ```
 ## ```stdout
 ## 255
 ## ```
-public def red(color: Int) -> Int:
-    color / 65536 - color / 16777216 * 256
+public def bitmap.set_pixel(b: String, x: Int, y: Int, pixel: color.Color) -> ():
+    set_pixel(b, x, y, color.to_hex(pixel))
 
 
-## How much green a pixel's color has.
+## Reads one pixel of a bitmap, at once, since the program keeps it.
 ##
 ## # Parameters
-## - `color`: a color as `pixel_color` makes them.
+## - `b`: the bitmap, as `bitmap` answered.
+## - `x`, `y`: the pixel, from the bitmap's top left corner.
 ##
 ## # Returns
-## The green part, from 0 to 255.
+## Its colour; black outside the bitmap.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
-## print(tw.green(tw.pixel_color(255, 136, 0)))
+## import tinyweb.bitmap as bitmap
+## import tinyweb.color as color
+## tw.web_init(0)
+## b = bitmap.bitmap(4, 4, color.blue)
+## print(bitmap.get_pixel(b, 1, 2).b, bitmap.get_pixel(b, 9, 9).b)
 ## ```
 ## ```stdout
-## 136
+## 255 0
 ## ```
-public def green(color: Int) -> Int:
-    color / 256 - color / 65536 * 256
+public def bitmap.get_pixel(b: String, x: Int, y: Int) -> color.Color:
+    color.hex(get_pixel(b, x, y))
 
 
-## How much blue a pixel's color has.
+## Sets every pixel of a bitmap to one colour.
 ##
 ## # Parameters
-## - `color`: a color as `pixel_color` makes them.
-##
-## # Returns
-## The blue part, from 0 to 255.
+## - `b`: the bitmap, as `bitmap` answered.
+## - `fill`: the colour.
 ##
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
-## print(tw.blue(tw.pixel_color(255, 136, 64)))
+## import tinyweb.bitmap as bitmap
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(40, 40)
+## b = bitmap.bitmap(20, 20)
+## bitmap.fill_bitmap(b, color.green)
+## bitmap.show_bitmap(c, b, scale = 2.0)
 ## ```
 ## ```stdout
-## 64
 ## ```
-public def blue(color: Int) -> Int:
-    color - color / 256 * 256
+public def bitmap.fill_bitmap(b: String, fill: color.Color) -> ():
+    fill_bitmap(b, color.to_hex(fill))
+
+
+## Draws a bitmap on the canvas `c`: what changed since it was last shown
+## is sent to the page.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `b`: the bitmap, as `bitmap` answered.
+## - `x`, `y`: where its top left corner goes; (0, 0) by default.
+## - `scale`: how many of the canvas's pixels each of its pixels takes
+##   across: above 1.0 it is drawn as sharp squares, for pixel art; at 0.5
+##   a bitmap twice the canvas's size fills it, as sharp as the screen
+##   can show.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.bitmap as bitmap
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(160, 160)
+## b = bitmap.bitmap(16, 16)
+## for y in range(16):
+##     for x in range(16):
+##         bitmap.set_pixel(b, x, y, color.rgb(x * 16, 0, y * 16))
+## bitmap.show_bitmap(c, b, scale = 10.0)
+## ```
+## ```stdout
+## ```
+public def bitmap.show_bitmap(c: String, b: String, x: Int = 0, y: Int = 0, scale: Float = 1.0) -> ():
+    draw_bitmap(c, b, x, y, scale)
+
+
+# --- tinyweb.layout ---
+
+## Where what is made next goes on the page, and a box to write text in.
+##
+## Everything made goes below what the page already holds, unless a row
+## or a column is opened with `inside`: then it goes in it, side by side
+## in a row, until `outside`.
+##
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.layout as layout
+## tw.web_init(0)
+## controls = layout.row()
+## layout.inside(controls)
+## tw.button("Play")
+## tw.button("Stop")
+## layout.outside()
+## tw.canvas(200, 100)
+## ```
+# submodule layout
+
+# topic: Rows and columns
+
+## A row: what is made inside it goes side by side.
+##
+## # Returns
+## Its identifier, which `inside` takes: `"row"`, with a number added
+## where something on the page has that name already.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.layout as layout
+## tw.web_init(0)
+## print(layout.row())
+## ```
+## ```stdout
+## row
+## ```
+public def layout.row() -> String:
+    row()
+
+
+## A column: what is made inside it goes one below the other, in a box of
+## its own, which a row can hold.
+##
+## # Returns
+## Its identifier, which `inside` takes: `"column"`, with a number added
+## where something on the page has that name already.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.layout as layout
+## tw.web_init(0)
+## print(layout.column())
+## ```
+## ```stdout
+## column
+## ```
+public def layout.column() -> String:
+    column()
+
+
+## What is made from now on goes into the row or column `id`.
+##
+## # Parameters
+## - `id`: the row or column, as `row` or `column` answered.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.layout as layout
+## tw.web_init(0)
+## r = layout.row()
+## layout.inside(r)
+## tw.label("Left")
+## tw.label("Right")
+## layout.outside()
+## ```
+## ```stdout
+## ```
+public def layout.inside(id: String) -> ():
+    inside(id)
+
+
+## What is made from now on goes on the page again, below what it holds.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.layout as layout
+## tw.web_init(0)
+## layout.inside(layout.row())
+## tw.button("In the row")
+## layout.outside()
+## tw.label("Below it")
+## ```
+## ```stdout
+## ```
+public def layout.outside() -> ():
+    outside()
+
+
+# topic: Text areas
+
+## A box of text of several lines, to read and edit: a score, a note, a
+## program. `on_change` is called with what it holds after each edit;
+## `tw.value_of` reads it at any time, and `tw.set_text` changes it.
+##
+## # Parameters
+## - `words`: what it holds to start with.
+## - `rows`: how many lines tall it is.
+## - `columns`: how many letters wide it is.
+## - `on_change`: what is called with what it holds after each edit.
+##
+## # Returns
+## Its identifier: `"text"`, with a number added where something on the
+## page has that name already.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.layout as layout
+## tw.web_init(0)
+## def edited(words: String):
+##     print(len(words), "letters")
+## print(layout.text_area("C4 D4 E4", rows = 3, on_change = edited))
+## ```
+## ```stdout
+## text
+## ```
+public def layout.text_area(words: String = "", rows: Int = 4, columns: Int = 40, on_change: (String) -> () = ignore_text) -> String:
+    id = fresh_id("text")
+    watch_text(id, "change", "value." ++ id, on_change)
+    command("text_area", id, words, numbers2(rows, columns), 0)
+    id
+
+
+# --- tinyweb.net ---
+
+## Files: saving what the program made, and loading a file the reader
+## picks. A file saved is offered by the browser showing the page, which
+## is where it lands, whatever the program runs on.
+##
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.net as net
+## tw.web_init(0)
+## c = tw.canvas(100, 100)
+## tw.circle(c, 50, 50, 40)
+## def save():
+##     net.save_canvas(c, "circle.png")
+## tw.button("Save as PNG", on_click = save)
+## ```
+# submodule net
+
+# topic: Files
+
+## Offers what is drawn on the canvas `c` to the reader as a PNG file, on
+## white.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `name`: the file's name.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.net as net
+## tw.web_init(0)
+## c = tw.canvas(100, 100)
+## tw.rect(c, 10, 10, 80, 80)
+## net.save_canvas(c, "square.png")
+## ```
+## ```stdout
+## ```
+public def net.save_canvas(c: String, name: String = "canvas.png") -> ():
+    command("save_canvas", c, name, "",2)
+
+
+## Offers text to the reader as a file.
+##
+## # Parameters
+## - `name`: the file's name.
+## - `words`: what it holds.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.net as net
+## tw.web_init(0)
+## net.download("notes.txt", "C4 D4 E4\n")
+## ```
+## ```stdout
+## ```
+public def net.download(name: String, words: String) -> ():
+    command("download", name, words, "",2)
+
+
+## A button that lets the reader pick a file. Once it is read,
+## `on_load` is called with its name. A sound file -- WAV, MP3, OGG -- is
+## then a sample under the button's identifier, which `tw.play` and
+## `sound.start` take; any other file's text is `file_text()`.
+##
+## # Parameters
+## - `title`: what the button says.
+## - `on_load`: what is called with the file's name.
+##
+## # Returns
+## The button's identifier: its title, with a number added where
+## something on the page has that name already.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.net as net
+## tw.web_init(0)
+## var song = ""
+## def loaded(name: String):
+##     print("loaded", name)
+##     tw.play(song)
+## song := net.file_button("Load a song", on_load = loaded)
+## ```
+## ```stdout
+## ```
+public def net.file_button(title: String, on_load: (String) -> () = ignore_text) -> String:
+    id = fresh_id(title)
+    watch_text(id, "loaded", "file", on_load)
+    command("file_button", id, title, "", 0)
+    id
+
+
+## The text of the last file a `file_button` loaded that is not a sound.
+##
+## # Returns
+## Its text; empty before one is loaded.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.net as net
+## tw.web_init(0)
+## def loaded(name: String):
+##     print(name, "holds", len(net.file_text()), "letters")
+## net.file_button("Open", on_load = loaded)
+## ```
+## ```stdout
+## ```
+public def net.file_text() -> String:
+    report_text("file.text")
+
+
+# --- tinyweb.game ---
+
+## What a game needs beyond drawing: for now, the mouse's cursor.
+##
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.game as game
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## game.cursor(c, "crosshair")
+## ```
+# submodule game
+
+# topic: The cursor
+
+## Sets what the mouse's cursor looks like over the canvas `c`, or over
+## the whole page where `c` is `""`.
+##
+## # Parameters
+## - `c`: the canvas, or `""` for the page.
+## - `name`: a CSS cursor: `"default"`, `"pointer"`, `"crosshair"`,
+##   `"grab"`, `"grabbing"`, `"none"` and the rest.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.game as game
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## game.cursor(c, "grab")
+## ```
+## ```stdout
+## ```
+public def game.cursor(c: String, name: String) -> ():
+    command("cursor", c, name, "", 1)
 
 
 # --- tinyweb.smooth: the shapes with coordinates that need not be whole ---
-#
-# The drawing functions above take whole pixels, which suits most
-# pictures. Something moving slowly, a thin line at an angle or a picture
-# built from thousands of short strokes looks smoother where a position
-# may fall between pixels, so these take Floats -- positions, sizes and
-# widths alike -- and draw exactly what the functions above do.
 
+## The shapes, with positions, sizes and widths that may fall between
+## pixels: something moving slowly, a thin line at an angle or a picture
+## built from thousands of short strokes looks smoother. Each draws
+## exactly what `tinyweb`'s function of the same name does.
+##
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.smooth as smooth
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## smooth.circle(c, 100.5, 50.25, 20.75)
+## ```
+# submodule smooth
 
-## Draws a circle, as `circle` does, at a position that need not be a
-## whole pixel.
+# topic: Shapes
+
+## A point on a canvas whose position may fall between pixels.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the centre, in pixels.
-## - `radius`: the radius in pixels.
-## - `color`: a CSS color to fill it with; black by default, `""` for none.
-## - `outline`: a CSS color to outline it with; none by default.
-## - `outline_width`: how thick the outline is; 1.0 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## - `x`: how far right.
+## - `y`: how far down.
+##
+## # Examples
+## ```pyking
+## import tinyweb.smooth as smooth
+## p = smooth.Point(1.5, 2.25)
+## print(p.x, p.y)
+## ```
+## ```stdout
+## 1.5 2.25
+## ```
+public struct smooth.Point(x: Float, y: Float)
+
+def smooth.width_of(width: Float, style: Style) -> Float:
+    if width == 1.0 then float(style.width) else width
+
+
+def smooth.shape(c: String, kind: String, numbers: String, fill: color.Color, stroke: color.Color, width: Float, alpha: Float, paint: color.Paint, style: Style) -> ():
+    draw_shape(c, kind, numbers, fill_of(fill, paint, style), stroke_of(stroke, style), smooth.width_of(width, style), alpha_of(alpha, style))
+
+
+def smooth.stroked(c: String, kind: String, numbers: String, stroke: color.Color, width: Float, alpha: Float, style: Style) -> ():
+    draw_shape(c, kind, numbers, "", line_of(stroke, style), smooth.width_of(width, style), alpha_of(alpha, style))
+
+
+def smooth.pairs(points: [smooth.Point]) -> [(Float, Float)]:
+    [(p.x, p.y) for p in points]
+
+
+## `tw.circle`, with a position and radius that need not be whole.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `x`, `y`: its centre.
+## - `radius`: its radius.
+## - `fill`: the colour inside; black by default.
+## - `stroke`: the outline's colour; none by default.
+## - `width`: the outline's width.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `paint`: a gradient to fill with instead of `fill`.
+## - `style`: a `tw.Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
@@ -1982,26 +3598,25 @@ public def blue(color: Int) -> Int:
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## smooth.circle(c, 100.5, 50.25, 30.5, "gold", outline = "black", outline_width = 0.5)
+## smooth.circle(c, 100.5, 50.5, 10.25)
 ## ```
 ## ```stdout
 ## ```
-public def smooth.circle(c: String, x: Float, y: Float, radius: Float, color: String = "#000000", outline: String = "", outline_width: Float = 1.0, alpha: Float = 1.0) -> ():
-    draw_shape(c, "circle", floats3(x, y, radius), color, outline, outline_width, alpha)
+public def smooth.circle(c: String, x: Float, y: Float, radius: Float, fill: color.Color = color.black, stroke: color.Color = color.none, width: Float = 1.0, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style()) -> ():
+    smooth.shape(c, "circle", floats3(x, y, radius), fill, stroke, width, alpha, paint, style)
 
 
-## Draws many circles of one color in one go, each filled and outlined
-## on its own as `smooth.circle` draws it: far quicker than one call each,
-## for blossoms, stars or snow.
+## Many circles of one look in one go, each `(x, y, radius)`: quicker
+## than calling `circle` for each.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `circles`: the circles, each `(x, y, radius)` in pixels.
-## - `color`: a CSS color to fill them with; black by default, `""` for
-##   none.
-## - `outline`: a CSS color to outline them with; none by default.
-## - `outline_width`: how thick the outline is; 1.0 by default.
-## - `alpha`: how opaque each is, from 0.0 to 1.0; 1.0 by default.
+## - `c`: the canvas.
+## - `circles`: each circle's centre and radius.
+## - `fill`: the colour inside; black by default.
+## - `stroke`: the outline's colour; none by default.
+## - `width`: the outline's width.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `tw.Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
@@ -2009,27 +3624,27 @@ public def smooth.circle(c: String, x: Float, y: Float, radius: Float, color: St
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## snow = [(float(i * 37 - i * 37 / 200 * 200), float(i * 53 - i * 53 / 100 * 100), 2.5) for i in range(40)]
-## smooth.circles(c, snow, "white", outline = "skyblue", alpha = 0.8)
+## smooth.circles(c, [(float(x), 50.0, 4.5) for x in range(10, 200, 20)])
 ## ```
 ## ```stdout
 ## ```
-public def smooth.circles(c: String, circles: [(Float, Float, Float)], color: String = "#000000", outline: String = "", outline_width: Float = 1.0, alpha: Float = 1.0) -> ():
-    draw_triples(c, "circles", circles, color, outline, outline_width, alpha)
+public def smooth.circles(c: String, circles: [(Float, Float, Float)], fill: color.Color = color.black, stroke: color.Color = color.none, width: Float = 1.0, alpha: Float = 1.0, style: Style = Style()) -> ():
+    draw_triples(c, "circles", circles, fill_of(fill, color.Plain(color.none), style), stroke_of(stroke, style), smooth.width_of(width, style), alpha_of(alpha, style))
 
 
-## Draws a rectangle, as `rect` does, at a position that need not be a
-## whole pixel.
+## `tw.rect`, with a position and size that need not be whole.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the top left corner, in pixels.
-## - `width`, `height`: the size in pixels.
-## - `color`: a CSS color to fill it with; black by default, `""` for none.
-## - `outline`: a CSS color to outline it with; none by default.
-## - `outline_width`: how thick the outline is; 1.0 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
-## - `radius`: how round its corners are; 0.0, square, by default.
+## - `c`: the canvas.
+## - `x`, `y`: its top left corner.
+## - `w`, `h`: its width and height.
+## - `fill`: the colour inside; black by default.
+## - `stroke`: the outline's colour; none by default.
+## - `width`: the outline's width.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `paint`: a gradient to fill with instead of `fill`.
+## - `style`: a `tw.Style` for what is not given here.
+## - `radius`: how round its corners are.
 ##
 ## # Examples
 ## ```pyking
@@ -2037,25 +3652,26 @@ public def smooth.circles(c: String, circles: [(Float, Float, Float)], color: St
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## smooth.rect(c, 20.5, 20.5, 159.0, 59.0, "", outline = "navy", radius = 8.0)
+## smooth.rect(c, 10.5, 10.5, 50.25, 30.75, radius = 4.5)
 ## ```
 ## ```stdout
 ## ```
-public def smooth.rect(c: String, x: Float, y: Float, width: Float, height: Float, color: String = "#000000", outline: String = "", outline_width: Float = 1.0, alpha: Float = 1.0, radius: Float = 0.0) -> ():
-    draw_shape(c, "rect", floats4(x, y, width, height) ++ " " ++ string(radius), color, outline, outline_width, alpha)
+public def smooth.rect(c: String, x: Float, y: Float, w: Float, h: Float, fill: color.Color = color.black, stroke: color.Color = color.none, width: Float = 1.0, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style(), radius: Float = 0.0) -> ():
+    smooth.shape(c, "rect", floats4(x, y, w, h) ++ " " ++ string(radius), fill, stroke, width, alpha, paint, style)
 
 
-## Draws an ellipse, as `ellipse` does, at a position that need not be a
-## whole pixel.
+## `tw.ellipse`, with a position and size that need not be whole.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the centre, in pixels.
-## - `rx`, `ry`: the radius across and the radius up and down.
-## - `color`: a CSS color to fill it with; black by default, `""` for none.
-## - `outline`: a CSS color to outline it with; none by default.
-## - `outline_width`: how thick the outline is; 1.0 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## - `c`: the canvas.
+## - `x`, `y`: its centre.
+## - `rx`, `ry`: its radius across and up and down.
+## - `fill`: the colour inside; black by default.
+## - `stroke`: the outline's colour; none by default.
+## - `width`: the outline's width.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `paint`: a gradient to fill with instead of `fill`.
+## - `style`: a `tw.Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
@@ -2063,28 +3679,53 @@ public def smooth.rect(c: String, x: Float, y: Float, width: Float, height: Floa
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## smooth.ellipse(c, 100.0, 50.0, 80.5, 30.25, "plum")
+## smooth.ellipse(c, 100.0, 50.0, 60.5, 20.5)
 ## ```
 ## ```stdout
 ## ```
-public def smooth.ellipse(c: String, x: Float, y: Float, rx: Float, ry: Float, color: String = "#000000", outline: String = "", outline_width: Float = 1.0, alpha: Float = 1.0) -> ():
-    draw_shape(c, "ellipse", floats4(x, y, rx, ry), color, outline, outline_width, alpha)
+public def smooth.ellipse(c: String, x: Float, y: Float, rx: Float, ry: Float, fill: color.Color = color.black, stroke: color.Color = color.none, width: Float = 1.0, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style()) -> ():
+    smooth.shape(c, "ellipse", floats4(x, y, rx, ry), fill, stroke, width, alpha, paint, style)
 
 
-## Draws part of a circle, as `arc` does, at a position that need not be a
-## whole pixel.
+## `tw.arc`, with a position and radius that need not be whole.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the centre, in pixels.
-## - `radius`: the radius in pixels.
-## - `start`, `end`: where it starts and ends, in degrees clockwise from
-##   the right.
-## - `color`: a CSS color to fill the slice with; black by default, `""`
-##   for none.
-## - `outline`: a CSS color for the curved edge; none by default.
-## - `outline_width`: how thick the outline is; 1.0 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## - `c`: the canvas.
+## - `x`, `y`: the circle's centre.
+## - `radius`: its radius.
+## - `start`, `end`: where the slice starts and ends, in radians.
+## - `fill`: the colour inside; black by default.
+## - `stroke`: the outline's colour; none by default.
+## - `width`: the outline's width.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `paint`: a gradient to fill with instead of `fill`.
+## - `style`: a `tw.Style` for what is not given here.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.smooth as smooth
+## import tinyweb.color as color
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## smooth.arc(c, 100.0, 50.0, 40.5, 0.0, 3.0, color.none, stroke = color.red, width = 2.5)
+## ```
+## ```stdout
+## ```
+public def smooth.arc(c: String, x: Float, y: Float, radius: Float, start: Float, end: Float, fill: color.Color = color.black, stroke: color.Color = color.none, width: Float = 1.0, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style()) -> ():
+    smooth.shape(c, "arc", floats3(x, y, radius) ++ " " ++ floats2(start, end), fill, stroke, width, alpha, paint, style)
+
+
+## `tw.polygon`, through points that need not be whole.
+##
+## # Parameters
+## - `c`: the canvas.
+## - `points`: the corners.
+## - `fill`: the colour inside; black by default.
+## - `stroke`: the outline's colour; none by default.
+## - `width`: the outline's width.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `tw.Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
@@ -2092,49 +3733,24 @@ public def smooth.ellipse(c: String, x: Float, y: Float, rx: Float, ry: Float, c
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## smooth.arc(c, 100.0, 50.0, 40.0, 0.0, 270.0, "", outline = "teal", outline_width = 6.5)
+## smooth.polygon(c, [smooth.Point(100.0, 10.5), smooth.Point(160.5, 90.0), smooth.Point(39.5, 90.0)])
 ## ```
 ## ```stdout
 ## ```
-public def smooth.arc(c: String, x: Float, y: Float, radius: Float, start: Float, end: Float, color: String = "#000000", outline: String = "", outline_width: Float = 1.0, alpha: Float = 1.0) -> ():
-    draw_shape(c, "arc", floats3(x, y, radius) ++ " " ++ floats2(start, end), color, outline, outline_width, alpha)
+public def smooth.polygon(c: String, points: [smooth.Point], fill: color.Color = color.black, stroke: color.Color = color.none, width: Float = 1.0, alpha: Float = 1.0, style: Style = Style()) -> ():
+    draw_pairs(c, "polygon", smooth.pairs(points), fill_of(fill, color.Plain(color.none), style), stroke_of(stroke, style), smooth.width_of(width, style), alpha_of(alpha, style))
 
 
-## Draws a closed shape through the points, as `polygon` does, at
-## positions that need not be whole pixels.
+## `tw.line`, between points that need not be whole.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `points`: the corners, each `(x, y)` in pixels.
-## - `color`: a CSS color to fill it with; black by default, `""` for none.
-## - `outline`: a CSS color to outline it with; none by default.
-## - `outline_width`: how thick the outline is; 1.0 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## import tinyweb.smooth as smooth
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## smooth.polygon(c, [(100.0, 10.0), (180.5, 90.5), (19.5, 90.5)], "orange")
-## ```
-## ```stdout
-## ```
-public def smooth.polygon(c: String, points: [(Float, Float)], color: String = "#000000", outline: String = "", outline_width: Float = 1.0, alpha: Float = 1.0) -> ():
-    draw_pairs(c, "polygon", points, color, outline, outline_width, alpha)
-
-
-## Draws a straight line, as `line` does, between points that need not be
-## whole pixels, as thick as any number of pixels.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x1`, `y1`: where the line starts, in pixels.
+## - `c`: the canvas.
+## - `x1`, `y1`: where it starts.
 ## - `x2`, `y2`: where it ends.
-## - `color`: a CSS color; black by default.
-## - `width`: how thick it is; 1.0 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## - `stroke`: its colour; black by default.
+## - `width`: how thick it is.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `tw.Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
@@ -2142,23 +3758,23 @@ public def smooth.polygon(c: String, points: [(Float, Float)], color: String = "
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## smooth.line(c, 10.0, 90.0, 190.0, 12.5, "black", 0.8)
+## smooth.line(c, 0.5, 0.5, 199.5, 99.5, width = 0.5)
 ## ```
 ## ```stdout
 ## ```
-public def smooth.line(c: String, x1: Float, y1: Float, x2: Float, y2: Float, color: String = "#000000", width: Float = 1.0, alpha: Float = 1.0) -> ():
-    draw_shape(c, "line", floats4(x1, y1, x2, y2), "", color, width, alpha)
+public def smooth.line(c: String, x1: Float, y1: Float, x2: Float, y2: Float, stroke: color.Color = color.black, width: Float = 1.0, alpha: Float = 1.0, style: Style = Style()) -> ():
+    smooth.stroked(c, "line", floats4(x1, y1, x2, y2), stroke, width, alpha, style)
 
 
-## Draws many separate straight lines in one go, as `lines` does, between
-## points that need not be whole pixels.
+## `tw.lines`, between points that need not be whole.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `segments`: the lines, each `(x1, y1, x2, y2)` in pixels.
-## - `color`: a CSS color; black by default.
-## - `width`: how thick they are; 1.0 by default.
-## - `alpha`: how opaque they are, from 0.0 to 1.0; 1.0 by default.
+## - `c`: the canvas.
+## - `segments`: each line, from its first point to its second.
+## - `stroke`: their colour; black by default.
+## - `width`: how thick they are.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `tw.Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
@@ -2166,24 +3782,23 @@ public def smooth.line(c: String, x1: Float, y1: Float, x2: Float, y2: Float, co
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## rays = [(100.0, 50.0, 100.0 + 45.0 * float(i - i / 3 * 3), 5.0 * float(i)) for i in range(20)]
-## smooth.lines(c, rays, "orange", 0.8, alpha = 0.5)
+## smooth.lines(c, [(smooth.Point(float(x), 0.0), smooth.Point(float(x) + 5.5, 100.0)) for x in range(0, 200, 20)])
 ## ```
 ## ```stdout
 ## ```
-public def smooth.lines(c: String, segments: [(Float, Float, Float, Float)], color: String = "#000000", width: Float = 1.0, alpha: Float = 1.0) -> ():
-    draw_quads(c, "lines", segments, "", color, width, alpha)
+public def smooth.lines(c: String, segments: [(smooth.Point, smooth.Point)], stroke: color.Color = color.black, width: Float = 1.0, alpha: Float = 1.0, style: Style = Style()) -> ():
+    draw_quads(c, "lines", [(a.x, a.y, b.x, b.y) for (a, b) in segments], "", line_of(stroke, style), smooth.width_of(width, style), alpha_of(alpha, style))
 
 
-## Draws an open line through the points, as `path` does, at positions
-## that need not be whole pixels.
+## `tw.path`, through points that need not be whole.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `points`: the points, each `(x, y)` in pixels.
-## - `color`: a CSS color; black by default.
-## - `width`: how thick it is; 1.0 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## - `c`: the canvas.
+## - `points`: the points it goes through.
+## - `stroke`: its colour; black by default.
+## - `width`: how thick it is.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `tw.Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
@@ -2191,25 +3806,25 @@ public def smooth.lines(c: String, segments: [(Float, Float, Float, Float)], col
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## smooth.path(c, [(10.0, 90.0), (60.5, 20.5), (110.0, 70.0), (190.0, 10.0)], "teal", 2.5)
+## smooth.path(c, [smooth.Point(float(x), 50.0 + float(x - x / 40 * 40) / 2.0) for x in range(0, 200, 5)])
 ## ```
 ## ```stdout
 ## ```
-public def smooth.path(c: String, points: [(Float, Float)], color: String = "#000000", width: Float = 1.0, alpha: Float = 1.0) -> ():
-    draw_pairs(c, "path", points, "", color, width, alpha)
+public def smooth.path(c: String, points: [smooth.Point], stroke: color.Color = color.black, width: Float = 1.0, alpha: Float = 1.0, style: Style = Style()) -> ():
+    draw_pairs(c, "path", smooth.pairs(points), "", line_of(stroke, style), smooth.width_of(width, style), alpha_of(alpha, style))
 
 
-## Draws a quadratic Bézier curve, as `curve` does, through points that
-## need not be whole pixels.
+## `tw.curve`, through points that need not be whole.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x1`, `y1`: where the curve starts, in pixels.
-## - `cx`, `cy`: the point it bends towards.
+## - `c`: the canvas.
+## - `x1`, `y1`: where it starts.
+## - `cx`, `cy`: the point it is pulled towards.
 ## - `x2`, `y2`: where it ends.
-## - `color`: a CSS color; black by default.
-## - `width`: how thick it is; 1.0 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## - `stroke`: its colour; black by default.
+## - `width`: how thick it is.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `tw.Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
@@ -2217,26 +3832,26 @@ public def smooth.path(c: String, points: [(Float, Float)], color: String = "#00
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## smooth.curve(c, 10.0, 90.0, 100.0, -40.0, 190.0, 90.0, "purple", 2.5)
+## smooth.curve(c, 10.5, 90.0, 100.0, 0.5, 189.5, 90.0)
 ## ```
 ## ```stdout
 ## ```
-public def smooth.curve(c: String, x1: Float, y1: Float, cx: Float, cy: Float, x2: Float, y2: Float, color: String = "#000000", width: Float = 1.0, alpha: Float = 1.0) -> ():
-    draw_shape(c, "curve", floats2(x1, y1) ++ " " ++ floats4(cx, cy, x2, y2), "", color, width, alpha)
+public def smooth.curve(c: String, x1: Float, y1: Float, cx: Float, cy: Float, x2: Float, y2: Float, stroke: color.Color = color.black, width: Float = 1.0, alpha: Float = 1.0, style: Style = Style()) -> ():
+    smooth.stroked(c, "curve", floats2(x1, y1) ++ " " ++ floats4(cx, cy, x2, y2), stroke, width, alpha, style)
 
 
-## Draws a cubic Bézier curve, as `bezier` does, through points that need
-## not be whole pixels.
+## `tw.bezier`, through points that need not be whole.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x1`, `y1`: where the curve starts, in pixels.
-## - `ax`, `ay`: the control point near the start.
-## - `bx`, `by`: the control point near the end.
+## - `c`: the canvas.
+## - `x1`, `y1`: where it starts.
+## - `ax`, `ay`: the first point it is pulled towards.
+## - `bx`, `by`: the second.
 ## - `x2`, `y2`: where it ends.
-## - `color`: a CSS color; black by default.
-## - `width`: how thick it is; 1.0 by default.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
+## - `stroke`: its colour; black by default.
+## - `width`: how thick it is.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `style`: a `tw.Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
@@ -2244,32 +3859,31 @@ public def smooth.curve(c: String, x1: Float, y1: Float, cx: Float, cy: Float, x
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## smooth.bezier(c, 10.0, 50.0, 60.0, -20.0, 140.0, 120.0, 190.0, 50.0, "crimson", 2.5)
+## smooth.bezier(c, 10.0, 50.0, 60.5, 0.0, 140.5, 100.0, 190.0, 50.0, width = 2.5)
 ## ```
 ## ```stdout
 ## ```
-public def smooth.bezier(c: String, x1: Float, y1: Float, ax: Float, ay: Float, bx: Float, by: Float, x2: Float, y2: Float, color: String = "#000000", width: Float = 1.0, alpha: Float = 1.0) -> ():
-    draw_shape(c, "bezier", floats4(x1, y1, ax, ay) ++ " " ++ floats4(bx, by, x2, y2), "", color, width, alpha)
+public def smooth.bezier(c: String, x1: Float, y1: Float, ax: Float, ay: Float, bx: Float, by: Float, x2: Float, y2: Float, stroke: color.Color = color.black, width: Float = 1.0, alpha: Float = 1.0, style: Style = Style()) -> ():
+    smooth.stroked(c, "bezier", floats4(x1, y1, ax, ay) ++ " " ++ floats4(bx, by, x2, y2), stroke, width, alpha, style)
 
 
-## Writes text, as `text` does, at a position that need not be a whole
-## pixel.
+## `tw.text`, at a position that need not be whole.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: where the text goes, in pixels, as `align` and `baseline`
-##   say.
-## - `words`: the text to write.
-## - `color`: a CSS color; black by default, `""` for none.
-## - `size`: the height of the letters in pixels; 16 by default.
-## - `font`: a font, such as `"serif"`; the page's own by default.
-## - `align`: `"left"`, the default, `"center"` or `"right"`.
-## - `bold`: `true` for bold letters.
-## - `alpha`: how opaque it is, from 0.0 to 1.0; 1.0 by default.
-## - `baseline`: `"top"`, the default, `"middle"`, `"alphabetic"` or
-##   `"bottom"`.
-## - `outline`: a CSS color to outline the letters with; none by default.
-## - `outline_width`: how thick the outline is; 1.0 by default.
+## - `c`: the canvas.
+## - `x`, `y`: where the text goes.
+## - `words`: what is written.
+## - `fill`: its colour; black by default.
+## - `size`: its size in pixels; 16 by default.
+## - `font`: the font's name; the page's own by default.
+## - `align`: which part of the text is at `x`: `"left"`, `"center"` or `"right"`.
+## - `bold`: whether it is bold.
+## - `alpha`: how opaque, from 0.0 to 1.0.
+## - `baseline`: which part is at `y`: `"top"`, `"middle"`, `"alphabetic"` or `"bottom"`.
+## - `stroke`: the colour of an outline round each letter; none by default.
+## - `width`: the outline's width.
+## - `paint`: a gradient to fill the letters with instead of `fill`.
+## - `style`: a `tw.Style` for what is not given here.
 ##
 ## # Examples
 ## ```pyking
@@ -2277,21 +3891,20 @@ public def smooth.bezier(c: String, x1: Float, y1: Float, ax: Float, ay: Float, 
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 60)
-## smooth.text(c, 100.5, 30.0, "smooth", "navy", 24, align = "center", baseline = "middle")
+## smooth.text(c, 10.5, 20.25, "Smooth")
 ## ```
 ## ```stdout
 ## ```
-public def smooth.text(c: String, x: Float, y: Float, words: String, color: String = "#000000", size: Int = 16, font: String = "", align: String = "left", bold: Bool = false, alpha: Float = 1.0, baseline: String = "top", outline: String = "", outline_width: Float = 1.0) -> ():
-    draw_text(c, x, y, words, color, size, font, align, baseline, bold, outline, outline_width, alpha)
+public def smooth.text(c: String, x: Float, y: Float, words: String, fill: color.Color = color.black, size: Int = 16, font: String = "", align: String = "left", bold: Bool = false, alpha: Float = 1.0, baseline: String = "top", stroke: color.Color = color.none, width: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style()) -> ():
+    draw_text(c, x, y, words, fill_of(fill, paint, style), size, font, align, baseline, bold, stroke_of(stroke, style), smooth.width_of(width, style), alpha_of(alpha, style))
 
 
-## Keeps everything drawn on the canvas `c` after it inside a circle, as
-## `clip_circle` does, at a position that need not be a whole pixel.
+## `tw.clip_circle`, with a position and radius that need not be whole.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `x`, `y`: the centre, in pixels.
-## - `radius`: the radius in pixels.
+## - `c`: the canvas.
+## - `x`, `y`: the circle's centre.
+## - `radius`: its radius.
 ##
 ## # Examples
 ## ```pyking
@@ -2299,10 +3912,8 @@ public def smooth.text(c: String, x: Float, y: Float, words: String, color: Stri
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## tw.push(c)
-## smooth.clip_circle(c, 100.5, 50.5, 40.0)
-## tw.rect(c, 0, 0, 100, 100, "teal")
-## tw.pop(c)
+## smooth.clip_circle(c, 100.5, 50.5, 40.25)
+## tw.rect(c, 0, 0, 200, 100)
 ## ```
 ## ```stdout
 ## ```
@@ -2310,12 +3921,11 @@ public def smooth.clip_circle(c: String, x: Float, y: Float, radius: Float) -> (
     set_state(c, "clip", "circle", floats3(x, y, radius))
 
 
-## Keeps everything drawn on the canvas `c` after it inside a polygon, as
-## `clip_polygon` does, with corners that need not be whole pixels.
+## `tw.clip_polygon`, through points that need not be whole.
 ##
 ## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `points`: the corners, each `(x, y)` in pixels.
+## - `c`: the canvas.
+## - `points`: the polygon's corners.
 ##
 ## # Examples
 ## ```pyking
@@ -2323,12 +3933,10 @@ public def smooth.clip_circle(c: String, x: Float, y: Float, radius: Float) -> (
 ## import tinyweb.smooth as smooth
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## tw.push(c)
-## smooth.clip_polygon(c, [(100.0, 5.5), (190.5, 95.0), (9.5, 95.0)])
-## tw.rect(c, 0, 0, 200, 100, "gold")
-## tw.pop(c)
+## smooth.clip_polygon(c, [smooth.Point(100.5, 0.0), smooth.Point(200.0, 100.0), smooth.Point(0.0, 100.0)])
+## tw.rect(c, 0, 0, 200, 100)
 ## ```
 ## ```stdout
 ## ```
-public def smooth.clip_polygon(c: String, points: [(Float, Float)]) -> ():
+public def smooth.clip_polygon(c: String, points: [smooth.Point]) -> ():
     set_state(c, "clip", "polygon", float_points_text(points))

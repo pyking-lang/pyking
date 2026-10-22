@@ -550,6 +550,58 @@ let item label kind detail =
 let hidden = Completion.hidden
 let qualifier = Completion.qualifier
 
+(** Whether a plain name is in a submodule further down: it holds a
+    `__`. string -> bool *)
+let nested name =
+  let rec at i = i + 1 < String.length name && ((name.[i] = '_' && name.[i + 1] = '_') || at (i + 1)) in
+  at 0
+
+(** Completion items, each label once, the first kept. [Json.t] -> [Json.t] *)
+let distinct items =
+  let label i = match Json.member "label" i with Json.String l -> l | _ -> "" in
+  List.rev
+    (fst
+       (List.fold_left
+          (fun (kept, seen) i -> if List.mem (label i) seen then (kept, seen) else (i :: kept, label i :: seen))
+          ([], []) items))
+
+(** What a module offers after `m.` and the submodules in `path`: its
+    members there, and the submodules one level further down, each once.
+    [(string, typ, _)] -> [(string, string)] -> [string] -> [Json.t] *)
+let submodule_items sigmap dotted path =
+  let prefix = if path = [] then "" else String.concat "." path ^ "." in
+  let n = String.length prefix in
+  let public plain = List.find_opt (fun (p, _, _) -> p = plain) sigmap in
+  let typed name plain =
+    match public plain with
+    | Some (_, t, _) -> Some (item name (match t with TFunction _ -> 3 | _ -> 6) (Some (show_type t)))
+    | None -> None
+  in
+  let below =
+    List.filter_map
+      (fun (name, plain) ->
+        if String.length name > n && String.sub name 0 n = prefix then
+          let rest = String.sub name n (String.length name - n) in
+          match String.index_opt rest '.' with
+          | Some k -> if public plain = None then None else Some (`Sub (String.sub rest 0 k))
+          | None -> Option.map (fun i -> `Item (rest, i)) (typed rest plain)
+        else None)
+      dotted
+  in
+  let subs = List.sort_uniq compare (List.filter_map (function `Sub s -> Some s | `Item _ -> None) below) in
+  let members = List.filter_map (function `Item (_, i) -> Some i | `Sub _ -> None) below in
+  let plains = List.map snd dotted in
+  let own =
+    if path <> [] then []
+    else
+      List.filter_map
+        (fun (name, t, _) ->
+          if hidden name || List.mem name plains then None
+          else Some (item name (match t with TFunction _ -> 3 | _ -> 6) (Some (show_type t))))
+        sigmap
+  in
+  distinct (List.map (fun sub -> item sub 9 (Some "submodule")) subs @ own @ members)
+
 (** What may be written at a position of a document: after `m.`, what
     module m exports; elsewhere the names in scope there, the keywords
     and the builtins. state -> document -> Json.t -> (state, Json.t) *)
@@ -564,21 +616,47 @@ let completion state document pos =
     List.fold_left (fun env (u : Module.t) -> SMap.add u.name (Module_of u.name) env) SMap.empty analysis.units
   in
   match qualifier (line_at document.text row) col with
-  | Some m ->
+  | Some chain ->
+      let m, path =
+        match String.split_on_char '.' chain with m :: path -> (m, path) | [] -> (chain, [])
+      in
       let real =
         match SMap.find_opt m scope_names with
         | Some (Module_of real) -> Some real
         | _ -> (match SMap.find_opt m module_names with Some (Module_of r) -> Some r | _ -> None)
       in
       let items =
-        match Option.bind real (fun r -> List.assoc_opt r analysis.sigmaps) with
-        | Some sigmap ->
-            List.filter_map
-              (fun (n, t, _) ->
-                if hidden n then None
-                else Some (item n (match t with TFunction _ -> 3 | _ -> 6) (Some (show_type t))))
-              sigmap
-        | None -> []
+        match (real, Option.bind real (fun r -> List.assoc_opt r analysis.sigmaps)) with
+        | Some r, Some sigmap ->
+            let dotted =
+              match List.find_opt (fun (u : Module.t) -> u.name = r) analysis.units with
+              | Some u -> u.dotted
+              | None -> []
+            in
+            submodule_items sigmap dotted path
+        | _ ->
+            (* A submodule imported under a name of its own: its members
+               are in scope under the plain names they compile to,
+               `shapes__size` and, for a type, `Shapes__Box`. *)
+            let flat = String.concat "__" (String.split_on_char '.' chain) ^ "__" in
+            let prefixes = [ flat; String.capitalize_ascii flat ] in
+            SMap.fold
+              (fun name meaning acc ->
+                match
+                  List.find_opt
+                    (fun p -> String.length name > String.length p && String.sub name 0 (String.length p) = p)
+                    prefixes
+                with
+                | Some p ->
+                    let rest = String.sub name (String.length p) (String.length name - String.length p) in
+                    if hidden name || nested rest then acc
+                    else
+                      item rest (match meaning with Bound (_, _, KFunction) -> 3 | _ -> 6) (meaning_type analysis meaning)
+                      :: acc
+                | None -> acc)
+              scope_names []
+            |> List.rev
+            |> distinct
       in
       (state, Json.Object [ ("isIncomplete", Json.Bool false); ("items", Json.List items) ])
   | None ->

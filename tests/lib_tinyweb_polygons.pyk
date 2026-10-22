@@ -1,13 +1,16 @@
 # Polygons, paths and palettes: the drawing that takes a list.
 
 import tinyweb as tw
-from tinyweb.colors import palette
+import tinyweb.color as color
+from tinyweb.color import palette
+from tinyweb import Point
 
 tw.web_init(0)
 c = tw.canvas(200, 200)
 ocean = palette("ocean")
 print(len(ocean))
-tw.polygon(c, [(100, 10), (130, 90), (70, 90)], "orange", outline = "black")
-tw.path(c, [(10, 190), (60, 120), (110, 170), (190, 110)], "teal", 3)
-tw.polygon(c, [], "red")
-print(palette("nothing"))
+tw.polygon(c, [Point(100, 10), Point(130, 90), Point(70, 90)], color.orange, stroke = color.black)
+tw.path(c, [Point(10, 190), Point(60, 120), Point(110, 170), Point(190, 110)], color.teal, 3)
+tw.polygon(c, [], color.red)
+tw.lines(c, [(Point(0, 0), Point(20, 20)), (Point(20, 0), Point(0, 20))], color.navy)
+print(len(palette("nothing")))

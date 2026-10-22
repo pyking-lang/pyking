@@ -1,4 +1,5 @@
 canvas "canvas" 200 200
-polygon "canvas" 100 10 130 90 70 90 "orange" "black" 1.000 1.000
-path "canvas" 10 190 60 120 110 170 190 110 "" "teal" 3.000 1.000
-polygon "canvas"  "red" "" 1.000 1.000
+polygon "canvas" 100 10 130 90 70 90 "#ffa500" "#000000" 1.000 1.000
+path "canvas" 10 190 60 120 110 170 190 110 "" "#008080" 3.000 1.000
+polygon "canvas"  "#ff0000" "" 1.000 1.000
+lines "canvas" 0 0 20 20 20 0 0 20 "" "#000080" 1.000 1.000

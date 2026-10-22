@@ -144,6 +144,13 @@ grouped:
   longest prefix satisfying a predicate, returned with what's left, so
   the three call sites (indentation, `TokInt`, `TokIdent`/keyword) don't
   each write their own.
+- **A hexadecimal or binary literal is matched before a decimal one.**
+  `'0' :: ('x' | 'X' | 'b' | 'B') :: after` reads the whole word after
+  the prefix (digits, letters and `_`), then checks it: at least one
+  digit, `_` only between two digits, every digit one of its base, and
+  the value no larger than `max_int_literal`, the same bound a decimal
+  literal is held to. What comes out is an ordinary `TokInt`, so no later
+  stage knows which way it was written.
 - **An identifier is checked against `keywords` after being scanned,
   not while.** `string_until is_digit_letter rest` reads the whole word
   first (so `forever` scans as one identifier, not `for` + `ever`), and

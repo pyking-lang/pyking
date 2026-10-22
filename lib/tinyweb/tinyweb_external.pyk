@@ -10,6 +10,7 @@
 # Serves the page on `port`: what `web_init` in tinyweb.pyk calls.
 def web_start(port: Int) -> ()
 
+# topic: Canvas
 ## Adds a canvas to draw on, below everything already on the page. It
 ## starts white.
 ##
@@ -25,9 +26,10 @@ def web_start(port: Int) -> ()
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.color as color
 ## tw.web_init(0)
 ## c = tw.canvas(200, 60)
-## tw.rect(c, 10, 10, 180, 40, "teal")
+## tw.rect(c, 10, 10, 180, 40, color.teal)
 ## ```
 ## ```stdout
 ## ```
@@ -71,71 +73,15 @@ def draw_image(c: String, picture: String, x: Int, y: Int, width: Int, height: I
 
 def make_bitmap(width: Int, height: Int, background: Int) -> String
 
-## Sets one pixel of a bitmap. Nothing is sent to the page until the
-## bitmap is shown. A pixel outside the bitmap is left alone.
-##
-## # Parameters
-## - `b`: the bitmap, as `bitmap` answered.
-## - `x`, `y`: the pixel, from the bitmap's top left corner.
-## - `color`: its color as one number, `pixel_color(r, g, b)`.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## b = tw.bitmap(10, 10)
-## tw.set_pixel(b, 5, 5, tw.pixel_color(255, 0, 0))
-## print(tw.red(tw.get_pixel(b, 5, 5)))
-## ```
-## ```stdout
-## 255
-## ```
-public def set_pixel(b: String, x: Int, y: Int, color: Int) -> ()
+def set_pixel(b: String, x: Int, y: Int, color: Int) -> ()
 
-## Reads one pixel of a bitmap, at once, since the program keeps it.
-##
-## # Parameters
-## - `b`: the bitmap, as `bitmap` answered.
-## - `x`, `y`: the pixel, from the bitmap's top left corner.
-##
-## # Returns
-## Its color as one number, as `pixel_color` makes them; 0, black,
-## outside the bitmap.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## b = tw.bitmap(4, 4)
-## tw.fill_bitmap(b, tw.pixel_color(0, 0, 255))
-## print(tw.blue(tw.get_pixel(b, 1, 2)))
-## ```
-## ```stdout
-## 255
-## ```
-public def get_pixel(b: String, x: Int, y: Int) -> Int
+def get_pixel(b: String, x: Int, y: Int) -> Int
 
-## Sets every pixel of a bitmap to one color.
-##
-## # Parameters
-## - `b`: the bitmap, as `bitmap` answered.
-## - `color`: the color as one number, `pixel_color(r, g, b)`.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(40, 40)
-## b = tw.bitmap(20, 20)
-## tw.fill_bitmap(b, tw.pixel_color(0, 128, 0))
-## tw.show_bitmap(c, b, scale = 2.0)
-## ```
-## ```stdout
-## ```
-public def fill_bitmap(b: String, color: Int) -> ()
+def fill_bitmap(b: String, color: Int) -> ()
 
 def draw_bitmap(c: String, b: String, x: Int, y: Int, scale: Float) -> ()
 
+# topic: Images
 ## Starts loading a picture, so that `image` can draw it. The file is
 ## looked for beside the page first, then among the pictures tinyweb
 ## ships: `ball.png`, `star.png` and `tile.png`. A picture drawn before
@@ -165,13 +111,14 @@ public def load_image(name: String) -> String
 
 def make_button(title: String, on_click: () -> ()) -> String
 
+# topic: Widgets
 ## Adds a line of text below everything already on the page.
 ##
 ## # Parameters
 ## - `text`: what the label says.
 ##
 ## # Returns
-## The label's identifier, which `set_label` takes to change the text:
+## The label's identifier, which `set_text` takes to change the text:
 ## the text it starts with, with a number added where something on the
 ## page has that name already.
 ##
@@ -185,116 +132,15 @@ def make_button(title: String, on_click: () -> ()) -> String
 ## ```
 public def label(text: String) -> String
 
-## Adds a row below everything already on the page: a box whose elements
-## go side by side, wrapping onto a new line where the page is too
-## narrow. Put elements into it with `inside`.
-##
-## # Returns
-## The row's identifier, which `inside` takes: `"row"`, with a number
-## added where something on the page has that name already.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## buttons = tw.row()
-## tw.inside(buttons)
-## tw.button("Start")
-## tw.button("Stop")
-## tw.outside()
-## tw.label("below the row")
-## ```
-## ```stdout
-## ```
-public def row() -> String
+def row() -> String
 
-## Adds a column below everything already on the page: a box whose
-## elements go one below another, as on the page itself. Inside a row it
-## stands beside the row's other elements: a picture with its caption
-## under it, a stack of buttons.
-##
-## # Returns
-## The column's identifier, which `inside` takes: `"column"`, with a
-## number added where something on the page has that name already.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## figures = tw.row()
-## tw.inside(figures)
-## left = tw.column()
-## tw.inside(left)
-## tw.canvas(100, 60)
-## tw.label("the first")
-## tw.inside(figures)
-## right = tw.column()
-## tw.inside(right)
-## tw.canvas(100, 60)
-## tw.label("the second")
-## tw.outside()
-## ```
-## ```stdout
-## ```
-public def column() -> String
+def column() -> String
 
-## Makes every element added after it go into a row or a column, until
-## `outside` or another `inside`.
-##
-## # Parameters
-## - `id`: the row or column, as `row` or `column` answered.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## controls = tw.row()
-## tw.inside(controls)
-## tw.label("speed")
-## tw.slider(0, 10, 5)
-## tw.outside()
-## ```
-## ```stdout
-## ```
-public def inside(id: String) -> ()
+def inside(id: String) -> ()
 
-## Makes every element added after it go on the page again, below
-## everything there, rather than into a row.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## top = tw.row()
-## tw.inside(top)
-## tw.button("one")
-## tw.button("two")
-## tw.outside()
-## c = tw.canvas(200, 60)
-## ```
-## ```stdout
-## ```
-public def outside() -> ()
+def outside() -> ()
 
-## Replaces the text of a label, or the title of a button.
-##
-## # Parameters
-## - `id`: the label's identifier, as `label` answered, or the button's,
-##   as `button` answered; a button keeps its identifier.
-## - `text`: the new text.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## status = tw.label("waiting")
-## def pressed():
-##     tw.set_label(status, "pressed")
-## tw.button("Press me", on_click = pressed)
-## ```
-## ```stdout
-## ```
-public def set_label(id: String, text: String) -> ()
+def set_label(id: String, text: String) -> ()
 
 def make_slider(low: Int, high: Int, value: Int, on_change: (Int) -> ()) -> String
 
@@ -309,6 +155,7 @@ def make_text_input(placeholder: String, on_enter: (String) -> ()) -> String
 
 def make_number_input(low: Int, high: Int, value: Int, on_change: (Int) -> ()) -> String
 
+# topic: Widgets
 ## Ticks or clears a checkbox, or chooses a radio button. Nothing the
 ## program handed over is called: only the reader changes call it.
 ##
@@ -328,6 +175,7 @@ def make_number_input(low: Int, high: Int, value: Int, on_change: (Int) -> ()) -
 ## ```
 public def set_checked(id: String, checked: Bool) -> ()
 
+# topic: Widgets
 ## Moves a slider or a number field to a value, or picks the dropdown
 ## choice at that position (0 is the first). Nothing the program handed
 ## over is called.
@@ -349,6 +197,7 @@ public def set_value(id: String, value: Int) -> ()
 
 def apply_style(id: String, kind: String, property: String, value: String) -> ()
 
+# topic: Sound
 ## Starts loading a sound file, so that `play` can play it without a
 ## delay. The file is looked for beside the page first, then among the
 ## samples tinyweb ships: `kick1.wav`, `snare1.wav`, `hihat1.wav` and
@@ -374,8 +223,28 @@ def apply_style(id: String, kind: String, property: String, value: String) -> ()
 ## ```
 public def load_sample(name: String) -> String
 
-def play_sample(sample: String, at: Float, volume: Float, rate: Float) -> ()
+# The generic part of the host, which most of tinyweb is written over:
+# `command` sends the page one command, `kind` naming what it does and
+# `numbers` its numbers as words, which tinyweb.pyk writes; `mode` says
+# what a page connecting later is sent again (0 kept, 1 replacing the
+# last of its kind and id, 2 like a sound, 3 not at all). `fresh_id`
+# answers a new element's identifier, `watch` hands over a function
+# called when the page reports `kind` for `id`, and `report_number`,
+# `report_text` and `report_count` read what the page last reported by
+# name. `watch_text`, `watch_step` and `watch_pair` hand over a function
+# called with what was reported: the text under `name`, or the first two
+# numbers under `kind`. See docs/libraries.md, "tinyweb".
+def fresh_id(name: String) -> String
+def command(kind: String, id: String, text: String, numbers: String, mode: Int) -> ()
+def watch(id: String, kind: String, f: () -> ()) -> ()
+def report_number(name: String, k: Int) -> Float
+def report_text(name: String) -> String
+def report_count(name: String) -> Int
+def watch_text(id: String, kind: String, name: String, f: (String) -> ()) -> ()
+def watch_step(id: String, kind: String, f: (Int, Float) -> ()) -> ()
+def watch_pair(id: String, kind: String, f: (Float, Float) -> ()) -> ()
 
+# topic: Splash screen
 ## Shows the splash screen: the page is dimmed and a message asks the
 ## reader to click, since a browser plays no sound before the reader has
 ## clicked or pressed a key. The page waits there -- what the program
@@ -388,15 +257,17 @@ def play_sample(sample: String, at: Float, volume: Float, rate: Float) -> ()
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.color as color
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
-## tw.circle(c, 100, 50, 40, "orange")
+## tw.circle(c, 100, 50, 40, color.orange)
 ## tw.splash()
 ## ```
 ## ```stdout
 ## ```
 public def splash() -> ()
 
+# topic: Splash screen
 ## Sets the message the splash screen shows, `Click to Start` until it is
 ## set. An empty message turns the splash screen off, and sound then
 ## starts at the reader's first click on the page.
@@ -416,6 +287,7 @@ public def splash() -> ()
 ## ```
 public def set_splash(message: String) -> ()
 
+# topic: Time
 ## Reads the page's clock. Once sound has started this is the audio clock,
 ## so a time read here can be given to `play` to start a sound exactly
 ## then.
@@ -434,6 +306,7 @@ public def set_splash(message: String) -> ()
 ## ```
 public def time() -> Float
 
+# topic: Time
 ## Calls `draw` before each frame the page shows, about 60 times a second,
 ## with the time the frame is for. This is how a program animates.
 ##
@@ -444,39 +317,22 @@ public def time() -> Float
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.color as color
 ## tw.web_init(0)
 ## c = tw.canvas(200, 60)
 ## def draw(t: Float):
 ##     tw.clear(c)
 ##     x = int(t * 50.0) - int(t * 50.0) / 200 * 200
-##     tw.circle(c, x, 30, 10, "orange")
+##     tw.circle(c, x, 30, 10, color.orange)
 ## tw.on_frame(draw)
 ## ```
 ## ```stdout
 ## ```
 public def on_frame(draw: (Float) -> ()) -> ()
 
-## Calls `click` each time the canvas `c` is clicked, with where the click
-## was.
-##
-## # Parameters
-## - `c`: the canvas, as `canvas` answered.
-## - `click`: the function to call; it is given `x` and `y` in pixels from
-##   the canvas's top left corner.
-##
-## # Examples
-## ```pyking
-## import tinyweb as tw
-## tw.web_init(0)
-## c = tw.canvas(200, 100)
-## def click(x: Int, y: Int):
-##     tw.circle(c, x, y, 5, "red")
-## tw.on_mouse(c, click)
-## ```
-## ```stdout
-## ```
-public def on_mouse(c: String, click: (Int, Int) -> ()) -> ()
+def on_mouse(c: String, click: (Int, Int) -> ()) -> ()
 
+# topic: Mouse and keyboard
 ## Calls `pressed` each time a key is pressed while the page has the
 ## focus.
 ##
@@ -491,13 +347,14 @@ public def on_mouse(c: String, click: (Int, Int) -> ()) -> ()
 ## tw.web_init(0)
 ## shown = tw.label("press a key")
 ## def pressed(key: String):
-##     tw.set_label(shown, "you pressed " ++ key)
+##     tw.set_text(shown, "you pressed " ++ key)
 ## tw.on_key(pressed)
 ## ```
 ## ```stdout
 ## ```
 public def on_key(pressed: (String) -> ()) -> ()
 
+# topic: Mouse and keyboard
 ## Calls `released` each time a key is let go while the page has the
 ## focus. Leaving the page lets go of every key held.
 ##
@@ -511,13 +368,14 @@ public def on_key(pressed: (String) -> ()) -> ()
 ## tw.web_init(0)
 ## shown = tw.label("hold a key")
 ## def released(key: String):
-##     tw.set_label(shown, "you let go of " ++ key)
+##     tw.set_text(shown, "you let go of " ++ key)
 ## tw.on_key_up(released)
 ## ```
 ## ```stdout
 ## ```
 public def on_key_up(released: (String) -> ()) -> ()
 
+# topic: Mouse and keyboard
 ## Says whether a key is held down now. A game moves its ship each frame
 ## while an arrow is held, rather than once per press.
 ##
@@ -531,6 +389,7 @@ public def on_key_up(released: (String) -> ()) -> ()
 ## # Examples
 ## ```pyking
 ## import tinyweb as tw
+## import tinyweb.color as color
 ## tw.web_init(0)
 ## c = tw.canvas(200, 60)
 ## var x = 100
@@ -540,7 +399,7 @@ public def on_key_up(released: (String) -> ()) -> ()
 ##     if tw.key_down("ArrowRight"):
 ##         x := x + 2
 ##     tw.clear(c)
-##     tw.circle(c, x, 30, 10, "teal")
+##     tw.circle(c, x, 30, 10, color.teal)
 ## tw.on_frame(draw)
 ## ```
 ## ```stdout

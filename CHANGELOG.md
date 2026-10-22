@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   constructor taking every field not written from `p`.
 - A field's default may be any expression without its type written:
   the field takes the default's type.
+- The library `text`: length, slicing, characters and code points,
+  find, replace, upper and lower case, trim, repeat, split, words,
+  join and lines, with positions counted in code points on every
+  target.
 
 - Targets `python12`, `node22`, `web2020`, `iweb2020` and `ocaml4.14`.
   A web or iweb target's version is the ECMAScript edition its page is
@@ -69,13 +73,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name and an annotation that disagrees with its value; the playground's
   editor shows them all.
 - The `dap` test suite, the tenth of `make test`.
+- tinyweb sound and music (step 3 of design/plan-tinyweb.md), in the
+  submodule `tinyweb.sound`: voices (`start`, `stop`, `fade`,
+  `stop_all`) with the settings of a `sound.Voice`, `master_volume`,
+  tones, notes by name (`note`, `rate_of`), a beat scheduled ahead
+  (`tempo`, `swing`, `on_beat`, `beat`, `latency`), `pause` and
+  `resume`, channels with volume, pan, echo, reverb and a low-pass
+  filter (`channel_style`), listening (`listen`, `level`, `band`,
+  `bands`, `wave`) and rendering into a WAV file (`render_wav`); `play`
+  takes a pan and a voice, and a reversed sample.
+- tinyweb timers (`after`, `every`, `cancel`), changing the page
+  (`set_text`, `show`, `hide`, `enable`, `disable`, `remove`,
+  `value_of`), `layout.text_area`, files (`net.save_canvas`,
+  `net.download`, `net.file_button`, `net.file_text`) and
+  `game.cursor`.
+- Three tinyweb examples: a drum pad, a step sequencer and a piano.
+- Hexadecimal and binary Int literals, `0xff8800` and `0b0101`, with
+  `_` between digits.
+- The language server completes a submodule's members after `m.sub.`,
+  and offers a module's submodules after `m.`.
 
 ### Changed
 
+- tinyweb is divided into submodules: `tinyweb.color`, `tinyweb.sound`,
+  `tinyweb.bitmap`, `tinyweb.layout`, `tinyweb.net`, `tinyweb.game` and
+  `tinyweb.smooth`, with the page, drawing, widgets, the mouse and the
+  keyboard in `tinyweb` itself.
+- tinyweb's colours are `color.Color` values (`color.red`,
+  `color.hex(0xff8800)`, `color.rgb`, `color.hsl`, ...) everywhere a
+  colour was a string, and its gradients the datatype `color.Paint`,
+  passed as `paint`; a shape's colours are `fill` and `stroke`, its
+  outline's width `width`, and a `tw.Style` given as `style` supplies
+  every argument left at its default. Angles are in radians. A point is
+  a `tw.Point` (`smooth.Point` between pixels). The mouse functions call
+  back with `x` and `y`, `on_mouse` is `on_click`, and `tw.mouse(c)`
+  answers a `tw.Pointer`; `set_label` is `set_text`, `set_colors` is
+  `set_style`, and a style's `color` is `foreground`, its `border` a
+  colour with `border_width`.
+- tinyweb's host functions for what step 3 added are generic --
+  `command`, `watch` and the reports an event carries -- and
+  `play_sample` is gone.
 - A notebook exercise's solution is shown to a student (Show a
   solution) only where it says `available = true`; the default is now
   `false`.
-- `tinyweb.bitmap(width, height, background)`: a bitmap starts as
+- `bitmap.bitmap(width, height, background)`: a bitmap starts as
   `background`, white unless given, where it started black. The host
   function under it is `make_bitmap`, with the background, in every
   implementation.
@@ -100,6 +141,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `tw.label("")` no longer gets the page's own identifier.
+- In the browser, a module implemented in JavaScript may answer a whole
+  number too wide for a 32-bit Int where a Float is declared, and a
+  whole JavaScript number (`-0` too) where an Int is.
+- `save_canvas`, `download`, `render_wav`, `pause` and `resume` at a
+  served program's top level reach the page, which connects after it.
+- JavaScript: `string(f())` is the call's value as text, where it was
+  the value itself.
+- A program that plays only through `sound.start` or `sound.tone` gets
+  tinyweb's splash screen, as one calling `play` does.
+- A function whose type is worked out from a call above its `def` sees
+  the top-level names bound above that call, where it saw none.
+- A datatype named `Effect` compiles on the OCaml targets (`effect` is a
+  keyword from OCaml 5.3).
+- Java: an `if ... then ... else` statement calling a function in a
+  branch may read a `var` the function changes.
+- A public struct of a submodule may share its name with one of the
+  module's own (`smooth.Point` beside `Point`).
 - A page running the compiler (the playground, the notebook, the
   website) no longer loads an older compiler from the browser's cache
   after a new one is published: the manifest is always fetched afresh,

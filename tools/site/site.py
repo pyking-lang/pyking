@@ -231,8 +231,18 @@ def sidebar(index, tinyweb):
     Documentation. {...} -> [{...}] -> {String: {...}}"""
     menus = {}
     for section in index["sections"]:
-        pages = [{"label": page["label"], "link": f"/{page['slug']}/",
-                  "headings": page["headings"]} for page in section["pages"]]
+        # A page with a parent -- one of tinyweb's submodules -- is listed
+        # under it rather than beside it.
+        pages = []
+        for page in section["pages"]:
+            entry = {"label": page["label"], "link": f"/{page['slug']}/",
+                     "headings": page["headings"]}
+            parent = next((p for p in pages if page.get("parent")
+                           and p["link"] == f"/{page['parent']}/"), None)
+            if parent is not None:
+                parent.setdefault("items", []).append(entry)
+            else:
+                pages.append(entry)
         if section["id"] == "documentation":
             pages.append({"label": "Tinyweb without Pyking", "link": f"/{TINYWEB}/",
                           "headings": [], "items": tinyweb})

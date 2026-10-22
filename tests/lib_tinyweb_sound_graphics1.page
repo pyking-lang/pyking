@@ -8,9 +8,9 @@ button "Play snare"
 button "Does nothing"
 splash
 > click "Play kick"
-play "kick1.wav" 0.000 1.000 1.000
+play "kick1.wav" 0.0 1.0 1.0 0.0 0 0
 > click "Play snare"
-play "snare1.wav" 0.000 0.500 1.000
+play "snare1.wav" 0.0 0.5 1.0 0.0 0 0
 > click "Play snare"
-play "snare1.wav" 0.000 0.500 1.000
+play "snare1.wav" 0.0 0.5 1.0 0.0 0 0
 > click "Does nothing"

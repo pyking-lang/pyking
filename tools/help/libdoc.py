@@ -23,8 +23,10 @@ Usage: python3 tools/help/libdoc.py [LIB]    print what is undocumented
 
 Data structures:
     Example -- one example: its fence's words, its code, what it prints.
-    Item -- one exported name: its kind, name, signature, doc and sections.
-    Module -- one library: its name, its description, its items.
+    Item -- one exported name: its kind, name, signature, doc, sections
+      and topic.
+    Module -- one library: its name, its description, its items, and
+      each submodule's description.
 
 Functions:
     read_modules(lib) -- every module in a lib/ directory.
@@ -32,6 +34,8 @@ Functions:
     problems(modules) -- what is undocumented or wrongly documented.
     examples(modules) -- every example, with where it is written.
     module_page(module) -- one module's page, as Markdown.
+    pages(module) -- a module's pages: one, or an overview and one per
+      submodule for a module whose exports are sorted into topics.
     index_page(modules) -- the section's overview page, as Markdown.
     write_pages(modules, directory) -- writes every page into directory.
 """
@@ -54,6 +58,13 @@ SIGNATURE = re.compile(rf"^public\s+def\s+({NAME})\s*:(?!:)")
 DEFINITION = re.compile(rf"^public\s+def\s+({NAME})\s*\(")
 # `public NAME: T = value` -- a value.
 VALUE = re.compile(r"^public\s+((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\s*:")
+# `public struct Name(...)` and `public datatype Name:` -- a type.
+STRUCT = re.compile(rf"^public\s+struct\s+({NAME})\b")
+DATATYPE = re.compile(rf"^public\s+datatype\s+({NAME})\b")
+# `# topic: Name` -- the topic the exports after it are listed under --
+# and `# submodule name` after the `##` block describing a submodule.
+TOPIC = re.compile(r"^#\s*topic:\s*(.+?)\s*$")
+SUBMODULE = re.compile(r"^#\s*submodule\s+(\w+)\s*$")
 # `def name : type`, public or not, in a declaration half: the form
 # lib/ no longer uses.
 UNNAMED = re.compile(rf"^(?:public\s+)?def\s+{NAME}\s*:(?!:)")
@@ -72,10 +83,11 @@ class Example:
 
 @dataclass
 class Item:
-    """One exported name. `kind` is "function" or "value"; `text` is the
-    doc before its sections, `params` the documented (name, text) pairs,
-    `returns` the Returns section, `examples` the Examples, and
-    `param_lines` the Parameters entries as written."""
+    """One exported name. `kind` is "function", "value", "struct" or
+    "datatype"; `text` is the doc before its sections, `params` the
+    documented (name, text) pairs, `returns` the Returns section,
+    `examples` the Examples, `param_lines` the Parameters entries as
+    written, and `topic` the `# topic:` it is listed under, or ""."""
     kind: str
     name: str
     signature: str
@@ -88,17 +100,19 @@ class Item:
     examples: list = field(default_factory=list)
     unknown: list = field(default_factory=list)
     param_lines: list = field(default_factory=list)
+    topic: str = ""
 
 
 @dataclass
 class Module:
-    """One library: its name, the `##` text describing it, and what it
-    exports."""
+    """One library: its name, the `##` text describing it, what it
+    exports, and the `##` text describing each submodule."""
     name: str
     description: str
     items: list = field(default_factory=list)
     files: list = field(default_factory=list)
     directory: Path = None
+    submodules: dict = field(default_factory=dict)
 
     def summary(self):
         """The description's first sentence. () -> String"""
@@ -272,11 +286,29 @@ def _items(path):
     """What one file exports. Path -> [Item]"""
     lines = path.read_text().splitlines()
     items = []
+    topic = ""
     for index, line in enumerate(lines):
+        found = TOPIC.match(line)
+        if found:
+            topic = found.group(1)
+            continue
         if not line.startswith("public"):
             continue
         doc = _doc_above(lines, index)
-        if SIGNATURE.match(line):
+        if STRUCT.match(line):
+            name = STRUCT.match(line).group(1)
+            signature = line[len("public"):].strip()
+            kind = "struct"
+        elif DATATYPE.match(line):
+            name = DATATYPE.match(line).group(1)
+            body = [line[len("public"):].strip()]
+            for following in lines[index + 1:]:
+                if not following.startswith(" ") or not following.strip():
+                    break
+                body.append("    " + following.strip())
+            signature = "\n".join(body)
+            kind = "datatype"
+        elif SIGNATURE.match(line):
             name = SIGNATURE.match(line).group(1)
             signature = line[len("public"):].strip()
             kind = "function"
@@ -297,8 +329,25 @@ def _items(path):
                           param_lines=_param_lines(sections.get("Parameters", "")),
                           returns=sections.get("Returns", ""),
                           examples=_examples(sections.get("Examples", "")),
-                          unknown=[s for s in sections if s not in SECTIONS]))
+                          unknown=[s for s in sections if s not in SECTIONS],
+                          topic=topic))
     return items
+
+
+def _submodule_docs(path):
+    """Each submodule's description in one file: the `##` block right
+    above a `# submodule NAME` line. Path -> {String: String}"""
+    lines = path.read_text().splitlines()
+    found = {}
+    for index, line in enumerate(lines):
+        match = SUBMODULE.match(line)
+        if match:
+            block, k = [], index - 1
+            while k >= 0 and _is_doc(lines[k]):
+                block.append(_doc_text(lines[k]))
+                k -= 1
+            found[match.group(1)] = "\n".join(reversed(block)).strip()
+    return found
 
 
 def read_module(directory):
@@ -312,6 +361,25 @@ def read_module(directory):
     openings = [_opening_doc(path.read_text().splitlines()) for path in present]
     module = Module(name, "\n\n".join(text for text in openings if text),
                     files=[path.name for path in present], directory=directory)
+    for path in present:
+        module.submodules.update(_submodule_docs(path))
+    if any(item.topic for path in present for item in _items(path)):
+        # In topics, as the source orders them: each submodule's topics in
+        # the order they first come in the Pyking half, and within a
+        # topic the declaration half's names first.
+        ordered = sorted(present, key=lambda path: not path.name.endswith("_external.pyk"))
+        topics = []
+        for path in reversed(ordered):
+            for item in _items(path):
+                if (submodule(item.name), item.topic) not in topics:
+                    topics.append((submodule(item.name), item.topic))
+        sections = list(dict.fromkeys([""] + [inside for inside, _ in topics]))
+        found = [item for path in ordered for item in _items(path)]
+        module.items = sorted(found, key=lambda item: (
+            sections.index(submodule(item.name)),
+            topics.index((submodule(item.name), item.topic)),
+            found.index(item)))
+        return module
     for path in present:
         module.items.extend(_items(path))
     # The module's own names first, then each submodule's together.
@@ -343,6 +411,15 @@ def _item_problems(where, item):
     for example in item.examples:
         if example.stdout is None:
             out.append(f"{where}: an example of `{item.name}` has no ```stdout block after it")
+    if item.kind == "struct":
+        fields = item.signature[item.signature.index("(") + 1:item.signature.rindex(")")] \
+            if "(" in item.signature else ""
+        named = [re.match(r"\s*(\w+)", part).group(1) for part in _split_top(fields)]
+        documented = [name for name, _ in item.params]
+        if documented != named:
+            out.append(f"{where}: `{item.name}`'s Parameters list {documented or 'nothing'}, "
+                       f"but its fields are {named or 'none'}")
+        return out
     if item.kind != "function":
         return out
     parts = signature_parts(item.signature)
@@ -414,6 +491,11 @@ def signature_html(item):
     """The item's signature as HTML: `def`, its name, each parameter's
     name, type and default, and its result. Item -> String"""
     name = f'<span class="n">{html.escape(item.name)}</span>'
+    if item.kind in ("struct", "datatype"):
+        keyword, _, rest = item.signature.partition(" ")
+        after = rest[len(item.name):] if rest.startswith(item.name) else rest
+        return (f'<span class="k">{keyword}</span> '
+                + (name + _type_html(after) if after is not rest else _type_html(rest)))
     if item.kind == "value":
         declared, _, value = item.signature[len(item.name):].lstrip(" :").partition("=")
         return (f"{name}: {_type_html(declared.strip())}"
@@ -446,11 +528,11 @@ def _example_markdown(example):
     return text
 
 
-def item_markdown(module, item):
-    """One item, boxed: its name as a heading, its signature, what it
-    does, its parameters, what it answers and its examples.
-    Module -> Item -> String"""
-    parts = ['<div class="pyk-api">', "", f"## {item.name}", "",
+def item_markdown(module, item, level="##"):
+    """One item, boxed: its name as a heading at `level`, its signature,
+    what it does, its parameters, what it answers and its examples.
+    Module -> Item -> String -> String"""
+    parts = ['<div class="pyk-api">', "", f"{level} {item.name}", "",
              f'<pre class="pyk-sig"><code>{signature_html(item)}</code></pre>', "",
              item.text or item.doc]
     if item.params:
@@ -493,6 +575,113 @@ def module_page(module):
     return "\n".join(parts).rstrip() + "\n"
 
 
+def _slug(text):
+    """A heading's anchor, as help.py and the website make it.
+    String -> String"""
+    text = re.sub(r"<[^>]+>", "", text).lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    return re.sub(r"\s", "-", text) or "section"
+
+
+def _first_sentence(text):
+    """A description's first sentence. String -> String"""
+    first = text.split("\n\n")[0].replace("\n", " ").strip()
+    match = re.match(r"(.+?\.)(\s|$)", first)
+    return match.group(1) if match else first
+
+
+def _part_page(module, inside, items, position):
+    """The page of one part of a module sorted into topics: tinyweb's own
+    names, or one submodule's. It opens with a table of its topics, each
+    linking to its names, then each topic as a heading with its names
+    under it. Module -> String -> [Item] -> Int -> String"""
+    full = f"{module.name}.{inside}" if inside else module.name
+    last = inside or module.name
+    alias = "tw" if not inside and module.name == "tinyweb" else last
+    if inside:
+        described = module.submodules.get(inside, "")
+        importing = f"import {full} as {last}"
+    else:
+        described = (f"What `import {module.name}` reaches: the names written "
+                     f"`{alias}.name` after `import {module.name} as {alias}`.")
+        importing = f"import {module.name} as {alias}"
+    summary = _first_sentence(described).replace('"', '\\"')
+    topics = list(dict.fromkeys(item.topic for item in items))
+    rows = []
+    for topic in topics:
+        names = ", ".join(f"[`{item.name.split('.')[-1]}`](#{_slug(item.name)})"
+                          for item in items if item.topic == topic)
+        rows.append(f"| [{topic}](#{_slug(topic)}) | {names} |")
+    parts = [
+        "---",
+        f"title: {full}",
+        f'description: "{summary}"',
+        "sidebar:",
+        f"  label: {last if inside else 'page, canvas, widgets'}",
+        f"  parent: {module.name}",
+        f"  position: {position}",
+        "---",
+        "",
+        described,
+        "",
+        f"```pyking norun\n{importing}\n```",
+        "",
+        "| Topic | |",
+        "|---|---|",
+        *rows,
+    ]
+    for topic in topics:
+        parts += ["", f"## {topic}"]
+        for item in items:
+            if item.topic == topic:
+                parts += ["", item_markdown(module, item, "###")]
+    return "\n".join(parts).rstrip() + "\n"
+
+
+def _overview_page(module, parts):
+    """A module sorted into topics: what it is, a first program, and a
+    table of its parts, each linking to its page.
+    Module -> [(String, String, [Item])] -> String"""
+    summary = module.summary().replace('"', '\\"')
+    rows = []
+    for inside, file, items in parts:
+        full = f"{module.name}.{inside}" if inside else module.name
+        text = _first_sentence(module.submodules.get(inside, "")) if inside else \
+            "The page, canvases and drawing, widgets, the mouse and keyboard, time, and playing samples."
+        rows.append(f"| [`{full}`](../{file[:-3]}/) | {text} |")
+    return "\n".join([
+        "---",
+        f"title: {module.name}",
+        f'description: "{summary}"',
+        "sidebar:",
+        f"  label: {module.name}",
+        "---",
+        "",
+        module.description,
+        "",
+        "| Module | |",
+        "|---|---|",
+        *rows,
+    ]).rstrip() + "\n"
+
+
+def pages(module):
+    """A module's pages, each as (file name, Markdown): one page, or --
+    for a module whose exports are sorted into topics -- an overview and
+    one page for its own names and one per submodule.
+    Module -> [(String, String)]"""
+    if not any(item.topic for item in module.items):
+        return [(f"{module.name}.md", module_page(module))]
+    order = list(dict.fromkeys(submodule(item.name) for item in module.items))
+    parts = [(inside, f"{module.name}-{inside or 'core'}.md",
+              [item for item in module.items if submodule(item.name) == inside])
+             for inside in order]
+    found = [(f"{module.name}.md", _overview_page(module, parts))]
+    for position, (inside, file, items) in enumerate(parts, 1):
+        found.append((file, _part_page(module, inside, items, position)))
+    return found
+
+
 def index_page(modules):
     """The section's overview: every module with its first sentence.
     [Module] -> String"""
@@ -530,7 +719,8 @@ def write_pages(modules, directory):
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "index.md").write_text(index_page(modules))
     for module in modules:
-        (directory / f"{module.name}.md").write_text(module_page(module))
+        for file, text in pages(module):
+            (directory / file).write_text(text)
 
 
 LIB = Path(__file__).resolve().parent.parent.parent / "lib"
