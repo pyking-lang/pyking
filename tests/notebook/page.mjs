@@ -61,7 +61,7 @@ const STUDENT = [`(async () => { ${HELPERS}
   check("seven open items, worth 12 with 9 to pass",
     r.total === 7 && r.solved === 0 && r.max === 12 && r.pass === 9, JSON.stringify(r));
   check("the rules show max and pass", /12\\s*points/.test($(".pkn-rules").innerText)
-    && /pass at\\s*9/.test($(".pkn-rules").innerText), $(".pkn-rules")?.innerText);
+    && /Required passing score:\\s*9/.test($(".pkn-rules").innerText), $(".pkn-rules")?.innerText);
   check("a progress bar at the top and at the end", $$(".pkn-progress").length === 2);
   check("the solution is hidden, and can be asked for",
     hidden($("[data-r=solution]", exercise(1))) && !hidden($("[data-r=show]", exercise(1))));
@@ -128,8 +128,7 @@ const STUDENT = [`(async () => { ${HELPERS}
   r = nb.results();
   check("the results: four solved, 8 points, not passed",
     r.solved === 4 && r.points === 8 && r.passed === false && r.done === false, JSON.stringify(r));
-  check("the progress bar says so", $(".pkn-progress").innerText.includes("4 of 7 solved")
-    && $(".pkn-progress").innerText.includes("8 of 12"), $(".pkn-progress").innerText);
+  check("the progress bar says so", $(".pkn-progress").innerText.includes("Received 8 of 12 points."), $(".pkn-progress").innerText);
   return checks;
 })()`, "reload", `(async () => { ${HELPERS}
   const r = nb.results();

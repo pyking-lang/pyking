@@ -504,11 +504,10 @@ function checkExercise(item, problems) {
 }
 
 function checkPoints(rules, items, problems) {
-  const sum = items.filter(graded).reduce((total, item) => total + (item.points ?? 0), 0);
+  const sum = items.reduce((total, item) => total + (item.points ?? 0), 0);
   if (rules.max !== null && sum !== rules.max) {
-    const git = items.some((item) => !graded(item));
     problems.push({ line: rules.line,
-      message: `max is ${rules.max}, but the exercises and quizzes ${git ? "graded in the page " : ""}`
+      message: `max is ${rules.max}, but the exercises and quizzes `
         + `give ${sum} point${sum === 1 ? "" : "s"}` });
   }
   if (rules.max !== null && rules.pass !== null && rules.pass > rules.max) {

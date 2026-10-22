@@ -314,8 +314,7 @@ circle "canvas" 75 0 [+/-2] "#000000" "" 1.000 1.000
 An exercise with **`method = git`** is answered somewhere else and
 pushed with git: the page shows "Please submit via your git account"
 in place of the code box and Submit, and grades nothing. Its points are
-left out of the totals and of `max`, and the rules box says how many are
-graded elsewhere.
+left out of the page's running totals, but count towards `max`.
 
 A solution may save what it draws as a picture, which the text can
 show: **`save_canvas = "c"`** names a tinyweb canvas and **`file =
@@ -368,10 +367,11 @@ one `->`. `attempts`, `points` and `penalty` mean what they mean for an
 exercise.
 
 **Submit** with a wrong answer uses an attempt and shows the explanation
-of each wrong alternative chosen; for checkboxes it also says when a
-right one was left unchecked. When the attempts are used up the quiz is
-failed: with `available = true` the right answers are marked and every
-explanation shown, and otherwise it only says it was failed. The default
+of each alternative chosen, right or wrong; for checkboxes it also says
+when a right one was left unchecked. When the attempts are used up the
+quiz is failed: with `available = true` the right answers are marked and
+every explanation shown, and otherwise only the explanations of the right
+alternatives chosen are shown. The default
 is `false`.
 
 `one_point_correct = true` on a `[]` quiz gives one point for each right

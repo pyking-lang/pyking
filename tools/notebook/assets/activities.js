@@ -272,11 +272,10 @@ export class Activities {
   rulesBox(rules) {
     const box = element("section", "pkn-rules");
     const limits = [];
-    if (rules.max !== null) limits.push(`<span><b>${formatNumber(rules.max)}</b> points</span>`);
-    if (rules.pass !== null) limits.push(`<span>pass at <b>${formatNumber(rules.pass)}</b></span>`);
-    const git = this.notebook.items.filter((item) => !graded(item))
-      .reduce((total, item) => total + (item.points ?? 0), 0);
-    if (git) limits.push(`<span>and <b>${formatNumber(git)}</b> submitted with git, graded elsewhere</span>`);
+    if (rules.max !== null) limits.push(`<span><b>${formatNumber(rules.max)}</b> points in total.</span>`);
+    if (rules.pass !== null) {
+      limits.push(`<span>Required passing score: <b>${formatNumber(rules.pass)}</b> points</span>`);
+    }
     box.innerHTML = `<div class="pkn-rules-head"><span class="pkn-rules-title">Rules</span>`
       + `${limits.length ? `<span class="pkn-rules-limits">${limits.join("")}</span>` : ""}</div>`
       + `<div class="pkn-rules-body">${rules.html}</div>`;
@@ -286,8 +285,8 @@ export class Activities {
   /** A progress bar, shown at the top and at the end. () -> Element */
   bar() {
     const bar = element("div", "pkn-progress");
-    bar.innerHTML = `<span data-r="solved"></span><span data-r="points"></span>`
-      + `<button class="pkn-tag pkn-start-over" data-r="reset">start over</button>`;
+    bar.innerHTML = `<span data-r="points"></span>`
+      + `<button class="pkn-button pkn-primary pkn-start-over" data-r="reset">Start over</button>`;
     bar.querySelector('[data-r="reset"]').addEventListener("click", () => {
       if (globalThis.confirm?.("Forget every answer in this notebook and start over?") ?? true) {
         this.startOver();
@@ -300,20 +299,13 @@ export class Activities {
 
   renderBar(bar) {
     const s = summary(this.notebook, this.states);
-    const solved = bar.querySelector('[data-r="solved"]');
     const points = bar.querySelector('[data-r="points"]');
-    solved.className = s.done ? "pkn-good" : "";
-    solved.innerHTML = s.total
-      ? `${s.done ? ICON.check : ""}<b>${s.solved}</b> of <b>${s.total}</b> solved` : "";
-    const parts = [];
-    if (s.max !== null || this.notebook.items.some((item) => item.points !== null)) {
-      parts.push(`<b>${formatNumber(s.points)}</b>${s.max !== null ? ` of ${formatNumber(s.max)}` : ""} points`);
-    }
-    if (s.pass !== null) {
-      parts.push(s.passed ? `${ICON.check}passed` : `pass at ${formatNumber(s.pass)}`);
-    }
+    const scored = s.max !== null || this.notebook.items.some((item) => item.points !== null);
     points.className = s.passed ? "pkn-good" : "";
-    points.innerHTML = parts.join(" · ");
+    points.innerHTML = scored
+      ? `${s.passed ? ICON.check : ""}Received <b>${formatNumber(s.points)}</b>`
+        + `${s.max !== null ? ` of <b>${formatNumber(s.max)}</b>` : ""} points.`
+      : "";
   }
 }
 
@@ -331,7 +323,7 @@ class ExerciseWidget {
     box.id = item.id;
     box.innerHTML = `
       <div class="pkn-activity-head">
-        <span class="pkn-activity-title">Exercise ${item.number}</span>
+        <span class="pkn-activity-title">${exerciseTitle(item)} ${item.number}</span>
         <span class="pkn-badges" data-r="badges"></span>
       </div>
       <div data-r="body"></div>
@@ -382,9 +374,8 @@ class ExerciseWidget {
       }
       at(block)?.remove();
     }
-    if (shownTests) {
-      this.ui.tests.prepend(element("div", "pkn-tests-label",
-        this.a.teacher ? "Tests" : "Examples"));
+    if (shownTests && this.a.teacher) {
+      this.ui.tests.prepend(element("div", "pkn-tests-label", "Tests"));
     }
     this.ui.submit.addEventListener("click", () => this.submit());
     this.ui.diff.addEventListener("click", () => this.showDiff());
@@ -563,7 +554,7 @@ class ExerciseWidget {
     }
     backdrop.innerHTML = `<div class="pkn-modal pkn-diff" role="dialog" aria-modal="true"
         aria-label="Result diff">
-      <div class="pkn-modal-head"><strong>Exercise ${this.item.number}: the first test that did not match</strong>
+      <div class="pkn-modal-head"><strong>${exerciseTitle(this.item)} ${this.item.number}: the first test that did not match</strong>
         <button class="pkn-icon pkn-modal-close" data-r="close" title="Close (Esc)"
           aria-label="Close">✕</button></div>
       <div class="pkn-modal-body">${sections.join("")}</div>
@@ -696,8 +687,15 @@ function compare(answer, expected, test, hasSolution, rules = []) {
 }
 
 /** One failed test, as the student is shown it. {..} -> String */
+/** What an exercise is called: "Practice" where it gives no points.
+ *  Item -> String */
+function exerciseTitle(item) {
+  return item.points ? "Exercise" : "Practice";
+}
+
 function failureHTML(failed) {
-  const rows = [`<div class="pkn-failure-what">${escapeHTML(failed.problem)}</div>`];
+  const example = failed.answer?.ok ? "<br>Here is an example and what is expected" : "";
+  const rows = [`<div class="pkn-failure-what">${escapeHTML(failed.problem)}${example}</div>`];
   if (failed.stdin) rows.push(io("stdin", failed.stdin));
   if (failed.args) rows.push(io("args", failed.args));
   if (failed.test?.events) rows.push(io("events", failed.test.events));
@@ -867,14 +865,14 @@ class QuizWidget {
       if (out) {
         s.state = "failed";
         s.points = quizAward(item, chosen, s.failures - 1);
-        s.explained = [];
+        s.explained = chosen.filter((k) => item.answers[k]?.correct);
         if (s.points > 0) {
           lines.push(`Partly right: ${formatNumber(s.points)} of ${formatNumber(item.points)} points.`);
         }
         lines.push(item.available ? "Not right. The right answers are marked."
           : "Not right, and no attempts are left. The quiz is failed.");
       } else {
-        s.explained = verdict.wrong;
+        s.explained = chosen;
         lines.push("Not right.");
         if (item.multiple && verdict.missed) lines.push("One or more right answers were not checked.");
         if (item.attempts !== null && !item.onePointCorrect) {

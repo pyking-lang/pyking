@@ -151,9 +151,10 @@ Solve all the exercises and quizzes. Each failed Submit costs a point.
 ````
 
 At most one per notebook, shown at the top with `max` and `pass`.
-`max` must be the sum of the `points` of every graded item (an exercise
-with `method = git` is not graded in the page and is not counted). A
-student passes with `pass` points or more.
+`max` must be the sum of the `points` of every exercise and quiz, an
+exercise with `method = git` included. A student passes with `pass`
+points or more. An exercise with no points (none given, or `points = 0`)
+is titled "Practice" rather than "Exercise".
 
 ### Exercises
 
