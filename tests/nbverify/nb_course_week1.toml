@@ -1,0 +1,163 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_course_week1.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_course_week1_args_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week1_args_s2.pyk"
+accepted = false
+reason = "Not right.\nOne or more right answers were not checked."
+
+[[solution]]
+file = "nb_course_week1_args_s3.pyk"
+accepted = false
+reason = "Not right.\n2: Only the arguments are there."
+
+[[solution]]
+file = "nb_course_week1_args_s4.pyk"
+accepted = false
+reason = "Not right.\nOne or more right answers were not checked.\n4: Arguments are strings."
+
+[[solution]]
+file = "nb_course_week1_args_s5.pyk"
+accepted = false
+reason = "There is no alternative 0: the quiz has 4, numbered from 1."
+
+[[solution]]
+file = "nb_course_week1_greet_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week1_greet_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week1_greet_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nargs: Ada\nexpected:\nHello, Ada!\n1 names\ngot:\nHello, Ada!"
+
+[[solution]]
+file = "nb_course_week1_greet_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nargs: Ada\nexpected:\nHello, Ada!\n1 names\ngot:\nHello Ada\n1 names"
+
+[[solution]]
+file = "nb_course_week1_greet_s5.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 3:24-3:25 Parsing error: expected ',' or ')' in call\n  arguments"
+
+[[solution]]
+file = "nb_course_week1_reader_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week1_reader_s2.pyk"
+accepted = false
+reason = "Not right.\n1: `print` writes, it does not read."
+
+[[solution]]
+file = "nb_course_week1_reader_s3.pyk"
+accepted = false
+reason = "Choose one answer."
+
+[[solution]]
+file = "nb_course_week1_reader_s4.pyk"
+accepted = false
+reason = "There is no alternative 7: the quiz has 3, numbered from 1."
+
+[[solution]]
+file = "nb_course_week1_reader_s5.pyk"
+accepted = false
+reason = "Your answer is not a list of the alternatives chosen, such as [1, 3], printed on its own."
+
+[[solution]]
+file = "nb_course_week1_square_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week1_square_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week1_square_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\nexpected:\n9\ngot:\n6"
+
+[[solution]]
+file = "nb_course_week1_square_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n-4\nexpected:\n16\ngot:\n-16"
+
+[[solution]]
+file = "nb_course_week1_square_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\nexpected:\n9\ngot:\n9.0"
+
+[[solution]]
+file = "nb_course_week1_sum_max_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week1_sum_max_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week1_sum_max_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n1\n-7\nexpected:\n-7 -7\ngot:\n-7 0"
+
+[[solution]]
+file = "nb_course_week1_sum_max_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\n4\n9\n2\nexpected:\n15 9\ngot:\n15\n9"
+
+[[solution]]
+file = "nb_course_week1_sum_max_s5.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 5:13-5:35 Type error: `+` cannot be applied to Int and\n  String; it accepts Int + Int or Float + Float"
+
+[[solution]]
+file = "nb_course_week1_sum_max_s6.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\n4\n9\n2\nexpected:\n15 9\ngot:\n13 9"
+
+[[solution]]
+file = "nb_course_week1_values_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week1_values_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week1_values_s3.pyk"
+accepted = false
+reason = "Not right.\nOne or more right answers were not checked."
+
+[[solution]]
+file = "nb_course_week1_values_s4.pyk"
+accepted = false
+reason = "Not right.\n2: A list shows its strings quoted: `['hi']`."
+
+[[solution]]
+file = "nb_course_week1_values_s5.pyk"
+accepted = false
+reason = "Check at least one answer first."
+
+[[solution]]
+file = "nb_course_week1_values_s6.pyk"
+accepted = false
+reason = "Alternative 1 is chosen more than once."

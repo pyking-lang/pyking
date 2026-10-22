@@ -1,0 +1,158 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_course_week2.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_course_week2_beads_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week2_beads_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week2_beads_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n3\nwhat it drew differs at line 3 of tinyweb's log:\nexpected: circle \"canvas\" 50 20 10 \"#ff0000\" \"\" 1.000 1.000\ngot: circle \"canvas\" 40 20 10 \"#ff0000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_course_week2_beads_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n3\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: circle \"canvas\" 20 20 10 \"#ff0000\" \"\" 1.000 1.000\ngot: circle \"canvas\" 20 20 10 \"#ffa500\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_course_week2_beads_s5.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n3\nwhat it drew differs at line 5 of tinyweb's log:\nexpected: (nothing)\ngot: circle \"canvas\" 110 20 10 \"#ff0000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_course_week2_beads_s6.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\nexpected:\n3 beads\ngot:\n"
+
+[[solution]]
+file = "nb_course_week2_chess_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week2_chess_s2.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: rect \"canvas\" 20 0 20 20 0 \"#000000\" \"\" 1.000 1.000\ngot: rect \"canvas\" 0 0 20 20 0 \"#000000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_course_week2_chess_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nwhat it drew differs at line 1 of tinyweb's log:\nexpected: canvas \"canvas\" 160 160\ngot: "
+
+[[solution]]
+file = "nb_course_week2_coords_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week2_coords_s2.pyk"
+accepted = false
+reason = "Not right.\nOne or more right answers were not checked."
+
+[[solution]]
+file = "nb_course_week2_coords_s3.pyk"
+accepted = false
+reason = "Not right.\n2: `y` grows downwards."
+
+[[solution]]
+file = "nb_course_week2_coords_s4.pyk"
+accepted = false
+reason = "Not right.\nOne or more right answers were not checked.\n2: `y` grows downwards.\n3: That moves it left."
+
+[[solution]]
+file = "nb_course_week2_coords_s5.pyk"
+accepted = false
+reason = "Your answer is not a list of the alternatives chosen, such as [1, 3], printed on its own."
+
+[[solution]]
+file = "nb_course_week2_mover_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week2_mover_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week2_mover_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nclick \"Right\"\nclick \"Right\"\nclick \"Left\"\nwhat it drew differs at line 6 of tinyweb's log:\nexpected: clear \"canvas\" #ffffff\ngot: circle \"canvas\" 60 50 5 \"#000000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_course_week2_mover_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nclick \"Right\"\nclick \"Right\"\nclick \"Left\"\nexpected:\n60\n70\n60\ngot:\n60\n70\n80"
+
+[[solution]]
+file = "nb_course_week2_mover_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nclick \"Right\"\nclick \"Right\"\nclick \"Left\"\nexpected:\n60\n70\n60\ngot:\n"
+
+[[solution]]
+file = "nb_course_week2_mover_s6.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 10:4-10:15 Name error: cannot update 'x' with ':=': it\n  is a binding (declared on line 5), not a mutable variable (declare\n  it with 'var' to make it one)"
+
+[[solution]]
+file = "nb_course_week2_trace_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week2_trace_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week2_trace_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\nexpected:\n6\nexpected from debug:\nfact 3\nfact 2\nfact 1\ngot:\nfact 3\nfact 2\nfact 1\n6\ngot from debug:\n"
+
+[[solution]]
+file = "nb_course_week2_trace_s4.pyk"
+accepted = false
+reason = "What debug printed is not what it should be.\nstdin:\n3\nexpected:\n6\nexpected from debug:\nfact 3\nfact 2\nfact 1\ngot:\n6\ngot from debug:\n"
+
+[[solution]]
+file = "nb_course_week2_trace_s5.pyk"
+accepted = false
+reason = "What debug printed is not what it should be.\nstdin:\n3\nexpected:\n6\nexpected from debug:\nfact 3\nfact 2\nfact 1\ngot:\n6\ngot from debug:\nfact 3\nfact 2\nfact 1\nfact 0"
+
+[[solution]]
+file = "nb_course_week2_trace_s6.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week2_trace_s7.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 4:8-4:19 Runtime error: maximum call depth of 10000\n  exceeded; this is what a recursion that never ends looks like\nin 'fact', called at 'solution.pyk' 4:8-4:19\nin 'fact', called at 'solution.pyk' 4:8-4:19\nin 'fact', called at 'solution.pyk' 4:8-4:19\nin 'fact', called at 'solution.pyk' 4:8-4:19\nin 'fact', called at 'solution.pyk' 4:8-4:19\nin 'fact', called at 'solution.pyk' 4:8-4:19\nin 'fact', called at 'solution.pyk' 4:8-4:19\nin 'fact', called at 'solution.pyk' 4:8-4:19\nin 'fact', called at 'solution.pyk' 4:8-4:19\nin 'fact', called at 'solution.pyk' 4:8-4:19\n  ... 9990 more calls"
+
+[[solution]]
+file = "nb_course_week2_where_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_week2_where_s2.pyk"
+accepted = false
+reason = "Not right.\n1: Then it could not be told from the program's own output."
+
+[[solution]]
+file = "nb_course_week2_where_s3.pyk"
+accepted = false
+reason = "Not right.\n3: It always writes."
+
+[[solution]]
+file = "nb_course_week2_where_s4.pyk"
+accepted = false
+reason = "Choose one answer."

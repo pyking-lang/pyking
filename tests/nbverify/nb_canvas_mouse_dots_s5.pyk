@@ -1,0 +1,12 @@
+# Draws on press, not on click.
+import tinyweb as tw
+import tinyweb.color as color
+
+c = tw.canvas(200, 200)
+tw.rect(c, 0, 0, 200, 200, color.hex(0xeeeeee))
+
+def clicked(x: Int, y: Int):
+    tw.circle(c, x, y, 5, color.red)
+    print("dot at", x, y)
+
+tw.on_press(c, clicked)

@@ -1,0 +1,9 @@
+import tinyweb as tw
+import tinyweb.color as color
+tw.web_init(0)
+c = tw.canvas(160, 160)
+for row in range(8):
+    for col in range(8):
+        if (row + col) / 2 * 2 < row + col:
+            tw.rect(c, col * 20, row * 20, 20, 20, color.black)
+print("done")

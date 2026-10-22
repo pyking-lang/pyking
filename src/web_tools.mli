@@ -16,8 +16,9 @@
 type tool = Notebook | Playground | Help | Files
 
 (** Serves the tool until Ctrl+C, on `port` if one is given: the
-    notebook opening the document `path` in `mode` (student, teacher or
-    test, which runs it under node instead), or the directory `path` (by
-    default the current one). Answers the exit status, or why it could
+    notebook opening the document `path` -- Markdown, or a notebook's
+    JSON, served as the Markdown it stands for -- in `mode` (student,
+    teacher or test, which runs it under node instead), or the directory
+    `path` (by default the current one). Answers the exit status, or why it could
     not start. tool -> int? -> string? -> string? -> (int, string) result *)
 val start : tool -> int option -> string option -> string option -> (int, string) result

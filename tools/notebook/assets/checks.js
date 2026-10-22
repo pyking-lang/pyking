@@ -11,8 +11,9 @@
 // says; and the same of an ordinary cell's stdout and stderr blocks.
 //
 // Data structures:
-//   Run -- (source, name, stdin, args) -> Promise<{ok, text?, stdout,
-//     stderr}>: runs one program, `args` as the text a header writes.
+//   Run -- (source, name, stdin, args, events) -> Promise<{ok, text?,
+//     stdout, stderr}>: runs one program, `args` as the text a header
+//     writes, `events` the tinyweb events delivered after its top level.
 //   Problem -- {line, message}, as exercises.js reports one.
 //
 // Functions:
@@ -60,7 +61,7 @@ export async function checkNotebook(doc, run) {
   // Each test of an exercise with a solution, and each example under a
   // cell: what runs is what the block after it says.
   const compare = async (source, name, line, test, stdin, args) => {
-    const result = await run(source, name, stdin, args);
+    const result = await run(source, name, stdin, args, test.events ?? "");
     if (!result.ok) {
       check(false, line, `the program does not run on this input:\n  ${result.text}`);
       return;

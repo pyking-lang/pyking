@@ -1,0 +1,6 @@
+import io
+n = int(io.read_line())
+if n < 0:
+    print("negative")
+else:
+    print("ok", n)

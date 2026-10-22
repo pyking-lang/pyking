@@ -1,0 +1,21 @@
+import io
+import text
+import tinyweb as tw
+import tinyweb.sound as sound
+
+def rounded(x: Float) -> Float:
+    float(int(x * 100.0 + 0.5)) / 100.0
+
+def play_all(names: [String], beat: Float, k: Int) -> Int:
+    match names:
+        case []: k
+        case [name, ..rest]:
+            sound.tone(sound.note(name), at = rounded(float(k) * beat), duration = rounded(beat), wave = "triangle")
+            play_all(rest, beat, k + 1)
+
+tw.web_init(0)
+bpm = float(io.read_line())
+sound.tempo(bpm)
+beat = 60.0 / bpm
+n = play_all(text.words(io.read_line()), beat, 0)
+print(string(n) ++ " notes, " ++ string(rounded(float(n) * beat)) ++ " seconds")

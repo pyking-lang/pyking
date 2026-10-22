@@ -1,0 +1,3 @@
+import tinyweb as tw
+
+tw.text_input("", on_enter = (w: String) => print("[" ++ w ++ "] " ++ string(len(w))))

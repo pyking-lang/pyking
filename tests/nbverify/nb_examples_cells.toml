@@ -1,0 +1,33 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_examples_cells.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_examples_cells_default_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_examples_cells_default_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_examples_cells_default_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\nexpected:\n0 0\n1 1\n2 4\ngot:\n1 1\n2 4\n3 9"
+
+[[solution]]
+file = "nb_examples_cells_default_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\nexpected:\n0 0\n1 1\n2 4\ngot:\n0\n1\n4"
+
+[[solution]]
+file = "nb_examples_cells_default_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n0\nexpected:\n\ngot:\n0 0\n1 1\n2 4"
+
+[[solution]]
+file = "nb_examples_cells_default_s6.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 3:15-3:16 Type error: 'range' cannot be applied to\n  String; it accepts Int"

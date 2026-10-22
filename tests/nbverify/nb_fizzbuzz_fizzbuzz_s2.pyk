@@ -1,0 +1,13 @@
+import io
+
+def divides(d: Int, n: Int) -> Bool:
+    return (n / d) * d == n
+
+n = int(io.read_line())
+var i = 1
+while i <= n:
+    fizz = if divides(3, i) then "Fizz" else ""
+    buzz = if divides(5, i) then "Buzz" else ""
+    both = fizz ++ buzz
+    print(if both == "" then string(i) else both)
+    i := i + 1

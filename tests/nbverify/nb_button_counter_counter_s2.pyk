@@ -1,0 +1,13 @@
+# The label is set before printing, and the text is built differently.
+import tinyweb as tw
+
+print("ready")
+shown = tw.label("0 clicks")
+var clicks = 0
+
+def more():
+    clicks := clicks + 1
+    tw.set_text(shown, string(clicks) ++ " " ++ "clicks")
+    print("clicked " ++ string(clicks))
+
+button = tw.button("Click me", on_click = more)

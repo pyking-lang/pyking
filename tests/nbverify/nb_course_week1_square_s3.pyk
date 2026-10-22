@@ -1,0 +1,3 @@
+import io
+n = int(io.read_line())
+print(n * 2)

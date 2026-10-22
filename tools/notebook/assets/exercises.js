@@ -9,17 +9,19 @@
 // Data structures:
 //   Notebook -- {rules, items, examples, problems}: what a document makes.
 //   Rules -- {line, max, pass, html}: the one ```rules block.
-//   Exercise -- {kind: "exercise", id, number, key, line, part, cell,
+//   Exercise -- {kind: "exercise", id, name, number, key, line, part, cell,
 //     method, attempts, points, penalty, stdin, args, solution, tests,
 //     allowed, allowedParts}: `allowed` the Rules of its diff-allowed blocks;
-//     `method` "code_box" (answered in the page) or "git" (not graded
-//     here).
+//     `method` "inline" (answered in the page) or "git" (not graded
+//     here); `name` the name = it was given, or null.
 //   Solution -- {cell, line, available, picture}: `picture` {canvas,
 //     file} where the solution's canvas is saved as a picture, or null.
-//   Test -- {line, stdin, args, input, output, error}: one input and what
-//     it should print; `input`, `output` and `error` are the blocks. A
-//     stdin block split by lines_per_multi_input is one Test per piece.
-//   Quiz -- {kind: "quiz", id, number, key, line, part, answerPart,
+//   Test -- {line, stdin, args, events, input, eventsPart, output, error}:
+//     one input and what it should print; `input`, `eventsPart`, `output`
+//     and `error` are the blocks, `events` the tinyweb events delivered
+//     once the program's top level has ended, or "". A stdin block split
+//     by lines_per_multi_input is one Test per piece.
+//   Quiz -- {kind: "quiz", id, name, number, key, line, part, answerPart,
 //     question, alternatives, multiple, onePointCorrect, answers, attempts,
 //     points, penalty, available}.
 //   Example -- {cell, line, tests}: input and output under an ordinary cell.
@@ -45,7 +47,7 @@
 /** The attributes each kind of block may carry. */
 const KNOWN = {
   rules: ["max", "pass"],
-  exercise: ["exercise", "attempts", "points", "penalty", "stdin", "args", "readonly", "method"],
+  exercise: ["exercise", "name", "attempts", "points", "penalty", "stdin", "args", "readonly", "method"],
   solution: ["solution", "available", "readonly", "stdin", "args", "save_canvas", "file"],
   // `playground` is the website's (tools/site/src/remark-pyking-cells.mjs).
   pyking: ["norun", "readonly", "error", "stdin", "args", "playground"],
@@ -53,7 +55,8 @@ const KNOWN = {
   args: [],
   stdout: ["visible"],
   stderr: ["visible"],
-  quiz: ["attempts", "points", "penalty", "available", "one_point_correct"],
+  events: ["visible"],
+  quiz: ["name", "attempts", "points", "penalty", "available", "one_point_correct"],
   answer: [],
   "diff-allowed": [],
 };
@@ -163,12 +166,12 @@ export function structure(parts, cells) {
             if (part.kind === "args") {
               problem(part, "an exercise's test gives its arguments as args = on its stdin block");
             } else if (part.attrs.lines_per_multi_input !== undefined) {
-              owner.tests.push(...splitTests(part, owner, next, problem));
+              owner.tests.push(...splitTests(part, owner, problem));
             } else {
               owner.tests.push(newTest(part));
             }
           } else if (part.kind === "stdin" && owner?.kind === "cell"
-                     && (next?.kind === "stdout" || next?.kind === "stderr")) {
+                     && ["stdout", "stderr", "events"].includes(next?.kind)) {
             owner.tests.push(newTest(part));
           } else if (["pyking", "stdin", "args"].includes(next?.kind)) {
             pending[part.kind] = part.kind === "stdin"
@@ -179,12 +182,33 @@ export function structure(parts, cells) {
           }
           break;
         }
+        case "events": {
+          if (owner?.kind === "exercise" || owner?.kind === "cell") {
+            const last = owner.tests[owner.tests.length - 1];
+            if (last && !last.eventsPart && !last.output && !last.error) {
+              for (const test of owner.tests.filter((t) => t.input && t.input === last.input)) {
+                test.eventsPart = part;
+                test.events = part.text;
+              }
+            } else {
+              const test = newTest(null, part.line);
+              test.eventsPart = part;
+              test.events = part.text;
+              owner.tests.push(test);
+            }
+          } else {
+            problem(part, "an events block belongs under a cell or an exercise");
+          }
+          break;
+        }
         case "stdout":
         case "stderr": {
           if (owner?.kind === "exercise" || owner?.kind === "cell") {
             const last = owner.tests[owner.tests.length - 1];
             const slot = part.kind === "stdout" ? "output" : "error";
-            if (last && !last[slot]) {
+            if (last && !last[slot] && last.input?.attrs.lines_per_multi_input !== undefined) {
+              problem(part, "a stdin block with lines_per_multi_input has no stdout or stderr after it: each piece is compared with the solution");
+            } else if (last && !last[slot]) {
               last[slot] = part;
             } else {
               const test = newTest(null, part.line);
@@ -212,6 +236,7 @@ export function structure(parts, cells) {
       }
     }
   }
+  checkNames(items, problems);
   if (rules) checkPoints(rules, items, problems);
   problems.sort((a, b) => a.line - b.line);
   return { rules, items, examples: examples.filter((e) => e.tests.length), problems };
@@ -241,19 +266,22 @@ function readRules(part, problem) {
 function readExercise(part, cells, number_, problem) {
   if (part.cell === null) problem(part, "an exercise is run, so it cannot be norun");
   const stdin = typeof part.attrs.stdin === "string" ? inputLines(part.attrs.stdin) : "";
-  const method = part.attrs.method ?? "code_box";
-  if (!["code_box", "git"].includes(method)) {
-    problem(part, `method is code_box or git, not '${method}'`);
+  const method = part.attrs.method ?? "inline";
+  if (method === "code_box") {
+    problem(part, "method code_box is now called inline");
+  } else if (!["inline", "git"].includes(method)) {
+    problem(part, `method is inline or git, not '${method}'`);
   }
   return {
     kind: "exercise",
     id: `exercise-${number_}`,
+    name: readName(part, problem),
     number: number_,
     key: hash(part.text),
     line: part.line,
     part: part.index,
     cell: part.cell,
-    method: method === "git" ? "git" : "code_box",
+    method: method === "git" ? "git" : "inline",
     attempts: count(part, "attempts", problem),
     points: number(part, "points", null, problem),
     penalty: number(part, "penalty", 0, problem) ?? 0,
@@ -276,6 +304,7 @@ function readQuiz(part, number_, problem) {
   return {
     kind: "quiz",
     id: `quiz-${number_}`,
+    name: readName(part, problem),
     number: number_,
     key: hash(part.text),
     line: part.line,
@@ -341,16 +370,13 @@ function readPicture(part, problem) {
  *  lines, each with the block's arguments. Its tests are compared with
  *  the solution, so the exercise needs one and nothing may follow it
  *  as its output. Part -> Exercise -> Part? -> (..) -> [Test] */
-function splitTests(part, owner, next, problem) {
+function splitTests(part, owner, problem) {
   const n = Number(part.attrs.lines_per_multi_input);
   if (!Number.isInteger(n) || n < 1) {
     problem(part, `lines_per_multi_input is a whole number of at least 1, not '${part.attrs.lines_per_multi_input}'`);
     return [newTest(part)];
   }
   if (!owner.solution) problem(part, "a stdin block with lines_per_multi_input is compared with the solution, which this exercise does not have");
-  if (next?.kind === "stdout" || next?.kind === "stderr") {
-    problem(next, "a stdin block with lines_per_multi_input has no stdout or stderr after it: each piece is compared with the solution");
-  }
   const lines = part.text.replace(/\n+$/, "").split("\n");
   if (lines.length % n !== 0) {
     problem(part, `its ${lines.length} line${lines.length === 1 ? "" : "s"} are not pieces of ${n}`);
@@ -431,9 +457,37 @@ function newTest(part, line = part.line) {
     input: part,
     stdin: part ? inputLines(part.text) : null,
     args: part ? (typeof part.attrs.args === "string" ? part.attrs.args : "") : null,
+    events: "",
+    eventsPart: null,
     output: null,
     error: null,
   };
+}
+
+/** An item's name = : letters, digits, _ and -, starting with a letter
+ *  or a digit; null where none is given. Part -> (..) -> String? */
+function readName(part, problem) {
+  const value = part.attrs.name;
+  if (value === undefined) return null;
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(value)) {
+    problem(part, `a name is letters, digits, _ and -, starting with a letter or a digit, not '${value}'`);
+    return null;
+  }
+  return value;
+}
+
+/** Complains about a name two items share. [Item] -> [Problem] -> () */
+function checkNames(items, problems) {
+  const seen = new Map();
+  for (const item of items) {
+    if (item.name === null) continue;
+    if (seen.has(item.name)) {
+      problems.push({ line: item.line,
+        message: `the name '${item.name}' is given to the item on line ${seen.get(item.name)} too` });
+    } else {
+      seen.set(item.name, item.line);
+    }
+  }
 }
 
 function checkExercise(item, problems) {

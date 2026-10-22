@@ -1,0 +1,13 @@
+import tinyweb as tw
+import tinyweb.color as color
+import io
+
+w = int(io.read_line())
+c = tw.canvas(300, 300)
+top = 250 - w
+middle = 50 + w / 2
+tw.rect(c, 50, top, w, w, color.brown)
+roof = [tw.Point(50, top), tw.Point(50 + w, top), tw.Point(middle, top - w / 2)]
+tw.polygon(c, roof, color.red)
+tw.rect(c, middle - 10, 250 - 30, 20, 30, color.black)
+print("house of width", w)

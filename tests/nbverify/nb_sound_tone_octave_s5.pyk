@@ -1,0 +1,9 @@
+import io
+import tinyweb as tw
+import tinyweb.sound as sound
+tw.web_init(0)
+line = io.read_line()
+f = 440.0
+sound.tone(f, duration = 0.25)
+sound.tone(f * 2.0, at = 0.5, duration = 0.25, wave = "square")
+print("played", line)

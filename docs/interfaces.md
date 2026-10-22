@@ -92,6 +92,9 @@ respects that, which is what makes the library link.
 │                  interpreter.ml's runner and what a debugger reads   │
 │  examples.ml     example, file, read, find, listing: the examples    │
 │                  list, for pyk.ml and web_tools.ml                   │
+│  notebook_format.ml of_markdown, to_markdown, schema, Format_error:  │
+│                  a notebook as JSON, for pyk.ml and web_tools.ml,    │
+│                  over json.ml (parse, pretty)                        │
 │  repl_session.ml new_session, submit, run_meta, bindings, complete,  │
 │                  ...: a REPL session, for repl.ml and the page's     │
 │                  REPL tab                                            │

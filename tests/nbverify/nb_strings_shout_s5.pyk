@@ -1,0 +1,3 @@
+import io
+import text
+print(text.upper(io.read_line()))

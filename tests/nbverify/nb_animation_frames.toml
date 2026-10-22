@@ -1,0 +1,58 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_animation_frames.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_animation_frames_ball_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_animation_frames_ball_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_animation_frames_ball_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nframe 0.0\nframe 0.5\nframe 1.25\nwhat it drew differs at line 8 of tinyweb's log:\nexpected: circle \"canvas\" 45 50 8 \"#ffffff\" \"\" 1.000 1.000\ngot: circle \"canvas\" 70 50 8 \"#ffffff\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_animation_frames_ball_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nframe 0.0\nframe 0.5\nframe 1.25\nwhat it drew differs at line 4 of tinyweb's log:\nexpected: clear \"canvas\" #000000\ngot: circle \"canvas\" 20 50 8 \"#ffffff\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_animation_frames_ball_s5.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nframe 0.0\nframe 0.5\nframe 1.25\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: on_frame\ngot: clear \"canvas\" #000000"
+
+[[solution]]
+file = "nb_animation_frames_ball_s6.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 9:26-9:32 Type error: `*` cannot be applied to Float\n  and Int; it accepts Int * Int or Float * Float. Pyking mixes no\n  numbers on its own: `float(n)` makes an Int a Float, and `int(x)`\n  truncates a Float to an Int"
+
+[[solution]]
+file = "nb_animation_frames_three_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_animation_frames_three_s2.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nframe 0.0\nframe 0.5\nframe 1.0\nframe 1.5\nframe 2.0\nexpected:\nframe 1 at 0.0\nframe 2 at 0.5\nframe 3 at 1.0\ngot:\nframe 1 at 0.0\nframe 2 at 0.5\nframe 3 at 1.0\nframe 4 at 1.5\nframe 5 at 2.0"
+
+[[solution]]
+file = "nb_animation_frames_three_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nframe 0.0\nframe 0.25\nexpected:\nframe 1 at 0.0\nframe 2 at 0.25\ngot:\nframe 0 at 0.0\nframe 1 at 0.25"
+
+[[solution]]
+file = "nb_animation_frames_three_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nframe 0.0\nframe 0.25\nwhat it drew differs at line 6 of tinyweb's log:\nexpected: rect \"canvas\" 0 0 20 20 0 \"#ffa500\" \"\" 1.000 1.000\ngot: rect \"canvas\" 0 0 10 20 0 \"#ffa500\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_animation_frames_three_s5.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 9:8-9:22 Runtime error: maximum call depth of 10000\n  exceeded; this is what a recursion that never ends looks like"

@@ -1,0 +1,33 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_args.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_args_numbered_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_args_numbered_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_args_numbered_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n--\nargs: red \"light blue\"\nexpected:\n1: red\n2: light blue\nseparator: --\n2 arguments\ngot:\n0: red\n1: light blue\nseparator: --\n2 arguments"
+
+[[solution]]
+file = "nb_args_numbered_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n--\nargs: red \"light blue\"\nexpected:\n1: red\n2: light blue\nseparator: --\n2 arguments\ngot:\n1: red\n2: light\n3: blue\nseparator: --\n3 arguments"
+
+[[solution]]
+file = "nb_args_numbered_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n--\nargs: red \"light blue\"\nexpected:\n1: red\n2: light blue\nseparator: --\n2 arguments\ngot:\n1: red\n2: light blue\n2 arguments"
+
+[[solution]]
+file = "nb_args_numbered_s6.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 6:10-6:19 Type error: `++` cannot be applied to Int and\n  String; it accepts String ++ String or two lists of one type"

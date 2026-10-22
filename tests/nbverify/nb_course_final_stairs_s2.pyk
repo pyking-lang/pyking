@@ -1,0 +1,11 @@
+import io
+import tinyweb as tw
+import tinyweb.color as color
+def step(c: String, k: Int) -> ():
+    at = 20 * k
+    tw.rect(c, at, at, 200 - at, 20, fill = color.rgb(0, 128, 0))
+tw.web_init(0)
+n = int(io.read_line())
+c = tw.canvas(200, 200)
+for k in range(n):
+    step(c, k)

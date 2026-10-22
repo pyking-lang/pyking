@@ -129,7 +129,7 @@ to stderr
 Write a program that reads a line and prints it twice, then its
 arguments.
 
-```pyking exercise attempts = 3 stdin = "123" args = "go for it" points = 5
+```pyking exercise name = "twice" attempts = 3 stdin = "123" args = "go for it" points = 5
 print("Add your code here")
 ```
 
@@ -182,9 +182,39 @@ print(0)
 print(6 * 7)
 ```
 
+A page whose button counts its clicks, clicked twice once the program's
+top level has ended:
+
+```pyking exercise name = "counter"
+import tinyweb as tw
+tw.web_init(0)
+```
+
+```pyking solution
+import tinyweb as tw
+var count = 0
+tw.web_init(0)
+shown = tw.label("0")
+def more():
+    count := count + 1
+    tw.set_text(shown, string(count))
+    print(count)
+tw.button("More", on_click = more)
+```
+
+```events visible = true
+click "More"
+click "More"
+```
+
+```stdout visible = true
+1
+2
+```
+
 Which is true of Pyking?
 
-```quiz points = 2
+```quiz name = "typed" points = 2
 * It is statically typed.
 
 * It has no types at all.

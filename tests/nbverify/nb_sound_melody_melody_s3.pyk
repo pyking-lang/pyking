@@ -1,0 +1,12 @@
+import io
+import text
+import tinyweb as tw
+import tinyweb.sound as sound
+tw.web_init(0)
+bpm = float(io.read_line())
+notes = text.words(io.read_line())
+beat = 60.0 / bpm
+sound.tempo(bpm)
+for name in notes:
+    sound.tone(sound.note(name), duration = beat, wave = "triangle")
+print(len(notes), "notes,", float(len(notes)) * beat, "seconds")

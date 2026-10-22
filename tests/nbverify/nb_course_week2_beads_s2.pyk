@@ -1,0 +1,14 @@
+import io
+import tinyweb as tw
+import tinyweb.color as color
+
+def beads(c: String, k: Int, n: Int) -> ():
+    if k < n:
+        tw.circle(c, 20 + 30 * k, 20, 10, fill = color.rgb(255, 0, 0))
+        beads(c, k + 1, n)
+
+tw.web_init(0)
+n = int(io.read_line())
+c = tw.canvas(300, 40)
+beads(c, 0, n)
+print(string(n) ++ " beads")

@@ -1,0 +1,7 @@
+import io
+var total = 1
+n = int(io.read_line())
+for k in range(n, 0, -1):
+    debug("fact", k)
+    total := total * k
+print(total)

@@ -1,0 +1,53 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_draw_square.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_draw_square_args_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_draw_square_args_s2.pyk"
+accepted = false
+reason = "Not right.\n1: Those are the first two: x and y."
+
+[[solution]]
+file = "nb_draw_square_args_s3.pyk"
+accepted = false
+reason = "Choose one answer."
+
+[[solution]]
+file = "nb_draw_square_args_s4.pyk"
+accepted = false
+reason = "There is no alternative 4: the quiz has 3, numbered from 1."
+
+[[solution]]
+file = "nb_draw_square_square_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_draw_square_square_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_draw_square_square_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n50\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: rect \"canvas\" 10 10 50 50 0 \"#008000\" \"\" 1.000 1.000\ngot: rect \"canvas\" 10 10 50 50 0 \"#ff0000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_draw_square_square_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n25\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: rect \"canvas\" 10 10 25 25 0 \"#008000\" \"\" 1.000 1.000\ngot: rect \"canvas\" 10 10 50 50 0 \"#008000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_draw_square_square_s5.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 7:19-7:23 Type error: argument 4 has type String, but\n  Int was expected"
+
+[[solution]]
+file = "nb_draw_square_square_s6.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n50\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: rect \"canvas\" 10 10 50 50 0 \"#008000\" \"\" 1.000 1.000\ngot: rect \"canvas\" 10 10 53 53 0 \"#008000\" \"\" 1.000 1.000"

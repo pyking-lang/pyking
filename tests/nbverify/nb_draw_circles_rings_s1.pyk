@@ -1,0 +1,10 @@
+import tinyweb as tw
+import tinyweb.color as color
+import io
+
+n = int(io.read_line())
+c = tw.canvas(200, 200)
+var r = 10 * n
+while r > 0:
+    tw.circle(c, 100, 100, r, color.none, stroke = color.navy, width = 2)
+    r := r - 10

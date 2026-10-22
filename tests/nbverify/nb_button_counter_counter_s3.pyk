@@ -1,0 +1,12 @@
+# Forgets to update the label.
+import tinyweb as tw
+
+var count = 0
+shown = tw.label("0 clicks")
+
+def clicked():
+    count := count + 1
+    print("clicked", count)
+
+tw.button("Click me", on_click = clicked)
+print("ready")

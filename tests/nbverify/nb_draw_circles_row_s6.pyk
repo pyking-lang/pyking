@@ -1,0 +1,13 @@
+# Prints where the next circle would go.
+import tinyweb as tw
+import tinyweb.color as color
+import io
+
+start = int(io.read_line())
+gap = int(io.read_line())
+c = tw.canvas(400, 100)
+var x = start
+for fill in [color.red, color.orange, color.yellow, color.green, color.blue]:
+    tw.circle(c, x, 50, 15, fill)
+    x := x + gap
+print("last at", x)

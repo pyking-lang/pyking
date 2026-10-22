@@ -1,0 +1,9 @@
+import io
+
+def greet_all(n: Int) -> Int:
+    if io.is_eof():
+        return n
+    print("Hello, " ++ io.read_line() ++ "!")
+    return greet_all(n + 1)
+
+print("Greeted", greet_all(0), "people")

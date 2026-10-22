@@ -1,0 +1,53 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_draw_circles.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_draw_circles_rings_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_draw_circles_rings_s2.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n3\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: circle \"canvas\" 100 100 30 \"\" \"#000080\" 2.000 1.000\ngot: circle \"canvas\" 100 100 10 \"\" \"#000080\" 2.000 1.000"
+
+[[solution]]
+file = "nb_draw_circles_rings_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n1\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: circle \"canvas\" 100 100 10 \"\" \"#000080\" 2.000 1.000\ngot: circle \"canvas\" 100 100 10 \"#000080\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_draw_circles_rings_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n1\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: circle \"canvas\" 100 100 10 \"\" \"#000080\" 2.000 1.000\ngot: circle \"canvas\" 100 100 30 \"\" \"#000080\" 2.000 1.000"
+
+[[solution]]
+file = "nb_draw_circles_row_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_draw_circles_row_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_draw_circles_row_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n20\n40\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: circle \"canvas\" 20 50 15 \"#ff0000\" \"\" 1.000 1.000\ngot: circle \"canvas\" 180 50 15 \"#0000ff\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_draw_circles_row_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n20\n40\nwhat it drew differs at line 3 of tinyweb's log:\nexpected: circle \"canvas\" 60 50 15 \"#ffa500\" \"\" 1.000 1.000\ngot: circle \"canvas\" 60 50 15 \"#800080\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_draw_circles_row_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n20\n40\nexpected:\nlast at 180\ngot:\nlast at 120"
+
+[[solution]]
+file = "nb_draw_circles_row_s6.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n20\n40\nexpected:\nlast at 180\ngot:\nlast at 220"

@@ -1,0 +1,22 @@
+import tinyweb as tw
+
+def pad(title: String, sample: String, volume: Float, said: (Int) -> String) -> ():
+    var count = 0
+    def hit():
+        count := count + 1
+        tw.play(sample, volume = volume)
+        print(said(count) ++ "  ")
+    tw.button(title, on_click = hit)
+    ()
+
+def boom(n: Int) -> String:
+    "boom " ++ string(n)
+
+def clap(n: Int) -> String:
+    "clap"
+
+tw.web_init(0)
+kick = tw.load_sample("kick1.wav")
+snare = tw.load_sample("snare1.wav")
+pad("Drum", kick, 1.0, boom)
+pad("Clap", snare, 0.5, clap)

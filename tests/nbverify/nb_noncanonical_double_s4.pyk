@@ -1,0 +1,3 @@
+import io
+line = io.read_line()
+print(line ++ line)

@@ -1,0 +1,14 @@
+# The right text, but every bar is ten pixels wide.
+import tinyweb as tw
+import tinyweb.color as color
+
+c = tw.canvas(100, 20)
+var count = 0
+
+def draw(t: Float):
+    if count < 3:
+        count := count + 1
+        print("frame", count, "at", t)
+        tw.rect(c, 0, 0, 10, 20, color.orange)
+
+tw.on_frame(draw)

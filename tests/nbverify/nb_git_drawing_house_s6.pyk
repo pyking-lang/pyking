@@ -1,0 +1,9 @@
+# Forgets to import io.
+import tinyweb as tw
+import tinyweb.color as color
+
+w = int(io.read_line())
+c = tw.canvas(300, 300)
+top = 250 - w
+tw.rect(c, 50, top, w, w, color.brown)
+print("house of width", w)

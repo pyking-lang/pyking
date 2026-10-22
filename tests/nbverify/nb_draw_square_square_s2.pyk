@@ -1,0 +1,9 @@
+# One pixel smaller, which is allowed; trailing blank line printed too.
+import tinyweb as tw
+import tinyweb.color as color
+import io
+n = int(io.read_line())
+c = tw.canvas(120, 120)
+tw.rect(c, 10, 10, n - 1, n + 1, color.rgb(0, 128, 0))
+print(n + 2, "  ")
+print("")

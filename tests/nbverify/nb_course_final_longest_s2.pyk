@@ -1,0 +1,11 @@
+import sys
+import text
+def longest(xs: [String], best: String) -> String:
+    match xs:
+        case []: best
+        case [x, ..rest]: longest(rest, if text.length(x) > text.length(best) then x else best)
+match sys.args():
+    case []: print(0)
+    case [first, ..rest]:
+        print(1 + len(rest))
+        print(longest(rest, first))

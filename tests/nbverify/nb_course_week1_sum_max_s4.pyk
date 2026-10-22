@@ -1,0 +1,11 @@
+import io
+n = int(io.read_line())
+var total = 0
+var largest = -1000000
+for k in range(n):
+    x = int(io.read_line())
+    total := total + x
+    if x > largest:
+        largest := x
+print(total)
+print(largest)

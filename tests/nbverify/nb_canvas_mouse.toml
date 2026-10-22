@@ -1,0 +1,63 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_canvas_mouse.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_canvas_mouse_dots_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_canvas_mouse_dots_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_canvas_mouse_dots_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nmouse \"canvas\" 10 20\nwhat it drew differs at line 5 of tinyweb's log:\nexpected: circle \"canvas\" 10 20 5 \"#ff0000\" \"\" 1.000 1.000\ngot: circle \"canvas\" 20 10 5 \"#ff0000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_canvas_mouse_dots_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nmouse \"canvas\" 10 20\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: rect \"canvas\" 0 0 200 200 0 \"#eeeeee\" \"\" 1.000 1.000\ngot: on_mouse \"canvas\""
+
+[[solution]]
+file = "nb_canvas_mouse_dots_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nmouse \"canvas\" 10 20\nexpected:\ndot at 10 20\ngot:\n"
+
+[[solution]]
+file = "nb_canvas_mouse_dots_s6.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nmouse \"canvas\" 10 20\nwhat it drew differs at line 5 of tinyweb's log:\nexpected: circle \"canvas\" 10 20 5 \"#ff0000\" \"\" 1.000 1.000\ngot: circle \"canvas\" 10 20 10 \"#ff0000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_canvas_mouse_lines_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_canvas_mouse_lines_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_canvas_mouse_lines_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\npress \"canvas\" 10 20\nmove \"canvas\" 30 30\nrelease \"canvas\" 50 60\nwhat it drew differs at line 5 of tinyweb's log:\nexpected: > release \"canvas\" 50 60\ngot: line \"canvas\" 10 20 30 30 \"\" \"#0000ff\" 3.000 1.000"
+
+[[solution]]
+file = "nb_canvas_mouse_lines_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\npress \"canvas\" 10 20\nmove \"canvas\" 30 30\nrelease \"canvas\" 50 60\nwhat it drew differs at line 6 of tinyweb's log:\nexpected: line \"canvas\" 10 20 50 60 \"\" \"#0000ff\" 3.000 1.000\ngot: line \"canvas\" 10 20 50 60 \"\" \"#0000ff\" 1.000 1.000"
+
+[[solution]]
+file = "nb_canvas_mouse_lines_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nrelease \"canvas\" 40 40\nexpected:\nline from 0 0 to 40 40\ngot:\nline from 10 10 to 40 40"
+
+[[solution]]
+file = "nb_canvas_mouse_lines_s6.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 10:17-10:25 Type error: argument 2 has type\n  (tinyweb.Point) -> (), but (Int, Int) -> () was expected"

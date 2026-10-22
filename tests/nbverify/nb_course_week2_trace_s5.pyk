@@ -1,0 +1,5 @@
+import io
+def fact(k: Int) -> Int:
+    debug("fact", k)
+    if k <= 0 then 1 else k * fact(k - 1)
+print(fact(int(io.read_line())))

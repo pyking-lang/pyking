@@ -1,0 +1,4 @@
+import io
+n = int(io.read_line())
+m = if n < 0 then -n else n
+print(n, "squared is", n * m)

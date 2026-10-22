@@ -1,0 +1,38 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_sound_melody.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_sound_melody_melody_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_sound_melody_melody_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_sound_melody_melody_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n120\nA4 B4 C5\nwhat it drew differs at line 3 of tinyweb's log:\nexpected: tone \"\" \"triangle\" 493.8833012561241 0.5 0.5 0.5 0.0 0\ngot: tone \"\" \"triangle\" 493.8833012561241 0.0 0.5 0.5 0.0 0"
+
+[[solution]]
+file = "nb_sound_melody_melody_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n120\nA4 B4 C5\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: tone \"\" \"triangle\" 440.0 0.0 0.5 0.5 0.0 0\ngot: tone \"\" \"triangle\" 440.0 0.5 0.5 0.5 0.0 0"
+
+[[solution]]
+file = "nb_sound_melody_melody_s5.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n120\nA4 B4 C5\nwhat it drew differs at line 1 of tinyweb's log:\nexpected: tempo \"\" 120.0\ngot: tone \"\" \"triangle\" 440.0 0.0 0.5 0.5 0.0 0"
+
+[[solution]]
+file = "nb_sound_melody_melody_s6.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n120\nA4 B4 C5\nexpected:\n3 notes, 1.5 seconds\ngot:\n3 notes, 6.0 seconds"
+
+[[solution]]
+file = "nb_sound_melody_melody_s7.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n120\nA4 B4 C5\nexpected:\n3 notes, 1.5 seconds\ngot:\n3 notes, 1.55 seconds"

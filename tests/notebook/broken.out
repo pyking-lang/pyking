@@ -29,7 +29,11 @@ tests/notebook/broken.md:115: the program prints
     prints this
 and this stdout block says
     prints something else
-tests/notebook/broken.md:122: method is code_box or git, not 'svn'
+tests/notebook/broken.md:122: method is inline or git, not 'svn'
 tests/notebook/broken.md:126: save_canvas = needs file = "….png", the file the canvas is saved as
 tests/notebook/broken.md:130: its 3 lines are not pieces of 2
-notebook test: tests/notebook/broken.md: 11 cells, 9 exercises and quizzes, 27 problems.
+tests/notebook/broken.md:139: method code_box is now called inline
+tests/notebook/broken.md:139: a name is letters, digits, _ and -, starting with a letter or a digit, not 'two words'
+tests/notebook/broken.md:155: the name 'twice' is given to the item on line 147 too
+tests/notebook/broken.md:163: an events block belongs under a cell or an exercise
+notebook test: tests/notebook/broken.md: 13 cells, 12 exercises and quizzes, 31 problems.

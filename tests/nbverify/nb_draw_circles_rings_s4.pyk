@@ -1,0 +1,9 @@
+# Always three rings.
+import tinyweb as tw
+import tinyweb.color as color
+import io
+
+n = int(io.read_line())
+c = tw.canvas(200, 200)
+for k in range(3):
+    tw.circle(c, 100, 100, 10 * (3 - k), color.none, stroke = color.navy, width = 2)

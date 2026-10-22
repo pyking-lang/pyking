@@ -1,0 +1,68 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_button_counter.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_button_counter_counter_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_button_counter_counter_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_button_counter_counter_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nclick \"Click me\"\nwhat it drew differs at line 4 of tinyweb's log:\nexpected: set_text \"0 clicks\" \"1 clicks\"\ngot: (nothing)"
+
+[[solution]]
+file = "nb_button_counter_counter_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nclick \"Click me\"\nexpected:\nready\nclicked 1\ngot:\nready\nclicked 0"
+
+[[solution]]
+file = "nb_button_counter_counter_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nclick \"Click me\"\nexpected:\nready\nclicked 1\ngot:\nready"
+
+[[solution]]
+file = "nb_button_counter_counter_s6.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 8:4-8:22 Name error: cannot update 'count' with ':=':\n  it is a binding (declared on line 4), not a mutable variable\n  (declare it with 'var' to make it one)"
+
+[[solution]]
+file = "nb_button_counter_counter_s7.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 5:17-5:27 Runtime error: 'label_text' is in scope, but\n  its 'def' has not run yet"
+
+[[solution]]
+file = "nb_button_counter_why-var_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_button_counter_why-var_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_button_counter_why-var_s3.pyk"
+accepted = false
+reason = "Not right.\nOne or more right answers were not checked."
+
+[[solution]]
+file = "nb_button_counter_why-var_s4.pyk"
+accepted = false
+reason = "Not right.\n2: It may read it; it may not change it."
+
+[[solution]]
+file = "nb_button_counter_why-var_s5.pyk"
+accepted = false
+reason = "Check at least one answer first."
+
+[[solution]]
+file = "nb_button_counter_why-var_s6.pyk"
+accepted = false
+reason = "Alternative 1 is chosen more than once."

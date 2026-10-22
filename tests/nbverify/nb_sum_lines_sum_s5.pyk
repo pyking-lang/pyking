@@ -1,0 +1,4 @@
+import io
+a = float(io.read_line())
+b = float(io.read_line())
+print(a, "+", b, "=", a + b)

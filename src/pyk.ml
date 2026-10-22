@@ -238,6 +238,16 @@ let synopsis =
    transformation nobody has to know about to use the compiler. *)
 let more_options =
   "More options:\n\
+  \  --to-json             with `notebook`, write the notebook's Markdown\n\
+  \                        as JSON: notebook.md -> notebook.json\n\
+  \  --to-markdown         with `notebook`, write a notebook's JSON as\n\
+  \                        the Markdown it stands for: notebook.json ->\n\
+  \                        notebook.md\n\
+  \  --json-schema         with `notebook` and no file, write the JSON\n\
+  \                        Schema every notebook's JSON follows:\n\
+  \                        notebook.schema.json. With these three, -o names\n\
+  \                        the file written, and -o - prints it; a file of\n\
+  \                        the default name is not written over\n\
   \  --symbols             with -t pyking, also print each node's symbol\n\
   \  --tokens              print the token stream first\n\
   \  --no-build            with `compile`, write build/ and its Makefile\n\
@@ -363,7 +373,9 @@ let usage_full () =
      nothing: it runs every cell, exercise and solution under node,\n\
      checks each against the stdout and stderr blocks after it, prints\n\
      file:line: message for what is wrong, and exits with 1 if anything\n\
-     is. The notebook's page reloads when its file changes.\n\n\
+     is. The notebook's page reloads when its file changes. A notebook's\n\
+     JSON (.json, as --to-json writes it) is served and tested as the\n\
+     Markdown it stands for.\n\n\
      `pyk lsp` is the language server an editor starts: it reads and\n\
      writes the Language Server Protocol on standard input and output,\n\
      and reports errors, types on hover, definitions, an outline and\n\
@@ -432,6 +444,7 @@ type options = {
   arguments : string list;
   port : int option;
   mode : string option;
+  convert : string option;
   log : string option;
 }
 
@@ -456,6 +469,7 @@ let default_options command =
     arguments = [];
     port = None;
     mode = None;
+    convert = None;
     log = None;
   }
 
@@ -597,6 +611,13 @@ let parse_args argv =
             else
               usage_error
                 (Printf.sprintf "--mode is student, teacher or test, not '%s'" given))
+    | (("--to-json" | "--to-markdown" | "--json-schema") as flag) :: rest -> (
+        let wanted = String.sub flag 2 (String.length flag - 2) in
+        match options.convert with
+        | Some given when given <> wanted ->
+            usage_error
+              (Printf.sprintf "--%s and --%s each say what 'pyk notebook' writes, so only one may be given" given wanted)
+        | _ -> go { options with convert = Some wanted } positional rest)
     | ("--output" | "-o") :: rest -> (
         match rest with
         | [] -> usage_error "--output requires a <file> argument"
@@ -680,6 +701,15 @@ let parse_args argv =
     usage_error "--mode only applies to 'pyk notebook'";
   if options.mode = Some "test" && options.port <> None then
     usage_error "--mode test serves nothing, so it takes no --port";
+  (match options.convert with
+  | Some flag when command <> "notebook" ->
+      usage_error (Printf.sprintf "--%s only applies to 'pyk notebook'" flag)
+  | Some flag when options.mode <> None || options.port <> None ->
+      usage_error
+        (Printf.sprintf "--%s writes a file and serves nothing, so it takes no --mode or --port" flag)
+  | None when command = "notebook" && options.output <> None ->
+      usage_error "--output names what --to-json, --to-markdown or --json-schema writes"
+  | _ -> ());
   if options.arguments <> [] then
     if command = "repl" || command = "lsp" || command = "dap" || command = "example" || web then
       usage_error
@@ -725,6 +755,10 @@ let parse_args argv =
     | [] -> options
     | [ directory ] -> { options with filename = Some directory }
     | _ -> usage_error "'pyk serve' takes one directory, or one file in it, at most"
+  else if command = "notebook" && options.convert = Some "json-schema" then
+    match positional with
+    | [] -> options
+    | _ -> usage_error "--json-schema writes the schema of every notebook, so it takes no notebook"
   else if command = "example" then
     match positional with
     | [] -> options
@@ -1726,6 +1760,60 @@ let command_web tool options =
       prerr_endline (wrap message);
       1
 
+(** `pyk notebook --to-json`, `--to-markdown` and `--json-schema`: a
+    notebook's Markdown as JSON, JSON as Markdown, or the schema of
+    every notebook's JSON, written beside the notebook (the schema in the
+    current directory) unless --output names a file, `-` for standard
+    output. A file of the default name is not written over. options -> int *)
+let command_notebook_convert options =
+  let refuse message =
+    prerr_endline (wrap ("pyk notebook: " ^ message));
+    1
+  in
+  let write default text =
+    let save path =
+      match Out_channel.with_open_bin path (fun out -> Out_channel.output_string out text) with
+      | () -> 0
+      | exception Sys_error message -> refuse message
+    in
+    match options.output with
+    | Some "-" ->
+        print_string text;
+        0
+    | Some path -> save path
+    | None when Sys.file_exists default ->
+        refuse
+          (Printf.sprintf
+             "%s is there already, and was left as it is; --output names another file, or that one to write over it"
+             default)
+    | None -> save default
+  in
+  let read file extensions what =
+    let extension = String.lowercase_ascii (Filename.extension file) in
+    if not (List.mem extension extensions) then Error (Printf.sprintf "%s is not %s" file what)
+    else
+      match Module.read_whole_file file with
+      | text -> Ok text
+      | exception Sys_error _ -> Error (Printf.sprintf "no such file: %s" file)
+  in
+  let file = Option.value ~default:"" options.filename in
+  let beside extension = Filename.remove_extension file ^ extension in
+  match options.convert with
+  | Some "to-json" -> (
+      match read file [ ".md"; ".markdown" ] "a Markdown notebook (.md)" with
+      | Error message -> refuse message
+      | Ok text -> write (beside ".json") (Json.pretty (Notebook_format.of_markdown text)))
+  | Some "to-markdown" -> (
+      match read file [ ".json" ] "a notebook's JSON (.json)" with
+      | Error message -> refuse message
+      | Ok text -> (
+          match Notebook_format.to_markdown (Json.parse text) with
+          | markdown -> write (beside ".md") markdown
+          | exception Json.Parse_error message -> refuse (Printf.sprintf "%s is not JSON: %s" file message)
+          | exception Notebook_format.Format_error message ->
+              refuse (Printf.sprintf "%s is not a notebook: %s" file message)))
+  | _ -> write "notebook.schema.json" Notebook_format.schema
+
 (** `pyk example`: lists the examples beside this executable, or saves
     the one named in the current directory unless a file of that name is
     there already. options -> int *)
@@ -2087,6 +2175,7 @@ let main argv =
   if options.tinyweb_log then Unix.putenv "PYKING_TINYWEB_TRACE" "1";
   if options.command = "repl" then Repl.start ~libs:(library_path options) format_error
   else if options.command = "plugins" then command_plugins options
+  else if options.command = "notebook" && options.convert <> None then command_notebook_convert options
   else if options.command = "notebook" then command_web Web_tools.Notebook options
   else if options.command = "playground" then command_web Web_tools.Playground options
   else if options.command = "pykhelp" then command_web Web_tools.Help options

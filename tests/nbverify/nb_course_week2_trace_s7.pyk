@@ -1,0 +1,5 @@
+import io
+def fact(k: Int) -> Int:
+    debug("fact", k)
+    k * fact(k - 1)
+print(fact(int(io.read_line())))

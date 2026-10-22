@@ -1,0 +1,10 @@
+import io
+
+def down(i: Int) -> ():
+    if i == 0:
+        print("Liftoff!")
+    else:
+        print(i)
+        down(i - 1)
+
+down(int(io.read_line()))

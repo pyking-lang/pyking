@@ -1,0 +1,5 @@
+import io
+var total = 0
+while io.is_eof() == false:
+    total := total + int(io.read_line())
+print("total:", total)

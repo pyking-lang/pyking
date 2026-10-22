@@ -1,0 +1,4 @@
+import io
+n = io.read_line()
+for k in range(n):
+    print(k, k * k)

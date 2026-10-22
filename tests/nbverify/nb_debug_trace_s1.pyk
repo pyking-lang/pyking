@@ -1,0 +1,10 @@
+import io
+
+def run(total: Int) -> Int:
+    if io.is_eof():
+        return total
+    x = int(io.read_line())
+    debug("read", x, "total so far", total + x)
+    return run(total + x)
+
+print("total:", run(0))

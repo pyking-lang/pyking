@@ -1,0 +1,83 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_noncanonical.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_noncanonical_double_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_noncanonical_double_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_noncanonical_double_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n21\nexpected:\n42\ngot:\n441"
+
+[[solution]]
+file = "nb_noncanonical_double_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n21\nexpected:\n42\ngot:\n2121"
+
+[[solution]]
+file = "nb_noncanonical_double_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n-4\nexpected:\n-8\ngot:\n42"
+
+[[solution]]
+file = "nb_noncanonical_period_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_noncanonical_period_s2.pyk"
+accepted = false
+reason = "Not right.\n1: That is half of it."
+
+[[solution]]
+file = "nb_noncanonical_period_s3.pyk"
+accepted = false
+reason = "Alternative 2 is chosen more than once."
+
+[[solution]]
+file = "nb_noncanonical_period_s4.pyk"
+accepted = false
+reason = "Choose an answer first."
+
+[[solution]]
+file = "nb_noncanonical_sine_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_noncanonical_sine_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_noncanonical_sine_s3.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_noncanonical_sine_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\nexpected:\n0 0.0\n1 0.48\n2 0.84\ngot:\n0 1.0\n1 0.88\n2 0.54"
+
+[[solution]]
+file = "nb_noncanonical_sine_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\nexpected:\n0 0.0\n1 0.48\n2 0.84\ngot:\n0 0.0\n1 0.84\n2 0.91"
+
+[[solution]]
+file = "nb_noncanonical_sine_s6.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\nexpected:\n0 0.0\n1 0.48\n2 0.84\ngot:\n1 0.0\n2 0.48\n3 0.84"
+
+[[solution]]
+file = "nb_noncanonical_sine_s7.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 5:33-5:38 Type error: argument 1 has type Int, but\n  Float was expected"

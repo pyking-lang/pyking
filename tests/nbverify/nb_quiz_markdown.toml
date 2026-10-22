@@ -1,0 +1,33 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_quiz_markdown.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_quiz_markdown_binding_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_quiz_markdown_binding_s2.pyk"
+accepted = false
+reason = "Not right.\n2: `:=` only updates a name declared with `var`."
+
+[[solution]]
+file = "nb_quiz_markdown_binding_s3.pyk"
+accepted = false
+reason = "There is no alternative -1: the quiz has 3, numbered from 1."
+
+[[solution]]
+file = "nb_quiz_markdown_power_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_quiz_markdown_power_s2.pyk"
+accepted = false
+reason = "Not right.\n4: **No**: $3^2 = 9$, not $2^3$."
+
+[[solution]]
+file = "nb_quiz_markdown_power_s3.pyk"
+accepted = false
+reason = "Not right.\nOne or more right answers were not checked."

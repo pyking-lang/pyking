@@ -1,0 +1,5 @@
+import io
+n = int(io.read_line())
+print("table of", n)
+for k in [1, 2, 3, 4, 5]:
+    print(n, "x", k, "=", n * k)

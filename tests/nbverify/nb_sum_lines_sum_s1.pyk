@@ -1,0 +1,10 @@
+import io
+import text
+lines = text.lines(io.read())
+match lines:
+    case [x, y, .._]:
+        a = int(x)
+        b = int(y)
+        print(string(a) ++ " + " ++ string(b) ++ " = " ++ string(a + b))
+    case _:
+        print("need two numbers")

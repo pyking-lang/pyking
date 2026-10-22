@@ -404,7 +404,7 @@ class Cells {
    *  each batch as [module, data].
    *  String -> {name, stdin, args, timeout, tinyweb} ->
    *  Promise<{ok, text?, stdout, stderr, exit, timedOut?, tinyweb?, page?}> */
-  capture(source, { name = "check.pyk", stdin = "", args = [], timeout = 10000, tinyweb = false } = {}) {
+  capture(source, { name = "check.pyk", stdin = "", args = [], timeout = 10000, tinyweb = false, events = "" } = {}) {
     const generation = this.generation;
     const job = this.queue.then(async () => {
       if (generation !== this.generation) return { ok: false, text: "stopped", stdout: "", stderr: "" };
@@ -421,6 +421,7 @@ class Cells {
         await this.runtime.ready();
         const drawing = tinyweb ? {
           tinywebLog: "separate",
+          tinywebEvents: events,
           onTinyweb: (text) => { log += text; },
           onPage: (module, data) => { page.push([module, data]); },
         } : {};
@@ -639,8 +640,9 @@ class Notebook extends Cells {
   /** Runs what test mode checks, in this page's worker, and shows each
    *  problem under the element it is about. () -> Promise */
   async check() {
-    const run = (source, name, stdin, args) =>
-      this.capture(source, { name, stdin, args: this.web.splitArguments(args ?? "") });
+    const run = (source, name, stdin, args, events = "") =>
+      this.capture(source, { name, stdin, args: this.web.splitArguments(args ?? ""),
+        tinyweb: events !== "", events });
     const { problems } = await checkNotebook(this.doc, run);
     this.activities[0].showChecks(problems);
     this.checked = problems;

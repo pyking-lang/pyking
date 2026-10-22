@@ -1,0 +1,33 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_echo_stdin.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_echo_stdin_greet_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_echo_stdin_greet_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_echo_stdin_greet_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\nBarbara\n\nEdsger\nexpected:\nHello, Barbara!\nHello, !\nHello, Edsger!\nGreeted 3 people\ngot:\nHello, Barbara!\nGreeted 1 people"
+
+[[solution]]
+file = "nb_echo_stdin_greet_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\nAda\nGrace\nexpected:\nHello, Ada!\nHello, Grace!\nGreeted 2 people\ngot:\nHello Ada\nHello Grace\nGreeted 2 people"
+
+[[solution]]
+file = "nb_echo_stdin_greet_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\nAda\nGrace\nexpected:\nHello, Ada!\nHello, Grace!\nGreeted 2 people\ngot:\nHello, Ada!\nGreeted 1 people"
+
+[[solution]]
+file = "nb_echo_stdin_greet_s6.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 6:6-6:25 Type error: `++` cannot be applied to String\n  and Int; it accepts String ++ String or two lists of one type"

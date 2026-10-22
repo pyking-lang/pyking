@@ -51,10 +51,15 @@ const HELPERS = `
 const SOLUTION = JSON.stringify('import io\nimport sys\nline = io.read_line()\n'
   + 'print(line, "/", line)\nprint("args:", sys.args())\n');
 
+const SILENT = JSON.stringify('import tinyweb as tw\ntw.web_init(0)\ntw.button("More")\n');
+const COUNTER = JSON.stringify('import tinyweb as tw\nvar n = 0\ntw.web_init(0)\n'
+  + 'shown = tw.label("0")\ndef more():\n    n := n + 1\n    tw.set_text(shown, string(n))\n'
+  + '    print(n)\ntw.button("More", on_click = more)\n');
+
 const STUDENT = [`(async () => { ${HELPERS}
   let r = nb.results();
-  check("six open items, worth 12 with 9 to pass",
-    r.total === 6 && r.solved === 0 && r.max === 12 && r.pass === 9, JSON.stringify(r));
+  check("seven open items, worth 12 with 9 to pass",
+    r.total === 7 && r.solved === 0 && r.max === 12 && r.pass === 9, JSON.stringify(r));
   check("the rules show max and pass", /12\\s*points/.test($(".pkn-rules").innerText)
     && /pass at\\s*9/.test($(".pkn-rules").innerText), $(".pkn-rules")?.innerText);
   check("a progress bar at the top and at the end", $$(".pkn-progress").length === 2);
@@ -90,6 +95,12 @@ const STUDENT = [`(async () => { ${HELPERS}
     exercise(3).dataset.state === "failed" && $("[data-r=submit]", exercise(3)).disabled
     && said.includes("No attempts"), said);
 
+  said = await submit(4, ${SILENT});
+  check("an answer is sent the test's events, and fails where its clicks print nothing",
+    said.includes("The output is not what it should be") && said.includes("click"), said);
+  said = await submit(4, ${COUNTER});
+  check("and is solved where they print what the solution's do", said.includes("Solved"), said);
+
   said = answer(1, [1]);
   check("a wrong choice shows why", !hidden($("[data-explain='1']", quiz(1)))
     && $("[data-explain='1']", quiz(1)).innerText.includes("checker"), said);
@@ -115,14 +126,14 @@ const STUDENT = [`(async () => { ${HELPERS}
     && $("[data-r=badges]", quiz(3)).innerText.includes("1 of 2 points"), said);
 
   r = nb.results();
-  check("the results: three solved, 8 points, not passed",
-    r.solved === 3 && r.points === 8 && r.passed === false && r.done === false, JSON.stringify(r));
-  check("the progress bar says so", $(".pkn-progress").innerText.includes("3 of 6 solved")
+  check("the results: four solved, 8 points, not passed",
+    r.solved === 4 && r.points === 8 && r.passed === false && r.done === false, JSON.stringify(r));
+  check("the progress bar says so", $(".pkn-progress").innerText.includes("4 of 7 solved")
     && $(".pkn-progress").innerText.includes("8 of 12"), $(".pkn-progress").innerText);
   return checks;
 })()`, "reload", `(async () => { ${HELPERS}
   const r = nb.results();
-  check("progress is kept over a reload", r.solved === 3 && r.points === 8, JSON.stringify(r));
+  check("progress is kept over a reload", r.solved === 4 && r.points === 8, JSON.stringify(r));
   check("so is the code of an exercise",
     nb.cells.filter((c) => c.spec.attrs.exercise)[0].source().includes("read_line"));
   check("and a failed exercise stays closed", $("[data-r=submit]", exercise(3)).disabled);
@@ -245,7 +256,7 @@ const TEACHER = [`(async () => { ${HELPERS}
   check("the checks ran", nb.checked !== undefined && nb.checked.length === 0,
     JSON.stringify(nb.checked));
   check("a check under every exercise, quiz, cell and the rules",
-    reports.length === 6 + nb.cells.filter((c) => !c.spec.attrs.exercise && !c.spec.attrs.solution).length + 1,
+    reports.length === 7 + nb.cells.filter((c) => !c.spec.attrs.exercise && !c.spec.attrs.solution).length + 1,
     reports.length);
   check("each of them says no problems, in green",
     reports.every((r) => $(".pkn-check-good", r)?.innerText.includes("no problems")),

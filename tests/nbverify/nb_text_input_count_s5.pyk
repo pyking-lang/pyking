@@ -1,0 +1,7 @@
+# The placeholder changes the field's id.
+import tinyweb as tw
+
+def entered(words: String):
+    print("[" ++ words ++ "]", len(words))
+
+tw.text_input("type here", on_enter = entered)

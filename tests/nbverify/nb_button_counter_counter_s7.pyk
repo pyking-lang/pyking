@@ -1,0 +1,16 @@
+# Calls a function before its def has run: a runtime error.
+import tinyweb as tw
+
+var count = 0
+shown = tw.label(label_text())
+
+def clicked():
+    count := count + 1
+    print("clicked", count)
+    tw.set_text(shown, label_text())
+
+def label_text() -> String:
+    string(count) ++ " clicks"
+
+tw.button("Click me", on_click = clicked)
+print("ready")

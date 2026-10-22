@@ -1,0 +1,2 @@
+print("result: 7")
+debug("Warning: this result is made up!")

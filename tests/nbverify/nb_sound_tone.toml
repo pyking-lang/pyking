@@ -1,0 +1,38 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_sound_tone.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_sound_tone_octave_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_sound_tone_octave_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_sound_tone_octave_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n440\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: tone \"\" \"square\" 880.0 0.5 0.25 0.5 0.0 0\ngot: tone \"\" \"sine\" 880.0 0.5 0.25 0.5 0.0 0"
+
+[[solution]]
+file = "nb_sound_tone_octave_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n440\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: tone \"\" \"square\" 880.0 0.5 0.25 0.5 0.0 0\ngot: tone \"\" \"square\" 660.0 0.5 0.25 0.5 0.0 0"
+
+[[solution]]
+file = "nb_sound_tone_octave_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n440\nexpected:\nplayed 440.0\ngot:\nplayed 440"
+
+[[solution]]
+file = "nb_sound_tone_octave_s6.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 6:11-6:12 Type error: argument 1 has type Int, but\n  Float was expected"
+
+[[solution]]
+file = "nb_sound_tone_octave_s7.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n440\nexpected:\nplayed 440.0\ngot:\nplayed 440"

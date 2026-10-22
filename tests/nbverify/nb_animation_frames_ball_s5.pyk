@@ -1,0 +1,7 @@
+# Draws the ball once and never moves it.
+import tinyweb as tw
+import tinyweb.color as color
+
+c = tw.canvas(300, 100)
+tw.clear(c, color.black)
+tw.circle(c, 20, 50, 8, color.white)

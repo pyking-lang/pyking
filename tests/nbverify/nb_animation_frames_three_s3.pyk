@@ -1,0 +1,14 @@
+# Counts from 0.
+import tinyweb as tw
+import tinyweb.color as color
+
+c = tw.canvas(100, 20)
+var count = 0
+
+def draw(t: Float):
+    if count < 3:
+        print("frame", count, "at", t)
+        count := count + 1
+        tw.rect(c, 0, 0, 10 * count, 20, color.orange)
+
+tw.on_frame(draw)

@@ -1,0 +1,12 @@
+import io
+import tinyweb as tw
+import tinyweb.sound as sound
+
+def both(f: Float) -> ():
+    sound.tone(f, at = 0.0, duration = 0.25, wave = "sine", volume = 0.5)
+    sound.tone(f + f, at = 0.5, duration = 0.25, wave = "square")
+
+tw.web_init(0)
+frequency = float(io.read_line())
+both(frequency)
+print("played " ++ string(frequency) ++ "   ")

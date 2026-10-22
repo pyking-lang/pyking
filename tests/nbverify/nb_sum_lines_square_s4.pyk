@@ -1,0 +1,3 @@
+import io
+n = io.read_line()
+print(n, "squared is", n * n)

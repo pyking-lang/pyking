@@ -1,0 +1,21 @@
+import io
+
+def read_all(n: Int) -> [Int]:
+    [int(io.read_line()) for _ in range(n)]
+
+def biggest(xs: [Int], best: Int) -> Int:
+    match xs:
+        case []: best
+        case [x, ..rest]: biggest(rest, if x > best then x else best)
+
+def total(xs: [Int]) -> Int:
+    match xs:
+        case []: 0
+        case [x, ..rest]: x + total(rest)
+
+xs = read_all(int(io.read_line()))
+match xs:
+    case []: print(0)
+    case [x, ..rest]: print(total(xs), biggest(rest, x))
+
+

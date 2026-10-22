@@ -1,0 +1,8 @@
+import io
+import tinyweb as tw
+import tinyweb.color as color
+tw.web_init(0)
+n = int(io.read_line())
+c = tw.canvas(300, 40)
+for k in range(n):
+    tw.circle(c, 20 + 30 * k, 20, 10, color.red)

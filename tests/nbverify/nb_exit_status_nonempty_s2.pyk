@@ -1,0 +1,8 @@
+import io
+import sys
+import text
+line = io.read_line()
+if text.length(line) > 0:
+    print("got:", line)
+else:
+    sys.exit(4)

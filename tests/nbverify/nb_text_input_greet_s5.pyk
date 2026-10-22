@@ -1,0 +1,9 @@
+# Prints the greeting but leaves the label alone.
+import tinyweb as tw
+
+shown = tw.label("Who are you?")
+
+def greet(name: String):
+    print("Hello, " ++ name ++ "!")
+
+tw.text_input("your name", on_enter = greet)

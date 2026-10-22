@@ -155,6 +155,9 @@ SHIPPED = [
     ("tools/help/assets", "tools/help/assets"),
     ("share/help", "share/help"),
     ("tools/emacs/pyking-mode.el", "tools/emacs/pyking-mode.el"),
+    # The notebook verifier for the autograder, which needs only Python.
+    ("tools/nbverify/nbverify.py", "tools/nbverify/nbverify.py"),
+    ("tools/nbverify/README.md", "tools/nbverify/README.md"),
 ]
 # The examples `pyk example` saves and the playground offers: the list,
 # and each program it names, shipped at the same paths.

@@ -1,0 +1,7 @@
+import tinyweb as tw
+import tinyweb.color as color
+import io
+size = int(io.read_line())
+c = tw.canvas(120, 120)
+tw.rect(c, 10, 10, size, size, color.green)
+print(size)

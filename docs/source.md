@@ -72,7 +72,8 @@ and which module calls which.
 | [`lsp.ml`](#lspml) | ~2000 | The language server: a state, and one message in to the messages out. |
 | [`debug_session.ml`](#debug_sessionml) | ~900 | The debugger's core: a program run a step at a time, with breakpoints, stepping, the calls in progress and their variables. Protocol-free. |
 | [`dap.ml`](#dapml) | ~480 | The debug adapter: the Debug Adapter Protocol over a `debug_session.ml` session. |
-| [`json.ml`](#jsonml) | ~190 | JSON read and written. |
+| [`json.ml`](#jsonml) | ~220 | JSON read and written. |
+| [`notebook_format.ml`](#notebook_formatml) | ~950 | A notebook's Markdown as JSON and back, character for character, and the JSON Schema the JSON follows. |
 | [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the six commands. |
 | [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground and the notebook. |
 
@@ -2136,7 +2137,55 @@ and use these. See `docs/repl.md`, "Completion".
 
 **JSON read and written**, for the language server. A number is a
 float; a `\u` escape, surrogate pairs included, becomes UTF-8. `parse`
-raises `Parse_error` for anything else.
+raises `Parse_error` for anything else. `pretty` writes a value laid
+out for reading, for a notebook's JSON.
+
+---
+
+## `notebook_format.ml`
+
+**A notebook as JSON, and back**: `pyk notebook --to-json`,
+`--to-markdown` and `--json-schema`, and `pyk notebook FILE.json`. The
+Markdown between the notebook's blocks is kept as written, and the
+blocks are found and grouped as `tools/notebook/assets/markdown.js` and
+`exercises.js` find and group them: an exercise with its solution,
+tests and diff-allowed blocks, a quiz with its answer, a cell with the
+tests under it. A block is written back from its fields in one
+canonical layout, and how the source wrote it where that differs -- the
+header, the fence, the closing line, the blank lines before it, a
+quiz's text -- is kept beside the fields and used while it still says
+what they do. See [notebook.md](notebook.md), "JSON". In the library,
+since it is pure.
+
+### Data structures
+
+- **`value`** — an attribute's value, typed: `VString`, `VNumber`
+  (`max`, `pass`, `attempts`, `points`, `penalty`,
+  `lines_per_multi_input`) or `VBool` (`available`, `visible`,
+  `one_point_correct`, and a bare word).
+- **`fence`** — one notebook block as written: `language`, `attrs`,
+  the raw `info` after the marker, the `marker`, the `body` (each line
+  with its newline), the closing line (`None` at the end of the text),
+  and the `gap` of blank lines before it where a block is right before.
+- **`piece`** — `Text` between blocks, or a `Fence`.
+- **`owner`** — an exercise or a cell as it is grouped: its head, the
+  solution, the tests (each a list of slot and block), the diff-allowed
+  blocks, and the order they were written in.
+
+### Main functions
+
+- **`of_markdown text -> Json.t`** — `scan` splits the text into
+  pieces: a fence at the left margin in a notebook language, outside
+  another fenced block, an HTML block, display math and the front
+  matter. A run of fences with only blank lines between is one group,
+  which `group_json` gives owners as exercises.js does.
+- **`to_markdown value -> string`** — the Markdown, raising
+  `Format_error` with a path (`blocks[3].tests[0]`) where the value is
+  not a notebook.
+- **`schema`** — the JSON Schema (Draft 2020-12), built as a `Json.t`
+  and printed by `Json.pretty`.
+- **`parse_info info`** — a header as markdown.js's `parseInfo` reads
+  it; **`canonical_info`** the header the canonical layout writes.
 
 ---
 
@@ -2214,7 +2263,9 @@ than the library, since it listens on a socket.
 - **`start tool port mode path -> (int, string) result`** — the
   notebook: checks the document, then `--mode test` runs
   `tools/notebook/check.js` under node and answers its status, and any
-  other mode serves `notebook_site`. The playground serves
+  other mode serves `notebook_site`. A `.json` notebook is the Markdown
+  `notebook_format.ml` makes of it: served at `doc/<stem>.md`, worked out
+  on every request, and written to a temporary file for test mode. The playground serves
   `playground_site`; the help serves `help_site`, refusing where
   `share/help/` was not generated (`check_help`); `pyk serve` serves a directory, listing one with no
   `index.html`. Each refuses a missing compiler bundle or, unless

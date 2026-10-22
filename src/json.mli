@@ -9,6 +9,7 @@
     Functions:
       parse text -- the value text holds.
       to_string value -- the value as compact JSON text.
+      pretty value -- the value as JSON text laid out for reading.
       member name value -- a field of an object, or Null.
       to_string_option / to_int_option / to_list -- a value read as one
         kind, or nothing. *)
@@ -32,6 +33,11 @@ val parse : string -> t
 
 (** A value as compact JSON text. t -> string *)
 val to_string : t -> string
+
+(** A value as JSON text laid out for reading: each field and element on
+    a line of its own, indented two spaces a level, and a newline at the
+    end. t -> string *)
+val pretty : t -> string
 
 (** A field of an object, or Null where there is none. string -> t -> t *)
 val member : string -> t -> t

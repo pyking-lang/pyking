@@ -1,0 +1,9 @@
+import io
+
+def number() -> Int:
+    return int(io.read_line())
+
+a = number()
+b = number()
+total = b + a
+print(a, "+", b, "=", total, "  ")

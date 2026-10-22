@@ -184,6 +184,40 @@ let rec to_string value =
       ^ String.concat "," (List.map (fun (k, v) -> quote k ^ ":" ^ to_string v) fields)
       ^ "}"
 
+(** A value as JSON text laid out for reading: each field and element on
+    a line of its own, indented two spaces a level, and a newline at the
+    end. t -> string *)
+let pretty value =
+  let buffer = Buffer.create 4096 in
+  let rec go indent value =
+    let inner = indent ^ "  " in
+    match value with
+    | List [] -> Buffer.add_string buffer "[]"
+    | Object [] -> Buffer.add_string buffer "{}"
+    | List items ->
+        Buffer.add_string buffer "[\n";
+        List.iteri
+          (fun k item ->
+            if k > 0 then Buffer.add_string buffer ",\n";
+            Buffer.add_string buffer inner;
+            go inner item)
+          items;
+        Buffer.add_string buffer ("\n" ^ indent ^ "]")
+    | Object fields ->
+        Buffer.add_string buffer "{\n";
+        List.iteri
+          (fun k (name, item) ->
+            if k > 0 then Buffer.add_string buffer ",\n";
+            Buffer.add_string buffer (inner ^ quote name ^ ": ");
+            go inner item)
+          fields;
+        Buffer.add_string buffer ("\n" ^ indent ^ "}")
+    | value -> Buffer.add_string buffer (to_string value)
+  in
+  go "" value;
+  Buffer.add_char buffer '\n';
+  Buffer.contents buffer
+
 (** A field of an object, or Null where there is none. string -> t -> t *)
 let member name value =
   match value with

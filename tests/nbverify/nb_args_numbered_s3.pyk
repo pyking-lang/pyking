@@ -1,0 +1,8 @@
+import io
+import sys
+var i = 0
+for word in sys.args():
+    print(string(i) ++ ": " ++ word)
+    i := i + 1
+print("separator: " ++ io.read_line())
+print(i, "arguments")

@@ -1,0 +1,78 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_git_drawing.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_git_drawing_house_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_git_drawing_house_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_git_drawing_house_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n100\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: rect \"canvas\" 50 150 100 100 0 \"#8b4513\" \"\" 1.000 1.000\ngot: rect \"canvas\" 90 220 20 30 0 \"#000000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_git_drawing_house_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n100\nwhat it drew differs at line 3 of tinyweb's log:\nexpected: polygon \"canvas\" 50 150 150 150 100 100 \"#ff0000\" \"\" 1.000 1.000\ngot: polygon \"canvas\" 50 150 150 150 100 100 \"#008000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_git_drawing_house_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n60\nexpected:\nhouse of width 60\ngot:\nhouse of width 100"
+
+[[solution]]
+file = "nb_git_drawing_house_s6.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 5:8-5:20 Name error: unbound name 'io.read_line': no\n  module is imported under the name 'io'"
+
+[[solution]]
+file = "nb_git_drawing_order_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_git_drawing_order_s2.pyk"
+accepted = false
+reason = "Not right.\n2: The order the program draws in is the order on the canvas."
+
+[[solution]]
+file = "nb_git_drawing_order_s3.pyk"
+accepted = false
+reason = "Choose one answer."
+
+[[solution]]
+file = "nb_git_drawing_order_s4.pyk"
+accepted = false
+reason = "Your answer is not a list of the alternatives chosen, such as [1, 3], printed on its own."
+
+[[solution]]
+file = "nb_git_drawing_sun_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_git_drawing_sun_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_git_drawing_sun_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: rect \"canvas\" 0 0 200 200 0 \"#00ffff\" \"\" 1.000 1.000\ngot: circle \"canvas\" 150 50 30 \"#ffff00\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_git_drawing_sun_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nwhat it drew differs at line 3 of tinyweb's log:\nexpected: circle \"canvas\" 150 50 30 \"#ffff00\" \"\" 1.000 1.000\ngot: circle \"canvas\" 150 50 25 \"#ffff00\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_git_drawing_sun_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nexpected:\n\ngot:\na sun"

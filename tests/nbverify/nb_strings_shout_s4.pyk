@@ -1,0 +1,5 @@
+import io
+import text
+line = io.read_line()
+print(line)
+debug("length", text.length(line))

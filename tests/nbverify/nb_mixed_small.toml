@@ -1,0 +1,48 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_mixed_small.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_mixed_small_negative_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_mixed_small_negative_s2.pyk"
+accepted = false
+reason = "Not right.\n2: The product of two negative numbers is positive."
+
+[[solution]]
+file = "nb_mixed_small_negative_s3.pyk"
+accepted = false
+reason = "Alternative 1 is chosen more than once."
+
+[[solution]]
+file = "nb_mixed_small_square_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_mixed_small_square_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_mixed_small_square_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n5\nexpected:\n25\ngot:\n10"
+
+[[solution]]
+file = "nb_mixed_small_square_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n-3\nexpected:\n9\ngot:\n-9"
+
+[[solution]]
+file = "nb_mixed_small_square_s5.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 3:6-3:11 Type error: `*` cannot be applied to String\n  and String; it accepts Int * Int or Float * Float"
+
+[[solution]]
+file = "nb_mixed_small_square_s6.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n-3\nexpected:\n9\ngot:\n25"

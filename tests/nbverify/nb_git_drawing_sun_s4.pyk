@@ -1,0 +1,7 @@
+# Too small a sun.
+import tinyweb as tw
+import tinyweb.color as color
+
+c = tw.canvas(200, 200)
+tw.rect(c, 0, 0, 200, 200, color.cyan)
+tw.circle(c, 150, 50, 25, color.yellow)

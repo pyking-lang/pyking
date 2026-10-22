@@ -1,0 +1,5 @@
+import io
+import math
+n = int(io.read_line())
+for k in range(n):
+    print(k, float(math.round(math.sin(float(k)) * 100.0)) / 100.0)

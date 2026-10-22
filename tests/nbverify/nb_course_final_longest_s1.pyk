@@ -1,0 +1,9 @@
+import sys
+import text
+args = sys.args()
+var best = ""
+for a in args:
+    if text.length(a) > text.length(best):
+        best := a
+print(len(args))
+print(best)

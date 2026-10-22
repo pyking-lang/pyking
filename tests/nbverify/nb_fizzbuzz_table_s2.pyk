@@ -1,0 +1,7 @@
+import io
+n = int(io.read_line())
+print("table of " ++ string(n))
+var k = 1
+while k <= 5:
+    print(string(n) ++ " x " ++ string(k) ++ " = " ++ string(n * k) ++ " ")
+    k := k + 1

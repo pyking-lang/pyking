@@ -1,0 +1,7 @@
+# A space inside the brackets.
+import tinyweb as tw
+
+def entered(words: String):
+    print("[", words, "]", len(words))
+
+tw.text_input(on_enter = entered)

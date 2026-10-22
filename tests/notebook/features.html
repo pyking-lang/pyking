@@ -69,15 +69,30 @@ worth no points:</p>
 failed try:</p>
 <div class="pkn-cell" id="cell-13" data-cell="12" data-part="25"><pre class="pkn-cell-fallback"><code>print(0)</code></pre></div>
 <div class="pkn-cell" id="cell-14" data-cell="13" data-part="26"><pre class="pkn-cell-fallback"><code>print(6 * 7)</code></pre></div>
-<p>Which is true of Pyking?</p>
-<div class="pkn-part" data-part="27"></div>
-<div class="pkn-part" data-part="28"></div>
-<p>Which are true of bindings?</p>
+<p>A page whose button counts its clicks, clicked twice once the program's
+top level has ended:</p>
+<div class="pkn-cell" id="cell-15" data-cell="14" data-part="27"><pre class="pkn-cell-fallback"><code>import tinyweb as tw
+tw.web_init(0)</code></pre></div>
+<div class="pkn-cell" id="cell-16" data-cell="15" data-part="28"><pre class="pkn-cell-fallback"><code>import tinyweb as tw
+var count = 0
+tw.web_init(0)
+shown = tw.label(&quot;0&quot;)
+def more():
+    count := count + 1
+    tw.set_text(shown, string(count))
+    print(count)
+tw.button(&quot;More&quot;, on_click = more)</code></pre></div>
 <div class="pkn-part" data-part="29"></div>
 <div class="pkn-part" data-part="30"></div>
-<p>A quiz may hold its question, and give a point for each right answer:</p>
+<p>Which is true of Pyking?</p>
 <div class="pkn-part" data-part="31"></div>
 <div class="pkn-part" data-part="32"></div>
+<p>Which are true of bindings?</p>
+<div class="pkn-part" data-part="33"></div>
+<div class="pkn-part" data-part="34"></div>
+<p>A quiz may hold its question, and give a point for each right answer:</p>
+<div class="pkn-part" data-part="35"></div>
+<div class="pkn-part" data-part="36"></div>
 <h2 id="lists"><a class="pkn-anchor" href="#lists" aria-hidden="true">#</a>Lists</h2>
 <ul>
 <li>one</li>

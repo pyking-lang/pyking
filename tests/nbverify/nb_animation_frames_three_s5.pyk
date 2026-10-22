@@ -1,0 +1,16 @@
+# A runtime error on the first frame: unbounded recursion.
+import tinyweb as tw
+import tinyweb.color as color
+
+c = tw.canvas(100, 20)
+var count = 0
+
+def forever(n: Int) -> Int:
+    1 + forever(n + 1)
+
+def draw(t: Float):
+    if count < 3:
+        count := count + forever(0)
+        print("frame", count, "at", t)
+
+tw.on_frame(draw)

@@ -1,0 +1,10 @@
+# A slider from 1 to 10.
+import tinyweb as tw
+
+shown = tw.label("volume 5")
+
+def moved(n: Int):
+    words = "volume " ++ string(n)
+    tw.set_text(shown, if n >= 8 then words ++ " (loud)" else words)
+
+tw.slider(1, 10, 5, on_change = moved)

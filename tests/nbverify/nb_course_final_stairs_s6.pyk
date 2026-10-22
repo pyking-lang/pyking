@@ -1,0 +1,7 @@
+import io
+import tinyweb as tw
+import tinyweb.color as color
+tw.web_init(0)
+c = tw.canvas(200, 200)
+for k in range(3):
+    tw.rect(c, 20 * k, 20 * k, 200 - 20 * k, 20, color.green)

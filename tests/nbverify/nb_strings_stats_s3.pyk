@@ -1,0 +1,13 @@
+import io
+import text
+
+words = text.words(io.read_line())
+var total = 0
+var longest = ""
+for w in words:
+    total := total + text.length(w)
+    if text.length(w) > text.length(longest):
+        longest := w
+print("words:", len(words))
+print("average length:", total / len(words))
+print("longest:", longest)

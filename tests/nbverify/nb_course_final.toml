@@ -1,0 +1,243 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_course_final.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_course_final_binding_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_binding_s2.pyk"
+accepted = false
+reason = "Not right.\n1: An `=` binding never changes."
+
+[[solution]]
+file = "nb_course_final_binding_s3.pyk"
+accepted = false
+reason = "Choose an answer first."
+
+[[solution]]
+file = "nb_course_final_exit_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_exit_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_exit_s3.pyk"
+accepted = false
+reason = "Not right.\n2: That is what a runtime error ends with."
+
+[[solution]]
+file = "nb_course_final_exit_s4.pyk"
+accepted = false
+reason = "Choose one answer."
+
+[[solution]]
+file = "nb_course_final_exit_s5.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 1:8-1:9 Parsing error: expected ',' or ')' in call\n  arguments"
+
+[[solution]]
+file = "nb_course_final_fizz_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_fizz_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_fizz_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n15\nexpected:\n1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\ngot:\n1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizz"
+
+[[solution]]
+file = "nb_course_final_fizz_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n1\nexpected:\n1\ngot:\n"
+
+[[solution]]
+file = "nb_course_final_fizz_s5.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 4:9-4:10 Lexing error: unexpected character '%'"
+
+[[solution]]
+file = "nb_course_final_longest_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_longest_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_longest_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nargs: same size\nexpected:\n2\nsame\ngot:\n2\nsize"
+
+[[solution]]
+file = "nb_course_final_longest_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nargs: a bbb cc\nexpected:\n3\nbbb\ngot:\n3 bbb"
+
+[[solution]]
+file = "nb_course_final_reverse_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_reverse_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_reverse_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\nstressed\nexpected:\ndesserts\ngot:\nstressed"
+
+[[solution]]
+file = "nb_course_final_reverse_s4.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 4:16-4:28 Runtime error: 'list_reverse' is in scope,\n  but its 'def' has not run yet"
+
+[[solution]]
+file = "nb_course_final_reverse_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\nstressed\nexpected:\ndesserts\ngot:\ndessert"
+
+[[solution]]
+file = "nb_course_final_running_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_running_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_running_s3.pyk"
+accepted = false
+reason = "What debug printed is not what it should be.\nstdin:\n1 2 3\nexpected:\n6\nexpected from debug:\n1\n3\n6\ngot:\n6\ngot from debug:\n0\n1\n3"
+
+[[solution]]
+file = "nb_course_final_running_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n1 2 3\nexpected:\n6\nexpected from debug:\n1\n3\n6\ngot:\n1\n3\n6\ngot from debug:\n"
+
+[[solution]]
+file = "nb_course_final_running_s5.pyk"
+accepted = false
+reason = "What debug printed is not what it should be.\nstdin:\n1 2 3\nexpected:\n6\nexpected from debug:\n1\n3\n6\ngot:\n6\ngot from debug:\n6"
+
+[[solution]]
+file = "nb_course_final_stairs_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_stairs_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_stairs_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\nexpected:\n\ngot:\n3"
+
+[[solution]]
+file = "nb_course_final_stairs_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n3\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: rect \"canvas\" 0 0 200 20 0 \"#008000\" \"\" 1.000 1.000\ngot: rect \"canvas\" 0 0 20 200 0 \"#008000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_course_final_stairs_s5.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 8:49-8:59 Module error: submodule 'color' has no 'lime'"
+
+[[solution]]
+file = "nb_course_final_stairs_s6.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n1\nwhat it drew differs at line 3 of tinyweb's log:\nexpected: (nothing)\ngot: rect \"canvas\" 20 20 180 20 0 \"#008000\" \"\" 1.000 1.000"
+
+[[solution]]
+file = "nb_course_final_status_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_status_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_status_s3.pyk"
+accepted = false
+reason = "Your program ended with status 1, and should end with 2.\nstdin:\n-3\nexpected:\nnegative\ngot:\nnegative"
+
+[[solution]]
+file = "nb_course_final_status_s4.pyk"
+accepted = false
+reason = "Your program ended with status 0, and should end with 2.\nstdin:\n-3\nexpected:\nnegative\ngot:\nnegative"
+
+[[solution]]
+file = "nb_course_final_status_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n0\nexpected:\nok 0\ngot:\nnegative"
+
+[[solution]]
+file = "nb_course_final_true_of_pyking_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_true_of_pyking_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_true_of_pyking_s3.pyk"
+accepted = false
+reason = "Not right.\nOne or more right answers were not checked."
+
+[[solution]]
+file = "nb_course_final_true_of_pyking_s4.pyk"
+accepted = false
+reason = "Not right.\n3: Only a `var` can be."
+
+[[solution]]
+file = "nb_course_final_true_of_pyking_s5.pyk"
+accepted = false
+reason = "Not right.\nOne or more right answers were not checked.\n5: An `Int` holds at least 32 bits; past that, overflow is undefined."
+
+[[solution]]
+file = "nb_course_final_true_of_pyking_s6.pyk"
+accepted = false
+reason = "There is no alternative 6: the quiz has 5, numbered from 1."
+
+[[solution]]
+file = "nb_course_final_types_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_course_final_types_s2.pyk"
+accepted = false
+reason = "Not right.\nOne or more right answers were not checked."
+
+[[solution]]
+file = "nb_course_final_types_s3.pyk"
+accepted = false
+reason = "Not right.\n4: `len` takes a list."
+
+[[solution]]
+file = "nb_course_final_types_s4.pyk"
+accepted = false
+reason = "Alternative 3 is chosen more than once."

@@ -14,7 +14,7 @@
 //
 // The blocks a notebook uses for exercises and quizzes -- ```rules,
 // ```pyking exercise and solution, ```stdin, ```stdout, ```stderr,
-// ```quiz and ```answer -- are recorded in `parts`, in document order,
+// ```events, ```quiz and ```answer -- are recorded in `parts`, in document order,
 // each with the line its fence starts on and the group of adjacent
 // blocks it belongs to, and left as a `<div class="pkn-part">`
 // placeholder. exercises.js reads what they mean.
@@ -46,9 +46,9 @@ export const CELL_ATTRIBUTES = ["norun", "readonly", "error", "exercise", "solut
 export const INPUT_LANGUAGES = ["stdin", "args"];
 
 /** The languages of the other blocks a notebook reads rather than shows
- *  as code: what a program should print, the quizzes, the rules, and the
- *  differences an exercise allows. */
-export const PART_LANGUAGES = ["stdout", "stderr", "quiz", "answer", "rules", "diff-allowed"];
+ *  as code: what a program should print, the tinyweb events it is sent,
+ *  the quizzes, the rules, and the differences an exercise allows. */
+export const PART_LANGUAGES = ["stdout", "stderr", "events", "quiz", "answer", "rules", "diff-allowed"];
 
 const CALLOUTS = {
   note: "Note", tip: "Tip", important: "Important",

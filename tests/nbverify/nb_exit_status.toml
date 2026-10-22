@@ -1,0 +1,53 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_exit_status.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_exit_status_age_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_exit_status_age_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_exit_status_age_s3.pyk"
+accepted = false
+reason = "Your program ended with status 1, and should end with 2.\nstdin:\n-1\nexpected:\ninvalid\ngot:\ninvalid"
+
+[[solution]]
+file = "nb_exit_status_age_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n18\nexpected:\nadult\ngot:\nminor"
+
+[[solution]]
+file = "nb_exit_status_age_s5.pyk"
+accepted = false
+reason = "Your program ended with status 0, and should end with 1.\nstdin:\n7\nexpected:\nminor\ngot:\nminor"
+
+[[solution]]
+file = "nb_exit_status_age_s6.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n7\nexpected:\nminor\ngot:\n"
+
+[[solution]]
+file = "nb_exit_status_nonempty_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_exit_status_nonempty_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_exit_status_nonempty_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nexpected:\n\ngot:\ngot: "
+
+[[solution]]
+file = "nb_exit_status_nonempty_s4.pyk"
+accepted = false
+reason = "Your program ended with status 4, and should end with 0.\nstdin:\nhello\nexpected:\ngot: hello\ngot:\ngot: hello"

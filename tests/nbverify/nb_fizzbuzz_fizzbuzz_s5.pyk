@@ -1,0 +1,17 @@
+import io
+import text
+
+def rem(a: Int, b: Int) -> Int:
+    return a - (a / b) * b
+
+def word(i: Int) -> String:
+    if rem(i, 15) == 0:
+        return "FizzBuzz"
+    if rem(i, 3) == 0:
+        return "Fizz"
+    if rem(i, 5) == 0:
+        return "Buzz"
+    return string(i)
+
+n = int(io.read_line())
+print(text.join([word(i + 1) for i in range(n)], " "))

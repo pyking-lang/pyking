@@ -1470,6 +1470,21 @@ The bootstrap is split into one module per compiler stage:
    runs it in slices between messages. The playground's Debug tab is the
    other transport (`pykDebug*` in `web/pyking_web.ml`).
 
+31. **`src/notebook_format.ml`** — a notebook as JSON: `of_markdown`
+   (`pyk notebook FILE.md --to-json`), `to_markdown` (`--to-markdown`,
+   and serving or testing `pyk notebook FILE.json`, which `web_tools.ml`
+   converts on every request) and `schema` (`--json-schema`, a Draft
+   2020-12 schema built as a `Json.t`). In the library, since it is pure.
+   The round trip is exact: the Markdown between blocks is kept as
+   written, the blocks are found and grouped as `markdown.js` and
+   `exercises.js` find and group them (an exercise owning its solution,
+   tests and diff-allowed blocks), and a block written other than the
+   canonical way keeps how (`info`, `fence`, `close`, `gap`, `body`,
+   `order`), used only while it still says what the fields do. **A new
+   notebook block or attribute needs a case here** -- the languages, the
+   typed keys, the grouping and the schema -- as well as in
+   `exercises.js`. See `docs/notebook.md`, "JSON".
+
 When extending the lexer (new operators, keywords, string escapes, etc.),
 follow the existing pattern: add an arm to the `match rest with`
 inside `lexing`, add a corresponding `Tok*` constructor, and add an arm
@@ -1633,8 +1648,27 @@ anything both pages need there rather than copying it.
   picture the text shows and `pyk notebook` saves (`POST /save/`, the
   server's one write), a `diff-allowed` block lets numbers in matching
   lines differ by `[+/-N]`, and a failed Submit offers "See result
-  diff", tinyweb's drawing included.
-  `tools/notebook/README.md`, "Exercises and quizzes", is the long form.
+  diff", tinyweb's drawing included. An exercise or quiz may have a
+  `name = "..."` (unique; how nbverify finds it), `method` is `inline`
+  (formerly `code_box`, now refused) or `git`, and an ```` ```events ````
+  block in a test is the tinyweb events Submit, test mode and nbverify
+  deliver once the top level has ended (`pykReplay` in tinyweb's
+  interpreter implementation, the worker's `tinywebEvents`).
+  `tools/notebook/README.md`, "Exercises and quizzes", is the long form,
+  and `docs/notebook.md` the summary of everything a notebook holds.
+- **`tools/nbverify/nbverify.py` grades a notebook for the ID2202
+  autograder**: with no argument it is a `run_verifier` verifier (JSON on
+  stdin, `{"accepted", "reason"}` on stdout, status 0 or 1), `paramschema`
+  prints the verifier_param_schema, `paramdata BOOK --name N` runs the
+  solution with pyk and writes each test's `[test.options]`, and `run`
+  is a test's command (the answer run with the tinyweb log, its trailer
+  on stderr). Its reasons are the notebook page's own words, which
+  `tests/test_nbverify.py` checks. One file, standard library only, and
+  shipped (`SHIPPED`). **Its `VERSION = "..."` line is written by
+  `make`** (`tools/nbverify/stamp.py`, run by the `build` rule) from the
+  root's `VERSION`, so the file says its version when copied out alone;
+  do not edit that line by hand. `tools/nbverify/README.md` is the long
+  form.
 - **A program run in either page may use the standard library.** The
   server serves `lib/` (`common_site`), the worker fetches a module's
   sources and its browser implementation from there as the program names
@@ -2152,13 +2186,13 @@ a Mac and a Linux VM and the other machine's binaries cannot run here.
 Not `make clean`, which would also delete built packages and the
 website.
 
-**`make test` runs `tests/test_all.py`**, which sequences the ten
+**`make test` runs `tests/test_all.py`**, which sequences the twelve
 suites below rather than each being a line of the Makefile. Three things
 follow, and all three are the point: every suite runs even when an
 earlier one failed, so one broken case does not hide what the other
-nine would have said; each suite's output is opened by a banner and
+eleven would have said; each suite's output is opened by a banner and
 closed by one footer line of a fixed shape; and the run ends with a
-combined summary over all ten. Their counts reach it through
+combined summary over all twelve. Their counts reach it through
 `$PYK_TEST_TALLY`, a file each suite appends one line to
 (`tests/suite.py`), so a suite run on its own prints exactly what it
 prints here. The programs suite also writes each target's counts to
@@ -2383,6 +2417,30 @@ under node (`tests/dap/browser.mjs`), whose every stop must look as it
 does through `pyk dap`, then the VS Code extension's debugger and the
 Editors page. The Debug tab is `tests/lsp/playground.mjs`'s. `--update`
 rewrites the `.out` files.
+
+**`tests/test_nbjson.py` is the eleventh suite**, notebooks as JSON.
+Every notebook in `tests/nbjson/` (at least 30, small and large, every
+notebook feature among them) is turned into JSON, checked against the
+schema -- by the suite's own small Draft 2020-12 validator always, and by
+python's `jsonschema` where it is installed -- and turned back into
+Markdown, which must be the file byte for byte; and test mode must pass
+on it and say the same of its JSON. Then short documents written the
+uncommon ways (`EDGES`: CRLF, no final newline, unclosed, `~~~`, loose
+headers, front matter, HTML, a block in a list), edits to the JSON, the
+command line's defaults and refusals, the help, and a `.json` served.
+The JSON files are not kept. `--only BOOK,...` checks some notebooks.
+
+**`tests/test_nbverify.py` is the twelfth suite**, nbverify. For every
+exercise and quiz of every notebook in `tests/nbjson/`, `paramdata`
+writes the tests, and each student solution
+`tests/nbverify/<book>_<name>_s<N>.pyk` (`<name>` `default` for a
+notebook's one unnamed item) is run by each test's command and verified
+as the autograder would, and held to `tests/nbverify/<book>.toml`
+(`accepted`, written by intent, and `reason`, the first refused test's).
+Every item has a solution accepted and one refused. Then `paramschema`
+and every test's params by it, the reasons against `activities.js`, the
+version, and the refusals. `--update` rewrites the reasons (never
+`accepted`); read the diff. `--only BOOK,...` grades some notebooks.
 
 A fifth family covers **external modules**: `external_*` for a module
 implemented in a target language -- `external_all` on every host, and

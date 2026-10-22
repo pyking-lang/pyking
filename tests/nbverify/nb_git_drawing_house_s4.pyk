@@ -1,0 +1,12 @@
+# A green roof.
+import tinyweb as tw
+import tinyweb.color as color
+import io
+
+w = int(io.read_line())
+c = tw.canvas(300, 300)
+top = 250 - w
+tw.rect(c, 50, top, w, w, color.brown)
+tw.polygon(c, [tw.Point(50, top), tw.Point(50 + w, top), tw.Point(50 + w / 2, top - w / 2)], color.green)
+tw.rect(c, 50 + w / 2 - 10, 220, 20, 30, color.black)
+print("house of width", w)

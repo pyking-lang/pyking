@@ -1,0 +1,8 @@
+import io
+import tinyweb as tw
+import tinyweb.sound as sound
+tw.web_init(0)
+f = float(io.read_line())
+sound.tone(f, duration = 0.25)
+sound.tone(f * 2.0, at = 0.5, duration = 0.25)
+print("played", f)

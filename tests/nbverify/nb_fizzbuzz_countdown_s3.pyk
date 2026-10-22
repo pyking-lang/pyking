@@ -1,0 +1,6 @@
+import io
+n = int(io.read_line())
+for k in range(n):
+    print(n - k)
+if n > 0:
+    print("Liftoff!")

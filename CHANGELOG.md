@@ -10,6 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Notebooks as JSON: `pyk notebook book.md --to-json` writes the
+  notebook as structured JSON, `pyk notebook book.json --to-markdown`
+  writes it back as the same Markdown, byte for byte, and `pyk notebook
+  --json-schema` writes the JSON Schema it follows (`-o` names the file,
+  `-o -` prints it). `pyk notebook book.json` serves and tests a
+  notebook's JSON as the Markdown it stands for. See docs/notebook.md.
+- `name = "..."` on a notebook exercise or quiz, and an ```` ```events ````
+  block in a test: tinyweb events delivered once the program's top level
+  has ended, by Submit, test mode and nbverify alike.
+- `tools/nbverify/nbverify.py`: grades a notebook's exercises and
+  quizzes as an ID2202 autograder verifier, with `paramschema`,
+  `paramdata` (each test's options, from the notebook and a run of its
+  solution) and `run` (a test's command). A quiz is answered by a program
+  printing the alternatives chosen, `print([1, 3])`.
+- docs/notebook.md: everything a notebook can hold, with examples.
+- Test suites `nbjson` and `nbverify`, over the notebooks in
+  tests/nbjson/ and the student solutions in tests/nbverify/.
+
 - Notebook exercises: `method = git` for an exercise answered elsewhere
   (a note in place of the code box, not graded in the page);
   `lines_per_multi_input = N` on a stdin block, a test for every N
@@ -95,6 +113,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A notebook exercise's `method = code_box` is now `method = inline`;
+  `code_box` is refused by test mode.
 - tinyweb is divided into submodules: `tinyweb.color`, `tinyweb.sound`,
   `tinyweb.bitmap`, `tinyweb.layout`, `tinyweb.net`, `tinyweb.game` and
   `tinyweb.smooth`, with the page, drawing, widgets, the mouse and the

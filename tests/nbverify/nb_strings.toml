@@ -1,0 +1,53 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_strings.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_strings_shout_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_strings_shout_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_strings_shout_s3.pyk"
+accepted = false
+reason = "What debug printed is not what it should be.\nstdin:\nhello world\nexpected:\nHELLO WORLD\nexpected from debug:\nlength 11\ngot:\nHELLO WORLD\ngot from debug:\nlength 2"
+
+[[solution]]
+file = "nb_strings_shout_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\nhello world\nexpected:\nHELLO WORLD\nexpected from debug:\nlength 11\ngot:\nhello world\ngot from debug:\nlength 11"
+
+[[solution]]
+file = "nb_strings_shout_s5.pyk"
+accepted = false
+reason = "What debug printed is not what it should be.\nstdin:\nhello world\nexpected:\nHELLO WORLD\nexpected from debug:\nlength 11\ngot:\nHELLO WORLD\ngot from debug:\n"
+
+[[solution]]
+file = "nb_strings_stats_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_strings_stats_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_strings_stats_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\ndogs and cats\nexpected:\nwords: 3\naverage length: 3.67\nlongest: dogs\ngot:\nwords: 3\naverage length: 3\nlongest: dogs"
+
+[[solution]]
+file = "nb_strings_stats_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\ndogs and cats\nexpected:\nwords: 3\naverage length: 3.67\nlongest: dogs\ngot:\nwords: 3\naverage length: 3.67\nlongest: cats"
+
+[[solution]]
+file = "nb_strings_stats_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\ndogs and cats\nexpected:\nwords: 3\naverage length: 3.67\nlongest: dogs\ngot:\nwords: 3\naverage length: 4.33\nlongest: dogs"

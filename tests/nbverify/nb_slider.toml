@@ -1,0 +1,38 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_slider.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_slider_default_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_slider_default_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_slider_default_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nslide \"slider\" 8\nslide \"slider\" 10\nslide \"slider\" 7\nwhat it drew differs at line 8 of tinyweb's log:\nexpected: set_text \"volume 5\" \"volume 7\"\ngot: set_text \"volume 5\" \"volume 7 (loud)\""
+
+[[solution]]
+file = "nb_slider_default_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nslide \"slider\" 8\nslide \"slider\" 10\nslide \"slider\" 7\nwhat it drew differs at line 4 of tinyweb's log:\nexpected: set_text \"volume 5\" \"volume 8 (loud)\"\ngot: set_text \"volume 5\" \"volume 8\""
+
+[[solution]]
+file = "nb_slider_default_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nslide \"slider\" 3\nexpected:\n\ngot:\nvolume 3"
+
+[[solution]]
+file = "nb_slider_default_s6.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nslide \"slider\" 3\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: slider \"slider\" 0 10 5\ngot: slider \"slider\" 1 10 5"
+
+[[solution]]
+file = "nb_slider_default_s7.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 9:32-9:37 Type error: argument 4 has type (String) ->\n  (), but (Int) -> () was expected"

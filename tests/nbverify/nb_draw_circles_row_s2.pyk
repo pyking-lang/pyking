@@ -1,0 +1,16 @@
+# Each centre one pixel to the right, which is allowed.
+import tinyweb as tw
+import tinyweb.color as color
+import io
+
+start = int(io.read_line()) + 1
+gap = int(io.read_line())
+c = tw.canvas(400, 100)
+def ball(k: Int, fill: color.Color):
+    tw.circle(c, start + k * gap, 50, 15, fill)
+ball(0, color.rgb(255, 0, 0))
+ball(1, color.orange)
+ball(2, color.hex(0xffff00))
+ball(3, color.green)
+ball(4, color.blue)
+print("last at", start + 4 * gap)

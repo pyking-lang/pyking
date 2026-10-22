@@ -1,0 +1,78 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_text_input.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_text_input_count_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_text_input_count_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_text_input_count_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nenter \"text\" \"pyking\"\nexpected:\n[pyking] 6\ngot:\n[ pyking ] 6"
+
+[[solution]]
+file = "nb_text_input_count_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nenter \"text\" \"pyking\"\nexpected:\n[pyking] 6\ngot:\nType something:\n[pyking] 6"
+
+[[solution]]
+file = "nb_text_input_count_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nenter \"text\" \"pyking\"\nexpected:\n[pyking] 6\ngot:\n"
+
+[[solution]]
+file = "nb_text_input_field-id_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_text_input_field-id_s2.pyk"
+accepted = false
+reason = "Not right.\n2: That is the id of a field with no placeholder."
+
+[[solution]]
+file = "nb_text_input_field-id_s3.pyk"
+accepted = false
+reason = "Your answer is not a list of the alternatives chosen, such as [1, 3], printed on its own."
+
+[[solution]]
+file = "nb_text_input_field-id_s4.pyk"
+accepted = false
+reason = "There is no alternative 0: the quiz has 3, numbered from 1."
+
+[[solution]]
+file = "nb_text_input_greet_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_text_input_greet_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_text_input_greet_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nenter \"your name\" \"Ada\"\nexpected:\nHello, Ada!\ngot:\nHello Ada!"
+
+[[solution]]
+file = "nb_text_input_greet_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nenter \"your name\" \"Ada\"\nexpected:\nHello, Ada!\ngot:\n"
+
+[[solution]]
+file = "nb_text_input_greet_s5.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nenter \"your name\" \"Ada\"\nwhat it drew differs at line 4 of tinyweb's log:\nexpected: set_text \"Who are you?\" \"Hello, Ada!\"\ngot: (nothing)"
+
+[[solution]]
+file = "nb_text_input_greet_s6.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nenter \"your name\" \"Alan Turing\"\nenter \"your name\" \"Grace\"\nexpected:\nHello, Alan Turing!\nHello, Grace!\ngot:\nHello, Alan Turing!"

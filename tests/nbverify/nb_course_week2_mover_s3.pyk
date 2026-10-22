@@ -1,0 +1,16 @@
+import tinyweb as tw
+import tinyweb.color as color
+tw.web_init(0)
+c = tw.canvas(100, 100)
+var x = 50
+def left():
+    x := x - 10
+    tw.circle(c, x, 50, 5)
+    print(x)
+def right():
+    x := x + 10
+    tw.circle(c, x, 50, 5)
+    print(x)
+tw.circle(c, x, 50, 5)
+tw.button("Left", on_click = left)
+tw.button("Right", on_click = right)

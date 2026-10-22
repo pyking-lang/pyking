@@ -1,0 +1,20 @@
+import io
+import math
+import text
+
+def longest(ws: [String]) -> String:
+    match ws:
+        case []:
+            return ""
+        case [w, ..rest]:
+            other = longest(rest)
+            return if text.length(other) > text.length(w) then other else w
+
+words = text.words(io.read_line())
+lengths = [text.length(w) for w in words]
+total = loop acc = 0 for n in lengths:
+    acc + n
+average = float(math.round(float(total) * 1000.0 / float(len(words)))) / 1000.0
+print("words: " ++ string(len(words)))
+print("average length: " ++ string(average))
+print("longest: " ++ longest(words) ++ "  ")

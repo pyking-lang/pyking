@@ -1,0 +1,13 @@
+import tinyweb as tw
+tw.web_init(0)
+kick = tw.load_sample("kick1.wav")
+snare = tw.load_sample("snare1.wav")
+hits = 0
+def drum():
+    tw.play(kick)
+    print("boom", hits + 1)
+def clap():
+    tw.play(snare, volume = 0.5)
+    print("clap")
+tw.button("Drum", on_click = drum)
+tw.button("Clap", on_click = clap)

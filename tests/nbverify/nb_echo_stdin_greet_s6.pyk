@@ -1,0 +1,6 @@
+import io
+var count = 0
+while io.is_eof() == false:
+    print("Hello, " ++ io.read_line() ++ "!")
+    count := count + 1
+print("Greeted " ++ count ++ " people")

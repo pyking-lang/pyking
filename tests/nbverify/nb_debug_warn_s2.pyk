@@ -1,0 +1,2 @@
+debug("warning:", "this result is made up")
+print("result:", 3 + 4)

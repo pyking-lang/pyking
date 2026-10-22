@@ -149,9 +149,9 @@ check("the front matter's title", features.title === "Every notebook feature",
       JSON.stringify(features.title));
 check("math is noticed", features.math === true);
 const flags = (c) => Object.keys(c.attrs).filter((a) => c.attrs[a]).join("+") || "-";
-check("fourteen runnable cells, with their attributes",
+check("sixteen runnable cells, with their attributes",
       features.cells.map(flags).join(" ") ===
-        "- error readonly - readonly error - - - exercise solution exercise exercise solution",
+        "- error readonly - readonly error - - - exercise solution exercise exercise solution exercise solution",
       features.cells.map(flags).join(" "));
 check("a cell's input from its header, and from a block before it",
       features.cells[3].stdin === "Ada\n" && features.cells[3].args === "first 'second one'"
@@ -169,10 +169,17 @@ check("features.md has no notebook problems", nb.problems.length === 0,
       JSON.stringify(nb.problems));
 check("the rules: max 12, pass 9", nb.rules?.max === 12 && nb.rules?.pass === 9,
       JSON.stringify(nb.rules));
-check("three exercises and three quizzes, in order",
-      nb.items.map((i) => i.id).join(" ") === "exercise-1 exercise-2 exercise-3 quiz-1 quiz-2 quiz-3",
+check("four exercises and three quizzes, in order",
+      nb.items.map((i) => i.id).join(" ") === "exercise-1 exercise-2 exercise-3 exercise-4 quiz-1 quiz-2 quiz-3",
       nb.items.map((i) => i.id).join(" "));
-const [ex1, ex2, ex3, quiz1, quiz2, quiz3] = nb.items;
+const [ex1, ex2, ex3, counter, quiz1, quiz2, quiz3] = nb.items;
+check("names: an exercise's and a quiz's, and none where none is given",
+      ex1.name === "twice" && quiz1.name === "typed" && ex2.name === null && quiz2.name === null,
+      JSON.stringify(nb.items.map((i) => i.name)));
+check("an exercise's events: one test, its clicks delivered after the top level",
+      counter.tests.length === 1 && counter.tests[0].events === 'click "More"\nclick "More"'
+      && counter.tests[0].output?.text === "1\n2" && counter.tests[0].stdin === null,
+      JSON.stringify(counter.tests.map((t) => [t.events, t.output?.text])));
 check("exercise 1: header, solution and three tests",
       ex1.attempts === 3 && ex1.points === 5 && ex1.stdin === "123\n" && ex1.args === "go for it"
       && ex1.solution?.available === true && ex1.tests.length === 3
@@ -245,7 +252,7 @@ check("points less the penalty for each failure, never below 0",
 const totals = grading.summary(nb, { "exercise-1": { state: "solved", points: 5 },
   "quiz-1": { state: "solved", points: 2 }, "quiz-2": { state: "failed", points: 0 } });
 check("the totals: solved, points, and whether they pass",
-      totals.solved === 2 && totals.total === 6 && totals.points === 7 && totals.max === 12
+      totals.solved === 2 && totals.total === 7 && totals.points === 7 && totals.max === 12
       && totals.passed === false && totals.done === false, JSON.stringify(totals));
 
 // 1d. An exercise submitted with git, a solution that saves a picture,
@@ -255,7 +262,7 @@ check("drawing.md has no notebook problems", drawing.problems.length === 0,
       JSON.stringify(drawing.problems));
 const [square, doubling, elsewhere] = drawing.items;
 check("an exercise is answered in the page unless it says method = git",
-      square.method === "code_box" && doubling.method === "code_box" && elsewhere.method === "git"
+      square.method === "inline" && doubling.method === "inline" && elsewhere.method === "git"
       && grading.graded(square) && !grading.graded(elsewhere),
       JSON.stringify(drawing.items.map((i) => i.method)));
 check("a solution saves its canvas as a picture",
@@ -276,7 +283,14 @@ check("an exercise submitted with git is left out of the totals",
       drawn.total === 2 && drawn.solved === 1 && drawn.points === 2 && drawn.max === 4,
       JSON.stringify(drawn));
 for (const [header, problem] of [
-  ["```pyking exercise method = svn\n```\n", "method is code_box or git, not 'svn'"],
+  ["```pyking exercise method = svn\n```\n", "method is inline or git, not 'svn'"],
+  ["```pyking exercise method = code_box\n```\n", "method code_box is now called inline"],
+  ["```pyking exercise name = \"two words\"\n```\n", "a name is letters, digits"],
+  ["```pyking exercise name = \"a\"\n```\n```stdout\n\n```\n\nText.\n\n```quiz name = \"a\"\n* x\n```\n```answer\n-> y\n```\n",
+   "the name 'a' is given to the item on line 1 too"],
+  ["```events\nclick \"go\"\n```\n", "an events block belongs under a cell or an exercise"],
+  ["```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n```stdin lines_per_multi_input = 1\n1\n```\n```events\nclick \"go\"\n```\n```stdout\n1\n```\n",
+   "compared with the solution"],
   ["```pyking exercise\n```\n```pyking solution save_canvas = \"c\"\nprint(1)\n```\n",
    "save_canvas = needs file"],
   ["```pyking exercise\n```\n```pyking solution save_canvas = \"c\" file = \"../x.png\"\nprint(1)\n```\n",
@@ -295,6 +309,14 @@ for (const [header, problem] of [
   check("refuses " + JSON.stringify(header.split("\n")[header.includes("solution save") ? 2 : 0]),
         found.some((m) => m.includes(problem)), JSON.stringify(found));
 }
+const evented = renderMarkdown("```pyking exercise name = \"go\"\n```\n```pyking solution\nprint(1)\n```\n"
+  + "```stdin lines_per_multi_input = 1\n1\n2\n```\n```events\nclick \"go\"\n```\n"
+  + "```events\nclick \"stop\"\n```\n```stdout\n1\n```\n").notebook;
+check("an events block belongs to the test before it, every piece of a split stdin included",
+      evented.problems.length === 0 && evented.items[0].name === "go"
+      && JSON.stringify(evented.items[0].tests.map((t) => [t.stdin, t.events]))
+        === '[["1\\n","click \\"go\\""],["2\\n","click \\"go\\""],[null,"click \\"stop\\""]]',
+      JSON.stringify([evented.problems, evented.items[0].tests.map((t) => [t.stdin, t.events])]));
 check("a diff-allowed block's lines are the square's rules",
       JSON.stringify(square.allowed.map((r) => r.slots)) === "[[2,2],[2]]"
       && doubling.allowed.length === 0, JSON.stringify(square.allowed.map((r) => r.text)));

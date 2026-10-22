@@ -1,0 +1,28 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_hello.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_hello_default_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_hello_default_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_hello_default_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nexpected:\nHello, world!\ngot:\nHello world!"
+
+[[solution]]
+file = "nb_hello_default_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nexpected:\nHello, world!\ngot:\nHello, world!\nGoodbye"
+
+[[solution]]
+file = "nb_hello_default_s5.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 1:18-1:19 Lexing error: unexpected character '!'"

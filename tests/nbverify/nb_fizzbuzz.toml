@@ -1,0 +1,73 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_fizzbuzz.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_fizzbuzz_countdown_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_fizzbuzz_countdown_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_fizzbuzz_countdown_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n0\nexpected:\nLiftoff!\ngot:\n"
+
+[[solution]]
+file = "nb_fizzbuzz_countdown_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\nexpected:\n3\n2\n1\nLiftoff!\ngot:\n1\n2\n3\nLiftoff!"
+
+[[solution]]
+file = "nb_fizzbuzz_fizzbuzz_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_fizzbuzz_fizzbuzz_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_fizzbuzz_fizzbuzz_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n15\nexpected:\n1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\ngot:\n1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizz"
+
+[[solution]]
+file = "nb_fizzbuzz_fizzbuzz_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n5\nexpected:\n1\n2\nFizz\n4\nBuzz\ngot:\nFizzBuzz\n1\n2\nFizz\n4"
+
+[[solution]]
+file = "nb_fizzbuzz_fizzbuzz_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n5\nexpected:\n1\n2\nFizz\n4\nBuzz\ngot:\n1 2 Fizz 4 Buzz"
+
+[[solution]]
+file = "nb_fizzbuzz_fizzbuzz_s6.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 6:15-6:30 Runtime error: maximum call depth of 10000\n  exceeded; this is what a recursion that never ends looks like\nin 'count', called at 'solution.pyk' 6:15-6:30\nin 'count', called at 'solution.pyk' 6:15-6:30\nin 'count', called at 'solution.pyk' 6:15-6:30\nin 'count', called at 'solution.pyk' 6:15-6:30\nin 'count', called at 'solution.pyk' 6:15-6:30\nin 'count', called at 'solution.pyk' 6:15-6:30\nin 'count', called at 'solution.pyk' 6:15-6:30\nin 'count', called at 'solution.pyk' 6:15-6:30\nin 'count', called at 'solution.pyk' 6:15-6:30\nin 'count', called at 'solution.pyk' 6:15-6:30\n  ... 9990 more calls"
+
+[[solution]]
+file = "nb_fizzbuzz_table_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_fizzbuzz_table_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_fizzbuzz_table_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n7\nexpected:\ntable of 7\n7 x 1 = 7\n7 x 2 = 14\n7 x 3 = 21\n7 x 4 = 28\n7 x 5 = 35\ngot:\ntable of 7\n7 x 0 = 0\n7 x 1 = 7\n7 x 2 = 14\n7 x 3 = 21\n7 x 4 = 28"
+
+[[solution]]
+file = "nb_fizzbuzz_table_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n7\nexpected:\ntable of 7\n7 x 1 = 7\n7 x 2 = 14\n7 x 3 = 21\n7 x 4 = 28\n7 x 5 = 35\ngot:\ntable of 7"

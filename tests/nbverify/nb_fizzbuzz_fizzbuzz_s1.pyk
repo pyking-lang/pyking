@@ -1,0 +1,17 @@
+import io
+
+def rem(a: Int, b: Int) -> Int:
+    return a - (a / b) * b
+
+n = int(io.read_line())
+for i in range(n):
+    k = i + 1
+    match (rem(k, 3), rem(k, 5)):
+        case (0, 0):
+            print("FizzBuzz")
+        case (0, _):
+            print("Fizz")
+        case (_, 0):
+            print("Buzz")
+        case _:
+            print(k)

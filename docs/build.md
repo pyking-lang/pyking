@@ -172,6 +172,8 @@ or use the compiler, and nothing of it is shipped.
 `pyk playground`, `pyk notebook FILE.md` and `pyk pykhelp` start a web
 page that runs the compiler in the browser: the playground, a Markdown
 document whose Pyking code blocks are runnable cells, and the help.
+A notebook may also be its JSON (`pyk notebook FILE.json`), served as
+the Markdown `src/notebook_format.ml` makes of it on every request.
 None of them is built. Each is a directory of JavaScript, CSS and HTML
 under `tools/`, served from where it sits by `pyk` itself; the help's
 pages are the one thing generated, by `tools/help/help.py` into

@@ -1,0 +1,9 @@
+import tinyweb as tw
+import tinyweb.color as color
+
+c = tw.canvas(300, 100)
+tw.on_frame((t: Float) => frame(t))
+
+def frame(t: Float):
+    tw.clear(c, color.black)
+    tw.circle(c, int(20.0 + 50.0 * t), 50, 8, color.white)

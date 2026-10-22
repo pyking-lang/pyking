@@ -1,0 +1,4 @@
+import io
+def square(k: Int) -> Int: k * k
+print(square(int(io.read_line())))
+print()

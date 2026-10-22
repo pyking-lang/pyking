@@ -1,0 +1,38 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_sound_buttons.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_sound_buttons_pads_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_sound_buttons_pads_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_sound_buttons_pads_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nclick \"Drum\"\nclick \"Clap\"\nclick \"Drum\"\nexpected:\nboom 1\nclap\nboom 2\ngot:\n"
+
+[[solution]]
+file = "nb_sound_buttons_pads_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nclick \"Drum\"\nclick \"Clap\"\nclick \"Drum\"\nwhat it drew differs at line 2 of tinyweb's log:\nexpected: load \"snare1.wav\"\ngot: load \"hihat1.wav\""
+
+[[solution]]
+file = "nb_sound_buttons_pads_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nclick \"Drum\"\nclick \"Clap\"\nclick \"Drum\"\nexpected:\nboom 1\nclap\nboom 2\ngot:\nboom 1\nclap\nboom 1"
+
+[[solution]]
+file = "nb_sound_buttons_pads_s6.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nevents:\nclick \"Drum\"\nclick \"Clap\"\nclick \"Drum\"\nwhat it drew differs at line 9 of tinyweb's log:\nexpected: play \"snare1.wav\" 0.0 0.5 1.0 0.0 0 0\ngot: play \"snare1.wav\" 0.0 1.0 1.0 0.0 0 0"
+
+[[solution]]
+file = "nb_sound_buttons_pads_s7.pyk"
+accepted = false
+reason = "The output is not what it should be.\nevents:\nclick \"Drum\"\nclick \"Clap\"\nclick \"Drum\"\nexpected:\nboom 1\nclap\nboom 2\ngot:\n"

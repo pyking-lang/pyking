@@ -1,0 +1,9 @@
+# The smallest first.
+import tinyweb as tw
+import tinyweb.color as color
+import io
+
+n = int(io.read_line())
+c = tw.canvas(200, 200)
+for k in range(n):
+    tw.circle(c, 100, 100, 10 * (k + 1), color.none, stroke = color.navy, width = 2)

@@ -226,14 +226,16 @@ Another example
 | `points = N` | what solving it gives | none: solved or not |
 | `penalty = N` | taken off the points for each failed Submit, never below 0 | 0 |
 | `stdin = "…"`, `args = "…"` | the input the cell starts with, and that a test without its own uses | empty |
-| `method = code_box` or `git` | where the answer is written: in the page, or elsewhere and pushed with git | `code_box` |
+| `name = "…"` | what the exercise is called: letters, digits, `_` and `-`, unique in the notebook; nbverify finds it by it | none |
+| `method = inline` or `git` | where the answer is written: in the page, or elsewhere and pushed with git | `inline` |
 
 The blocks after it are, in this order and each optional: one
 ```` ```pyking solution ````, then the tests. A test is a
 ```` ```stdin ```` block (its arguments in `args = "…"`, empty if not
-given), a ```` ```stdout ```` or ```` ```stderr ```` block, or one of
-each with the output after its input; an output with no input before it
-runs on the exercise's own input. A solution with no exercise before it
+given), an ```` ```events ```` block, a ```` ```stdout ```` or
+```` ```stderr ```` block, or several of them with the outputs after the
+input; an output or events with no input before it runs on the
+exercise's own input. A solution with no exercise before it
 is an error, and so is anything else between them. The next exercise
 starts a new one.
 
@@ -259,6 +261,26 @@ green.
 **Show a solution** shows the solution under the exercise, at any time,
 where it says `available = true`; without it the solution is never shown
 in student mode. A solved exercise turns green, with a check mark.
+
+An **```` ```events ````** block is what a tinyweb page is sent, one event a
+line as an events file writes them (`click "Go"`, `slide "Speed" 7`,
+`enter "Name" "Ada"`, `frame 0.5`; docs/libraries.md, "Testing a page"),
+delivered once the program's top level has ended, the way
+`PYKING_TINYWEB_EVENTS` delivers them. Submit sends them to the answer and
+the solution alike; **▶** runs the page live. It takes `visible = true`
+like an output, and a stdin block split into pieces gives each piece the
+same events.
+
+````markdown
+```stdin
+3
+```
+
+```events
+click "More"
+click "More"
+```
+````
 
 A stdin block with **`lines_per_multi_input = N`** is a test for every
 N lines of it, each run on its own with the block's arguments; every one
@@ -337,6 +359,8 @@ next, and may hold inline Markdown.
 ```
 ````
 
+A quiz takes **`name = "…"`** as an exercise does.
+
 An ```` ```answer ```` block follows every quiz, with one entry per
 alternative, in order: `->` for a right one and `-` for a wrong one,
 then what explains it, which may be left empty. A `*` quiz has exactly
@@ -413,7 +437,9 @@ for each problem, and exits with 1 if there was one:
 - a solution prints, on each test's input, what any stdout or stderr
   block after it says, and so does an ordinary cell;
 - an exercise with no solution has an output to compare an answer with;
-- an exercise's `method` is code_box or git, a solution's `save_canvas`
+- an item's `name` is letters, digits, `_` and `-`, and no other item
+  has it, and an events block is under a cell or an exercise;
+- an exercise's `method` is inline or git, a solution's `save_canvas`
   has a `file`, a .png beside the notebook, and a stdin block split by
   `lines_per_multi_input` is whole pieces, with a solution and no output
   after it, and a diff-allowed block is under an exercise with a
@@ -421,6 +447,17 @@ for each problem, and exits with 1 if there was one:
 
 `tests/notebook/broken.md` makes every one of these mistakes, and
 `broken.out` is what test mode says about it.
+
+### A notebook as JSON
+
+`pyk notebook FILE.md --to-json` writes the notebook as JSON (FILE.json),
+`pyk notebook FILE.json --to-markdown` writes it back as the same
+Markdown, and `pyk notebook --json-schema` writes the schema that JSON
+follows (notebook.schema.json); `-o` names another file, and `-o -`
+prints it. `pyk notebook FILE.json` serves and tests the notebook as it
+does the Markdown, which it converts on every request. The format is
+docs/notebook.md's, "JSON"; tools/nbverify/ grades a notebook's
+exercises and quizzes from it for the ID2202 autograder.
 
 ## Embedding it in another page
 

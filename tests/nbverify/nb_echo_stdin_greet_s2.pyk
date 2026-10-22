@@ -1,0 +1,7 @@
+import io
+import text
+names = text.lines(io.read())
+for name in names:
+    print("Hello, " ++ name ++ "!")
+print("Greeted " ++ string(len(names)) ++ " people   ")
+print()

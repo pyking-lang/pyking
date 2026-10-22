@@ -34,7 +34,10 @@
 // no reply -- turns it on or off while a run goes on: tinyweb's log, each
 // line as `debug`, which is what `pyk --tinyweb-log` prints on stderr --
 // or, with `tinywebLog` "separate", each line as {type: "tinyweb", text},
-// kept apart from what the program itself writes with `debug`.
+// kept apart from what the program itself writes with `debug`. `run` may
+// also carry `tinywebEvents`, the lines of an events file, delivered to
+// tinyweb once the program's top level has ended and before `run`
+// answers.
 //
 // `debug` debugs a program instead of running it; see "the debugger"
 // below.
@@ -254,7 +257,14 @@ function run(message) {
   if (needed.length === 0) return start({});
   return Promise.all(needed.map((name) => importExternal(name)))
     .then((modules) => start(Object.fromEntries(
-      needed.map((name, k) => [name, modules[k]]))));
+      needed.map((name, k) => [name, modules[k]]))))
+    .then(async (result) => {
+      const replay = live.tinyweb?.pykReplay;
+      if (message.tinywebEvents && result.ok && result.exit === undefined && replay) {
+        await replay(message.tinywebEvents);
+      }
+      return result;
+    });
 }
 
 // --- the debugger ---

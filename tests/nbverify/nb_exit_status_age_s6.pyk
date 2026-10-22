@@ -1,0 +1,13 @@
+import io
+import sys
+age = int(io.read_line())
+if age < 0:
+    sys.exit(2)
+    print("invalid")
+else:
+    if age < 18:
+        sys.exit(1)
+        print("minor")
+    else:
+        print("adult")
+        sys.exit(0)

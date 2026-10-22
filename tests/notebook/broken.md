@@ -132,3 +132,34 @@ print("draws nothing")
 2
 3
 ```
+
+An exercise with the old name for answering in the page and a name with
+a space in it, a quiz named as another item is, and events under nothing.
+
+```pyking exercise method = code_box name = "two words"
+print("starting code")
+```
+
+```stdout
+starting code
+```
+
+```pyking exercise name = "twice"
+print("starting code")
+```
+
+```stdout
+starting code
+```
+
+```quiz name = "twice"
+* One.
+```
+
+```answer
+-> Right.
+```
+
+```events
+click "go"
+```

@@ -138,7 +138,7 @@ export class Activities {
     }
     for (const example of this.notebook.examples) {
       for (const test of example.tests) {
-        for (const block of [test.input, test.output, test.error]) {
+        for (const block of [test.input, test.eventsPart, test.output, test.error]) {
           if (!block) continue;
           used.add(block.index);
           const element = at(block);
@@ -361,7 +361,7 @@ class ExerciseWidget {
     if (this.solutionCell) this.ui.solution.append(this.solutionCell.element);
     let shownTests = 0;
     for (const test of item.tests) {
-      for (const block of [test.input, test.output, test.error]) {
+      for (const block of [test.input, test.eventsPart, test.output, test.error]) {
         // One stdin block split into several tests is shown once.
         if (!block || used.has(block.index)) continue;
         used.add(block.index);
@@ -466,9 +466,9 @@ class ExerciseWidget {
       for (const test of tests) {
         const stdin = test.stdin ?? item.stdin;
         const args = test.args ?? item.args;
-        const answer = await this.run(this.cell.source(), stdin, args, "answer");
+        const answer = await this.run(this.cell.source(), stdin, args, "answer", test.events);
         const expected = this.solutionCell
-          ? await this.run(this.solutionCell.spec.source, stdin, args, "solution")
+          ? await this.run(this.solutionCell.spec.source, stdin, args, "solution", test.events)
           : { ok: true, stdout: test.output?.text ?? "", stderr: test.error?.text ?? "", exit: 0 };
         if (!expected.ok) {
           failed = { test, stdin, args, problem: "The solution itself did not run:\n"
@@ -508,13 +508,14 @@ class ExerciseWidget {
     this.a.changed();
   }
 
-  run(source, stdin, args, role) {
+  run(source, stdin, args, role, events = "") {
     return this.a.cells.capture(source, {
       name: `${this.item.id}-${role}.pyk`,
       stdin,
       args: this.a.cells.web.splitArguments(args),
       timeout: SUBMIT_TIMEOUT,
       tinyweb: true,
+      events: events ?? "",
     });
   }
 
@@ -533,6 +534,7 @@ class ExerciseWidget {
         <div class="pkn-diff-case-title">The test case</div>
         ${io("stdin", failed.stdin || "(none)")}
         ${io("args", failed.args || "(none)")}
+        ${failed.test?.events ? io("events", failed.test.events) : ""}
       </div>
       <div class="pkn-diff-what">${escapeHTML(failed.problem)}</div>
       <div class="pkn-diff-legend"><span class="pkn-diff-del">only in your submission</span>
@@ -698,6 +700,7 @@ function failureHTML(failed) {
   const rows = [`<div class="pkn-failure-what">${escapeHTML(failed.problem)}</div>`];
   if (failed.stdin) rows.push(io("stdin", failed.stdin));
   if (failed.args) rows.push(io("args", failed.args));
+  if (failed.test?.events) rows.push(io("events", failed.test.events));
   if (failed.answer?.ok) {
     rows.push(io("expected", failed.expected.stdout + (failed.test.error ? failed.expected.stderr : "")));
     rows.push(io("got", failed.answer.stdout + (failed.test.error ? failed.answer.stderr : "")));
@@ -924,7 +927,8 @@ function isVisible(block) {
   return block.attrs.visible === true || block.attrs.visible === "true";
 }
 
-/** A stdin, stdout or stderr block shown on the page. Part -> Element */
+/** A stdin, events, stdout or stderr block shown on the page.
+ *  Part -> Element */
 function ioBox(block) {
   const box = element("div", `pkn-io pkn-io-${block.kind}`);
   const args = block.kind === "stdin" && typeof block.attrs.args === "string"

@@ -1,0 +1,6 @@
+import io
+n = int(io.read_line())
+var total = 0
+for k in range(n):
+    total := total + io.read_line()
+print(total)

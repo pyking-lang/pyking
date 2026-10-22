@@ -1,0 +1,48 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_sum_lines.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_sum_lines_square_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_sum_lines_square_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_sum_lines_square_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n-3\nexpected:\n-3 squared is 9\ngot:\n-3 squared is -9"
+
+[[solution]]
+file = "nb_sum_lines_square_s4.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 3:23-3:28 Type error: `*` cannot be applied to String\n  and String; it accepts Int * Int or Float * Float"
+
+[[solution]]
+file = "nb_sum_lines_sum_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_sum_lines_sum_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_sum_lines_sum_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\n4\nexpected:\n3 + 4 = 7\ngot:\n3 + 4 = 6"
+
+[[solution]]
+file = "nb_sum_lines_sum_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\n4\nexpected:\n3 + 4 = 7\ngot:\n4 + 3 = 7"
+
+[[solution]]
+file = "nb_sum_lines_sum_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n3\n4\nexpected:\n3 + 4 = 7\ngot:\n3.0 + 4.0 = 7.0"

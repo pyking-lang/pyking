@@ -1,0 +1,7 @@
+import io
+import text
+var total = 0
+for word in text.words(io.read_line()):
+    total := total + int(word)
+    debug(total)
+print(total)

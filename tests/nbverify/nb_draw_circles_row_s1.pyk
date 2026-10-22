@@ -1,0 +1,13 @@
+import tinyweb as tw
+import tinyweb.color as color
+import io
+
+start = int(io.read_line())
+gap = int(io.read_line())
+c = tw.canvas(400, 100)
+fills = [color.red, color.orange, color.yellow, color.green, color.blue]
+var i = 0
+for fill in fills:
+    tw.circle(c, start + i * gap, 50, 15, fill)
+    i := i + 1
+print("last at", start + 4 * gap)

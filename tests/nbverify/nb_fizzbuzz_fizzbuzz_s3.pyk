@@ -1,0 +1,18 @@
+import io
+
+def rem(a: Int, b: Int) -> Int:
+    return a - (a / b) * b
+
+n = int(io.read_line())
+for i in range(n):
+    k = i + 1
+    if rem(k, 3) == 0:
+        print("Fizz")
+    else:
+        if rem(k, 5) == 0:
+            print("Buzz")
+        else:
+            if rem(k, 15) == 0:
+                print("FizzBuzz")
+            else:
+                print(k)

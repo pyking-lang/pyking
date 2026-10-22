@@ -18,7 +18,7 @@
 # Run `make help` for the full list. The compiler is OCaml in src/,
 # built by dune into the executable this directory calls ./pyk.
 
-.PHONY: all help pykhelp build libs test stest quicktest check-node playground notebook vendor \
+.PHONY: all help pykhelp build libs test stest quicktest check-node check-python check-jsonschema playground notebook vendor \
 	website website-dev website-release \
 	packaging packaging-setup packaging-install packaging-uninstall \
 	release \
@@ -60,6 +60,7 @@ build:
 	@cp -f _build/default/src/plugin/.pyk_plugin.objs/byte/pyk_plugin.cmi \
 	  share/plugin/pyk_plugin.cmi
 	@python3 tools/help/help.py share/help
+	@python3 tools/nbverify/stamp.py
 	@echo "build: ./pyk, share/pyking.js, share/plugin/ and share/help/"
 
 # The interpreter reaches a library implemented in a target language
@@ -81,11 +82,12 @@ pykhelp: build vendor
 # them from, so update this list whenever a target is added or renamed.
 help:
 	@echo "make              build the compiler into ./pyk and build/, the help"
-	@echo "                  into share/help/, then make libs"
+	@echo "                  into share/help/, the version into"
+	@echo "                  tools/nbverify/nbverify.py, then make libs"
 	@echo "make libs         compile each lib/*/<name>_external.ml into the"
 	@echo "                  plugin the interpreter loads, <name>_external.cmxs"
 	@echo "make test         a clean build (make clean-build, then make), then"
-	@echo "                  all ten suites, then a combined summary: every"
+	@echo "                  all twelve suites, then a combined summary: every"
 	@echo "                  tests/*.pyk on every target tests/test_cases.toml"
 	@echo "                  lists it for, run in parallel (JOBS=n to say how"
 	@echo "                  parallel), then the REPL's own cases in tests/repl/,"
@@ -95,15 +97,16 @@ help:
 	@echo "                  then the website's pages and library docs, then"
 	@echo "                  tinyweb's pages and servers, then the language"
 	@echo "                  server's (in Chromium where one is found), then"
-	@echo "                  the debug adapter's."
+	@echo "                  the debug adapter's, then notebooks as JSON, then"
+	@echo "                  nbverify grading the notebooks' exercises."
 	@echo "                  Every suite runs even"
 	@echo "                  if an earlier one failed"
 	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"
-	@echo "                  version of that family (the last nine suites are"
+	@echo "                  version of that family (the last eleven suites are"
 	@echo "                  skipped, since none of them is a target)"
 	@echo "                  SUITE=tinyweb runs one suite, SUITE=repl,lsp several:"
 	@echo "                  programs, repl, libpath, playground, notebook,"
-	@echo "                  packaging, site, tinyweb, lsp, dap"
+	@echo "                  packaging, site, tinyweb, lsp, dap, nbjson, nbverify"
 	@echo "make stest        the same suite, one test at a time (TARGET and"
 	@echo "                  SUITE as for make test)"
 	@echo "make quicktest    a quick sample of make test: the latest version of"
@@ -211,7 +214,39 @@ check-node:
 # machines (a Mac and a Linux VM), and a ./pyk, _build/ or plugin left by
 # the other one cannot run here. `clean-build` rather than `clean`, so
 # built packages and the website survive a test run.
-test: check-node
+# The test harness is Python 3.11 or later: it reads the manifests with
+# tomllib and uses match. Asked before the clean build, so an older
+# python3 is said at once rather than as each suite failing to start.
+check-python:
+	@if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; then \
+	  echo "make: the tests need Python 3.11 or later, and python3 is"; \
+	  echo "      $$(python3 --version 2>&1) ($$(command -v python3))."; \
+	  echo "      Install a newer one -- brew install python on macOS,"; \
+	  echo "      sudo apt install python3 on Debian and Ubuntu -- and put it"; \
+	  echo "      first on the PATH."; \
+	  exit 1; \
+	fi
+
+# The nbjson suite checks every notebook's JSON against its schema with
+# python's jsonschema, which is the one package the suites need. Asked
+# before the clean build, so a missing one is said at once; not asked
+# where TARGET or SUITE leaves nbjson out.
+check-jsonschema:
+	@case "$(TARGET)" in "") ;; *) exit 0 ;; esac; \
+	case ",$(SUITE)," in ",,"|*,nbjson,*) ;; *) exit 0 ;; esac; \
+	if ! python3 -c "import jsonschema" >/dev/null 2>&1; then \
+	  echo "make: python's jsonschema is not installed, and the nbjson suite"; \
+	  echo "      checks every notebook's JSON against its schema with it."; \
+	  echo "      Install it with"; \
+	  echo "          python3 -m pip install --user jsonschema"; \
+	  echo "      or, on Debian and Ubuntu,"; \
+	  echo "          sudo apt install python3-jsonschema"; \
+	  echo "      or, with Homebrew's Python on macOS,"; \
+	  echo "          python3 -m pip install --user --break-system-packages jsonschema"; \
+	  exit 1; \
+	fi
+
+test: check-node check-python check-jsonschema
 	@$(MAKE) --no-print-directory clean-build
 	@$(MAKE) --no-print-directory all
 	@python3 tests/test_all.py $(if $(JOBS),--jobs $(JOBS)) \
@@ -219,7 +254,7 @@ test: check-node
 
 # The same suite with no pool at all, for when a parallel run's timing is
 # itself in question.
-stest: check-node
+stest: check-node check-python check-jsonschema
 	@$(MAKE) --no-print-directory clean-build
 	@$(MAKE) --no-print-directory all
 	@python3 tests/test_all.py --jobs 1 $(if $(TARGET),--target $(TARGET)) \
@@ -227,7 +262,7 @@ stest: check-node
 
 # A random sample of the suite (see tests/test_all.py, `--quick`). The
 # seed is printed, and SEED= repeats the same choice.
-quicktest: check-node
+quicktest: check-node check-python check-jsonschema
 	@$(MAKE) --no-print-directory clean-build
 	@$(MAKE) --no-print-directory all
 	@python3 tests/test_all.py --quick $(or $(PERCENT),5) $(if $(SEED),--seed $(SEED)) \

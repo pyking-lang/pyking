@@ -1,0 +1,20 @@
+# Draws a piece of line on every move too.
+import tinyweb as tw
+import tinyweb.color as color
+
+c = tw.canvas(300, 200)
+var start = tw.Point(0, 0)
+
+def pressed(x: Int, y: Int):
+    start := tw.Point(x, y)
+
+def moved(x: Int, y: Int):
+    tw.line(c, start.x, start.y, x, y, color.blue, width = 3)
+
+def released(x: Int, y: Int):
+    tw.line(c, start.x, start.y, x, y, color.blue, width = 3)
+    print("line from", start.x, start.y, "to", x, y)
+
+tw.on_press(c, pressed)
+tw.on_move(c, moved)
+tw.on_release(c, released)

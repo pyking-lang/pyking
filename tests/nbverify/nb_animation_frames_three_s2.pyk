@@ -1,0 +1,13 @@
+# Keeps going after the third frame.
+import tinyweb as tw
+import tinyweb.color as color
+
+c = tw.canvas(100, 20)
+var count = 0
+
+def draw(t: Float):
+    count := count + 1
+    print("frame", count, "at", t)
+    tw.rect(c, 0, 0, 10 * count, 20, color.orange)
+
+tw.on_frame(draw)

@@ -1,0 +1,48 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_debug.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_debug_trace_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_debug_trace_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_debug_trace_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n1\n2\n3\nexpected:\ntotal: 6\nexpected from debug:\nread 1 total so far 1\nread 2 total so far 3\nread 3 total so far 6\ngot:\nread 1 total so far 1\nread 2 total so far 3\nread 3 total so far 6\ntotal: 6\ngot from debug:\n"
+
+[[solution]]
+file = "nb_debug_trace_s4.pyk"
+accepted = false
+reason = "What debug printed is not what it should be.\nstdin:\n1\n2\n3\nexpected:\ntotal: 6\nexpected from debug:\nread 1 total so far 1\nread 2 total so far 3\nread 3 total so far 6\ngot:\ntotal: 6\ngot from debug:\nread 1 total so far 0\nread 2 total so far 1\nread 3 total so far 3"
+
+[[solution]]
+file = "nb_debug_trace_s5.pyk"
+accepted = false
+reason = "What debug printed is not what it should be.\nstdin:\n1\n2\n3\nexpected:\ntotal: 6\nexpected from debug:\nread 1 total so far 1\nread 2 total so far 3\nread 3 total so far 6\ngot:\ntotal: 6\ngot from debug:\n"
+
+[[solution]]
+file = "nb_debug_warn_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_debug_warn_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_debug_warn_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nexpected:\nresult: 7\nexpected from debug:\nwarning: this result is made up\ngot:\nresult: 7\nwarning: this result is made up\ngot from debug:\n"
+
+[[solution]]
+file = "nb_debug_warn_s4.pyk"
+accepted = false
+reason = "What debug printed is not what it should be.\nexpected:\nresult: 7\nexpected from debug:\nwarning: this result is made up\ngot:\nresult: 7\ngot from debug:\nWarning: this result is made up!"

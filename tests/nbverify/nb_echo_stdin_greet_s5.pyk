@@ -1,0 +1,4 @@
+import io
+name = io.read_line()
+print("Hello, " ++ name ++ "!")
+print("Greeted 1 people")

@@ -149,6 +149,23 @@ let extended (more : Web_server.site) (site : Web_server.site) : Web_server.site
 
 (* --- the notebook --- *)
 
+let ( let* ) = Result.bind
+
+(** Whether a notebook is written as JSON. string -> bool *)
+let is_json document = String.lowercase_ascii (Filename.extension document) = ".json"
+
+(** The Markdown a .json notebook stands for, or why it is not one.
+    string -> (string, string) result *)
+let notebook_markdown document =
+  match In_channel.with_open_bin document In_channel.input_all with
+  | exception Sys_error message -> Error message
+  | text -> (
+      match Notebook_format.to_markdown (Json.parse text) with
+      | markdown -> Ok markdown
+      | exception Json.Parse_error message -> Error (Printf.sprintf "pyk notebook: %s is not JSON: %s" document message)
+      | exception Notebook_format.Format_error message ->
+          Error (Printf.sprintf "pyk notebook: %s is not a notebook: %s" document message))
+
 (** Writes a picture a notebook made into its document's directory:
     `path` a .png file under `directory`, named by plain parts with no
     `..` and none hidden. Leaves a file already holding those bytes
@@ -183,10 +200,19 @@ let save_picture directory path bytes =
 let notebook_site document mode =
   let assets = under [ "tools"; "notebook"; "assets" ] in
   let index = Filename.concat assets "index.html" in
+  (* A .json notebook is served as the Markdown it stands for, worked out
+     again on every request so the page sees it change. *)
+  let json = is_json document in
+  let shown = if json then Filename.remove_extension (Filename.basename document) ^ ".md" else Filename.basename document in
+  let converted () =
+    match notebook_markdown document with
+    | Ok text -> text
+    | Error message -> "# This notebook could not be read\n\n" ^ message ^ "\n"
+  in
   let config =
     json_object
       [
-        ("document", json_string (Filename.basename document));
+        ("document", json_string shown);
         ("mode", json_string mode);
         ("watch", "true");
         ("save", json_string "save/");
@@ -197,17 +223,34 @@ let notebook_site document mode =
     {
       mounts = [ ("/notebook/", assets); ("/doc/", Filename.dirname document) ];
       files = [ ("/", index); ("/index.html", index) ];
-      answers = [ ("/notebook.json", ((fun () -> config), "application/json")) ];
+      answers =
+        [ ("/notebook.json", ((fun () -> config), "application/json")) ]
+        @ (if json then [ ("/doc/" ^ shown, (converted, "text/markdown; charset=utf-8")) ] else []);
       posts = [ ("/save/", save_picture (Filename.dirname document)) ];
       listing = false;
     }
     (common_site ())
 
 (** Checks a notebook with check.js under node and answers its exit
-    status. string -> (int, string) result *)
-let notebook_test document =
+    status: a .json one as the Markdown it stands for, written to a file
+    of its own for the run and reported under the name it was given.
+    string -> string -> (int, string) result *)
+let notebook_test document given =
   let check = under [ "tools"; "notebook"; "check.js" ] in
-  let arguments = [| "node"; check; document; bundle (); under [ "lib" ] |] in
+  let* markdown, shown =
+    if is_json document then
+      let* text = notebook_markdown document in
+      let file = Filename.temp_file "pyk-notebook-" ".md" in
+      Out_channel.with_open_bin file (fun out -> Out_channel.output_string out text);
+      Ok (file, [| given |])
+    else Ok (document, [||])
+  in
+  let arguments = Array.append [| "node"; check; markdown; bundle (); under [ "lib" ] |] shown in
+  let finish result =
+    if markdown <> document then (try Sys.remove markdown with Sys_error _ -> ());
+    result
+  in
+  finish @@
   match Unix.create_process "node" arguments Unix.stdin Unix.stdout Unix.stderr with
   | exception Unix.Unix_error _ ->
       Error "pyk notebook --mode test runs the notebook's code under node, and node was not found."
@@ -316,8 +359,6 @@ let serve ?page site title port lines =
   let chosen = Option.value ~default:Web_server.default_port port in
   Result.map (fun () -> 0) (Web_server.serve ?page site title chosen (port <> None) lines)
 
-let ( let* ) = Result.bind
-
 let start tool port mode path =
   match tool with
   | Files ->
@@ -351,11 +392,12 @@ let start tool port mode path =
       let mode = Option.value ~default:(List.hd modes) mode in
       if not (Sys.file_exists document) || Sys.is_directory document then
         Error (Printf.sprintf "pyk notebook: no such file: %s" given)
-      else if extension <> ".md" && extension <> ".markdown" then
-        Error (Printf.sprintf "pyk notebook: %s is not a Markdown file (.md)" given)
+      else if extension <> ".md" && extension <> ".markdown" && extension <> ".json" then
+        Error (Printf.sprintf "pyk notebook: %s is not a Markdown file (.md) or a notebook's JSON (.json)" given)
       else
+        let* () = if is_json document then Result.map (fun _ -> ()) (notebook_markdown document) else Ok () in
         let* () = check_bundle "pyk notebook" in
-        if mode = "test" then notebook_test document
+        if mode = "test" then notebook_test document given
         else
           let* () = check_vendor "pyk notebook" in
           serve (notebook_site document mode) "Pyking notebook" port

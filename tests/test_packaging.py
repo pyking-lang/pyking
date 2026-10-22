@@ -165,10 +165,16 @@ def check_stage(check, compiler):
                        "lib/io/io_external.cmxs", "tools/notebook/check.js",
                        "tools/notebook/assets/index.html",
                        "tools/emacs/pyking-mode.el",
+                       "tools/nbverify/nbverify.py", "tools/nbverify/README.md",
                        "tools/playground/assets/index.html"]:
             check(f"the tree holds {wanted}", wanted in files)
-        python = sorted(f for f in files if f.startswith("tools/") and f.endswith(".py"))
+        python = sorted(f for f in files if f.startswith("tools/") and f.endswith(".py")
+                        and f != "tools/nbverify/nbverify.py")
         check("the web tools hold no Python: pyk serves them", not python, ", ".join(python))
+        verifier = run([sys.executable, str(tree / "tools" / "nbverify" / "nbverify.py"), "--version"],
+                       root, dict(os.environ))
+        check("the tree's nbverify says VERSION",
+              verifier.stdout.strip() == f"nbverify {version}", verifier.stdout + verifier.stderr)
         check("every library with an OCaml implementation has its plugin",
               all(plugin.exists() for plugin in plugins) and len(plugins) >= 4,
               ", ".join(str(p.relative_to(tree)) for p in plugins))

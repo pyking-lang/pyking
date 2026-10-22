@@ -256,6 +256,11 @@ form:
   under `lib/`: what each library offers, how `pyk` finds one, why
   each reaches the targets it does, and how the interpreter and a
   browser reach one implemented in a target language.
+- **[docs/notebook.md](docs/notebook.md)** — notebooks: every block a
+  notebook can hold, with examples, and a notebook as JSON
+  (`--to-json`, `--to-markdown`, `--json-schema`).
+- **[tools/nbverify/README.md](tools/nbverify/README.md)** — grading a
+  notebook's exercises and quizzes with the ID2202 autograder.
 - **[docs/debugging.md](docs/debugging.md)** — the debugger: one
   session core, two transports (`pyk dap` and the playground's Debug
   tab), and what stepping, breakpoints and evaluating mean.
@@ -313,6 +318,7 @@ form:
 | `tools/playground/` | the browser playground: the compiler itself, compiled to JavaScript |
 | `tools/notebook/` | the notebook: a Markdown file whose Pyking blocks run in the browser |
 | `tools/webrun/` | what the playground and the notebook share |
+| `tools/nbverify/` | a verifier grading a notebook's exercises for the ID2202 autograder |
 | `tools/site/` | the website: Astro and Starlight, and the library reference generator |
 | `sitesrc/` | the website's pages, in Markdown |
 | `tools/packaging/` | builds the installable packages (Homebrew, so far) |

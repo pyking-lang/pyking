@@ -1,0 +1,13 @@
+import io
+def rem(a: Int, b: Int) -> Int:
+    a - a / b * b
+n = int(io.read_line())
+for k in range(1, n + 1):
+    if rem(k, 15) == 0:
+        print("FizzBuzz")
+    else if rem(k, 3) == 0:
+        print("Fizz")
+    else if rem(k, 5) == 0:
+        print("Buzz")
+    else:
+        print(k)

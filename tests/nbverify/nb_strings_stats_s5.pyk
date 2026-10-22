@@ -1,0 +1,14 @@
+import io
+import math
+import text
+
+line = io.read_line()
+words = text.words(line)
+var longest = ""
+for w in words:
+    if text.length(w) > text.length(longest):
+        longest := w
+average = float(text.length(line)) / float(len(words))
+print("words:", len(words))
+print("average length:", float(math.round(average * 100.0)) / 100.0)
+print("longest:", longest)

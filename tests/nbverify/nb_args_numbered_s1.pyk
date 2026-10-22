@@ -1,0 +1,15 @@
+import io
+import sys
+
+def show(words: [String], n: Int) -> Int:
+    match words:
+        case []:
+            return n
+        case [w, ..rest]:
+            print(string(n + 1) ++ ": " ++ w)
+            return show(rest, n + 1)
+
+count = show(sys.args(), 0)
+sep = io.read_line()
+print("separator:", sep)
+print(count, "arguments")

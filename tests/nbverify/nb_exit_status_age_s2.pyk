@@ -1,0 +1,13 @@
+import io
+import sys
+
+def classify(age: Int) -> (String, Int):
+    if age < 0:
+        return ("invalid", 2)
+    if age < 18:
+        return ("minor", 1)
+    return ("adult", 0)
+
+(word, status) = classify(int(io.read_line()))
+print(word)
+sys.exit(status)

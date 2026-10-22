@@ -1,0 +1,4 @@
+import io
+import math
+n = int(io.read_line())
+print(math.abs(n) * math.abs(n))

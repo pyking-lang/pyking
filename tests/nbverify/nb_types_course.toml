@@ -1,0 +1,68 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_types_course.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_types_course_fahrenheit_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_types_course_fahrenheit_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_types_course_fahrenheit_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n0\nexpected:\n32.0\ngot:\n32"
+
+[[solution]]
+file = "nb_types_course_fahrenheit_s4.pyk"
+accepted = false
+reason = "Your program did not run:\n'solution.pyk' 3:6-3:13 Type error: `*` cannot be applied to Int and\n  Float; it accepts Int * Int or Float * Float. Pyking mixes no\n  numbers on its own: `float(n)` makes an Int a Float, and `int(x)`\n  truncates a Float to an Int"
+
+[[solution]]
+file = "nb_types_course_fahrenheit_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n37\nexpected:\n98.6\ngot:\n52.55555555555556"
+
+[[solution]]
+file = "nb_types_course_fahrenheit_s6.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_types_course_list-type_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_types_course_list-type_s2.pyk"
+accepted = false
+reason = "Not right.\n3: It is a list, not one number."
+
+[[solution]]
+file = "nb_types_course_list-type_s3.pyk"
+accepted = false
+reason = "There is no alternative 4: the quiz has 3, numbered from 1."
+
+[[solution]]
+file = "nb_types_course_refused_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_types_course_refused_s2.pyk"
+accepted = false
+reason = "Not right.\nOne or more right answers were not checked."
+
+[[solution]]
+file = "nb_types_course_refused_s3.pyk"
+accepted = false
+reason = "Not right.\n4: `string(3)` is a `String`."
+
+[[solution]]
+file = "nb_types_course_refused_s4.pyk"
+accepted = false
+reason = "Check at least one answer first."

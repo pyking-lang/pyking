@@ -233,7 +233,8 @@ export class PykingRuntime {
    *  `onInput` with each line the program read. `stdin` is what the
    *  program reads, and `args` what `sys.args()` answers. `tinywebLog`
    *  true sends tinyweb's log to `onDebug`, and "separate" to
-   *  `onTinyweb`, a line at a time.
+   *  `onTinyweb`, a line at a time. `tinywebEvents` is the lines of an
+   *  events file, delivered once the top level has ended.
    *
    *  Resolves to {ok:true, exit?} -- `exit` being the status `sys.exit`
    *  ended the run with -- or to a refusal in `compile`'s own shape,
@@ -242,6 +243,7 @@ export class PykingRuntime {
   async runProgram(source, {
     onOutput, onDebug, onTinyweb, onInput, onPage, onFailure, onExit, onEnd,
     name = "playground.pyk", stdin = "", args = [], release = false, tinywebLog = false,
+    tinywebEvents = "",
   } = {}) {
     this._require();
     this.endLive();
@@ -254,7 +256,7 @@ export class PykingRuntime {
     this.onExit = onExit || null;
     this._live = false;
     try {
-      return await this._send("run", { source, name, stdin, args, release, tinywebLog });
+      return await this._send("run", { source, name, stdin, args, release, tinywebLog, tinywebEvents });
     } finally {
       // A program that sent its page something goes on after answering
       // -- the page calls back the functions it gave it -- so it keeps

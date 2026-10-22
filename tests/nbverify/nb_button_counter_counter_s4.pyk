@@ -1,0 +1,13 @@
+# Prints the count before adding the click.
+import tinyweb as tw
+
+var count = 0
+shown = tw.label("0 clicks")
+
+def clicked():
+    print("clicked", count)
+    count := count + 1
+    tw.set_text(shown, string(count) ++ " clicks")
+
+tw.button("Click me", on_click = clicked)
+print("ready")

@@ -1,0 +1,6 @@
+# The button does nothing when clicked.
+import tinyweb as tw
+
+shown = tw.label("0 clicks")
+tw.button("Click me")
+print("ready")

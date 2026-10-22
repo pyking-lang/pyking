@@ -1,0 +1,7 @@
+# The same colors written as numbers, and named arguments.
+import tinyweb as tw
+import tinyweb.color as color
+
+sky = tw.canvas(200, 200)
+tw.rect(sky, x = 0, y = 0, w = 200, h = 200, fill = color.rgb(0, 255, 255))
+tw.circle(sky, 150, 50, radius = 30, fill = color.hex(0xffff00))

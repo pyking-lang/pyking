@@ -1,0 +1,14 @@
+# Right to left: the same circles in another order, which
+# the text asks not to do.
+import tinyweb as tw
+import tinyweb.color as color
+import io
+
+start = int(io.read_line())
+gap = int(io.read_line())
+c = tw.canvas(400, 100)
+var x = start + 4 * gap
+for fill in [color.blue, color.green, color.yellow, color.orange, color.red]:
+    tw.circle(c, x, 50, 15, fill)
+    x := x - gap
+print("last at", start + 4 * gap)
