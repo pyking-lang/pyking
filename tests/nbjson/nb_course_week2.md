@@ -4,9 +4,9 @@ title: "Week 2: drawing, events and debugging"
 
 # Week 2: drawing, events and debugging
 
-```rules max = 10 pass = 7
+```rules max = 14 pass = 7
 Five items are graded in the page, worth 10 points. The last exercise
-is handed in with git and graded by the teachers.
+is handed in with git and graded by the teachers, for 4 more.
 ```
 
 ## Drawing on a canvas

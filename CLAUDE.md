@@ -1662,7 +1662,9 @@ anything both pages need there rather than copying it.
   prints the verifier_param_schema, `paramdata BOOK --name N` runs the
   solution with pyk and writes each test's `[test.options]`, and `run`
   is a test's command (the answer run with the tinyweb log, its trailer
-  on stderr). Its reasons are the notebook page's own words, which
+  on stderr), and `try FILE` runs and verifies an answer on the test
+  file read on stdin (`paramdata ... --case N | nbverify.py try FILE`; `--json` prints
+  the run for the verifier instead). Its reasons are the notebook page's own words, which
   `tests/test_nbverify.py` checks. One file, standard library only, and
   shipped (`SHIPPED`). **Its `VERSION = "..."` line is written by
   `make`** (`tools/nbverify/stamp.py`, run by the `build` rule) from the
@@ -2437,7 +2439,8 @@ writes the tests, and each student solution
 notebook's one unnamed item) is run by each test's command and verified
 as the autograder would, and held to `tests/nbverify/<book>.toml`
 (`accepted`, written by intent, and `reason`, the first refused test's).
-Every item has a solution accepted and one refused. Then `paramschema`
+Every item has a solution accepted and one refused, and every
+solution is graded again through `try`. Then `paramschema`
 and every test's params by it, the reasons against `activities.js`, the
 version, and the refusals. `--update` rewrites the reasons (never
 `accepted`); read the diff. `--only BOOK,...` grades some notebooks.

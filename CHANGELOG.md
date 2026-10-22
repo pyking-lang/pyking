@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `nbverify.py try FILE`: runs and verifies an answer on the test file
+  read on standard input, so `nbverify.py paramdata BOOK --name N --case
+  1 | nbverify.py try FILE` grades one test without the autograder;
+  `try --json` prints the run the verifier reads instead.
+  nbverify's list params are written as JSON in a string, never a TOML
+  list.
 - Notebooks as JSON: `pyk notebook book.md --to-json` writes the
   notebook as structured JSON, `pyk notebook book.json --to-markdown`
   writes it back as the same Markdown, byte for byte, and `pyk notebook

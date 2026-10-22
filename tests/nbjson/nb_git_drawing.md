@@ -4,10 +4,10 @@ title: A house and a sun
 
 # A house and a sun
 
-```rules max = 3 pass = 2
+```rules max = 7 pass = 2
 The sun and the quiz are graded here. The house is a larger program:
 write it in your own repository and push it with git, where it is
-graded; its 4 points do not count here.
+graded; its 4 points count towards the total.
 ```
 
 Shapes are drawn in the order the program asks for them, each on top of

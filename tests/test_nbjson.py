@@ -135,21 +135,23 @@ def run(compiler, args, cwd=None, data=None):
 
 
 class Checks:
-    """Checks made and the failures among them."""
+    """Checks made, the failures among them, and each one's line."""
 
     def __init__(self):
-        self.passed, self.failures = 0, []
+        self.passed, self.failures, self.lines = 0, [], []
 
     def check(self, ok, label, detail=""):
         if ok:
             self.passed += 1
         else:
             self.failures.append(label + (f": {detail}" if detail else ""))
+        self.lines.append(suite.case_line("nbjson", ok, label, detail))
         return ok
 
     def merge(self, other):
         self.passed += other.passed
         self.failures += other.failures
+        self.lines += other.lines
 
 
 def jsonschema_validator(schema_text):
@@ -447,6 +449,10 @@ def main(argv):
         futures.append(pool.submit(check_serving, compiler))
         for future in futures:
             total.merge(future.result())
+    for line in total.lines:
+        print(line)
+    if total.failures:
+        print()
     for failure in total.failures:
         print(f"nbjson: FAILED {failure}")
     print(f"nbjson: {len(notebooks)} notebooks, {len(EDGES)} short documents, the command line and serving.")

@@ -45,6 +45,7 @@ and runs nothing.
 | `nbverify.py paramschema` | prints the `[test.options.verifier_param_schema]` table for `config.toml` |
 | `nbverify.py paramdata BOOK [--name NAME] [--case N \| --output-dir DIR] [--program FILE] [--pyk PYK]` | prints or writes each test's `[test.options]` |
 | `nbverify.py run [--pyk PYK] [--events TEXT] [-L DIR] FILE [-- ARGS]` | runs an answer the way a test does |
+| `nbverify.py try [--pyk PYK] [-L DIR] [--json] FILE` | runs an answer on the test whose `[test.options]` is on standard input, and prints the verdict, or with `--json` the run |
 | `nbverify.py --help`, `--version` | the help; `nbverify <version>` |
 
 With no argument it does not print the help: it waits for the JSON.
@@ -59,11 +60,15 @@ name = {type = "string", default = ""}
 compare_stdout = {type = "bool", default = false}
 expected_stdout = {type = "string", default = ""}
 ...
-quiz_explanations = {type = "list", default = []}
+quiz_explanations = {type = "string", default = "[]"}
 ```
 
 It is the same for every notebook, and goes once in the test group's
 `config.toml`.
+
+A param is an int, a bool or a string, never a TOML list: a list is
+written as a string holding it as JSON (`"[1, 3]"`), which the verifier
+reads back into the list.
 
 | Param | Type | Means |
 |---|---|---|
@@ -73,13 +78,13 @@ It is the same for every notebook, and goes once in the test group's
 | `compare_stderr`, `expected_stderr` | bool, string | what `debug` writes is compared with this |
 | `compare_tinyweb`, `expected_tinyweb` | bool, string | tinyweb's log is compared with this |
 | `compare_code`, `expected_code` | bool, int | the exit status is compared with this |
-| `diff_allowed` | list | the lines of the exercise's diff-allowed blocks |
+| `diff_allowed` | list, as JSON in a string | the lines of the exercise's diff-allowed blocks |
 | `details` | bool | the reason also shows the test and both outputs, as the page does unless `attempts = 1` |
-| `test_stdin`, `test_args`, `test_events` | string, list, string | the test's input, for `details` |
+| `test_stdin`, `test_args`, `test_events` | string, list as JSON in a string, string | the test's input, for `details` |
 | `quiz_alternatives` | int | how many alternatives the quiz has |
 | `quiz_multiple` | bool | a `[]` quiz: any number may be chosen |
-| `quiz_right` | list | the right alternatives, numbered from 1 |
-| `quiz_explanations` | list | each alternative's explanation |
+| `quiz_right` | list, as JSON in a string | the right alternatives, numbered from 1 |
+| `quiz_explanations` | list, as JSON in a string | each alternative's explanation |
 
 ### `paramdata`
 
@@ -140,6 +145,42 @@ error, a runtime error) rather than the program ending itself, and
 `error` is then pyk's report. The verifier reads the last such trailer;
 without one, the whole of standard error is what `debug` wrote and
 there is no tinyweb log.
+
+### `try`
+
+A test without the autograder. It reads one test file's TOML on
+standard input, as `paramdata --case N` prints it, runs `FILE` with
+`run` on that test's `stdin`, `--events` and arguments (`FILE` in place
+of the program the test names), and verifies the run with the test's
+`verifier_params`. It prints the verdict as the verifier does, with
+status 0 or 1; a refusal (no program, TOML it cannot read, no
+`[test.options]`) is status 2, on standard error.
+
+```
+$ python3 nbverify.py paramdata week1.json --name square --case 1 | python3 nbverify.py try mycode.pyk
+{"accepted": false, "reason": "The output is not what it should be."}
+```
+
+The run it verifies is the one the autograder would hand over. With
+`--json` it prints that run and verifies nothing, with status 0, so the
+two halves can be run apart:
+
+```
+$ python3 nbverify.py paramdata week1.json --name square --case 1 | python3 nbverify.py try --json mycode.pyk > run.json
+$ python3 nbverify.py < run.json
+```
+
+The run looks like this:
+
+```
+{"cmd": ["./graded-bin", "run", "mycode.pyk"], "code": 0,
+ "stdout": {"enc": "utf8", "data": "..."}, "stderr": {"enc": "utf8", "data": "...--- nbverify run ---\n{...}\n"},
+ "files": {}, "params": {...}}
+```
+
+It reads the TOML itself, so Python 3.8 is still enough: tables, dotted
+keys, one-line strings, numbers, bools and arrays, which is what
+`paramdata` writes.
 
 ## The config.toml
 
@@ -215,6 +256,9 @@ The `nbverify` suite (`tests/test_nbverify.py`) grades the student
 solutions in `tests/nbverify/` -- `<book>_<name>_s<N>.pyk`, for the
 notebooks in `tests/nbjson/` -- by every test `paramdata` makes, running
 each as the autograder would, and holds the verdicts to
-`tests/nbverify/<book>.toml`. `--update` rewrites the reasons there;
+`tests/nbverify/<book>.toml`. Each solution is graded again by `try` on
+every test, which must say the same; one solution per item goes through
+a real `paramdata --case 1 | try` pipe, and `try`'s TOML reader must
+read every test file as `tomllib` does. `--update` rewrites the reasons there;
 whether a solution is accepted is written by hand. `--only BOOK,...`
 grades some notebooks only.

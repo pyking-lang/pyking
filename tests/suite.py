@@ -11,6 +11,7 @@ exactly what it always did plus its footer.
 
 Functions:
     heading name -- the banner that opens one suite's output.
+    case_line name ok label detail -- one case's OK or FAILED line.
     footer name passed failed detail -- the one-line summary that closes
       it, and the tally the driver collects.
     read_tally path -- the tallies a run collected, in order.
@@ -48,6 +49,17 @@ def heading(name):
     print()
     print(f"--- {name} " + "-" * max(3, WIDTH - len(name) - 5))
     print(flush=True)
+
+
+def case_line(name, ok, label, detail=""):
+    """One case's line, `name: label OK.` or `name: label FAILED` with the
+    detail indented below it, as the other suites print theirs.
+    String -> Bool -> String -> String -> String"""
+    if ok:
+        return f"{name}: {label} OK."
+    lines = [f"{name}: {label} FAILED"]
+    lines += [f"  {line}" for line in str(detail).splitlines() if line.strip()]
+    return "\n".join(lines)
 
 
 def footer(name, passed, failed, detail=""):

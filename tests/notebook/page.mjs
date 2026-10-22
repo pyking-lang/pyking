@@ -172,10 +172,11 @@ const DRAWING = `(async () => { ${HELPERS}
     !hidden($("[data-r=git]", git)) && /Please submit via your git account/.test($("[data-r=git]", git).innerText)
     && hidden($("[data-r=submit]", git)) && /submitted with git/.test($("[data-r=badges]", git).innerText),
     git.innerText);
-  check("the rules say what is submitted with git", /5\\s*submitted with git/.test($(".pkn-rules").innerText),
+  check("the rules count it in the total, and say nothing of git",
+    /9\\s*points in total/.test($(".pkn-rules").innerText) && !/git/.test($(".pkn-rules-limits").innerText),
     $(".pkn-rules").innerText);
   const r = nb.results();
-  check("the totals leave it out", r.total === 2 && r.max === 4, JSON.stringify(r));
+  check("the totals leave it out, but max counts it", r.total === 2 && r.max === 9, JSON.stringify(r));
   if (nb.cfg.mode === "teacher") {
     check("a teacher sees its solution", !hidden($("[data-r=solution]", git)));
     return checks;

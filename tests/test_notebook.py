@@ -280,7 +280,7 @@ check("lines_per_multi_input splits a stdin block into tests",
       JSON.stringify([square.tests.map((t) => t.stdin), doubling.tests.map((t) => t.stdin)]));
 const drawn = grading.summary(drawing, { "exercise-1": { state: "solved", points: 2 } });
 check("an exercise submitted with git is left out of the totals",
-      drawn.total === 2 && drawn.solved === 1 && drawn.points === 2 && drawn.max === 4,
+      drawn.total === 2 && drawn.solved === 1 && drawn.points === 2 && drawn.max === 9,
       JSON.stringify(drawn));
 for (const [header, problem] of [
   ["```pyking exercise method = svn\n```\n", "method is inline or git, not 'svn'"],

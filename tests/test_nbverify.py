@@ -10,7 +10,11 @@ for a notebook's only, unnamed item -- is run by each test's command,
 `nbverify.py run`, and verified with that test's params. What it gets
 is held to the notebook's own tests/nbverify/<book>.toml: whether it is
 accepted, and the reason the first refused test gives. Every item has a solution accepted
-and one refused. Then `paramschema` and the params against it, the
+and one refused. Each solution is graded a second time the way a
+teacher tries one, `paramdata --case N | nbverify.py try`, on every
+test, and must get the same verdict; one solution per item goes through
+a real shell pipe, and `try`'s TOML reader must read every test file as
+tomllib does. Then `paramschema` and the params against it, the
 reasons against the notebook page's own words, the version, and the
 command line's refusals.
 
@@ -24,6 +28,9 @@ solutions of the notebooks named (by stem) and nothing else.
 Functions:
     solution_item(file, books) -- the notebook and item a solution file is for.
     grade(tests, solution) -- the verdict on a solution, over every test.
+    grade_try(texts, solution) -- the same through `nbverify.py try`.
+    check_try(compiler, items, texts, targets) -- a real pipe per item,
+      and try's TOML reader against tomllib.
     check_solutions(compiler, update, items) -- every solution against
       its notebook's <book>.toml.
     check_schema(tests) -- paramschema, and every test's params by it.
@@ -46,6 +53,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import suite  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools" / "nbverify"))
+import nbverify as nbverify_module  # noqa: E402
+
 REPO = Path(__file__).resolve().parent.parent
 BOOKS = REPO / "tests" / "nbjson"
 SOLUTIONS = REPO / "tests" / "nbverify"
@@ -57,7 +67,8 @@ SOLUTION_NAME = re.compile(r"^(.+)_s([0-9]+)\.pyk$")
 
 
 class Checks:
-    """Checks made and the failures among them."""
+    """Checks made and the failures among them, each printed as it is
+    made."""
 
     def __init__(self):
         self.passed, self.failures = 0, []
@@ -67,6 +78,7 @@ class Checks:
             self.passed += 1
         else:
             self.failures.append(label + (f": {detail}" if detail else ""))
+        print(suite.case_line("nbverify", ok, label, detail), flush=True)
         return ok
 
 
@@ -79,17 +91,17 @@ def nbverify(args, data=None, cwd=None, env=None):
 
 def book_items(compiler, only=None):
     """Every notebook's items, with the test files paramdata writes for
-    each: {(book, name): [test.options]}, and the failures making them.
-    [String] -> [String]? -> ({(String, String): [{..}]}, [String])"""
+    each: {(book, name): [test.options]}, the files' texts in the same
+    shape, and the checks making them.
+    [String] -> [String]? -> ({(String, String): [{..}]}, {(String, String): [String]}, Checks)"""
     env = dict(os.environ, PYK=compiler[0])
-    found, failures = {}, []
+    found, texts, checks = {}, {}, Checks()
     for book in sorted(BOOKS.glob("*.md")):
         if only and book.stem not in only:
             continue
         ran = subprocess.run(compiler + ["notebook", str(book), "--to-json", "-o", "-"],
                              capture_output=True, text=True, timeout=TIMEOUT)
-        if ran.returncode != 0:
-            failures.append(f"{book.name}: --to-json: {ran.stderr.strip()}")
+        if not checks.check(ran.returncode == 0, f"{book.name}: --to-json", ran.stderr.strip()):
             continue
         notebook = json.loads(ran.stdout)
         counts, items = {"exercise": 0, "quiz": 0}, []
@@ -104,15 +116,16 @@ def book_items(compiler, only=None):
             with tempfile.TemporaryDirectory(prefix="pyk-nbverify-") as directory:
                 status, _, err = nbverify(["paramdata", str(book), "--name", name, "--output-dir", directory],
                                           env=env)
-                if status != 0:
-                    failures.append(f"{book.name} {name}: paramdata: {err.strip()}")
+                if not checks.check(status == 0, f"{book.name} {name}: paramdata", err.strip()):
                     continue
-                tests = []
+                tests, written = [], []
                 for file in sorted(Path(directory).iterdir()):
-                    with open(file, "rb") as f:
-                        tests.append(tomllib.load(f)["test"]["options"])
+                    text = file.read_text(encoding="utf-8")
+                    written.append(text)
+                    tests.append(tomllib.loads(text)["test"]["options"])
                 found[(book.stem, name)] = tests
-    return found, failures
+                texts[(book.stem, name)] = written
+    return found, texts, checks
 
 
 def solution_item(file, items):
@@ -160,6 +173,63 @@ def grade(tests, solution, env):
     return True, ""
 
 
+def grade_try(texts, solution, env):
+    """A solution graded by `nbverify.py try` on each test file's text, as
+    `paramdata --case N | nbverify.py try solution.pyk` does:
+    (accepted, the first refused test's reason). [String] -> Path -> {..} -> (Bool, String)"""
+    for text in texts:
+        with tempfile.TemporaryDirectory(prefix="pyk-nbverify-") as directory:
+            shutil.copy(solution, Path(directory) / "solution.pyk")
+            status, out, err = nbverify(["try", "solution.pyk"], text, cwd=directory, env=env)
+            try:
+                verdict = json.loads(out)
+            except json.JSONDecodeError:
+                return False, f"try answered no JSON (status {status}): {err.strip()}"
+            if verdict.get("accepted") is not True:
+                if status != 1:
+                    return False, f"try refused with status {status}, not 1: {verdict} {err.strip()}"
+                return False, verdict.get("reason") or ""
+            if status != 0:
+                return False, f"try accepted with status {status}, not 0"
+    return True, ""
+
+
+def check_try(compiler, items, texts, targets):
+    """For every item, its first solution through a real shell pipe from
+    `paramdata --case 1`, getting what `try` says of the first test file;
+    and every test file read by try's own TOML reader as tomllib reads it.
+    [String] -> {..} -> {..} -> {String: (String, String)} -> Checks"""
+    checks = Checks()
+    env = dict(os.environ, PYK=compiler[0])
+    for key, written in sorted(texts.items()):
+        for k, text in enumerate(written):
+            try:
+                same = nbverify_module.read_toml(text) == tomllib.loads(text)
+                detail = ""
+            except nbverify_module.Refusal as refusal:
+                same, detail = False, str(refusal)
+            checks.check(same, f"{key[0]} {key[1]} test {k + 1}: try reads its TOML as tomllib does",
+                         detail)
+    for (book, name) in sorted(items):
+        solutions = sorted(f for f, item in targets.items() if item == (book, name))
+        if not solutions or not texts.get((book, name)):
+            continue
+        with tempfile.TemporaryDirectory(prefix="pyk-nbverify-") as directory:
+            shutil.copy(SOLUTIONS / solutions[0], Path(directory) / "solution.pyk")
+            pipe = (f"{shlex.quote(sys.executable)} {shlex.quote(str(NBVERIFY))} paramdata "
+                    f"{shlex.quote(str(BOOKS / (book + '.md')))} --name {shlex.quote(name)} --case 1"
+                    f" | {shlex.quote(sys.executable)} {shlex.quote(str(NBVERIFY))} try solution.pyk")
+            piped = subprocess.run(pipe, shell=True, cwd=directory, capture_output=True, text=True,
+                                   env=env, timeout=TIMEOUT)
+            status, out, err = nbverify(["try", "solution.pyk"], texts[(book, name)][0],
+                                        cwd=directory, env=env)
+            checks.check(piped.returncode == status and piped.stdout == out and out.startswith("{"),
+                         f"{book} {name}: paramdata --case 1 | try {solutions[0]}",
+                         f"piped {piped.returncode} {piped.stdout.strip()} {piped.stderr.strip()}; "
+                         f"from the file {status} {out.strip()} {err.strip()}")
+    return checks
+
+
 def toml_string(text):
     return json.dumps(text, ensure_ascii=False)
 
@@ -177,10 +247,10 @@ def write_cases(path, cases):
     path.write_text("\n".join(lines))
 
 
-def check_solutions(compiler, update, items, only=None):
+def check_solutions(compiler, update, items, texts, only=None):
     """Every solution graded, and held to its notebook's <book>.toml;
     every item with a solution accepted and one refused.
-    [String] -> Bool -> {..} -> [String]? -> (Checks, Int)"""
+    [String] -> Bool -> {..} -> {..} -> [String]? -> (Checks, Int, {String: (String, String)})"""
     checks = Checks()
     cases, sources = {}, {}
     for path in sorted(SOLUTIONS.glob("*.toml")):
@@ -209,6 +279,8 @@ def check_solutions(compiler, update, items, only=None):
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
         verdicts = dict(zip(targets, pool.map(
             lambda f: grade(items[targets[f]], SOLUTIONS / f, env), targets)))
+        tried = dict(zip(targets, pool.map(
+            lambda f: grade_try(texts[targets[f]], SOLUTIONS / f, env), targets)))
     changed = set()
     for file, (accepted, reason) in verdicts.items():
         want = cases.get(file)
@@ -223,6 +295,11 @@ def check_solutions(compiler, update, items, only=None):
         elif not update:
             checks.check(reason == want.get("reason", ""), f"{file}: the reason",
                          f"nbverify says {reason!r}, cases.toml {want.get('reason', '')!r}")
+    for file, (accepted, reason) in tried.items():
+        checks.check((accepted, reason) == verdicts[file],
+                     f"{file}: paramdata --case N | try, on every test, says the same",
+                     f"try says {'accepted' if accepted else 'refused: ' + reason}; "
+                     f"the autograder's way {verdicts[file]}")
     for path in sorted(changed):
         write_cases(path, {f: c for f, c in cases.items() if sources[f] == path})
         print(f"nbverify: {path.name} rewritten; read the diff before keeping it")
@@ -231,7 +308,7 @@ def check_solutions(compiler, update, items, only=None):
         checks.check(any(cases[f]["accepted"] for f in mine) and any(not cases[f]["accepted"] for f in mine),
                      f"{book} {name}: a solution accepted and one refused",
                      f"{len(mine)} solution{'' if len(mine) == 1 else 's'}")
-    return checks, len(verdicts)
+    return checks, len(verdicts), targets
 
 
 def check_schema(items):
@@ -243,7 +320,7 @@ def check_schema(items):
     if not checks.check(status == 0, "paramschema", err):
         return checks
     schema = tomllib.loads(out)["test"]["options"]["verifier_param_schema"]
-    kinds = {"int": int, "bool": bool, "string": str, "list": list}
+    kinds = {"int": int, "bool": bool, "string": str}
     for name, spec in schema.items():
         checks.check(set(spec) == {"type", "default"} and spec.get("type") in kinds
                      and type(spec.get("default")) is kinds.get(spec.get("type")),
@@ -321,6 +398,36 @@ def check_command_line(compiler):
             status, _, err = nbverify(args, env=env)
             checks.check(status == 2 and said in err, f"refuses nbverify {' '.join(args[:1] + args[2:])}",
                          err.strip())
+        test = ('[test.options]\nargs = ["run", "solution.pyk"]\nstdin = ""\n'
+                'verifier_params.kind = "quiz"\nverifier_params.quiz_alternatives = 2\n'
+                'verifier_params.quiz_right = "[2]"\n')
+        answer = Path(directory) / "answer.pyk"
+        answer.write_text("print([2])\n")
+        status, out, err = nbverify(["try", str(answer)], test, env=env)
+        checks.check(status == 0 and json.loads(out or "{}") == {"accepted": True, "reason": None},
+                     "try verifies a run on the test on stdin, with status 0", out + err)
+        status, out, err = nbverify(["try", str(answer)], test.replace('"[2]"', '"[1]"'), env=env)
+        checks.check(status == 1 and json.loads(out or "{}").get("accepted") is False,
+                     "try refuses a wrong answer with status 1", out + err)
+        status, out, err = nbverify(["try", str(answer)], test.replace('"[2]"', '[2]'), env=env)
+        checks.check(status == 0, "try also reads a list param written as a list", out + err)
+        for data, args, said in [
+            (test, ["try"], "give the program to run"),
+            (test, ["try", "--events", "x", str(answer)], "unknown option --events"),
+            (test, ["try", str(Path(directory) / "missing.pyk")], "no such program"),
+            (test, ["try", str(answer), "--", "a"], "come from the test"),
+            ("x = 1\n", ["try", str(answer)], "holds no [test.options]"),
+            ("[test.options\n", ["try", str(answer)], "line 1: a table's name ends with ]"),
+            ('[test.options]\nstdin = "a\n', ["try", str(answer)], "line 2: a string is not closed"),
+            ('[test.options]\nstdin = 1 2\n', ["try", str(answer)], "line 2: the line goes on"),
+            ('[test.options]\nstdin = ""\nstdin = ""\n', ["try", str(answer)], "given twice"),
+            (test.replace('["run", "solution.pyk"]', '["x"]'), ["try", str(answer)], "not a run command"),
+            (test.replace('verifier_params.quiz_right = "[2]"', 'verifier_params.quiz_right = "[2"'),
+             ["try", str(answer)], "params.quiz_right is not a JSON list"),
+        ]:
+            status, out, err = nbverify(args, data, env=env)
+            checks.check(status == 2 and said in err,
+                         f"try refuses: {said}", (out + err).strip())
         program = Path(directory) / "p.pyk"
         program.write_text("import io\nimport sys\ndebug(\"to stderr\")\nprint(io.read_line(), sys.args())\nsys.exit(3)\n")
         ran = subprocess.run([sys.executable, str(NBVERIFY), "run", str(program), "--", "a", "b c"],
@@ -349,13 +456,14 @@ def main(argv):
             return 2
     compiler = [str(Path(compiler[0]).resolve())] + compiler[1:] if Path(compiler[0]).exists() else compiler
     passed, failures = 0, []
-    items, made = book_items(compiler, only)
-    failures += made
-    passed += len(items)
-    graded, count = check_solutions(compiler, update, items, only)
-    for checks in (graded, check_schema(items), check_command_line(compiler)):
+    items, texts, made = book_items(compiler, only)
+    graded, count, targets = check_solutions(compiler, update, items, texts, only)
+    for checks in (made, graded, check_try(compiler, items, texts, targets),
+                   check_schema(items), check_command_line(compiler)):
         passed += checks.passed
         failures += checks.failures
+    if failures:
+        print()
     for failure in failures:
         print(f"nbverify: FAILED {failure}")
     tests = sum(len(t) for t in items.values())

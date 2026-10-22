@@ -4,7 +4,7 @@ title: Drawing exercises
 
 # Drawing exercises
 
-```rules max = 4 pass = 4
+```rules max = 9 pass = 4
 Two exercises are graded in the page; the third is submitted with git.
 ```
 

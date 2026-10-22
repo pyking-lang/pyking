@@ -15,14 +15,19 @@ The same file makes those params and runs the answer:
                                      each test's [test.options]
     nbverify.py run [--pyk PYK] [--events TEXT] FILE [-- ARGS]
                                      run an answer the way a test does
+    nbverify.py try [--pyk PYK] [-L DIR] [--json] FILE
+                                     run and verify an answer on one test
+                                     (its [test.options] on stdin)
     nbverify.py --help | --version
 
-It needs nothing but Python 3.8 and, for `paramdata` and `run`, pyk.
+It needs nothing but Python 3.8 and, for `paramdata`, `run` and `try`,
+pyk.
 See tools/nbverify/README.md.
 
 Data structures:
     VERSION -- the Pyking version this file belongs to, written by make.
     PARAMS -- every verifier parameter: its name, type and default.
+    LISTS -- the parameters holding a list, written as JSON in a string.
     Case -- one test case of an item: its input and what it should do.
 
 Functions:
@@ -34,6 +39,8 @@ Functions:
     split_arguments(text) -- arguments as the notebook splits them.
     run_program(pyk, path, stdin, args, events) -- one run of a program.
     launch(argv) -- `run`: a program run, its trailer on stderr.
+    read_toml(text) -- the TOML paramdata writes, read.
+    attempt(argv) -- `try`: one test's run of a program, verified.
     items(notebook) -- a notebook's exercises and quizzes, named.
     cases(item, pyk) -- what each test of an item should do.
     paramdata(argv) -- `paramdata`.
@@ -62,6 +69,11 @@ Usage: nbverify.py                    verify one run: JSON on standard input
                                       print or write each test's [test.options]
        nbverify.py run [--pyk PYK] [--events TEXT] [-L DIR] FILE [-- ARGS]
                                       run an answer as a test runs it
+       nbverify.py try [--pyk PYK] [-L DIR] [--json] FILE
+                                      run an answer on the test whose
+                                      [test.options] is on standard input,
+                                      and verify it; --json prints the run
+                                      for the verifier instead
        nbverify.py --help | --version
 
 With no argument, nbverify reads one run of an answer as the ID2202
@@ -78,6 +90,16 @@ or a quiz, from the notebook (.json, or .md through `pyk notebook
 config.toml. `run` is the test's command: it runs FILE with pyk, tinyweb
 logging what it draws and the events delivered, and adds what nbverify
 needs to standard error after a line `--- nbverify run ---`.
+
+`try` is a test without the autograder: it reads one test file's TOML,
+as `paramdata --case N` prints it, on standard input, runs FILE with
+`run` on that test's input, events and arguments, and verifies the run
+with the test's params, printing the verdict as the verifier does:
+
+    nbverify.py paramdata BOOK --name NAME --case 1 | nbverify.py try FILE
+
+With --json it verifies nothing and prints the run instead, the JSON
+nbverify.py with no argument reads.
 
 BOOK's items are named by their name = attribute; one item with no name
 is `default`, and an unnamed one may be called exercise-N or quiz-N.
@@ -113,6 +135,9 @@ PARAMS = [
 ]
 
 DEFAULTS = {name: default for name, _, default, _ in PARAMS}
+
+#: The parameters holding a list: TOML gets each as a string of JSON.
+LISTS = {name for name, kind, _, _ in PARAMS if kind == "list"}
 
 #: A pyk error report: the file, its span, and the kind of error.
 PYK_ERROR = re.compile(
@@ -374,6 +399,26 @@ def verify_quiz(params, run):
     return "\n".join(lines)
 
 
+def param_value(name, value):
+    """A parameter as given, a list parameter's JSON string read back
+    into the list. String -> Any -> Any"""
+    if name not in LISTS or not isinstance(value, str):
+        return value
+    try:
+        value = json.loads(value)
+    except json.JSONDecodeError as err:
+        raise Refusal(f"params.{name} is not a JSON list: {err}")
+    if not isinstance(value, list):
+        raise Refusal(f"params.{name} is not a JSON list")
+    return value
+
+
+def encoded(name, value):
+    """A parameter as a test file holds it: a list parameter as a string
+    of JSON. String -> Any -> Any"""
+    return json.dumps(value, ensure_ascii=False) if name in LISTS else value
+
+
 def verify(data):
     """The verdict on one run: {accepted, reason}. {..} -> {..}"""
     if not isinstance(data, dict):
@@ -382,7 +427,7 @@ def verify(data):
     if not isinstance(given, dict):
         raise Refusal("params is not an object")
     params = dict(DEFAULTS)
-    params.update({k: v for k, v in given.items() if k in DEFAULTS})
+    params.update({k: param_value(k, v) for k, v in given.items() if k in DEFAULTS})
     run = answer_run(data)
     if params["kind"] == "quiz":
         reason = verify_quiz(params, run)
@@ -448,15 +493,15 @@ def run_program(pyk, path, stdin, args, events="", libs=(), stream=False):
             "error": error}
 
 
-def launch(argv):
-    """`run`: runs a program with standard input and output its own, then
-    writes what it wrote to standard error, the trailer line, and one
-    line of JSON: its status, what debug wrote, its error and the
-    tinyweb log. Exits with the program's status. [String] -> Int"""
+def run_arguments(command, argv):
+    """A `run` or `try` command line: --pyk, --events (`run` only) and -L,
+    the program, and what follows it, a `--` in front dropped.
+    String -> [String] -> (String?, String, [String], String, [String])"""
     pyk, events, libs, rest = None, "", [], list(argv)
+    flags = ("--pyk", "--events", "-L") if command == "run" else ("--pyk", "-L")
     while rest and rest[0].startswith("-") and rest[0] != "--":
         flag = rest.pop(0)
-        if flag in ("--pyk", "--events", "-L") and rest:
+        if flag in flags and rest:
             value = rest.pop(0)
             if flag == "--pyk":
                 pyk = value
@@ -467,12 +512,21 @@ def launch(argv):
         elif flag.startswith("-L") and len(flag) > 2:
             libs.append(flag[2:])
         else:
-            raise Refusal(f"run: unknown option {flag}")
+            raise Refusal(f"{command}: unknown option {flag}")
     if not rest:
-        raise Refusal("run: give the program to run")
+        raise Refusal(f"{command}: give the program to run")
     path, args = rest[0], rest[1:]
     if args and args[0] == "--":
         args = args[1:]
+    return pyk, events, libs, path, args
+
+
+def launch(argv):
+    """`run`: runs a program with standard input and output its own, then
+    writes what it wrote to standard error, the trailer line, and one
+    line of JSON: its status, what debug wrote, its error and the
+    tinyweb log. Exits with the program's status. [String] -> Int"""
+    pyk, events, libs, path, args = run_arguments("run", argv)
     sys.stdout.flush()
     ran = run_program(find_pyk(pyk), path, None, args, events, libs, stream=True)
     written = ran["stderr"] + ran["error"]
@@ -485,6 +539,220 @@ def launch(argv):
                                  "tinyweb": ran["tinyweb"]}) + "\n")
     sys.stderr.flush()
     return ran["code"]
+
+
+# --- trying an answer on one test -------------------------------------------
+
+#: A TOML bare key, the escapes of a basic string, and a number.
+BARE_KEY = re.compile(r"[A-Za-z0-9_-]+")
+ESCAPES = {"b": "\b", "t": "\t", "n": "\n", "f": "\f", "r": "\r", '"': '"', "\\": "\\"}
+TOML_NUMBER = re.compile(r"[-+]?(?:0|[1-9][0-9_]*)(?:\.[0-9_]+)?(?:[eE][-+]?[0-9_]+)?")
+
+
+class TomlReader:
+    """The TOML paramdata writes, read from a position: tables, dotted
+    keys, basic and literal strings, ints, floats, bools and arrays of
+    them. Anything else is refused with its line."""
+
+    def __init__(self, text):
+        self.text, self.at = text, 0
+
+    def fail(self, message):
+        """Refuses the text at the current position. String -> !"""
+        line = self.text.count("\n", 0, self.at) + 1
+        raise Refusal(f"try: the TOML on standard input, line {line}: {message}")
+
+    def blank(self, newlines):
+        """Skips blanks and comments, and line ends where `newlines`.
+        Bool -> ()"""
+        while self.at < len(self.text):
+            c = self.text[self.at]
+            if c in " \t" or (newlines and c in "\r\n"):
+                self.at += 1
+            elif c == "#":
+                while self.at < len(self.text) and self.text[self.at] != "\n":
+                    self.at += 1
+            else:
+                return
+
+    def key(self):
+        """A dotted key, as its parts. () -> [String]"""
+        parts = []
+        while True:
+            self.blank(False)
+            if self.text.startswith(('"', "'"), self.at):
+                parts.append(self.string())
+            else:
+                found = BARE_KEY.match(self.text, self.at)
+                if not found:
+                    self.fail("a key is expected")
+                parts.append(found.group())
+                self.at = found.end()
+            self.blank(False)
+            if not self.text.startswith(".", self.at):
+                return parts
+            self.at += 1
+
+    def string(self):
+        """A basic or literal string on one line. () -> String"""
+        quote = self.text[self.at]
+        self.at += 1
+        out = []
+        while True:
+            if self.at >= len(self.text) or self.text[self.at] in "\r\n":
+                self.fail("a string is not closed on its line")
+            c = self.text[self.at]
+            self.at += 1
+            if c == quote:
+                return "".join(out)
+            if c == "\\" and quote == '"':
+                e = self.text[self.at:self.at + 1]
+                self.at += 1
+                if e in ESCAPES:
+                    out.append(ESCAPES[e])
+                elif e in ("u", "U"):
+                    width = 4 if e == "u" else 8
+                    digits = self.text[self.at:self.at + width]
+                    if len(digits) != width or not all(d in "0123456789abcdefABCDEF" for d in digits):
+                        self.fail(f"\\{e} needs {width} hexadecimal digits")
+                    self.at += width
+                    out.append(chr(int(digits, 16)))
+                else:
+                    self.fail(f"unknown escape \\{e}")
+            else:
+                out.append(c)
+
+    def value(self):
+        """One value. () -> Any"""
+        self.blank(False)
+        if self.text.startswith(('"' * 3, "'" * 3), self.at):
+            self.fail("a multi-line string is not read here")
+        if self.text.startswith(('"', "'"), self.at):
+            return self.string()
+        if self.text.startswith("[", self.at):
+            self.at += 1
+            items = []
+            while True:
+                self.blank(True)
+                if self.text.startswith("]", self.at):
+                    self.at += 1
+                    return items
+                items.append(self.value())
+                self.blank(True)
+                if self.text.startswith(",", self.at):
+                    self.at += 1
+                elif not self.text.startswith("]", self.at):
+                    self.fail("an array's values are separated by commas")
+        for word, meaning in (("true", True), ("false", False)):
+            if self.text.startswith(word, self.at) and not BARE_KEY.match(self.text, self.at + len(word)):
+                self.at += len(word)
+                return meaning
+        found = TOML_NUMBER.match(self.text, self.at)
+        if found and not BARE_KEY.match(self.text, found.end()) and not self.text.startswith(".", found.end()):
+            self.at = found.end()
+            number = found.group().replace("_", "")
+            return float(number) if any(c in number for c in ".eE") else int(number)
+        self.fail("a string, a number, a bool or an array is expected")
+
+    def end_of_line(self):
+        """Refuses anything but a comment after a line's value. () -> ()"""
+        self.blank(False)
+        if self.at < len(self.text) and self.text[self.at] not in "\r\n":
+            self.fail("the line goes on after its value")
+
+    def place(self, table, parts):
+        """The table a dotted name reaches, made where missing.
+        {..} -> [String] -> {..}"""
+        for part in parts:
+            table = table.setdefault(part, {})
+            if not isinstance(table, dict):
+                self.fail(f"{'.'.join(parts)} is not a table")
+        return table
+
+    def document(self):
+        """The whole text, as nested dicts. () -> {..}"""
+        root = {}
+        table = root
+        while True:
+            self.blank(True)
+            if self.at >= len(self.text):
+                return root
+            if self.text.startswith("[[", self.at):
+                self.fail("an array of tables is not read here")
+            if self.text.startswith("[", self.at):
+                self.at += 1
+                parts = self.key()
+                if not self.text.startswith("]", self.at):
+                    self.fail("a table's name ends with ]")
+                self.at += 1
+                table = self.place(root, parts)
+            else:
+                parts = self.key()
+                if not self.text.startswith("=", self.at):
+                    self.fail("a key is followed by =")
+                self.at += 1
+                value = self.value()
+                holder = self.place(table, parts[:-1])
+                if parts[-1] in holder:
+                    self.fail(f"{'.'.join(parts)} is given twice")
+                holder[parts[-1]] = value
+            self.end_of_line()
+
+
+def read_toml(text):
+    """The TOML paramdata writes, as nested dicts. String -> {..}"""
+    return TomlReader(text).document()
+
+
+def attempt(argv):
+    """`try`: runs a program with `run` on the test whose [test.options]
+    is on standard input, and prints the verifier's verdict on that run,
+    or with --json the run itself, as the verifier reads it. [String] -> Int"""
+    as_json = "--json" in argv[:argv.index("--") if "--" in argv else len(argv)]
+    if as_json:
+        argv = list(argv)
+        argv.remove("--json")
+    pyk, _, libs, path, rest = run_arguments("try", argv)
+    if rest:
+        raise Refusal("try: the program's arguments come from the test, not the command line")
+    if not os.path.exists(path):
+        raise Refusal(f"try: no such program: {path}")
+    if sys.stdin is None or sys.stdin.isatty():
+        raise Refusal("try: give one test's [test.options] on standard input, "
+                      "as paramdata --case N prints it")
+    options = (read_toml(sys.stdin.read()).get("test") or {}).get("options")
+    if not isinstance(options, dict):
+        raise Refusal("try: standard input holds no [test.options]")
+    args, stdin = options.get("args"), options.get("stdin", "")
+    params = options.get("verifier_params")
+    if not (isinstance(args, list) and args[:1] == ["run"] and all(isinstance(a, str) for a in args)):
+        raise Refusal('try: the test\'s args are not a run command, ["run", ...]')
+    if not isinstance(stdin, str):
+        raise Refusal("try: the test's stdin is not a string")
+    if not isinstance(params, dict):
+        raise Refusal("try: the test has no verifier_params")
+    _, events, _, _, program_args = run_arguments("run", args[1:])
+    command = ["run"] + (["--events", events] if events else []) + [path]
+    command += ["--"] + program_args if program_args else []
+    own = [sys.executable, os.path.abspath(__file__), "run", "--pyk", find_pyk(pyk)]
+    own += [f"-L{lib}" for lib in libs] + command[1:]
+    try:
+        ran = subprocess.run(own, input=stdin.encode("utf-8"), capture_output=True,
+                             timeout=SOLUTION_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise Refusal(f"try: {path} did not finish in {SOLUTION_TIMEOUT} seconds")
+    data = {
+        "cmd": ["./graded-bin"] + command, "code": ran.returncode,
+        "stdout": {"enc": "utf8", "data": ran.stdout.decode("utf-8", "replace")},
+        "stderr": {"enc": "utf8", "data": ran.stderr.decode("utf-8", "replace")},
+        "files": {}, "params": params,
+    }
+    if as_json:
+        sys.stdout.write(json.dumps(data, ensure_ascii=False) + "\n")
+        return 0
+    verdict = verify(data)
+    sys.stdout.write(json.dumps(verdict) + "\n")
+    return 0 if verdict["accepted"] else 1
 
 
 # --- making the params -----------------------------------------------------
@@ -672,7 +940,7 @@ def test_toml(run, params, program, title):
              f"args = {toml_value(command)}",
              f"stdin = {toml_value(run['stdin'])}"]
     for name, _, _, _ in PARAMS:
-        lines.append(f"verifier_params.{name} = {toml_value(params[name])}")
+        lines.append(f"verifier_params.{name} = {toml_value(encoded(name, params[name]))}")
     return "\n".join(lines) + "\n"
 
 
@@ -740,7 +1008,8 @@ def paramschema():
     () -> Int"""
     lines = ["[test.options.verifier_param_schema]"]
     for name, kind, default, _ in PARAMS:
-        lines.append(f"{name} = {{type = \"{kind}\", default = {toml_value(default)}}}")
+        kind = "string" if name in LISTS else kind
+        lines.append(f"{name} = {{type = \"{kind}\", default = {toml_value(encoded(name, default))}}}")
     sys.stdout.write("\n".join(lines) + "\n")
     return 0
 
@@ -773,6 +1042,8 @@ def main(argv):
             return paramdata(rest)
         if command == "run":
             return launch(rest)
+        if command == "try":
+            return attempt(rest)
         raise Refusal(f"unknown command {command!r}; nbverify.py --help lists them")
     except Refusal as refusal:
         if not argv:
