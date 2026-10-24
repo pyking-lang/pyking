@@ -24,7 +24,7 @@ Then, from a directory outside the repository:
     offers the same ones;
   - the tree holds what it should and nothing else;
   - the tarball is reproducible and unpacks to one directory, and the
-    formula names its URL, checksum and version.
+    cask names its URL, checksum and version.
 
 The same tree is then packed the Linux way, which this suite can check
 end to end on Linux: a .deb, read back by its own reader and, where dpkg
@@ -38,14 +38,14 @@ The last part runs only when tools/packaging/build/ holds packages
 architectures from the Mach-O header, each Linux one's architecture,
 that it is dynamically linked and the glibc it asks for from the ELF
 file, and each package's library plugins, which needs neither system --
-checks SHA256SUMS and both formulas against the files, and runs what
+checks SHA256SUMS and both casks against the files, and runs what
 this machine can run. It never runs `brew`, `dpkg -i` or a release.
 
 The Docker and Nix formats are checked without either: the Dockerfile
-has both images and what they need, and the flake installs every
-system's tarball by its checksum, which `make release` insists on; where
-Nix is installed, `nix-instantiate --parse` reads it. A flake in
-tools/packaging/build/nix/ is checked against the tarballs built.
+has both images, what they need, and no ENTRYPOINT; tools/packaging/nix/
+fetches the browser libraries tools/webrun/server.py names, builds the
+shipped tree and is locked; where Nix is installed, `nix-instantiate
+--parse` reads it. Building it is `make packaging FORMATS=nix`'s.
 
 What a release says has changed is CHANGELOG.md's section for its
 version (`packaging.changelog_notes`): the suite checks that 0.1.0's is
@@ -66,16 +66,18 @@ Functions:
     check_install_sh(tree) -- install.sh, against a local release.
     check_readers() -- the Mach-O and ELF readers, and SHA256SUMS.
     check_built() -- the packages tools/packaging/build/ holds.
-    check_docker_nix(check) -- the Dockerfile, and the flake.
+    check_docker_nix(check) -- the Dockerfile, and tools/packaging/nix/.
     check_changelog(check) -- what a release says has changed.
     main(argv) -- the command-line entry point.
 """
 
+import base64
 import hashlib
 import io
 import json
 import os
 import platform
+import re
 import shutil
 import struct
 import subprocess
@@ -91,6 +93,8 @@ sys.path.insert(0, str(HERE.parent / "tools" / "packaging"))
 import suite  # noqa: E402  (after sys.path, which is what finds it)
 import test_notebook  # noqa: E402
 import packaging  # noqa: E402
+
+server = packaging.server
 
 REPO = HERE.parent
 COMPILER = REPO / "pyk"
@@ -360,20 +364,27 @@ def check_stage(check, compiler):
             check("pyk stays executable in the tarball", member.mode & 0o111 != 0)
 
         url = f"{packaging.RELEASES}/v{version}/pyking-{version}-macos.tar.gz"
-        text = packaging.formula(url, first, ["arm64", "x86_64"])
-        for wanted in [f'url "{url}"', f'sha256 "{first}"', f'version "{version}"',
-                       'bin.install_symlink libexec/"pyk"',
-                       f"depends_on macos: :{packaging.MACOS_MINIMUM_NAME}"]:
-            check(f"the formula says {wanted}", wanted in text)
-        check("a universal formula names no architecture", "depends_on arch" not in text)
-        check("a one-architecture formula says which",
-              "depends_on arch: :arm64" in packaging.formula(url, first, ["arm64"]))
-        check("the formula depends on nothing else",
+        text = packaging.cask(url, first, ["arm64", "x86_64"])
+        for wanted in ['cask "pyking" do', f'url "{url}"', f'sha256 "{first}"',
+                       f'version "{version}"', 'binary "pyking-#{version}/pyk"',
+                       f'depends_on macos: ">= :{packaging.MACOS_MINIMUM_NAME}"',
+                       '"-dr", "com.apple.quarantine", "#{staged_path}/pyking-#{version}"']:
+            check(f"the cask says {wanted}", wanted in text)
+        check("the cask is not a formula, which Homebrew would build",
+              "< Formula" not in text and "def install" not in text)
+        check("the binary the cask links is the tarball's pyk",
+              f"pyking-{version}/pyk" in [n.replace("libexec", f"pyking-{version}", 1)
+                                           for n in names])
+        check("a universal cask names no architecture", "depends_on arch" not in text)
+        check("a one-architecture cask says which",
+              "depends_on arch: :arm64" in packaging.cask(url, first, ["arm64"])
+              and "depends_on arch: :intel" in packaging.cask(url, first, ["x86_64"]))
+        check("the cask depends on nothing else",
               text.count("depends_on") == 1, text)
         if shutil.which("ruby"):
             (root / "pyking.rb").write_text(text)
             result = run(["ruby", "-c", root / "pyking.rb"], root, env)
-            check("the formula is valid Ruby", result.returncode == 0, result.stderr)
+            check("the cask is valid Ruby", result.returncode == 0, result.stderr)
 
 
 HOST_UNAME = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x86_64",
@@ -562,7 +573,7 @@ def check_macho(check):
 
 def check_built(check):
     """Each package tools/packaging/build/ holds: its tree, its binary's
-    architectures, and both formulas' checksums -- and each Linux tarball
+    architectures, and both casks' checksums -- and each Linux tarball
     and .deb, and SHA256SUMS. Answers how many there were. Checks -> Int"""
     linux = sorted(packaging.BUILD.glob(f"pyking-{packaging.version()}-linux-*.tar.gz"))
     for archive in linux:
@@ -608,15 +619,6 @@ def check_built(check):
         wrong = [name for name, sha in sums.items() if not (packaging.BUILD / name).exists()
                  or hashlib.sha256((packaging.BUILD / name).read_bytes()).hexdigest() != sha]
         check("SHA256SUMS matches the files built", not wrong, ", ".join(wrong))
-    built_flake = packaging.Nix.DIRECTORY / "flake.nix"
-    if built_flake.exists():
-        v = packaging.version()
-        tarballs = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-                    for path in packaging.BUILD.glob(f"pyking-{v}-*.tar.gz")}
-        check("build/nix/flake.nix installs the tarballs built, by their checksums",
-              built_flake.read_text() == packaging.flake(v, packaging.flake_sources(v, tarballs)))
-        check("build/nix/flake.lock is beside it",
-              (packaging.Nix.DIRECTORY / "flake.lock").exists())
     archives = sorted(packaging.BUILD.glob("pyking-*-macos*.tar.gz"))
     for archive in archives:
         name = archive.name
@@ -656,63 +658,97 @@ def check_built(check):
 
 
 def check_docker_nix(check):
-    """The Docker images' Dockerfile and ocamlopt wrapper, and the flake
-    `flake` writes: Nix's spelling of a checksum, every system's tarball
-    in it, that it parses where Nix exists, and that a release refuses a
-    flake that does not describe it. Checks -> ()"""
+    """The Docker images' Dockerfile and ocamlopt wrapper, and the Nix
+    package in tools/packaging/nix/: that default.nix fetches the browser
+    libraries tools/webrun/server.py names, at its versions, builds as
+    every package does and wraps pyk with its OCaml; that the flake calls
+    it on every system and is locked; that both parse where Nix exists;
+    and that a release refuses a Nix file that is not committed.
+    Checks -> ()"""
     dockerfile = packaging.IMAGE_DOCKERFILE.read_text()
     for wanted in ("AS slim", "AS full", "ADD pyking.tar.gz", "PYKING_WEB_HOST=0.0.0.0",
                    "COPY --chmod=755 ocamlopt", "/opt/opam/release/lib/ocaml",
-                   "sha256sum -c", 'ENTRYPOINT ["pyk"]'):
+                   "sha256sum -c"):
         check(f"the Dockerfile has {wanted!r}", wanted in dockerfile)
+    commands = [line for line in dockerfile.splitlines() if not line.startswith("#")]
+    check("neither image has an ENTRYPOINT", not any("ENTRYPOINT" in line for line in commands))
+    check('both images run CMD ["pyk", "repl"]',
+          [line for line in commands if line.startswith("CMD")] == ['CMD ["pyk", "repl"]'] * 2)
     wrapper = packaging.IMAGE_DOCKERFILE.parent / "ocamlopt"
     check("the full image's ocamlopt is executable and links executables with -no-pie",
           os.access(wrapper, os.X_OK) and "-ccopt -no-pie" in wrapper.read_text())
-    check("a sha256 is spelled as Nix's SRI hash",
-          packaging.sri(hashlib.sha256(b"").hexdigest())
-          == "sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=")
-    v = "9.8.7"
-    names = [f"pyking-{v}-macos.tar.gz"] + [f"pyking-{v}-linux-{u}.tar.gz"
-                                             for u in packaging.UNAME_ARCH.values()]
-    sums = {name: hashlib.sha256(name.encode()).hexdigest() for name in names}
-    sources = packaging.flake_sources(v, sums)
-    check("the flake installs a tarball on every Nix system",
-          sorted(sources) == sorted(packaging.NIX_SYSTEMS), str(sorted(sources)))
-    text = packaging.flake(v, sources)
-    check("the flake fetches each tarball from the release by its checksum",
-          all(f"{packaging.RELEASES}/v{v}/{name}" in text and packaging.sri(sums[name]) in text
-              for name in names))
-    check("both macOS systems install the one universal tarball",
-          sources["x86_64-darwin"] == sources["aarch64-darwin"])
-    check("the flake's braces balance", text.count("{") == text.count("}"))
-    check("the flake names nixpkgs and the version",
-          packaging.NIXPKGS in text and f'version = "{v}";' in text)
+
+    directory = packaging.Nix.DIRECTORY
+    default = (directory / "default.nix").read_text()
+    flake = (directory / "flake.nix").read_text()
+    for name, version in (("ace", server.ACE_VERSION), ("katex", server.KATEX_VERSION),
+                          ("monaco", server.MONACO_VERSION)):
+        check(f"default.nix fetches {name} {version}, as server.py does",
+              f'  {name} = "{version}";' in default)
+    listed = {f"{group}/{path}" for group, body in
+              re.findall(r'\n  (ace|katex)Files = \{\n(.*?)\n  \};', default, re.S)
+              for path in re.findall(r'"([^"]+)" = "sha256-[A-Za-z0-9+/=]+";', body)}
+    vendored = {str(path.relative_to(server.VENDOR)) for path, url in server.vendor_files()
+                if not path.is_relative_to(server.MONACO)}
+    check("default.nix fetches every Ace and KaTeX file server.py vendors, and no other",
+          listed == vendored, str(sorted(listed ^ vendored)))
+    hashes = {f"{group}/{path}": sri for group, body in
+              re.findall(r'\n  (ace|katex)Files = \{\n(.*?)\n  \};', default, re.S)
+              for path, sri in re.findall(r'"([^"]+)" = "(sha256-[A-Za-z0-9+/=]+)";', body)}
+    local = {name: server.VENDOR / name for name in hashes if (server.VENDOR / name).exists()}
+    if local:
+        wrong = [name for name, path in local.items() if hashes[name] != "sha256-" + base64.b64encode(
+            hashlib.sha256(path.read_bytes()).digest()).decode()]
+        check("default.nix's hashes are those of the files `make vendor` downloaded",
+              not wrong, ", ".join(wrong))
+    check("default.nix fetches them from server.py's URLs",
+          server.ACE_CDN.replace(server.ACE_VERSION, "${ace}") in default
+          and server.KATEX_CDN.replace(server.KATEX_VERSION, "${katex}") in default
+          and server.MONACO_TARBALL.replace(server.MONACO_VERSION, "${monaco}") in default)
+    check("default.nix keeps Monaco's min/vs/ and writes the marker server.py checks",
+          f"{server.MONACO_PREFIX.rstrip('/')}" in default
+          and "monaco-editor-${monaco}.json" in default
+          and server.MONACO_FILES[-1].replace(server.MONACO_VERSION, "${monaco}") in default)
+    for wanted in ("make build", "packaging.py stage --binary pyk --dest $out/libexec/pyking",
+                   "pyk plugins $out/libexec/pyking/lib",
+                   "--set-default OCAMLOPT ${ocamlPackages.ocaml}/bin/ocamlopt",
+                   "ocamlPackages.js_of_ocaml-compiler", 'mainProgram = "pyk"',
+                   'lib.fileContents (root + "/VERSION")'):
+        check(f"default.nix has {wanted!r}", wanted in default)
+    check("default.nix is a function for callPackage",
+          re.search(r"^\{ lib\n", default, re.M) is not None)
+    check("the flake calls default.nix with callPackage on all four systems",
+          "callPackage ./default.nix { }" in flake
+          and all(f'"{system}"' in flake for system in
+                  ("x86_64-linux", "aarch64-linux", "x86_64-darwin", "aarch64-darwin")))
+    for name, text in (("default.nix", default), ("flake.nix", flake)):
+        check(f"{name}'s braces and brackets balance",
+              text.count("{") == text.count("}") and text.count("[") == text.count("]"))
+    try:
+        lock = json.loads((directory / "flake.lock").read_text())
+        pinned = lock["nodes"]["nixpkgs"]["locked"]
+        original = lock["nodes"]["nixpkgs"]["original"]
+        locked = (pinned["type"] == "github" and len(pinned["rev"]) == 40
+                  and f'github:{original["owner"]}/{original["repo"]}/{original["ref"]}' in flake)
+    except (OSError, ValueError, KeyError) as e:
+        locked = False
+        pinned = str(e)
+    check("flake.lock pins the nixpkgs flake.nix names", locked, str(pinned))
     if shutil.which("nix-instantiate"):
-        with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
-            (Path(directory) / "flake.nix").write_text(text)
-            parsed = subprocess.run(["nix-instantiate", "--parse",
-                                     str(Path(directory) / "flake.nix")],
+        for name in ("default.nix", "flake.nix"):
+            parsed = subprocess.run(["nix-instantiate", "--parse", str(directory / name)],
                                     capture_output=True, text=True)
-            check("nix-instantiate parses the flake", parsed.returncode == 0, parsed.stderr)
-    with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
-        nix = packaging.Nix()
-        nix.DIRECTORY = Path(directory)
-
-        def refused(label, expected):
-            try:
-                nix.release_preflight(v, sums)
-                check(label, not expected, "it was accepted")
-            except packaging.Refusal as refusal:
-                check(label, expected, str(refusal))
-
-        refused("a release with no flake is refused", True)
-        (nix.DIRECTORY / "flake.nix").write_text(text)
-        refused("a release whose flake has no lock is refused", True)
-        (nix.DIRECTORY / "flake.lock").write_text("{}\n")
-        refused("a release whose flake describes it is accepted", False)
-        (nix.DIRECTORY / "flake.nix").write_text(
-            packaging.flake(v, packaging.flake_sources(v, dict(list(sums.items())[1:]))))
-        refused("a release whose flake lacks a system is refused", True)
+            check(f"nix-instantiate parses {name}", parsed.returncode == 0, parsed.stderr)
+    check("a release's flake is named at its tag in the code repository",
+          packaging.nix_flake("9.8.7")
+          == f"github:{packaging.CODE_REPO}/release-9.8.7?dir=tools/packaging/nix")
+    nix = packaging.Nix()
+    nix.INSIDE = "tools/packaging/no-such-nix"
+    try:
+        nix.release_preflight()
+        check("a release whose Nix files are not committed is refused", False, "it was accepted")
+    except packaging.Refusal as refusal:
+        check("a release whose Nix files are not committed is refused", True, str(refusal))
 
 
 def check_changelog(check):

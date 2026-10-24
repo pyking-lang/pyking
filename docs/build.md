@@ -318,7 +318,8 @@ compiled by the toolchain that built that `pyk`, since a plugin loads
 only into an executable its own compiler built:
 
 - **Homebrew**, for macOS 11 or later: a tarball holding a universal
-  `pyk` (arm64 and x86_64) and a formula that installs it. It is built on
+  `pyk` (arm64 and x86_64) and a cask that installs it -- a cask, since
+  Homebrew builds a formula and then needs current Command Line Tools. It is built on
   an Apple Silicon Mac by two opam switches made for releases, whose
   OCaml was compiled for macOS 11 (the x86_64 one runs under Rosetta),
   and the halves are joined with `lipo`. An everyday switch is refused:
@@ -336,27 +337,34 @@ only into an executable its own compiler built:
   refused, and the built tree is run, plugins and all, in current Debian
   and in Debian 10.
 
-Two more are made from the Linux tarballs and build nothing:
+One more is made from the Linux tarballs and builds nothing:
 
 - **Docker**: each architecture's tarball unpacked on Debian 13, as
   `ghcr.io/pyking-lang/pyking` (pyk alone) and `:full` (with Python,
   node, gcc, a JDK and the Linux build image's OCaml, so `--run` works
   for every target), from `tools/packaging/docker/Dockerfile`. The image
   sets `PYKING_WEB_HOST=0.0.0.0`, so a published port reaches the web
-  tools. Both are run before they are kept, the playground fetched from
-  outside the container.
-- **Nix**: a flake installing each system's release tarball by its
-  sha256, `autoPatchelfHook` fitting the Linux `pyk` to Nix's glibc. It
-  is locked, evaluated and built from the local tarball in a `nixos/nix`
-  container, so no machine needs Nix.
+  tools. Neither has an ENTRYPOINT: the command is `pyk repl` unless the
+  run names another. Both are run before they are kept, the playground
+  fetched from outside the container.
+
+And one builds from source:
+
+- **Nix**: `tools/packaging/nix/`, a `default.nix` for nixpkgs'
+  `callPackage` and a flake calling it, locked by `flake.lock`. It builds
+  with nixpkgs' OCaml the same tree every package ships, fetching Ace,
+  KaTeX and Monaco by hash, and wraps `pyk` with that OCaml as
+  `$OCAMLOPT`. Users run it at a release's tag
+  (`github:pyking-lang/pyking/release-<v>?dir=tools/packaging/nix`). It
+  is locked and built from the working tree in a `nixos/nix` container,
+  so no machine needs Nix.
 
 A partial build (`FORMATS=`, `ARCHS=`) is possible and cannot be
 published. `make packaging-setup` makes the toolchains once. One release
 of the public repository `pyking-lang/pyking-releases` holds every
-platform's files, the formula goes to the tap
-`pyking-lang/homebrew-tap`, the flake is committed to
-`pyking-lang/pyking-releases` (so it is `github:pyking-lang/pyking-releases`),
-and the images are pushed to `ghcr.io/pyking-lang/pyking`. `tools/packaging/README.md` has the one-time
+platform's files, the cask goes to the tap
+`pyking-lang/homebrew-tap`, the commit is tagged `release-<VERSION>`
+(which the Nix package is built from), and the images are pushed to `ghcr.io/pyking-lang/pyking`. `tools/packaging/README.md` has the one-time
 setup, the release steps and the install instructions.
 
 The version is the `VERSION` file at the root. `src/dune` turns it into

@@ -14,6 +14,10 @@
 # compiler built this `pyk`, at the path it was installed at, and reached
 # through the `ocamlopt` beside this file (copied into the context too),
 # which links an executable the way that OCaml's runtime needs.
+#
+# Neither image has an ENTRYPOINT: the command is `pyk repl` unless the
+# run names another, so `docker run IMAGE pyk hello.pyk` runs a program
+# and `docker run -it IMAGE bash` opens a shell.
 
 ARG OCAML_IMAGE=scratch
 ARG DEBIAN=debian:13-slim
@@ -38,8 +42,7 @@ RUN mv "/opt/pyking-${VERSION}" /opt/pyking \
 # to, writable whatever --user a container runs as.
 ENV PYKING_WEB_HOST=0.0.0.0 XDG_CACHE_HOME=/tmp/.cache
 WORKDIR /work
-ENTRYPOINT ["pyk"]
-CMD ["repl"]
+CMD ["pyk", "repl"]
 
 FROM ${PYTHON} AS full
 ARG VERSION
@@ -75,5 +78,4 @@ RUN ln -s /opt/pyking/pyk /usr/local/bin/pyk
 ENV PATH=$PATH:/opt/opam/release/bin \
     PYKING_WEB_HOST=0.0.0.0 XDG_CACHE_HOME=/tmp/.cache
 WORKDIR /work
-ENTRYPOINT ["pyk"]
-CMD ["repl"]
+CMD ["pyk", "repl"]

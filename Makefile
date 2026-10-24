@@ -149,7 +149,7 @@ help:
 	@echo "make packaging-uninstall  and remove it again"
 	@echo "make release              publish that build: one release of"
 	@echo "                          pyking-lang/pyking-releases with every"
-	@echo "                          platform and the Nix flake, the formula in"
+	@echo "                          platform, the cask in"
 	@echo "                          pyking-lang/homebrew-tap and the images in"
 	@echo "                          ghcr.io/pyking-lang/pyking, then (asked) the"
 	@echo "                          tag release-<VERSION> in pyking-lang/pyking"

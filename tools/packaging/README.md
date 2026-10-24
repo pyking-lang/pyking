@@ -5,12 +5,12 @@ publishes them. The formats:
 
 | Format | For | Holds |
 |---|---|---|
-| **Homebrew** | macOS 11 or later | a universal `pyk` (Apple Silicon and Intel) and a formula |
+| **Homebrew** | macOS 11 or later | a universal `pyk` (Apple Silicon and Intel) and a cask |
 | **Linux** | every distribution, and WSL | a `pyk` per architecture (x86_64, aarch64), linked against glibc 2.28, as a tarball and a `.deb` |
 | **Docker** | anything that runs Docker | the Linux tree on Debian, for x86_64 and arm64: `pyking` (pyk alone) and `pyking:full` (with every target's host), at `ghcr.io/pyking-lang/pyking` |
-| **Nix** | Linux and macOS | a flake in `pyking-lang/pyking-releases` installing the release's tarballs |
+| **Nix** | Linux and macOS | `nix/`: a `default.nix` for `callPackage` and a flake, building Pyking from source |
 
-Both hold a `pyk` that needs nothing but the system's C library, and the
+Homebrew and Linux hold a `pyk` that needs nothing but the system's C library, and the
 standard library's interpreter plugins, compiled by the toolchain that
 built that `pyk`. One release on GitHub holds every platform's files.
 
@@ -30,11 +30,21 @@ brew install pyking-lang/tap/pyking
 ```
 
 or, equivalently, `brew tap pyking-lang/tap` once and then `brew install
-pyking`. `brew upgrade pyking` updates it and `brew uninstall pyking`
-removes it. The tutorial as a notebook:
+pyking`. It is a cask, so Homebrew builds nothing and needs no Command
+Line Tools; it unpacks the tree in the Caskroom, links `pyk`, and takes
+the tree out of quarantine, since `pyk` is signed ad hoc and not
+notarized. `brew upgrade pyking` updates it and `brew uninstall pyking`
+removes it. Up to 0.1.4 the tap held a formula; to replace it with the
+cask:
 
 ```sh
-pyk notebook $(brew --prefix pyking)/libexec/PYKING-TUTORIAL.md
+brew uninstall pyking && brew install pyking-lang/tap/pyking
+```
+
+The tutorial as a notebook (the path the cask's caveats print):
+
+```sh
+pyk notebook "$(brew --caskroom)"/pyking/*/pyking-*/PYKING-TUTORIAL.md
 ```
 
 ### Linux and WSL
@@ -74,31 +84,40 @@ apt repository, so `apt upgrade` does not update it: install the next
 
 ### Nix
 
-On Linux and macOS, with flakes enabled:
+On Linux and macOS, with flakes enabled, from the code repository at a
+release's tag:
 
 ```sh
-nix run github:pyking-lang/pyking-releases -- hello.pyk   # run it once
-nix profile install github:pyking-lang/pyking-releases    # install pyk
-nix profile upgrade pyking-releases                       # update it
-nix profile remove pyking-releases                        # remove it
+nix run 'github:pyking-lang/pyking/release-0.2.0?dir=tools/packaging/nix' -- hello.pyk   # run it once
+nix profile install 'github:pyking-lang/pyking/release-0.2.0?dir=tools/packaging/nix'    # install pyk
+nix profile remove pyking                                                                 # remove it
 ```
 
-The flake builds nothing: its package unpacks the release's tarball for
-the system -- Linux's per architecture, the universal macOS one on
-both Macs -- fetched by its sha256, into `libexec/pyking/`, with
-`bin/pyk` a link. On Linux `autoPatchelfHook` points `pyk` and its
-plugins at Nix's own glibc, since NixOS has no `/lib64/ld-linux*`. It
-is also a flake input like any other (`pyking.packages.${system}.default`).
+The package is built from source. `nix/default.nix` is a function for
+nixpkgs' `callPackage` (`pkgs.callPackage ./tools/packaging/nix/default.nix
+{ }`), and `nix/flake.nix` calls it for `x86_64-linux`, `aarch64-linux` and
+both Darwins with the nixpkgs `nix/flake.lock` pins. It builds with
+nixpkgs' own OCaml, dune and js_of_ocaml: `make build` (pyk,
+`share/pyking.js`, the help), then the tree every package ships
+(`packaging.py stage`) in `libexec/pyking/`, its library plugins compiled
+with `pyk plugins`. Ace, KaTeX and Monaco are fetched by hash, at the
+versions and files `tools/webrun/server.py` names, so the notebook and
+the playground work. `bin/pyk` is a wrapper setting `$OCAMLOPT` to that
+OCaml, so a program's own external module compiles its plugin. It is
+also a flake input like any other (`pyking.packages.${system}.default`).
 
 ### Docker
 
 On anything that runs Docker, x86_64 or arm64. The current directory is
-the container's `/work`, which is where `pyk` runs:
+the container's `/work`, which is where `pyk` runs. The images have no
+ENTRYPOINT: the command is `pyk repl` unless the run names another, so a
+shell is `docker run --rm -it ghcr.io/pyking-lang/pyking bash`:
 
 ```sh
-docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking hello.pyk
+docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking pyk hello.pyk
 docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking          # the REPL
-docker run --rm -p 8000:8000 ghcr.io/pyking-lang/pyking playground --port 8000
+docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking bash     # a shell
+docker run --rm -p 8000:8000 ghcr.io/pyking-lang/pyking pyk playground --port 8000
 ```
 
 and the printed link opens the playground (or the notebook, or the help)
@@ -182,7 +201,7 @@ with the one-time setup below done:
 
    ```
    pyking-0.2.0-macos.tar.gz          Homebrew: universal pyk
-   homebrew/pyking.rb                 its formula, naming the release
+   homebrew/pyking.rb                 its cask, naming the release
    homebrew-local/pyking.rb           the same, naming the file above
    pyking-0.2.0-linux-x86_64.tar.gz   Linux: pyk, per architecture
    pyking-0.2.0-linux-aarch64.tar.gz
@@ -195,8 +214,6 @@ with the one-time setup below done:
    pyking-0.2.0.vsix                  the VS Code and Cursor extension
    install.sh
    SHA256SUMS                         every file above
-   nix/flake.nix                      the Nix flake, naming the release
-   nix/flake.lock                     the nixpkgs it is locked to
    ```
 
    and, in Docker rather than in `build/`, one image per variant and
@@ -245,17 +262,16 @@ with the one-time setup below done:
      from outside the container through its published port; in `full`
      `pyk compile --run` for Python, node, C, Java and OCaml, and a
      program whose external module's plugin is compiled there.
-   - **Nix:** `nix/flake.nix` names every tarball of the release by its
-     URL and its sha256, for `x86_64-linux`, `aarch64-linux` and both
-     Darwins. Everything Nix does happens in a `nixos/nix` container
-     (`NIX_IMAGE`), so no machine needs Nix: `nix flake lock` writes
-     `flake.lock`, pinning `nixpkgs` (`NIXPKGS`); every system's
-     derivation is instantiated, which evaluates each fetch without
-     downloading anything; and, per architecture, the same flake with
-     the local Linux tarball beside it in place of the download is built
-     and its `pyk` run -- its version, a program and one importing
-     libraries, with no OCaml there. The macOS package is evaluated but
-     never built here.
+   - **Nix:** writes nothing to `build/`. Everything Nix does happens in a
+     `nixos/nix` container (`NIX_IMAGE`), so no machine needs Nix: where
+     `nix/flake.lock` is missing, `nix flake lock` writes it (commit it);
+     then, per architecture, the working tree -- every file git tracks or
+     does not ignore -- is built with the flake from source, and its `pyk`
+     run: its version, a program, one importing libraries with no OCaml
+     (the plugins built with it), and one whose own external module's
+     plugin the wrapper's OCaml compiles. The files `make vendor`
+     downloaded are added to the container's store first, so they are
+     not downloaded again. The macOS package is never built here.
    - **VS Code:** `make -C tools/editors/vscode vsix` packs the extension,
      with the language client it depends on, as `pyking-<version>.vsix`,
      which is checked to hold the client and to say `VERSION`. It needs
@@ -267,20 +283,19 @@ with the one-time setup below done:
    `vscode`) builds some formats, and `ARCHS=arm64` some architectures; neither is meant for
    publishing, and `make release` refuses a release that is not complete.
 3. `make packaging-install` installs that build on this machine: through
-   Homebrew and the local tap `pyking-lang/local` on a Mac (then runs the
-   formula's own test), or with install.sh into `~/.local` on Linux,
+   Homebrew and the local tap `pyking-lang/local` on a Mac (then runs a
+   program with the `pyk` the cask linked), or with install.sh into `~/.local` on Linux,
    reading the files from `build/`. `make packaging-uninstall` undoes it.
-4. `make release` publishes it. The code repository `pyking-lang/pyking`
-   stays private: nothing about it is published.
+4. `make release` publishes it.
 
    - It checks everything first: that `VERSION` is not a `-dev` one, that
      `CHANGELOG.md` has a dated, non-empty section for it, that every file
-     of the release above exists for `VERSION` and matches `SHA256SUMS`, that the formula
+     of the release above exists for `VERSION` and matches `SHA256SUMS`, that the cask
      describes the Mac tarball, that `gh` is logged in, that git has a
      name and an email for the tap commit, that both repositories below
      exist and are public, and that release `v0.2.0` does not exist yet;
-     that `nix/flake.nix` installs every system's tarball of this release
-     by the checksum in `SHA256SUMS`, and is locked; that every Docker
+     that `nix/default.nix`, `nix/flake.nix` and `nix/flake.lock` are
+     committed, so the tag holds them; that every Docker
      image is there for `VERSION`, that the `gh` login may write packages
      (`gh auth refresh -s write:packages` gives it the scope), and that
      `ghcr.io/pyking-lang/pyking:0.2.0` has not been pushed.
@@ -295,14 +310,13 @@ with the one-time setup below done:
      names it, and with notes that are the version's section of
      `CHANGELOG.md` ("What's changed") followed by how to install it, then downloads each file back -- and install.sh once more
      through `latest` -- and checks it against `SHA256SUMS`.
-   - It clones **`pyking-lang/homebrew-tap`**, commits the formula as
-     `Formula/pyking.rb` ("pyking 0.2.0") and pushes it. `brew upgrade`
-     picks it up from there.
-   - It commits `flake.nix`, `flake.lock` and the README to
-     **`pyking-lang/pyking-releases`** ("pyking 0.2.0: the Nix flake") and
-     pushes them, then runs `nix run github:pyking-lang/pyking-releases/<that
-     commit> -- --version` in a Nix container, which downloads the
-     release as a user's Nix would.
+   - It clones **`pyking-lang/homebrew-tap`**, commits the cask as
+     `Casks/pyking.rb` ("pyking 0.2.0"), removing the formula
+     `Formula/pyking.rb` of 0.1.4 and earlier, and the README, and pushes
+     them. `brew upgrade` picks it up from there.
+   - It commits the README to **`pyking-lang/pyking-releases`** ("pyking
+     0.2.0"), removing the `flake.nix` and `flake.lock` of earlier
+     releases, and pushes it.
    - It logs Docker in to `ghcr.io` with the `gh` token, pushes the four
      images, and joins each variant's two architectures with `docker
      buildx imagetools create` under its version and its floating tag
@@ -332,7 +346,11 @@ with the one-time setup below done:
      release-0.2.0? [y/N]`, and on yes tags HEAD in the code repository
      -- annotated, "Pyking 0.2.0" -- and pushes the tag to `origin`. On no
      the release stands untagged, and it prints the two commands that tag
-     it later. A commit that already carries the tag is left alone.
+     it later. A commit that already carries the tag is left alone. Once
+     tagged, it runs `nix run
+     'github:pyking-lang/pyking/release-0.2.0?dir=tools/packaging/nix' --
+     --version` in a Nix container, which builds the package from the tag
+     as a user's Nix would.
    - It ends with one line: **SUCCEEDED**, saying whether it tagged, with
      both install commands, or **FAILED**, with the reason. A tag that
      fails to push after the release is out says so, and how to tag by
@@ -350,11 +368,11 @@ gh repo create pyking-lang/homebrew-tap --public --description "Homebrew tap for
 
 `pyking-lang/pyking-releases` holds every download, since users fetch them
 without credentials and so cannot reach a private repository.
-`pyking-lang/homebrew-tap` holds only the formula; its name is what makes
+`pyking-lang/homebrew-tap` holds only the cask; its name is what makes
 `brew install pyking-lang/tap/pyking` work, since Homebrew looks for the
 tap `<owner>/<tap>` in the repository `<owner>/homebrew-<tap>`. The first
 release gives each a README if it is empty, and every release rewrites
-`pyking-lang/pyking-releases`'s, beside its flake. The Docker images need
+both. The Docker images need
 no repository of their own: `ghcr.io/pyking-lang/pyking` is a package of
 the organisation, linked to `pyking-lang/pyking-releases` by the images'
 `org.opencontainers.image.source` label. `make release` needs `gh`
@@ -363,14 +381,15 @@ the organisation, linked to `pyking-lang/pyking-releases` by the images'
 ## Trying a build locally
 
 `make packaging-install`, above, is the short way. By hand, on a Mac --
-current Homebrew installs a formula only from a tap:
+current Homebrew installs a cask only from a tap:
 
 ```sh
 brew tap-new --no-git pyking-lang/local
+mkdir -p "$(brew --repository)/Library/Taps/pyking-lang/homebrew-local/Casks"
 cp tools/packaging/build/homebrew-local/pyking.rb \
-   "$(brew --repository)/Library/Taps/pyking-lang/homebrew-local/Formula/"
-brew install pyking-lang/local/pyking
-brew test pyking-lang/local/pyking
+   "$(brew --repository)/Library/Taps/pyking-lang/homebrew-local/Casks/"
+brew install --cask pyking-lang/local/pyking
+pyk --version
 ```
 
 Uninstall the local one before installing the published one, since both
@@ -385,13 +404,14 @@ The Docker images are on this machine once built, under the names a
 release pushes:
 
 ```sh
-docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking:0.2.0-arm64 hello.pyk
+docker run --rm -it -v "$PWD:/work" ghcr.io/pyking-lang/pyking:0.2.0-arm64 pyk hello.pyk
 ```
 
-The flake can be tried with Nix, here or in its container:
+The Nix package can be built from the checkout with Nix (or with
+`make packaging FORMATS=nix`, in its container):
 
 ```sh
-nix run ./tools/packaging/build/nix -- --version    # only once the release exists
+nix run 'path:.?dir=tools/packaging/nix' -- --version
 ```
 
 A `.deb` can be tried in a throwaway container:
@@ -566,7 +586,7 @@ stages the shipped tree around the machine's own `pyk`, then:
   the repository, checks that `pyk --version`, a program, the standard
   library, the `iweb` targets, `pyk notebook` and `pyk playground` all
   work, that the tree holds nothing it should not, that the tarball is
-  reproducible, and that the formula says what it should (and is valid
+  reproducible, and that the cask says what it should (and is valid
   Ruby, where `ruby` exists);
 - packs it as a `.deb`, reads it back -- with its own reader, and with
   `dpkg-deb` where it exists -- and runs the `pyk` it installs;
@@ -576,16 +596,20 @@ stages the shipped tree around the machine's own `pyk`, then:
   uninstalling; and checks that it parses under `dash` and BusyBox;
 - checks the Mach-O and ELF readers and `SHA256SUMS`;
 - checks the Docker and Nix formats without either: that the Dockerfile
-  has both images and what they need, and that the flake installs every
-  system's tarball by its checksum, which `make release` refuses
-  otherwise (parsed by `nix-instantiate`, where Nix is installed).
+  has both images, what they need, and no ENTRYPOINT; that `nix/default.nix`
+  fetches the Ace, KaTeX and Monaco that `tools/webrun/server.py` names,
+  at its versions and URLs (and, where `make vendor` has run, by the
+  hashes of the files it downloaded), builds the shipped tree and wraps
+  `pyk` with its OCaml; that the flake calls it on every system and is
+  locked (both parsed by `nix-instantiate`, where Nix is installed); and
+  that a release refuses Nix files that are not committed.
 
 When `tools/packaging/build/` holds packages, it also unpacks them and
 checks each `pyk` -- the Mac's architectures from the Mach-O header, each
 Linux one's architecture, that it is dynamically linked and the glibc it
 asks for from the ELF file, and every package's library plugins, which
-needs neither system -- checks `SHA256SUMS` and both formulas against the
-files, checks `nix/flake.nix` against the tarballs built, and runs what
+needs neither system -- checks `SHA256SUMS` and both casks against the
+files, and runs what
 this machine can run. It never runs `brew`, `dpkg -i`
 or a release; `make packaging-install` is the test that installs.
 
@@ -597,7 +621,7 @@ machine cannot build it, or `None`), `setup()`, `build(archs)`, and
 built, entered in `FORMATS`. `make packaging` builds every entry. It ships
 the tree `stage()` builds, writes into `build/`, and adds its files to
 `release_assets`, which is what `make release` publishes. A format made
-from another's output, as Docker and Nix are from Linux's tarballs, is
+from another's output, as Docker is from Linux's tarballs, is
 entered after it, since `FORMATS` is the order they are built in, and
 one published somewhere other than the release -- a registry, a
 repository -- is published by `release()` after the release, and
@@ -608,11 +632,13 @@ checked by it before anything is.
 ```
 tools/packaging/
   packaging.py     the formats, the shipped tree, the tarball, the .deb,
-                   the formula, the release
+                   the cask, the release
   install.sh       the Linux and WSL installer, published with every release
   linux/Dockerfile the Linux build image
   docker/          the Docker images: Dockerfile (slim and full), and
                    ocamlopt, the full image's wrapper around OCaml
+  nix/             default.nix (the package, built from source), flake.nix
+                   and flake.lock
   Makefile         setup, build, install-local, uninstall-local, release,
                    clean
   README.md

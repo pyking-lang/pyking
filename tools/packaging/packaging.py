@@ -3,15 +3,15 @@
 publishes them. Each package format is one entry in FORMATS:
 
   homebrew  macOS: a universal (arm64 + x86_64) `pyk` in a tarball, and a
-            Homebrew formula for it. Built on an Apple Silicon Mac.
+            Homebrew cask for it. Built on an Apple Silicon Mac.
   linux     Linux and WSL: a `pyk` per architecture, linked against an
             old glibc, as a tarball (which install.sh installs) and a
             .deb. Built in Docker.
   docker    Docker images, made from the Linux tarballs: `pyking` (pyk
             alone) and `pyking:full` (with every target's host), for
             both architectures, published to ghcr.io.
-  nix       A Nix flake installing the released tarballs, committed to
-            the releases repository. Checked in a Nix container.
+  nix       tools/packaging/nix/: default.nix and a flake building Pyking
+            from source. Checked in a Nix container.
   vscode    The VS Code and Cursor extension, a .vsix.
 
 Every format ships the same tree, which `stage` builds: the executable,
@@ -33,14 +33,14 @@ Usage: `make packaging`, or directly:
     python3 packaging.py install-local     install the local build here
     python3 packaging.py uninstall-local   and remove it again
     python3 packaging.py stage --binary PYK --dest DIR
-    python3 packaging.py formula --tarball FILE --url URL --output FILE
+    python3 packaging.py cask --tarball FILE --url URL --output FILE
 
 Data structures:
     Refusal -- why a package cannot be built here, as a message.
     Homebrew -- the macOS format, and the toolchains it is built with.
     Linux -- the Linux format, and the Docker images it is built in.
     Docker -- the Docker images, made from the Linux format's tarballs.
-    Nix -- the Nix flake, over the release's tarballs.
+    Nix -- the Nix package, built from source by tools/packaging/nix/.
     VSCode -- the VS Code and Cursor extension.
 
 Functions:
@@ -54,8 +54,8 @@ Functions:
     elf_info(path) -- an ELF file's architecture, and whether it is static.
     glibc_needed(path) -- the newest glibc version an ELF file asks for.
     deb(tree, arch, output) -- a .deb installing the tree.
-    formula(url, sha256, archs) -- a Homebrew formula, as text.
-    flake(v, sources) -- a Nix flake installing the given tarballs, as text.
+    cask(url, sha256, archs) -- a Homebrew cask, as text.
+    nix_flake(v) -- the flake of a release, as a user names it.
     release_assets(v) -- every file a release of v holds.
     write_checksums(v) -- SHA256SUMS over the assets built.
     release(assume_yes) -- publishes the build, and tags it in CODE_REPO.
@@ -93,17 +93,20 @@ sys.path.insert(0, str(REPO / "tools" / "webrun"))
 import server  # noqa: E402  (after sys.path, which is what finds it)
 
 NAME = "pyking"
-# The code repository is private, so what a user downloads lives in public
-# repositories of its own: every release in RELEASES_REPO, and the Homebrew
-# formula in TAP_REPO, which Homebrew knows as the tap `pyking-lang/tap`.
+# What a user downloads lives in repositories of its own: every release in
+# RELEASES_REPO, and the Homebrew cask in TAP_REPO, which Homebrew knows as
+# the tap `pyking-lang/tap`.
 RELEASES_REPO = "pyking-lang/pyking-releases"
-# The private code repository, where `make release` tags the commit a
-# release was built from as `release-<version>`.
+# The code repository, where `make release` tags the commit a release was
+# built from as `release-<version>`, from which the Nix package is built.
 CODE_REPO = "pyking-lang/pyking"
 TAP_REPO = "pyking-lang/homebrew-tap"
 HOMEPAGE = f"https://github.com/{RELEASES_REPO}"
 RELEASES = HOMEPAGE + "/releases/download"
 BREW_INSTALL = "brew install pyking-lang/tap/pyking"
+# Up to 0.1.4 the tap held a formula, which a cask has replaced.
+BREW_MIGRATION = ("Installed with the formula of 0.1.4 or earlier? Replace it with the "
+                  f"cask: `brew uninstall pyking && {BREW_INSTALL}`.")
 LINUX_INSTALL = f"curl -fsSL {HOMEPAGE}/releases/latest/download/install.sh | sh"
 DESCRIPTION = "Compiler and interpreter for Pyking, a small statically typed Python-like language"
 LICENSE = "MIT"
@@ -126,12 +129,25 @@ DOCKER_RUN = f'docker run --rm -it -v "$PWD:/work" {IMAGE_REPO}'
 NODE_VERSION = "24.22.0"
 NODE_SHA256 = {"x86_64": "cc2f601cee82d9a5a233302fe307abc600727035fd7d2c3a3571755989e95008",
                "arm64": "fef00bb4d36e1c50104a9775a10359beee98f162b4104dd12472c75065c6a143"}
-# The Nix flake, committed to RELEASES_REPO by a release, and what it is
-# built and checked with: a Nix in a container, so no machine needs one.
-NIXPKGS = "github:NixOS/nixpkgs/nixos-26.05"
+# The Nix package is built from source by tools/packaging/nix/ in
+# CODE_REPO, reached at a release's tag, and checked with a Nix in a
+# container, so no machine needs one.
 NIX_IMAGE = "nixos/nix:2.35.3"
-NIX_RUN = f"nix run github:{RELEASES_REPO} -- hello.pyk"
-NIX_INSTALL = f"nix profile install github:{RELEASES_REPO}"
+
+
+def nix_flake(v):
+    """The flake of release v, as a user names it. String -> String"""
+    return f"github:{CODE_REPO}/release-{v}?dir=tools/packaging/nix"
+
+
+def nix_run(v):
+    """Running a program with release v's flake. String -> String"""
+    return f"nix run '{nix_flake(v)}' -- hello.pyk"
+
+
+def nix_install(v):
+    """Installing release v's flake. String -> String"""
+    return f"nix profile install '{nix_flake(v)}'"
 
 # What the shipped tree holds, as (path in the repository, path in the
 # package). A directory is copied with only the files SHIPPED_SUFFIXES
@@ -567,6 +583,7 @@ def write_checksums(v):
         if path.exists():
             lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}")
     target = BUILD / "SHA256SUMS"
+    BUILD.mkdir(parents=True, exist_ok=True)
     target.write_text("\n".join(lines) + "\n")
     return target
 
@@ -608,146 +625,51 @@ def run_steps(title, steps, check):
         return str(refusal)
 
 
-def formula(url, sha256, archs):
-    """The Homebrew formula installing the package at url. It builds
-    nothing: the tarball holds the binary, and the formula puts the tree
-    in libexec/ and links bin/pyk to it. String -> String -> [String] ->
-    String"""
+def cask(url, sha256, archs):
+    """The Homebrew cask installing the package at url: the tree unpacked
+    in the Caskroom as it is, bin/pyk linked to its pyk, and the tree taken
+    out of quarantine, since pyk is signed ad hoc and not notarized. A cask
+    is never built, so Homebrew asks nothing of the Command Line Tools.
+    String -> String -> [String] -> String"""
     only = "" if set(archs) >= {"arm64", "x86_64"} else (
-        f"\n  depends_on arch: :{'arm64' if archs == ['arm64'] else 'x86_64'}")
+        f"\n  depends_on arch: :{'arm64' if archs == ['arm64'] else 'intel'}")
     return f'''# Generated by tools/packaging/packaging.py -- do not edit; run
 # `make packaging` in the pyking repository.
-class Pyking < Formula
+cask "{NAME}" do
+  version "{version()}"
+  sha256 "{sha256}"
+
+  url "{url}"
+  name "Pyking"
   desc "{DESCRIPTION}"
   homepage "{HOMEPAGE}"
-  url "{url}"
-  sha256 "{sha256}"
-  version "{version()}"
-  license "{LICENSE}"
 
-  depends_on macos: :{MACOS_MINIMUM_NAME}{only}
+  depends_on macos: ">= :{MACOS_MINIMUM_NAME}"{only}
 
-  def install
-    # The tree stays together: pyk finds lib/, build/ and tools/ beside
-    # its own resolved path.
-    libexec.install Dir["*"]
-    bin.install_symlink libexec/"pyk"
+  # The tree stays together: pyk finds lib/, share/ and tools/ beside its
+  # own resolved path.
+  binary "{NAME}-#{{version}}/pyk"
+
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-dr", "com.apple.quarantine", "#{{staged_path}}/{NAME}-#{{version}}"]
   end
 
-  def caveats
-    <<~EOS
-      Nothing else needs to be installed. Compiling for a target and
-      running the result needs that target's own tools (node, cc,
-      javac, ...).
+  caveats <<~EOS
+    Nothing else needs to be installed. Compiling for a target and
+    running the result needs that target's own tools (node, cc,
+    javac, ...).
 
-      To read the tutorial as a notebook:
-        pyk notebook #{{opt_libexec}}/PYKING-TUTORIAL.md
-    EOS
-  end
-
-  test do
-    (testpath/"hello.pyk").write "print(\\"hello\\", 1 + 2)\\n"
-    assert_equal "hello 3\\n", shell_output("#{{bin}}/pyk #{{testpath}}/hello.pyk")
-    assert_match version.to_s, shell_output("#{{bin}}/pyk --version")
-  end
+    To read the tutorial as a notebook:
+      pyk notebook #{{staged_path}}/{NAME}-#{{version}}/PYKING-TUTORIAL.md
+  EOS
 end
 '''
 
 
-# The Nix systems, and the release file each installs.
-NIX_SYSTEMS = {"x86_64-linux": f"linux-{UNAME_ARCH['x86_64']}",
-               "aarch64-linux": f"linux-{UNAME_ARCH['arm64']}",
-               "x86_64-darwin": "macos", "aarch64-darwin": "macos"}
-
-
-def sri(sha256):
-    """A hex sha256 as Nix's SRI spelling, `sha256-<base64>`. String -> String"""
-    return "sha256-" + base64.b64encode(bytes.fromhex(sha256)).decode()
-
-
-def flake(v, sources):
-    """A Nix flake for version v whose package, on each system in sources,
-    installs that system's tarball: `sources` maps a system to the Nix
-    expression its tarball is, given `pkgs` -- a fetchurl of the release
-    file, or a path beside the flake for a check before publishing. It
-    builds nothing: the tree goes in libexec/pyking and bin/pyk links to
-    it; on Linux, autoPatchelfHook points pyk and its plugins at Nix's
-    glibc. String -> {String: String} -> String"""
-    entries = "\n".join(f'        "{system}" = {expression};'
-                        for system, expression in sorted(sources.items()))
-    return f"""# Generated by tools/packaging/packaging.py -- do not edit; run
-# `make packaging` in the pyking repository.
-{{
-  description = "{DESCRIPTION}";
-
-  inputs.nixpkgs.url = "{NIXPKGS}";
-
-  outputs = {{ self, nixpkgs }}:
-    let
-      version = "{v}";
-      sources = pkgs: {{
-{entries}
-      }};
-      systems = builtins.attrNames (sources null);
-      package = system:
-        let
-          pkgs = nixpkgs.legacyPackages.${{system}};
-          linux = pkgs.stdenv.hostPlatform.isLinux;
-        in
-        pkgs.stdenv.mkDerivation {{
-          pname = "{NAME}";
-          inherit version;
-          src = (sources pkgs).${{system}};
-          nativeBuildInputs = pkgs.lib.optionals linux [ pkgs.autoPatchelfHook ];
-          # The tree is shipped as built: a universal macOS pyk is signed,
-          # and every plugin is the one its digest describes.
-          dontStrip = true;
-          dontPatchShebangs = true;
-          dontFixup = !linux;
-          installPhase = ''
-            runHook preInstall
-            mkdir -p $out/libexec/{NAME} $out/bin
-            cp -R . $out/libexec/{NAME}
-            # pyk finds lib/, build/ and tools/ beside its own resolved path.
-            ln -s $out/libexec/{NAME}/pyk $out/bin/pyk
-            runHook postInstall
-          '';
-          meta = {{
-            description = "{DESCRIPTION}";
-            homepage = "{HOMEPAGE}";
-            license = pkgs.lib.licenses.mit;
-            mainProgram = "pyk";
-            platforms = systems;
-            sourceProvenance = [ pkgs.lib.sourceTypes.binaryNativeCode ];
-          }};
-        }};
-    in
-    {{
-      packages = nixpkgs.lib.genAttrs systems (system: rec {{
-        {NAME} = package system;
-        default = {NAME};
-      }});
-    }};
-}}
-"""
-
-
-def flake_sources(v, sums):
-    """Each Nix system's tarball in the release of v, as a fetchurl of
-    its URL by the sha256 `sums` gives, for the systems whose file sums
-    has. String -> {String: String} -> {String: String}"""
-    sources = {}
-    for system, kind in NIX_SYSTEMS.items():
-        name = f"{NAME}-{v}-{kind}.tar.gz"
-        if name in sums:
-            sources[system] = (f'pkgs.fetchurl {{ url = "{RELEASES}/v{v}/{name}"; '
-                               f'hash = "{sri(sums[name])}"; }}')
-    return sources
-
-
 class Homebrew:
     """The Homebrew format: a universal macOS `pyk` in a tarball, and two
-    formulas for it -- one naming the GitHub release it is to be attached
+    casks for it -- one naming the GitHub release it is to be attached
     to, one naming the file itself, for installing before publishing."""
 
     name = "homebrew"
@@ -997,7 +919,7 @@ class Homebrew:
                 if line[:1] in ("\t", " ") and line.strip()]
 
     def build(self, archs):
-        """Builds the tarball and both formulas. [String] -> ()"""
+        """Builds the tarball and both casks. [String] -> ()"""
         check_archs(self.name, archs)
         archs = sorted(archs)
         # Every toolchain is checked before any is used, so a missing one is
@@ -1038,10 +960,10 @@ class Homebrew:
 
         release = BUILD / "homebrew" / "pyking.rb"
         release.parent.mkdir(parents=True, exist_ok=True)
-        release.write_text(formula(f"{RELEASES}/v{v}/{name}", sha, archs))
+        release.write_text(cask(f"{RELEASES}/v{v}/{name}", sha, archs))
         local = BUILD / "homebrew-local" / "pyking.rb"
         local.parent.mkdir(parents=True, exist_ok=True)
-        local.write_text(formula(archive.resolve().as_uri(), sha, archs))
+        local.write_text(cask(archive.resolve().as_uri(), sha, archs))
         print(f"homebrew: {shown(archive)} ({', '.join(archs)}, "
               f"{archive.stat().st_size / 1048576:.1f} MB, sha256 {sha[:12]}…)")
         print(f"homebrew: {shown(release)} (for the release v{v})")
@@ -1098,8 +1020,8 @@ class Homebrew:
                                   "with it: " + (result.stdout + result.stderr).strip()[-300:])
 
     def install_local(self):
-        """Installs the local build through the tap pyking-lang/local.
-        () -> ()"""
+        """Installs the local build's cask through the tap pyking-lang/local,
+        and runs the pyk it linked. () -> ()"""
         local = BUILD / "homebrew-local" / "pyking.rb"
         if not local.exists():
             raise Refusal("nothing built yet; run `make packaging` first")
@@ -1110,19 +1032,30 @@ class Homebrew:
         tap = repository / "Library" / "Taps" / "pyking-lang" / "homebrew-local"
         if not tap.exists():
             run(["brew", "tap-new", "--no-git", LOCAL_TAP])
-        (tap / "Formula").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(local, tap / "Formula" / "pyking.rb")
-        formula_name = f"{LOCAL_TAP}/pyking"
+        # A formula of the same name would be found before the cask.
+        (tap / "Formula" / "pyking.rb").unlink(missing_ok=True)
+        (tap / "Casks").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(local, tap / "Casks" / "pyking.rb")
+        cask_name = f"{LOCAL_TAP}/pyking"
         # A rebuilt tarball keeps its version and changes its checksum, so
         # the copy brew cached from the last install is dropped first.
-        cached = subprocess.run(["brew", "--cache", formula_name], capture_output=True,
+        cached = subprocess.run(["brew", "--cache", "--cask", cask_name], capture_output=True,
                                 text=True).stdout.strip()
         if cached:
             Path(cached).unlink(missing_ok=True)
-        installed = subprocess.run(["brew", "list", "--versions", formula_name],
+        installed = subprocess.run(["brew", "list", "--cask", "--versions", cask_name],
                                    capture_output=True).returncode == 0
-        run(["brew", "reinstall" if installed else "install", formula_name])
-        run(["brew", "test", formula_name])
+        run(["brew", "reinstall" if installed else "install", "--cask", cask_name])
+        prefix = subprocess.run(["brew", "--prefix"], capture_output=True, text=True,
+                                check=True).stdout.strip()
+        with tempfile.TemporaryDirectory(prefix="pyk-brew-") as directory:
+            program = Path(directory) / "hello.pyk"
+            program.write_text('print("hello", 1 + 2)\n')
+            said = subprocess.run([Path(prefix) / "bin" / "pyk", program], capture_output=True,
+                                  text=True)
+            if said.stdout != "hello 3\n":
+                raise Refusal("the installed pyk does not run a program: "
+                              + (said.stdout + said.stderr).strip()[-300:])
 
     def setup(self):
         """Makes both release toolchains (README.md, "One-time setup"),
@@ -1270,7 +1203,7 @@ class Homebrew:
 
     def uninstall_local(self):
         """Removes what install_local installed, and the tap. () -> ()"""
-        subprocess.run(["brew", "uninstall", f"{LOCAL_TAP}/pyking"])
+        subprocess.run(["brew", "uninstall", "--cask", f"{LOCAL_TAP}/pyking"])
         subprocess.run(["brew", "untap", LOCAL_TAP])
 
 
@@ -1559,9 +1492,16 @@ class Docker:
             def pyk(variant, *args):
                 result = subprocess.run(
                     ["docker", "run", "--rm", *platform_, *Linux().user(), "-v", f"{work}:/work",
-                     self.tag(variant, v, arch), *args], capture_output=True, text=True)
+                     self.tag(variant, v, arch), "pyk", *args], capture_output=True, text=True)
                 return result.stdout.splitlines(), (result.stdout + result.stderr).strip()
 
+            for variant in self.VARIANTS:
+                shape = subprocess.run(["docker", "image", "inspect", "-f",
+                                        "{{json .Config.Entrypoint}} {{json .Config.Cmd}}",
+                                        self.tag(variant, v, arch)], capture_output=True, text=True)
+                if shape.stdout.split() != ["null", '["pyk","repl"]']:
+                    raise Refusal(f"the {arch} {variant} image should have no ENTRYPOINT and "
+                                  f"the command pyk repl, not {shape.stdout.strip()}")
             checks = [(variant, args, expected) for variant in self.VARIANTS for args, expected in
                       ((["--version"], [f"pyk {v}"]), (["hello.pyk"], ["hello 3"]),
                        (["library.pyk"], ["io true"]))]
@@ -1580,7 +1520,8 @@ class Docker:
         and fetches its page from outside the container. String -> String -> ()"""
         started = subprocess.run(["docker", "run", "-d", "--rm", "--platform",
                                   Linux.PLATFORM[arch], "-p", "127.0.0.1::8000",
-                                  self.tag("slim", v, arch), "playground", "--port", "8000"],
+                                  self.tag("slim", v, arch), "pyk", "playground", "--port",
+                                  "8000"],
                                  capture_output=True, text=True)
         if started.returncode:
             raise Refusal(f"the {arch} image does not start the playground: "
@@ -1707,15 +1648,16 @@ class Docker:
 
 
 class Nix:
-    """The Nix flake: build/nix/flake.nix, installing the release's
-    tarballs by their sha256, and its flake.lock, which pins nixpkgs. A
-    release commits both to RELEASES_REPO, so the flake is
-    github:pyking-lang/pyking-releases. Nothing here needs Nix: it is
-    locked, and the package built and run from the local tarballs, in a
-    Nix container per architecture."""
+    """The Nix package: tools/packaging/nix/, where default.nix builds
+    Pyking from source for nixpkgs' callPackage and flake.nix calls it with
+    the nixpkgs flake.lock pins. Users reach it at the release's tag in
+    CODE_REPO (`nix_flake`). Nothing here needs Nix: the working tree is
+    locked, built and run in a Nix container per architecture."""
 
     name = "nix"
-    DIRECTORY = BUILD / "nix"
+    DIRECTORY = REPO / "tools" / "packaging" / "nix"
+    FILES = ("default.nix", "flake.nix", "flake.lock")
+    INSIDE = "tools/packaging/nix"
 
     def refusal(self):
         """Why this machine cannot check the flake, or None. () -> String?"""
@@ -1747,98 +1689,108 @@ class Nix:
              "-e", f"NIX_CONFIG={config}",
              NIX_IMAGE, "sh", "-c", script], capture_output=True, text=True)
 
-    def check_runs(self, v, arch):
-        """Builds the flake's package for arch from the local tarball --
-        the same flake, with a path beside it for the fetchurl -- and runs
-        its version, a program and one importing libraries.
-        String -> String -> ()"""
-        system = next(s for s, kind in NIX_SYSTEMS.items()
-                      if kind == f"linux-{UNAME_ARCH[arch]}")
-        name = f"{NAME}-{v}-{NIX_SYSTEMS[system]}.tar.gz"
-        with tempfile.TemporaryDirectory(prefix="pyk-nix-") as directory:
-            work = Path(directory)
-            (work / "flake").mkdir()
-            shutil.copy2(BUILD / name, work / "flake" / name)
-            shutil.copy2(self.DIRECTORY / "flake.lock", work / "flake" / "flake.lock")
-            (work / "flake" / "flake.nix").write_text(flake(v, {system: f"./{name}"}))
-            (work / "hello.pyk").write_text('print("hello", 1 + 2)\n')
-            (work / "library.pyk").write_text(
-                'import io\nimport time\nio.write_line("io " ++ string(time.instant() > 0))\n')
-            print(f"  $ nix build path:flake ({arch}, in {NIX_IMAGE})")
-            result = self.nix(arch, [(work, "/w")],
-                              "nix build -L path:/w/flake -o /tmp/result && "
-                              "/tmp/result/bin/pyk --version && /tmp/result/bin/pyk /w/hello.pyk"
-                              " && /tmp/result/bin/pyk /w/library.pyk")
-            lines = result.stdout.splitlines()
-            if lines[-3:] != [f"pyk {v}", "hello 3", "io true"]:
-                raise Refusal(f"the flake's {arch} package does not build or run: "
-                              + (result.stdout + result.stderr).strip()[-600:])
+    def source(self, destination):
+        """Copies the working tree into destination as a flake would see
+        it: every file git tracks or does not ignore. Path -> ()"""
+        listed = subprocess.run(["git", "-C", REPO, "ls-files", "-z", "--cached", "--others",
+                                 "--exclude-standard", "--deduplicate"],
+                                capture_output=True, check=True).stdout.decode()
+        for name in filter(None, listed.split("\0")):
+            origin = REPO / name
+            if origin.is_file() and not origin.is_symlink():
+                (destination / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(origin, destination / name)
+
+    def seed(self):
+        """The script adding the browser libraries `make vendor` downloaded
+        to a container's store, so the build finds them there rather than
+        fetching them again: a fixed-output path depends on the content
+        alone. () -> String"""
+        return ("for f in $(find /vendor/ace /vendor/katex -type f 2>/dev/null) "
+                "$(find /vendor -maxdepth 1 -name '*.tgz' 2>/dev/null); do "
+                'nix store add-file "$f" >/dev/null; done')
+
+    def check_runs(self, arch, tree):
+        """Builds the package from a copy of the working tree in arch's
+        container and runs it: its version, a program, one importing
+        libraries with no OCaml (the shipped plugins), and one with an
+        external module of its own, whose plugin the wrapper's OCaml
+        compiles. String -> Path -> ()"""
+        v = version()
+        work = tree.parent / "work"
+        work.mkdir(exist_ok=True)
+        (work / "hello.pyk").write_text('print("hello", 1 + 2)\n')
+        (work / "library.pyk").write_text(
+            'import io\nimport time\nio.write_line("io " ++ string(time.instant() > 0))\n')
+        (work / "greet_external.pyk").write_text("public def hello(name: String) -> String\n")
+        (work / "greet_external.ml").write_text('let hello name = "hi " ^ name\n')
+        (work / "greeting.pyk").write_text('import greet\nprint(greet.hello("you"))\n')
+        print(f"  $ nix build 'path:.?dir={self.INSIDE}' ({arch}, in {NIX_IMAGE})")
+        pyk = "/tmp/result/bin/pyk"
+        result = self.nix(arch, [(tree, "/src"), (work, "/work"), (server.VENDOR, "/vendor")],
+                          f"{self.seed()}; cp -R /src /tmp/src && cp -R /work /tmp/work && "
+                          f"nix build -L 'path:/tmp/src?dir={self.INSIDE}' -o /tmp/result && "
+                          f"cd /tmp/work && {pyk} --version && {pyk} hello.pyk && "
+                          f"OCAMLOPT=/nonexistent XDG_CACHE_HOME=/tmp/c1 {pyk} library.pyk && "
+                          f"XDG_CACHE_HOME=/tmp/c2 {pyk} greeting.pyk")
+        lines = result.stdout.splitlines()
+        if lines[-4:] != [f"pyk {v}", "hello 3", "io true", "hi you"]:
+            raise Refusal(f"the Nix package does not build or run on {arch}: "
+                          + (result.stdout + result.stderr).strip()[-900:])
 
     def build(self, archs):
-        """Writes build/nix/flake.nix for every tarball of this version that
-        is built, locks it, and builds and runs it for each architecture
-        from the Linux tarball. [String] -> ()"""
+        """Locks the flake where it has no flake.lock, then builds the
+        working tree's package and runs it for each architecture. Writes
+        nothing but a missing lock. [String] -> ()"""
         check_archs(self.name, archs)
-        v = version()
-        sums = {name: hashlib.sha256((BUILD / name).read_bytes()).hexdigest()
-                for name in {f"{NAME}-{v}-{kind}.tar.gz" for kind in NIX_SYSTEMS.values()}
-                if (BUILD / name).exists()}
-        for arch in archs:
-            name = f"{NAME}-{v}-linux-{UNAME_ARCH[arch]}.tar.gz"
-            if name not in sums:
-                raise Refusal(f"no Linux package for {arch} ({shown(BUILD / name)}), which "
-                              "the flake installs; `make packaging FORMATS=linux,nix` "
-                              "builds both")
-        self.DIRECTORY.mkdir(parents=True, exist_ok=True)
-        (self.DIRECTORY / "flake.nix").write_text(flake(v, flake_sources(v, sums)))
-        lock = self.DIRECTORY / "flake.lock"
-        if lock.exists():
-            lock.unlink()
+        missing = [name for name in self.FILES[:2] if not (self.DIRECTORY / name).exists()]
+        if missing:
+            raise Refusal(f"{shown(self.DIRECTORY)} has no {', '.join(missing)}")
         host = canonical_arch(platform.machine())
-        # Locked, and every system's derivation instantiated -- its fetchurl
-        # of the release's URL included, which downloads nothing.
-        evaluated = " && ".join(f"nix eval --raw path:/tmp/f#packages.{system}.default.drvPath"
-                                for system in sorted(flake_sources(v, sums)))
-        print(f"  $ nix flake lock && {evaluated.replace('path:/tmp/f', '.')} ({NIX_IMAGE})")
-        result = self.nix(host if host in ARCHS else archs[0], [(self.DIRECTORY, "/f")],
-                          "mkdir /tmp/f && cp /f/flake.nix /tmp/f/ && cd /tmp/f && "
-                          f"nix flake lock && {evaluated} && cat flake.lock > /f/flake.lock")
-        if result.returncode or not lock.exists():
-            raise Refusal("the flake does not lock or evaluate: "
-                          + result.stderr.strip()[-600:])
-        for arch in archs:
-            self.check_runs(v, arch)
-        systems = sorted(flake_sources(v, sums))
-        print(f"nix: {shown(self.DIRECTORY / 'flake.nix')} ({', '.join(systems)})")
-        if len(systems) != len(NIX_SYSTEMS):
-            print("nix: NOTE the flake lacks "
-                  + ", ".join(sorted(set(NIX_SYSTEMS) - set(systems)))
-                  + "; `make release` needs every system's tarball.")
+        with tempfile.TemporaryDirectory(prefix="pyk-nix-") as directory:
+            tree = Path(directory) / "src"
+            self.source(tree)
+            lock = self.DIRECTORY / "flake.lock"
+            if not lock.exists():
+                out = Path(directory) / "lock"
+                out.mkdir()
+                print(f"  $ nix flake lock ({NIX_IMAGE})")
+                result = self.nix(host if host in ARCHS else archs[0], [(tree, "/src"), (out, "/out")],
+                                  f"cp -R /src /tmp/src && nix flake lock 'path:/tmp/src?dir={self.INSIDE}'"
+                                  f" && cp /tmp/src/{self.INSIDE}/flake.lock /out/")
+                if result.returncode or not (out / "flake.lock").exists():
+                    raise Refusal("the flake does not lock: " + result.stderr.strip()[-600:])
+                shutil.copy2(out / "flake.lock", lock)
+                shutil.copy2(lock, tree / self.INSIDE / "flake.lock")
+                print(f"nix: wrote {shown(lock)}; commit it")
+            for arch in archs:
+                self.check_runs(arch, tree)
+        print(f"nix: {shown(self.DIRECTORY)} builds and runs ({', '.join(archs)})")
 
-    def release_preflight(self, v, sums):
-        """Refuses, before anything is published, a flake that does not
-        install every system's file of this release by its checksum, or
-        one with no lock. String -> {String: String} -> ()"""
-        path = self.DIRECTORY / "flake.nix"
-        if not (self.DIRECTORY / "flake.lock").exists() or not path.exists() \
-                or path.read_text() != flake(v, flake_sources(v, sums)) \
-                or len(flake_sources(v, sums)) != len(NIX_SYSTEMS):
-            raise Refusal(f"{shown(path)} does not describe the release of {v}; "
-                          "run `make packaging` again")
+    def release_preflight(self):
+        """Refuses, before anything is published, a release whose tag would
+        not hold the Nix package: each of its files must be committed.
+        () -> ()"""
+        for name in self.FILES:
+            path = f"{self.INSIDE}/{name}"
+            if git("ls-files", "--error-unmatch", path) is None:
+                raise Refusal(f"{path} is not committed, so `{nix_run(version())}` would "
+                              "not find it at the release's tag; `make packaging "
+                              "FORMATS=nix` locks and checks the flake")
 
-    def check_published(self, commit):
-        """Runs the published flake, at the commit that added it, in a Nix
-        container: what `nix run github:...` does. String -> ()"""
+    def check_published(self, v):
+        """Builds and runs the flake at the release's tag on GitHub in a Nix
+        container: what a user's `nix run` does. String -> ()"""
         arch = canonical_arch(platform.machine())
-        result = self.nix(arch if arch in ARCHS else "x86_64", [],
-                          f"nix run github:{RELEASES_REPO}/{commit} -- --version")
-        if result.stdout.strip() != f"pyk {version()}":
-            raise Refusal(f"github:{RELEASES_REPO}/{commit[:12]} does not run: "
+        result = self.nix(arch if arch in ARCHS else "x86_64", [(server.VENDOR, "/vendor")],
+                          f"{self.seed()}; nix run '{nix_flake(v)}' -- --version")
+        if result.stdout.strip().splitlines()[-1:] != [f"pyk {v}"]:
+            raise Refusal(f"{nix_flake(v)} does not build or run: "
                           + (result.stdout + result.stderr).strip()[-300:])
 
     def install_local(self):
         """Not a format a machine installs from here. () -> ()"""
-        raise Refusal(f"install the published flake with {NIX_INSTALL}")
+        raise Refusal(f"install a release with {nix_install(version())}")
 
     def uninstall_local(self):
         """Not a format a machine installs from here. () -> ()"""
@@ -1908,7 +1860,7 @@ class VSCode:
         raise Refusal("uninstall the extension from VS Code or Cursor")
 
 
-# In the order they are built: docker and nix are made from linux's tarballs.
+# In the order they are built: docker is made from linux's tarballs.
 FORMATS = {"homebrew": Homebrew(), "linux": Linux(), "docker": Docker(), "nix": Nix(),
            "vscode": VSCode()}
 
@@ -1924,10 +1876,11 @@ def host_format():
 def release(assume_yes):
     """Publishes the build: one release v<VERSION> of RELEASES_REPO holding
     every platform's files, each downloaded back and checked against
-    SHA256SUMS, then the formula committed and pushed to TAP_REPO, the
-    Nix flake committed to RELEASES_REPO and run from there, the Docker
-    images pushed to IMAGE_REPO, then -- asked separately -- the commit it
-    was built from tagged in CODE_REPO as release-<VERSION>. Checks everything it can first, asks before
+    SHA256SUMS, then the cask committed and pushed to TAP_REPO, the
+    README of RELEASES_REPO updated, the Docker images pushed to
+    IMAGE_REPO, then -- asked separately -- the commit it was built from
+    tagged in CODE_REPO as release-<VERSION>, and the Nix package built
+    from that tag. Checks everything it can first, asks before
     changing anything unless assume_yes, and never replaces a published
     release. Answers whether it succeeded. Bool -> Bool"""
     v = version()
@@ -1935,7 +1888,7 @@ def release(assume_yes):
     names = release_assets(v)
 
     # 1. The build: every file for this version, agreeing with SHA256SUMS
-    #    and with the formula -- and what the release says has changed.
+    #    and with the cask -- and what the release says has changed.
     if "-" in v:
         raise Refusal(f"VERSION is {v}, a version in development; set it to "
                       f"{v.split('-')[0]} (and date its section in CHANGELOG.md) "
@@ -1957,7 +1910,7 @@ def release(assume_yes):
     if f'url "{RELEASES}/{tag}/{mac}"' not in text or f'sha256 "{sums[mac]}"' not in text:
         raise Refusal(f"{shown(rb)} does not describe {mac}; "
                       "run `make packaging` again")
-    FORMATS["nix"].release_preflight(v, sums)
+    FORMATS["nix"].release_preflight()
 
     # 2. The tools and the two repositories.
     if not shutil.which("gh") or not shutil.which("git"):
@@ -1966,7 +1919,7 @@ def release(assume_yes):
     if subprocess.run(["gh", "auth", "status"], capture_output=True).returncode:
         raise Refusal("gh is not logged in; run `gh auth login`")
     # Checked here, not left to the commit: a commit that fails comes after
-    # the release exists, which would leave it without a formula. Asked from
+    # the release exists, which would leave it without a cask. Asked from
     # outside any repository, as the fresh clone will be: a name set only in
     # this repository's own config is not used there.
     for key in ("user.name", "user.email"):
@@ -2004,13 +1957,15 @@ def release(assume_yes):
           f"{len(names)} files ({size:.1f} MB):")
     for name in names:
         print(f"       {name}")
-    print(f"  2. commit Formula/pyking.rb for {v} to {TAP_REPO} and push it")
-    print(f"  3. commit flake.nix, flake.lock and README.md for {v} to {RELEASES_REPO} "
-          "and push them")
+    print(f"  2. commit Casks/pyking.rb for {v} to {TAP_REPO}, removing "
+          "Formula/pyking.rb, and push it")
+    print(f"  3. commit README.md for {v} to {RELEASES_REPO}, removing the old "
+          "flake.nix and flake.lock, and push it")
     print(f"  4. push the Docker images {Docker().tag('slim', v)} (and latest) and "
           f"{Docker().tag('full', v)} (and full), for {' and '.join(ARCHS)}")
     print(f"  5. then ask whether to tag {commit[:12]} in {CODE_REPO} as {code_tag}"
-          + (" (it already is)" if tagged else ""))
+          + (" (it already is)" if tagged else "")
+          + ", and build the Nix package from the tag")
     if not assume_yes and not confirm("Publish? [y/N] "):
         print("release: nothing was published.")
         return False
@@ -2021,17 +1976,19 @@ def release(assume_yes):
         #    an empty one is given a README first.
         if state[RELEASES_REPO].get("isEmpty"):
             first_commit(work / "releases", RELEASES_REPO,
-                         {"README.md": releases_readme()}, "Describe the releases")
+                         {"README.md": releases_readme(v)}, "Describe the releases")
         notes = (f"## What's changed\n\n{changes}\n\n## Installing\n\n"
                  f"Pyking {v}: the compiler and interpreter, with no dependencies.\n\n"
                  f"**macOS** 11 or later, Apple Silicon and Intel:\n\n    {BREW_INSTALL}\n\n"
+                 f"{BREW_MIGRATION}\n\n"
                  f"**Linux and WSL**, x86_64 and aarch64, any distribution:\n\n"
                  f"    {LINUX_INSTALL}\n\n"
                  f"Or, on Debian, Ubuntu and WSL Ubuntu, the `.deb` for your "
                  f"architecture: `sudo apt install ./pyking_amd64.deb`.\n\n"
-                 f"**Nix**, on Linux and macOS:\n\n    {NIX_RUN}\n    {NIX_INSTALL}\n\n"
+                 f"**Nix**, on Linux and macOS, built from source:\n\n    {nix_run(v)}\n"
+                 f"    {nix_install(v)}\n\n"
                  f"**Docker**, x86_64 and arm64; `{IMAGE_REPO}:full` also holds every "
-                 f"target's host, for `pyk compile --run`:\n\n    {DOCKER_RUN} hello.pyk\n\n"
+                 f"target's host, for `pyk compile --run`:\n\n    {DOCKER_RUN} pyk hello.pyk\n\n"
                  f"Checksums are in `SHA256SUMS`.\n")
         run(["gh", "release", "create", tag, *[BUILD / name for name in names],
              "--repo", RELEASES_REPO, "--title", f"Pyking {v}", "--notes", notes,
@@ -2052,45 +2009,42 @@ def release(assume_yes):
                 raise Refusal(f"the release was created, but {url} does not match "
                               "SHA256SUMS; the tap was not changed")
 
-        # 5. The formula, in the tap.
+        # 5. The cask, in the tap, in place of the formula it had.
         tap = work / "tap"
         run(["gh", "repo", "clone", TAP_REPO, tap])
         if state[TAP_REPO].get("isEmpty"):
             run(["git", "-C", tap, "symbolic-ref", "HEAD", "refs/heads/main"])
-            (tap / "README.md").write_text(tap_readme())
-            run(["git", "-C", tap, "add", "README.md"])
-        (tap / "Formula").mkdir(exist_ok=True)
-        shutil.copy2(rb, tap / "Formula" / "pyking.rb")
-        run(["git", "-C", tap, "add", "Formula/pyking.rb"])
+        (tap / "README.md").write_text(tap_readme())
+        run(["git", "-C", tap, "add", "README.md"])
+        if (tap / "Formula" / "pyking.rb").exists():
+            run(["git", "-C", tap, "rm", "-q", "Formula/pyking.rb"])
+        (tap / "Casks").mkdir(exist_ok=True)
+        shutil.copy2(rb, tap / "Casks" / "pyking.rb")
+        run(["git", "-C", tap, "add", "Casks/pyking.rb"])
         if subprocess.run(["git", "-C", tap, "diff", "--cached", "--quiet"]).returncode:
             run(["git", "-C", tap, "commit", "-m", f"pyking {v}"])
             run(["git", "-C", tap, "push", "origin", "HEAD"])
         else:
-            print(f"  ({TAP_REPO} already has this formula)")
+            print(f"  ({TAP_REPO} already has this cask)")
 
-        # 6. The flake, in the releases repository, run from there.
-        flaked = work / "flake"
-        run(["gh", "repo", "clone", RELEASES_REPO, flaked])
-        shutil.copy2(Nix.DIRECTORY / "flake.nix", flaked / "flake.nix")
-        shutil.copy2(Nix.DIRECTORY / "flake.lock", flaked / "flake.lock")
-        (flaked / "README.md").write_text(releases_readme())
-        run(["git", "-C", flaked, "add", "flake.nix", "flake.lock", "README.md"])
-        if subprocess.run(["git", "-C", flaked, "diff", "--cached", "--quiet"]).returncode:
-            run(["git", "-C", flaked, "commit", "-m", f"pyking {v}: the Nix flake"])
-            run(["git", "-C", flaked, "push", "origin", "HEAD"])
-        flake_commit = subprocess.run(["git", "-C", flaked, "rev-parse", "HEAD"],
-                                      capture_output=True, text=True).stdout.strip()
-        try:
-            FORMATS["nix"].check_published(flake_commit)
-        except Refusal as refusal:
-            raise Refusal(f"the release, the formula and the flake are published, but "
-                          f"{refusal}; the Docker images were not pushed")
+        # 6. The README of the releases repository, which no longer holds
+        #    a flake: the Nix package is built from the code repository.
+        readme = work / "readme"
+        run(["gh", "repo", "clone", RELEASES_REPO, readme])
+        for old in ("flake.nix", "flake.lock"):
+            if (readme / old).exists():
+                run(["git", "-C", readme, "rm", "-q", old])
+        (readme / "README.md").write_text(releases_readme(v))
+        run(["git", "-C", readme, "add", "README.md"])
+        if subprocess.run(["git", "-C", readme, "diff", "--cached", "--quiet"]).returncode:
+            run(["git", "-C", readme, "commit", "-m", f"pyking {v}"])
+            run(["git", "-C", readme, "push", "origin", "HEAD"])
 
     # 7. The Docker images.
     try:
         public = FORMATS["docker"].publish(v)
     except Refusal as refusal:
-        raise Refusal(f"the release, the formula and the flake are published, but the "
+        raise Refusal(f"the release and the cask are published, but the "
                       f"Docker images are not: {refusal}. `make release` will not run "
                       "again for this version; push them by hand (tools/packaging/README.md)")
     if not public:
@@ -2105,19 +2059,27 @@ def release(assume_yes):
         try:
             tag_code(commit, code_tag, v)
         except Refusal as refusal:
-            raise Refusal(f"Pyking {v} is published -- the release and the formula -- "
+            raise Refusal(f"Pyking {v} is published -- the release and the cask -- "
                           f"but tagging {commit[:12]} as {code_tag} failed: {refusal}. "
                           f"Tag it by hand: git tag -a {code_tag} -m 'Pyking {v}' "
                           f"{commit[:12]} && git push origin {code_tag}")
         outcome = f"tagged {commit[:12]} in {CODE_REPO} as {code_tag}"
+        tagged = True
     else:
         outcome = (f"not tagged; to tag it later: git tag -a {code_tag} -m "
-                   f"'Pyking {v}' {commit[:12]} && git push origin {code_tag}")
+                   f"'Pyking {v}' {commit[:12]} && git push origin {code_tag} "
+                   "(the Nix package is built from the tag)")
+    # 9. The Nix package, built from the tag as a user's Nix builds it.
+    if tagged:
+        try:
+            FORMATS["nix"].check_published(v)
+        except Refusal as refusal:
+            raise Refusal(f"Pyking {v} is published and {code_tag} tagged, but {refusal}")
     print(f"\nrelease: SUCCEEDED -- Pyking {v} is published; {outcome}.\n"
           f"  macOS:         {BREW_INSTALL}\n"
           f"  Linux and WSL: {LINUX_INSTALL}\n"
-          f"  Nix:           {NIX_RUN}\n"
-          f"  Docker:        {DOCKER_RUN} hello.pyk")
+          f"  Nix:           {nix_run(v)}\n"
+          f"  Docker:        {DOCKER_RUN} pyk hello.pyk")
     return True
 
 
@@ -2207,11 +2169,12 @@ def first_commit(directory, repo, files, message):
     run(["git", "-C", directory, "push", "origin", "HEAD"])
 
 
-def releases_readme():
-    """The README of RELEASES_REPO. () -> String"""
+def releases_readme(v):
+    """The README of RELEASES_REPO, as of release v. String -> String"""
     return (f"# Pyking releases\n\nReleases of Pyking, a compiler and interpreter with "
             "no dependencies.\n\n## macOS\n\nmacOS 11 or later, Apple Silicon and "
             f"Intel, with [Homebrew](https://brew.sh):\n\n```sh\nbrew update\n{BREW_INSTALL}\n```\n\n"
+            f"{BREW_MIGRATION}\n\n"
             "## Linux and WSL\n\nAny distribution, x86_64 or aarch64. Installs into "
             f"`~/.local`, with no sudo:\n\n```sh\n{LINUX_INSTALL}\n```\n\n"
             "`sh -s -- --system` installs for every user instead, `--version X` a "
@@ -2219,20 +2182,24 @@ def releases_readme():
             "Ubuntu, the `.deb` of a release works too:\n\n```sh\n"
             f"curl -fLO {HOMEPAGE}/releases/latest/download/pyking_amd64.deb\n"
             "sudo apt install ./pyking_amd64.deb\n```\n\n"
-            "## Nix\n\nLinux and macOS, with flakes enabled. Run it once, or install "
-            f"it:\n\n```sh\n{NIX_RUN}\n{NIX_INSTALL}\n```\n\n"
+            "## Nix\n\nLinux and macOS, with flakes enabled, built from the source "
+            f"in [{CODE_REPO}](https://github.com/{CODE_REPO}) "
+            "(`tools/packaging/nix/`). Run it once, or install "
+            f"it:\n\n```sh\n{nix_run(v)}\n{nix_install(v)}\n```\n\n"
             "## Docker\n\nx86_64 and arm64. The current directory is the "
-            f"container's `/work`:\n\n```sh\n{DOCKER_RUN} hello.pyk\n"
-            f"{DOCKER_RUN} repl\n"
-            f"docker run --rm -p 8000:8000 {IMAGE_REPO} playground --port 8000\n```\n\n"
+            f"container's `/work`; the command is `pyk repl` unless the run names "
+            f"another:\n\n```sh\n{DOCKER_RUN} pyk hello.pyk\n"
+            f"{DOCKER_RUN}\n"
+            f"docker run --rm -p 8000:8000 {IMAGE_REPO} pyk playground --port 8000\n"
+            f"{DOCKER_RUN} bash\n```\n\n"
             f"`{IMAGE_REPO}:full` also holds Python, node, gcc, a JDK and OCaml, so "
             "`pyk compile --run` runs every target.\n")
 
 
 def tap_readme():
     """The README of TAP_REPO. () -> String"""
-    return (f"# Pyking's Homebrew tap\n\n```sh\nbrew update\n{BREW_INSTALL}\n```\n\nThe formulas "
-            f"install the releases in [{RELEASES_REPO}]({HOMEPAGE}).\n")
+    return (f"# Pyking's Homebrew tap\n\n```sh\nbrew update\n{BREW_INSTALL}\n```\n\nThe cask "
+            f"installs the releases in [{RELEASES_REPO}]({HOMEPAGE}).\n\n{BREW_MIGRATION}\n")
 
 
 def main(argv=None):
@@ -2256,7 +2223,7 @@ def main(argv=None):
     staged.add_argument("--dest", required=True, type=Path)
     staged.add_argument("--no-vendor", action="store_true",
                         help="ship vendor/ as it is, even incomplete")
-    written = commands.add_parser("formula", help="a formula for a tarball")
+    written = commands.add_parser("cask", help="a cask for a tarball")
     written.add_argument("--tarball", required=True, type=Path)
     written.add_argument("--url", required=True)
     written.add_argument("--output", required=True, type=Path)
@@ -2315,9 +2282,9 @@ def main(argv=None):
             host_format().uninstall_local()
         elif args.command == "stage":
             stage(args.binary, args.dest, vendor=not args.no_vendor)
-        elif args.command == "formula":
+        elif args.command == "cask":
             sha = hashlib.sha256(args.tarball.read_bytes()).hexdigest()
-            args.output.write_text(formula(args.url, sha, args.archs.split(",")))
+            args.output.write_text(cask(args.url, sha, args.archs.split(",")))
     except Refusal as refusal:
         print(f"packaging: {refusal}", file=sys.stderr)
         return 1

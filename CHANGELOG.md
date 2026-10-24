@@ -119,6 +119,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Homebrew installs Pyking as a cask instead of a formula, so it needs
+  no Command Line Tools: a formula was refused on a macOS newer than the
+  installed Command Line Tools ("does not support macOS 27"). The cask
+  takes the tree out of quarantine. A formula installed from 0.1.4 or
+  earlier is replaced with `brew uninstall pyking && brew install
+  pyking-lang/tap/pyking`.
+- Nix builds Pyking from source: `tools/packaging/nix/` holds a
+  `default.nix` for nixpkgs' `callPackage` and a flake, run at a
+  release's tag as `nix run
+  'github:pyking-lang/pyking/release-<version>?dir=tools/packaging/nix'`.
+  The flake that installed the release's binaries from
+  `pyking-lang/pyking-releases` is gone.
+- The Docker images run `pyk` through `CMD ["pyk", "repl"]` and have no
+  ENTRYPOINT, so a command names `pyk` (`docker run ...
+  ghcr.io/pyking-lang/pyking pyk hello.pyk`) and `docker run -it ...
+  bash` opens a shell.
 - A notebook exercise's `method = code_box` is now `method = inline`;
   `code_box` is refused by test mode.
 - tinyweb is divided into submodules: `tinyweb.color`, `tinyweb.sound`,

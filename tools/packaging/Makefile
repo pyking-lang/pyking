@@ -7,8 +7,8 @@
 #   make ARCHS=arm64     only some architectures (not for publishing)
 #   make install-local   install the local build on this machine
 #   make uninstall-local remove it again
-#   make release         publish the build: pyking-lang/pyking-releases
-#                        (with the Nix flake), the formula in
+#   make release         publish the build: pyking-lang/pyking-releases,
+#                        the cask in
 #                        pyking-lang/homebrew-tap, and the Docker images
 #                        in ghcr.io/pyking-lang/pyking
 #   make clean           remove build/
@@ -63,8 +63,7 @@ help:
 	@echo "make uninstall-local  remove it again"
 	@echo "make release          publish the build: one release of"
 	@echo "                      pyking-lang/pyking-releases with every platform,"
-	@echo "                      the formula in pyking-lang/homebrew-tap, the"
-	@echo "                      Nix flake in pyking-lang/pyking-releases and"
+	@echo "                      the cask in pyking-lang/homebrew-tap and"
 	@echo "                      the images in ghcr.io/pyking-lang/pyking,"
 	@echo "                      then asks whether to tag HEAD in"
 	@echo "                      pyking-lang/pyking as release-<VERSION>;"

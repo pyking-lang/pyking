@@ -170,7 +170,7 @@ make            # dune build src/pyk.exe, copied here as ./pyk
 | `make website` | build the [website](tools/site/) into `website/`, from `sitesrc/` and `lib/` (`make website-dev` serves it with Astro's dev server) |
 | `make packaging` | build the installable packages into `tools/packaging/build/` — for now the Homebrew one, on a Mac |
 | `make packaging-setup` | once, on an Apple Silicon Mac: make the two OCaml toolchains `make packaging` builds with, and say whether it worked |
-| `make release` | publish the built packages: one release of the public `pyking-lang/pyking-releases` with every platform, the formula in the tap `pyking-lang/homebrew-tap`, and (asked separately) the tag `release-<VERSION>` here |
+| `make release` | publish the built packages: one release of the public `pyking-lang/pyking-releases` with every platform, the cask in the tap `pyking-lang/homebrew-tap`, and (asked separately) the tag `release-<VERSION>` here |
 | `make packaging-install` | install that build with Homebrew, to try it before publishing (`make packaging-uninstall` undoes it) |
 | `make clean` | remove what has been generated: `_build/`, `./pyk`, `__pycache__/` directories, `tools/packaging/build/`, `website/`, `tools/site/build/` |
 | `make distclean` | that, plus the `tools/webrun/vendor/` and `tools/site/node_modules/` download caches |
