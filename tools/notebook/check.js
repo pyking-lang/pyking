@@ -1,6 +1,6 @@
 // `pyk notebook --mode test FILE.md`: checks a notebook instead of serving
 // it. The document is read by the page's own renderer (assets/markdown.js
-// and assets/exercises.js), and every program in it is run by the page's
+// and assets/tasks.js), and every program in it is run by the page's
 // own compiler worker (../webrun/assets/pyking-worker.js) under node, with
 // the few browser globals it touches stood in for. So what passes here is
 // what the page does. See README.md beside this file, "Test mode".
@@ -125,7 +125,7 @@ export async function main(argv) {
   for (const p of problems) process.stdout.write(`${file}:${p.line}: ${p.message}\n`);
   const items = notebook.items.length;
   process.stdout.write(`notebook test: ${file}: ${doc.cells.length} cell`
-    + `${doc.cells.length === 1 ? "" : "s"}, ${items} exercise${items === 1 ? "" : "s"} and quiz`
+    + `${doc.cells.length === 1 ? "" : "s"}, ${items} task${items === 1 ? "" : "s"} and quiz`
     + `${items === 1 ? "" : "zes"}, ${problems.length} problem${problems.length === 1 ? "" : "s"}.\n`);
   return problems.length ? 1 : 0;
 }

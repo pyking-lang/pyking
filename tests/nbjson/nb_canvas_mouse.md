@@ -19,7 +19,7 @@ Make a canvas of 200 × 200 and paint it light grey: a rectangle over
 all of it, of `color.hex(0xeeeeee)`. Each click draws a red dot of
 radius 5 where it was clicked and prints `dot at`, x and y.
 
-```pyking exercise name = "dots" points = 2
+```pyking task name = "dots" points = 2
 print("Add your code here")
 ```
 
@@ -60,7 +60,7 @@ released, blue and three pixels wide. Print `line from`, the start and
 Before the first press, a line ends where the last one started from;
 start with (0, 0).
 
-```pyking exercise name = "lines" points = 3
+```pyking task name = "lines" points = 3
 print("Add your code here")
 ```
 

@@ -19,7 +19,7 @@ print("an A")
 
 A note one octave higher has twice the frequency.
 
-## Exercise: a tone and its octave
+## Task: a tone and its octave
 
 Write a program that reads a frequency (a `Float`) from standard input
 and then
@@ -32,7 +32,7 @@ and then
 
 What the page is told to play is compared with the solution's.
 
-```pyking exercise name = "octave" points = 2
+```pyking task name = "octave" points = 2
 print("Add your code here")
 ```
 

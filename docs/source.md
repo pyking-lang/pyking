@@ -2148,7 +2148,7 @@ out for reading, for a notebook's JSON.
 `--to-markdown` and `--json-schema`, and `pyk notebook FILE.json`. The
 Markdown between the notebook's blocks is kept as written, and the
 blocks are found and grouped as `tools/notebook/assets/markdown.js` and
-`exercises.js` find and group them: an exercise with its solution,
+`tasks.js` find and group them: a task or a practice with its solution,
 tests and diff-allowed blocks, a quiz with its answer, a cell with the
 tests under it. A block is written back from its fields in one
 canonical layout, and how the source wrote it where that differs -- the
@@ -2168,8 +2168,8 @@ since it is pure.
   with its newline), the closing line (`None` at the end of the text),
   and the `gap` of blank lines before it where a block is right before.
 - **`piece`** — `Text` between blocks, or a `Fence`.
-- **`owner`** — an exercise or a cell as it is grouped: its head, the
-  solution, the tests (each a list of slot and block), the diff-allowed
+- **`owner`** — a task, a practice or a cell as it is grouped: its
+  head, which of the three it is, the solution, the tests (each a list of slot and block), the diff-allowed
   blocks, and the order they were written in.
 
 ### Main functions
@@ -2178,14 +2178,16 @@ since it is pure.
   pieces: a fence at the left margin in a notebook language, outside
   another fenced block, an HTML block, display math and the front
   matter. A run of fences with only blank lines between is one group,
-  which `group_json` gives owners as exercises.js does.
+  which `group_json` gives owners as tasks.js does.
 - **`to_markdown value -> string`** — the Markdown, raising
   `Format_error` with a path (`blocks[3].tests[0]`) where the value is
   not a notebook.
 - **`schema`** — the JSON Schema (Draft 2020-12), built as a `Json.t`
   and printed by `Json.pretty`.
 - **`parse_info info`** — a header as markdown.js's `parseInfo` reads
-  it; **`canonical_info`** the header the canonical layout writes.
+  it, a value of `(...)` groups (`max_calls = (2,rect) (1,circle)`)
+  kept as one string; **`canonical_info`** the header the canonical
+  layout writes, such a value bare.
 
 ---
 

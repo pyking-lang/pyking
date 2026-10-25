@@ -23,7 +23,7 @@ input and
 
 Both what it prints and its status are checked.
 
-```pyking exercise name = "age" stdin = "20"
+```pyking practice name = "age" stdin = "20"
 import io
 import sys
 print("Add your code here")
@@ -83,7 +83,7 @@ Write a program that reads one line. If it is empty, it ends with
 status `4` and prints nothing; otherwise it prints `got: LINE` and ends
 with `sys.exit(0)`.
 
-```pyking exercise name = "nonempty" stdin = "hello"
+```pyking practice name = "nonempty" stdin = "hello"
 import io
 import sys
 print("Add your code here")

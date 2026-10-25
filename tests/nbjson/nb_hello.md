@@ -7,7 +7,7 @@ prints exactly one line:
 
 Use `print`, which writes its arguments followed by a new line.
 
-```pyking exercise
+```pyking practice
 print("Add your code here")
 ```
 

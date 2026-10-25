@@ -1,0 +1,33 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_max_calls.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_max_calls_count_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_max_calls_count_s2.pyk"
+accepted = false
+reason = "Your program uses print 3 times, and may use it at most 2 times."
+
+[[solution]]
+file = "nb_max_calls_count_s3.pyk"
+accepted = false
+reason = "Your program uses string 2 times, and may use it at most 1 time."
+
+[[solution]]
+file = "nb_max_calls_squares_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_max_calls_squares_s2.pyk"
+accepted = false
+reason = "Your program uses rect 3 times, and may use it at most 1 time."
+
+[[solution]]
+file = "nb_max_calls_squares_s3.pyk"
+accepted = true
+reason = ""

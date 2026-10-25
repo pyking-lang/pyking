@@ -5,7 +5,7 @@ title: "Week 2: drawing, events and debugging"
 # Week 2: drawing, events and debugging
 
 ```rules max = 14 pass = 7
-Five items are graded in the page, worth 10 points. The last exercise
+Five items are graded in the page, worth 10 points. The last task
 is handed in with git and graded by the teachers, for 4 more.
 ```
 
@@ -23,13 +23,13 @@ tw.rect(c, 10, 10, 40, 40, color.blue)
 tw.circle(c, 85, 30, 20, color.orange)
 ```
 
-### Exercise: a row of beads
+### Task: a row of beads
 
 Read a number $n$ and draw $n$ red circles of radius 10 on a canvas of
 300 × 40 pixels: the first centred at (20, 20) and each next one 30
 pixels further right. Then print `n beads`.
 
-```pyking exercise name = "beads" points = 2
+```pyking task name = "beads" points = 2
 import tinyweb as tw
 tw.web_init(0)
 ```
@@ -62,14 +62,14 @@ print(n, "beads")
 9
 ```
 
-### Exercise: a dot that moves
+### Task: a dot that moves
 
 Draw a canvas of 100 × 100 pixels with a black dot of radius 5 at
 (50, 50), and two buttons, **Left** and **Right**. Each click moves the
 dot 10 pixels: clear the canvas to white, draw the dot where it now is
 and print its `x`.
 
-```pyking exercise name = "mover" points = 3 attempts = 3 penalty = 1
+```pyking task name = "mover" points = 3 attempts = 3 penalty = 1
 import tinyweb as tw
 tw.web_init(0)
 ```
@@ -138,13 +138,13 @@ starting
 done
 ```
 
-### Exercise: a traced factorial
+### Task: a traced factorial
 
 Read $n$ and print $n!$, computed by a recursive function that calls
 `debug("fact", k)` each time it is called with `k`. What `debug` writes
 is checked too.
 
-```pyking exercise name = "trace" points = 2
+```pyking task name = "trace" points = 2
 def fact(k: Int) -> Int:
     1
 print(fact(3))
@@ -202,7 +202,7 @@ Where does `debug` write?
 - It always writes.
 ```
 
-Which of these move the dot of the exercise above to the right?
+Which of these move the dot of the task above to the right?
 
 ```quiz name = "coords" points = 2 attempts = 2
 [] Drawing it with a bigger `x`.
@@ -226,7 +226,7 @@ Which of these move the dot of the exercise above to the right?
 Write a program that draws a chessboard of 8 × 8 squares in any
 language, commit it and push it to your course repository.
 
-```pyking exercise name = "chess" points = 4 method = git
+```pyking task name = "chess" points = 4 method = git
 ```
 
 ```pyking solution

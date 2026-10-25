@@ -8,7 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Notebooks: `max_calls = (N,name)` on a task, several as `(2,rect)
+  (1,circle)`: an answer may write `name` at most N times, outside
+  comments and strings, or Submit refuses it before running it. Test
+  mode checks the solution against it, and nbverify grades it too
+  (`max_calls` param; `nbverify.py run` adds the program's source to its
+  trailer).
+- Notebooks: ```` ```pyking practice ````, a task that gives no points,
+  titled "Practice".
+
 ### Changed
+
+- Notebooks: ```` ```pyking exercise ```` is now ```` ```pyking task ````
+  (or `practice`), and the old word is refused; the page, test mode,
+  the JSON (`"type": "task"`, `"practice"`), nbverify (`kind = "task"`,
+  `task-N`, `practice-N`) and the docs say "task". Whether a task is
+  titled "Practice" no longer depends on its points.
 
 - tinyweb: drawing a picture that is still loading waits for it. The
   page holds that `image` and everything after it until the picture has

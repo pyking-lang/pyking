@@ -5,7 +5,7 @@ title: Circles in a loop
 # Circles in a loop
 
 ```rules max = 6 pass = 4
-Two drawing exercises. Each is compared with the teacher's drawing, so
+Two drawing tasks. Each is compared with the teacher's drawing, so
 draw the shapes in the order the text asks for.
 ```
 
@@ -31,7 +31,7 @@ of 400 × 100, in the colors red, orange, yellow, green and blue, from
 left to right. Then print `last at` and the x of the last one. A centre
 may be one pixel off.
 
-```pyking exercise name = "row" points = 4 penalty = 1 stdin = "20\n40"
+```pyking task name = "row" points = 4 penalty = 1 stdin = "20\n40"
 print("Add your code here")
 ```
 
@@ -85,7 +85,7 @@ on a canvas of 200 × 200: radii 10, 20, ... up to 10 × n, the biggest
 first. A ring is a circle filled with `color.none` and drawn with
 `stroke = color.navy, width = 2`.
 
-```pyking exercise name = "rings" points = 2
+```pyking task name = "rings" points = 2
 print("Add your code here")
 ```
 

@@ -1,7 +1,7 @@
 # FizzBuzz and friends
 
 ```rules max = 8 pass = 5
-Solve the two exercises in the page: FizzBuzz is worth 5 points and the
+Solve the two tasks in the page: FizzBuzz is worth 5 points and the
 countdown 3, and you pass with 5. Each failed Submit costs a point. The
 multiplication table is handed in with git and graded there.
 ```
@@ -22,7 +22,7 @@ Read a whole number `N` and print the numbers from 1 to `N`, one per
 line, except that a multiple of 3 is printed as `Fizz`, a multiple of 5
 as `Buzz`, and a multiple of both as `FizzBuzz`. You have three tries.
 
-```pyking exercise name = "fizzbuzz" attempts = 3 points = 5 penalty = 1 stdin = "15"
+```pyking task name = "fizzbuzz" attempts = 3 points = 5 penalty = 1 stdin = "15"
 import io
 print("Add your code here")
 ```
@@ -77,7 +77,7 @@ Read a whole number `N` and count down from it: print `N`, `N - 1`, ...
 down to `1`, one per line, then `Liftoff!`. For `0` it prints only
 `Liftoff!`. The solution is not shown, and you have two tries.
 
-```pyking exercise name = "countdown" attempts = 2 points = 3 penalty = 1 stdin = "3"
+```pyking task name = "countdown" attempts = 2 points = 3 penalty = 1 stdin = "3"
 import io
 print("Add your code here")
 ```
@@ -125,7 +125,7 @@ first line it prints the table of `N` from 1 to 5, as `N x K = P`:
     ...
     7 x 5 = 35
 
-```pyking exercise name = "table" readonly method = git stdin = "7"
+```pyking practice name = "table" readonly method = git stdin = "7"
 import io
 n = int(io.read_line())
 print("table of", n)

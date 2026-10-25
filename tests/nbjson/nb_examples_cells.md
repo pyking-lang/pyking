@@ -181,7 +181,7 @@ is.</div>
 Read a number $n$ and print the first $n$ squares, one per line, as the
 loop above does.
 
-```pyking exercise points = 1
+```pyking task points = 1
 print("Add your code here")
 ```
 

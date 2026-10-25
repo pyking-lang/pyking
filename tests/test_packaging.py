@@ -285,10 +285,10 @@ def check_stage(check, compiler):
                     check("the packaged notebook serves Ace", status == 200)
             finally:
                 test_notebook.stop(process)
-        notebook = work / "exercise.md"
-        notebook.write_text("```pyking exercise\nprint(1)\n```\n\n"
+        notebook = work / "task.md"
+        notebook.write_text("```pyking task\nprint(1)\n```\n\n"
                             "```pyking solution\nprint(2)\n```\n\n```stdout\n2\n```\n")
-        result = run([pyk, "notebook", "--mode", "test", "exercise.md"], work, env)
+        result = run([pyk, "notebook", "--mode", "test", "task.md"], work, env)
         check("`pyk notebook --mode test` checks a notebook from the package",
               result.returncode == 0 and "0 problems" in result.stdout,
               (result.stdout + result.stderr).strip())

@@ -367,10 +367,10 @@ let usage_full () =
      and take the first free port, or any free port if 8000..8019 are\n\
      all taken. They listen on 127.0.0.1, or on the\n\
      address $PYKING_WEB_HOST names (0.0.0.0 for every interface, as in a\n\
-     container). --mode student hides an exercise's solution and\n\
+     container). --mode student hides a task's solution and\n\
      tests until a student asks for them, --mode teacher shows every\n\
      block and what test mode finds under each, and --mode test serves\n\
-     nothing: it runs every cell, exercise and solution under node,\n\
+     nothing: it runs every cell, task and solution under node,\n\
      checks each against the stdout and stderr blocks after it, prints\n\
      file:line: message for what is wrong, and exits with 1 if anything\n\
      is. The notebook's page reloads when its file changes. A notebook's\n\

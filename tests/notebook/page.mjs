@@ -1,6 +1,6 @@
 // Drives a notebook page in a real, headless Chromium, over the DevTools
 // protocol with node's own WebSocket -- no package needed -- and checks
-// what its exercises and quizzes do: tests/test_notebook.py serves
+// what its tasks and quizzes do: tests/test_notebook.py serves
 // tests/notebook/features.md and runs this against it, once in student
 // mode and once in teacher mode.
 //
@@ -24,7 +24,7 @@ const HELPERS = `
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
   const hidden = (el) => !el || el.closest(".pkn-hidden") !== null;
   const nb = window.pykingNotebook;
-  const exercise = (n) => $("#exercise-" + n);
+  const task = (n) => $$(".pkn-taskbox")[n - 1];
   const quiz = (n) => $("#quiz-" + n);
   const settle = async (box) => {
     await new Promise((r) => setTimeout(r, 100));
@@ -34,9 +34,9 @@ const HELPERS = `
     return $("[data-r=feedback]", box).innerText;
   };
   const submit = async (n, source) => {
-    if (source !== undefined) nb.cells.filter((c) => c.spec.attrs.exercise)[n - 1].setSource(source);
-    $("[data-r=submit]", exercise(n)).click();
-    return settle(exercise(n));
+    if (source !== undefined) nb.cells.filter((c) => c.spec.attrs.task || c.spec.attrs.practice)[n - 1].setSource(source);
+    $("[data-r=submit]", task(n)).click();
+    return settle(task(n));
   };
   const answer = (n, chosen) => {
     const inputs = $$("input", quiz(n));
@@ -58,17 +58,17 @@ const COUNTER = JSON.stringify('import tinyweb as tw\nvar n = 0\ntw.web_init(0)\
 
 const STUDENT = [`(async () => { ${HELPERS}
   let r = nb.results();
-  check("seven open items, worth 12 with 9 to pass",
-    r.total === 7 && r.solved === 0 && r.max === 12 && r.pass === 9, JSON.stringify(r));
+  check("eight open items, worth 12 with 9 to pass",
+    r.total === 8 && r.solved === 0 && r.max === 12 && r.pass === 9, JSON.stringify(r));
   check("the rules show max and pass", /12\\s*points/.test($(".pkn-rules").innerText)
     && /Required passing score:\\s*9/.test($(".pkn-rules").innerText), $(".pkn-rules")?.innerText);
   check("a progress bar at the top and at the end", $$(".pkn-progress").length === 2);
   check("the solution is hidden, and can be asked for",
-    hidden($("[data-r=solution]", exercise(1))) && !hidden($("[data-r=show]", exercise(1))));
-  check("only the visible tests are shown", $$(".pkn-io", exercise(1)).length === 2,
-    $$(".pkn-io", exercise(1)).length);
+    hidden($("[data-r=solution]", task(1))) && !hidden($("[data-r=show]", task(1))));
+  check("only the visible tests are shown", $$(".pkn-io", task(1)).length === 2,
+    $$(".pkn-io", task(1)).length);
   check("a solution that is not available cannot be asked for",
-    hidden($("[data-r=show]", exercise(3))));
+    hidden($("[data-r=show]", task(3))));
   check("no answer key", $$(".pkn-answer-key").length === 0);
   check("an ordinary cell's visible stdout is shown, a hidden one not",
     $$(".pkn-io-stdout").some((b) => b.innerText.includes("my out"))
@@ -81,18 +81,18 @@ const STUDENT = [`(async () => { ${HELPERS}
   said = await submit(1, ${SOLUTION});
   check("the right answer solves it, with full points",
     said.includes("Solved") && said.includes("5 of 5"), said);
-  check("a solved exercise is marked", exercise(1).dataset.state === "solved"
-    && $(".pkn-badge-solved", exercise(1)) !== null);
-  $("[data-r=show]", exercise(1)).click();
-  check("asking shows the solution", !hidden($("[data-r=solution]", exercise(1))));
+  check("a solved task is marked", task(1).dataset.state === "solved"
+    && $(".pkn-badge-solved", task(1)) !== null);
+  $("[data-r=show]", task(1)).click();
+  check("asking shows the solution", !hidden($("[data-r=solution]", task(1))));
 
   said = await submit(2, 'print("Hello, world")');
-  check("an exercise with no solution is checked against its stdout", said.includes("Solved"), said);
+  check("a task with no solution is checked against its stdout", said.includes("Solved"), said);
 
   await submit(3);
   said = await submit(3);
-  check("out of attempts, an exercise is failed and closed",
-    exercise(3).dataset.state === "failed" && $("[data-r=submit]", exercise(3)).disabled
+  check("out of attempts, a task is failed and closed",
+    task(3).dataset.state === "failed" && $("[data-r=submit]", task(3)).disabled
     && said.includes("No attempts"), said);
 
   said = await submit(4, ${SILENT});
@@ -133,20 +133,20 @@ const STUDENT = [`(async () => { ${HELPERS}
 })()`, "reload", `(async () => { ${HELPERS}
   const r = nb.results();
   check("progress is kept over a reload", r.solved === 4 && r.points === 8, JSON.stringify(r));
-  check("so is the code of an exercise",
-    nb.cells.filter((c) => c.spec.attrs.exercise)[0].source().includes("read_line"));
-  check("and a failed exercise stays closed", $("[data-r=submit]", exercise(3)).disabled);
+  check("so is the code of a task",
+    nb.cells.filter((c) => c.spec.attrs.task)[0].source().includes("read_line"));
+  check("and a failed task stays closed", $("[data-r=submit]", task(3)).disabled);
   window.confirm = () => true;
   $(".pkn-start-over").click();
   const after = nb.results();
   check("start over forgets every answer", after.solved === 0 && after.points === 0
-    && nb.cells.filter((c) => c.spec.attrs.exercise)[0].source() === 'print("Add your code here")',
+    && nb.cells.filter((c) => c.spec.attrs.task)[0].source() === 'print("Add your code here")',
     JSON.stringify(after));
   return checks;
 })()`];
 
 // drawing.md, opened beside features.md: the picture its solution saves,
-// an exercise submitted with git, and -- for a student -- answers that
+// a task submitted with git, and -- for a student -- answers that
 // fail, the diff of the first test that did not match, and answers that
 // pass.
 const SQUARE = (color, grow = "") => JSON.stringify("import tinyweb as tw\nimport tinyweb.color as color\nimport io\n"
@@ -167,8 +167,8 @@ const DRAWING = `(async () => { ${HELPERS}
   check("the picture a solution saves is made, and shown where the text names it",
     await until(() => picture()?.complete && picture().naturalWidth === 100),
     [...document.querySelectorAll(".pkn-prose img")].map((img) => img.src).join(" "));
-  const git = exercise(3);
-  check("an exercise submitted with git says so, with nothing to submit",
+  const git = task(3);
+  check("a task submitted with git says so, with nothing to submit",
     !hidden($("[data-r=git]", git)) && /Please submit via your git account/.test($("[data-r=git]", git).innerText)
     && hidden($("[data-r=submit]", git)) && /submitted with git/.test($("[data-r=badges]", git).innerText),
     git.innerText);
@@ -183,10 +183,10 @@ const DRAWING = `(async () => { ${HELPERS}
   }
   check("a student does not see its solution, nor a button for it",
     hidden($("[data-r=solution]", git)) && hidden($("[data-r=show]", git)));
-  check("a split stdin block is shown once", $$(".pkn-io-stdin", exercise(2)).length === 1,
-    $$(".pkn-io-stdin", exercise(2)).length);
+  check("a split stdin block is shown once", $$(".pkn-io-stdin", task(2)).length === 1,
+    $$(".pkn-io-stdin", task(2)).length);
 
-  const diff = () => $("[data-r=diff]", exercise(1));
+  const diff = () => $("[data-r=diff]", task(1));
   check("no diff to see before a Submit", hidden(diff()));
   let fb = await submit(1, ${SQUARE("#0000ff", " + 1")});
   check("a drawing that is not the solution's fails", /Not quite/.test(fb)
@@ -222,7 +222,7 @@ const DRAWING = `(async () => { ${HELPERS}
 
   fb = await submit(2, ${DOUBLING("if a == 3 then 0 else b * 2")});
   check("an answer wrong on the second piece of input fails", /Not quite/.test(fb), fb);
-  $("[data-r=diff]", exercise(2)).click();
+  $("[data-r=diff]", task(2)).click();
   const second = await until(() => $(".pkn-diff")) && $(".pkn-diff");
   check("the diff is of that piece of input",
     $(".pkn-diff-case .pkn-io-text", second)?.innerText.trim() === "3\\n4",
@@ -238,11 +238,11 @@ const DRAWING = `(async () => { ${HELPERS}
 })()`;
 
 const TEACHER = [`(async () => { ${HELPERS}
-  check("the solution is shown, with no button", !hidden($("[data-r=solution]", exercise(1)))
-    && hidden($("[data-r=show]", exercise(1))));
-  check("even one that is not available", !hidden($("[data-r=solution]", exercise(3))));
-  check("every test is shown", $$(".pkn-io", exercise(1)).length === 4,
-    $$(".pkn-io", exercise(1)).length);
+  check("the solution is shown, with no button", !hidden($("[data-r=solution]", task(1)))
+    && hidden($("[data-r=show]", task(1))));
+  check("even one that is not available", !hidden($("[data-r=solution]", task(3))));
+  check("every test is shown", $$(".pkn-io", task(1)).length === 4,
+    $$(".pkn-io", task(1)).length);
   check("every quiz has its answer key", $$(".pkn-answer-key").length === 3);
   check("hidden output under a cell is shown too",
     $$(".pkn-io").some((b) => b.innerText.includes("echo me")));
@@ -255,8 +255,9 @@ const TEACHER = [`(async () => { ${HELPERS}
   const reports = $$(".pkn-check:not(.pkn-check-summary)");
   check("the checks ran", nb.checked !== undefined && nb.checked.length === 0,
     JSON.stringify(nb.checked));
-  check("a check under every exercise, quiz, cell and the rules",
-    reports.length === 7 + nb.cells.filter((c) => !c.spec.attrs.exercise && !c.spec.attrs.solution).length + 1,
+  check("a check under every task, quiz, cell and the rules",
+    reports.length === 8 + nb.cells.filter((c) => !c.spec.attrs.task && !c.spec.attrs.practice
+      && !c.spec.attrs.solution).length + 1,
     reports.length);
   check("each of them says no problems, in green",
     reports.every((r) => $(".pkn-check-good", r)?.innerText.includes("no problems")),

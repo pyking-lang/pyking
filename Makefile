@@ -98,7 +98,7 @@ help:
 	@echo "                  tinyweb's pages and servers, then the language"
 	@echo "                  server's (in Chromium where one is found), then"
 	@echo "                  the debug adapter's, then notebooks as JSON, then"
-	@echo "                  nbverify grading the notebooks' exercises."
+	@echo "                  nbverify grading the notebooks' tasks."
 	@echo "                  Every suite runs even"
 	@echo "                  if an earlier one failed"
 	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"

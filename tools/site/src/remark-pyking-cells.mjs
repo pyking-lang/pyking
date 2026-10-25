@@ -10,12 +10,12 @@
 // opening the playground with its code (share.js), and the two in a
 // `.pyking-try` box.
 //
-// A run of adjacent blocks that holds more than that -- an exercise and
+// A run of adjacent blocks that holds more than that -- a task and
 // its solution and tests, a quiz and its answer, the rules, a cell's
 // stdout, or input written on a cell's header -- is a piece of a
 // notebook instead: its Markdown goes into one `.pkn-fragment`
 // placeholder, which mountCells renders and makes work as the notebook
-// does (tools/notebook/README.md, "Exercises and quizzes").
+// does (tools/notebook/README.md, "Tasks and quizzes").
 //
 // Functions:
 //   remarkPykingCells() -- the plugin.

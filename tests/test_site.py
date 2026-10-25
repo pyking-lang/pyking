@@ -25,9 +25,9 @@ Nine parts:
             is a copy of it is one.
   plugin    tools/site/src/remark-pyking-cells.mjs, under node, on a
             small tree: cells, attributes, norun, stdin/args blocks, and
-            an exercise, which becomes a fragment of a notebook.
+            a task, which becomes a fragment of a notebook.
   notebook  every page in sitesrc/ has none of the problems the
-            notebook's exercises.js finds in exercises and quizzes.
+            notebook's tasks.js finds in tasks and quizzes.
   examples  every example in lib/'s documentation, `norun` ones too,
             run with its stdin and args, in a directory of its own and
             with tinyweb's log set, prints exactly its ```stdout block.
@@ -118,7 +118,7 @@ const tree = { type: "root", children: [
   code("pyking", "print(7)\n", "playground"),
   code("pyking", "print(8)", "norun playground"),
   { type: "paragraph", children: [{ type: "text", value: "after" }] },
-  code("pyking", "print(6)", "exercise points = 1"),
+  code("pyking", "print(6)", "task points = 1"),
   code("stdout", "6"),
 ] };
 plugin()(tree);
@@ -156,7 +156,7 @@ PLUGIN_EXPECTED = [
     'Try in playground</a></p>',
     "paragraph",
     '<div class="pkn-notebook pkn-embedded not-content"><div class="pkn-fragment" '
-    'data-markdown="```pyking exercise points = 1\nprint(6)\n```\n\n```stdout\n6\n```">'
+    'data-markdown="```pyking task points = 1\nprint(6)\n```\n\n```stdout\n6\n```">'
     '</div></div>',
 ]
 
@@ -261,7 +261,7 @@ console.log(JSON.stringify(found));
 
 def check_notebook():
     """Every page in sitesrc/ has none of the problems the notebook finds
-    in exercises and quizzes. () -> [(String, String?)]"""
+    in tasks and quizzes. () -> [(String, String?)]"""
     pages = sorted(SOURCES.rglob("*.md"))
     with tempfile.TemporaryDirectory(prefix="pyk-site-") as directory:
         script = Path(directory) / "driver.mjs"
@@ -271,7 +271,7 @@ def check_notebook():
     if ran.returncode != 0:
         return [("the notebook reads the pages", ran.stderr.strip())]
     found = json.loads(ran.stdout.strip().splitlines()[-1])
-    return [(f"{Path(page).relative_to(REPO)} has no exercise or quiz problems",
+    return [(f"{Path(page).relative_to(REPO)} has no task or quiz problems",
              "\n  ".join(problems) or None) for page, problems in found.items()]
 
 

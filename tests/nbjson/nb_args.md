@@ -22,7 +22,7 @@ Started as `prog red 'light blue'` with the input `--`, it prints
     separator: --
     2 arguments
 
-```pyking exercise name = "numbered" stdin = "--" args = "red 'light blue'"
+```pyking practice name = "numbered" stdin = "--" args = "red 'light blue'"
 import io
 import sys
 print("Add your code here")

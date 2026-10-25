@@ -57,7 +57,7 @@ tools/site/
   src/content.config.mjs    the pages come from build/content/
   src/content/i18n/en.json  Starlight's UI strings (it warns without them)
   src/remark-pyking-cells.mjs   ```pyking blocks -> cell placeholders, and
-                                exercises and quizzes -> fragments
+                                tasks and quizzes -> fragments
   src/components/Header.astro     the logo and the sections, the search
   src/components/HeaderNav.astro  the header's sections, a second row
                                   of the header below 60rem (site.css)
@@ -157,8 +157,8 @@ with the foot of the hero's box, and the picture behind the two. A notebook
 accepts the word and ignores it. Every runnable cell is run by `tests/test_site.py`, so an example
 that stops working fails `make test`.
 
-A page may hold the notebook's exercises and quizzes too
-(`tools/notebook/README.md`, "Exercises and quizzes"), in student mode,
+A page may hold the notebook's tasks and quizzes too
+(`tools/notebook/README.md`, "Tasks and quizzes"), in student mode,
 with progress kept per page. The remark plugin writes each run of
 adjacent blocks that holds one -- or the rules, a stdout block, or input
 on a cell's header -- back into one `.pkn-fragment` placeholder as

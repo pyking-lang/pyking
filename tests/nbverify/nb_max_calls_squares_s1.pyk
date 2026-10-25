@@ -1,0 +1,6 @@
+import tinyweb as tw
+import tinyweb.color as color
+c = tw.canvas(100, 40)
+loop k = 0 while k < 3:
+    tw.rect(c, 10 + 30 * k, 10, 20, 20, color.blue)
+    k + 1

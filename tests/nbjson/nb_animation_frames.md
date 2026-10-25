@@ -19,7 +19,7 @@ white ball of radius 8 at y = 50 that moves 50 pixels a second to the
 right from x = 20: at time t its x is 20 + 50 t, turned into an `Int`.
 The x may be one pixel off, so rounding is fine too.
 
-```pyking exercise name = "ball" points = 2
+```pyking task name = "ball" points = 2
 print("Add your code here")
 ```
 
@@ -60,7 +60,7 @@ their number counting from 1, `at` and their time, and draw an orange
 bar from (0, 0), 20 high and ten pixels wide for each frame so far.
 Later frames do nothing at all.
 
-```pyking exercise name = "three" points = 3
+```pyking task name = "three" points = 3
 print("Add your code here")
 ```
 

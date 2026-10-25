@@ -5,7 +5,7 @@ title: Waves, written loosely
 # Waves, written loosely
 
 ```rules max=17 pass = 9
-Two exercises and one quiz. 17 points; 9 to pass.
+Two tasks and one quiz. 17 points; 9 to pass.
 ```
 
 `math.sin` takes an angle in radians.
@@ -48,7 +48,7 @@ Read $n$ and print, for $k$ from 0 to $n - 1$, the number $k$ and
 $\sin(k / 2)$ rounded to two decimals. A last digit off by one is
 fine.
 
-```pyking exercise name="sine" points = 10 stdin="3" method=inline
+```pyking task name="sine" points = 10 stdin="3" method=inline
 print("Add your code here")
 ```
 ```pyking solution available=true
@@ -83,7 +83,7 @@ for k in range(n):
 
 Read a number and print it doubled.
 
-```pyking points = 2 exercise name='double' attempts=3
+```pyking points = 2 task name='double' attempts=3
 print("Add your code here")
 ```
 

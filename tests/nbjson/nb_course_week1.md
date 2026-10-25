@@ -5,10 +5,10 @@ title: "Week 1: input, output and arguments"
 # Week 1: input, output and arguments
 
 ```rules max = 12 pass = 8
-This week has three exercises and three quizzes, worth 12 points in
+This week has three tasks and three quizzes, worth 12 points in
 all. You pass the week with **8 points** or more.
 
-- An exercise is checked against its tests when you press Submit.
+- A task is checked against its tests when you press Submit.
 - Running a cell with the play button is free; only Submit counts.
 ```
 
@@ -74,13 +74,13 @@ print(total, 100 * 101 / 2)
 5050 5050
 ```
 
-## Exercise 1: sum and largest
+## Task 1: sum and largest
 
 The first line of the input is a count $n \geq 1$, and the $n$ lines
 after it hold one integer each. Print their sum and then the largest of
 them, on one line.
 
-```pyking exercise name = "sum_max" points = 3 attempts = 5
+```pyking task name = "sum_max" points = 3 attempts = 5
 import io
 print("Add your code here")
 ```
@@ -137,13 +137,13 @@ import sys
 print(sys.args(), len(sys.args()))
 ```
 
-## Exercise 2: greetings
+## Task 2: greetings
 
 Print `Hello, NAME!` for each argument, in order, and then a line
 saying how many there were: `2 names`. Here there is no solution to
 compare with, only the expected output.
 
-```pyking exercise name = "greet" points = 2 args = "Ada"
+```pyking task name = "greet" points = 2 args = "Ada"
 print("Add your code here")
 ```
 
@@ -171,12 +171,12 @@ Hello, Edsger!
 3 names
 ```
 
-## Exercise 3: squares
+## Task 3: squares
 
 Read one integer and print its square. Each line of the test below is a
 test of its own.
 
-```pyking exercise name = "square" points = 2
+```pyking task name = "square" points = 2
 print("Add your code here")
 ```
 

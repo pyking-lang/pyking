@@ -12,12 +12,12 @@
 // other block a `<pre class="pkn-code">`, and the notebook turns them into
 // editors. The cell's source travels in `cells`, not in the HTML.
 //
-// The blocks a notebook uses for exercises and quizzes -- ```rules,
-// ```pyking exercise and solution, ```stdin, ```stdout, ```stderr,
+// The blocks a notebook uses for tasks and quizzes -- ```rules,
+// ```pyking task, practice and solution, ```stdin, ```stdout, ```stderr,
 // ```events, ```quiz and ```answer -- are recorded in `parts`, in document order,
 // each with the line its fence starts on and the group of adjacent
 // blocks it belongs to, and left as a `<div class="pkn-part">`
-// placeholder. exercises.js reads what they mean.
+// placeholder. tasks.js reads what they mean.
 //
 // Data structures:
 //   Context -- what the block parse collects for the inline pass: link
@@ -32,13 +32,13 @@
 //   slugify(text) -- GitHub's heading anchor for a heading's text.
 //   escapeHTML(text) -- text made safe to put in HTML.
 
-import { structure } from "./exercises.js";
+import { structure } from "./tasks.js";
 
 /** The languages whose fenced blocks are Pyking cells. */
 export const CELL_LANGUAGES = ["pyking", "pyk"];
 
 /** The attributes a Pyking fence may carry after its language. */
-export const CELL_ATTRIBUTES = ["norun", "readonly", "error", "exercise", "solution"];
+export const CELL_ATTRIBUTES = ["norun", "readonly", "error", "task", "practice", "solution"];
 
 /** The languages of the blocks that fill in the input of the cell right
  *  after them: what it reads on standard input, and its arguments. Such
@@ -47,7 +47,7 @@ export const INPUT_LANGUAGES = ["stdin", "args"];
 
 /** The languages of the other blocks a notebook reads rather than shows
  *  as code: what a program should print, the tinyweb events it is sent,
- *  the quizzes, the rules, and the differences an exercise allows. */
+ *  the quizzes, the rules, and the differences a task allows. */
 export const PART_LANGUAGES = ["stdout", "stderr", "events", "quiz", "answer", "rules", "diff-allowed"];
 
 const CALLOUTS = {
@@ -59,7 +59,7 @@ const CALLOUTS = {
 
 /** Renders a document. Answers the HTML, the Pyking cells in document
  *  order, the notebook blocks (`parts`) and what they make
- *  (`notebook`, from exercises.js), the headings for a contents list,
+ *  (`notebook`, from tasks.js), the headings for a contents list,
  *  the title (front matter's, else the first level-1 heading's),
  *  whether any math was written, and the front matter itself.
  *  String -> {baseURL?, documentLink?, allowHTML?} ->
@@ -543,8 +543,10 @@ function parseTable(lines, start) {
 
 /** A fence's info string: the language, and every attribute after it --
  *  a word, which is `true`, or `name = value`, whose value is a word or
- *  a quoted string with `\n`, `\t`, `\"` and `\\` escapes. `pyking
- *  norun` and `{.pyking .norun}` read the same. A name is lowercased.
+ *  a quoted string with `\n`, `\t`, `\"` and `\\` escapes, or one or
+ *  more `(...)` groups, kept as written with one space between them.
+ *  `pyking norun` and `{.pyking .norun}` read the same. A name is
+ *  lowercased.
  *  String -> {language, attrs, raw} */
 export function parseInfo(info) {
   const raw = info.trim();
@@ -571,6 +573,13 @@ export function parseInfo(info) {
       words.push({ text, quoted: true });
       continue;
     }
+    if (inner[i] === "(") {
+      const close = inner.indexOf(")", i);
+      const end = close < 0 ? inner.length : close + 1;
+      words.push({ text: inner.slice(i, end), quoted: false, group: true });
+      i = end;
+      continue;
+    }
     let text = "";
     while (i < inner.length && !separator.test(inner[i]) && inner[i] !== "=") text += inner[i++];
     words.push({ text: text.replace(/^\./, ""), quoted: false });
@@ -582,8 +591,10 @@ export function parseInfo(info) {
     const name = words[k].text.toLowerCase();
     if (!name) continue;
     if (words[k + 1]?.equals && words[k + 2] && !words[k + 2].equals) {
-      attrs[name] = words[k + 2].text;
+      let value = words[k + 2].text;
       k += 2;
+      while (words[k].group && words[k + 1]?.group) value += " " + words[++k].text;
+      attrs[name] = value;
     } else {
       attrs[name] = true;
     }
@@ -663,7 +674,7 @@ function renderBlock(block, ctx, tight) {
 }
 
 /** A code block: a cell placeholder for runnable Pyking, a notebook
- *  placeholder for the blocks exercises.js reads, else a `<pre>` the
+ *  placeholder for the blocks tasks.js reads, else a `<pre>` the
  *  notebook highlights. Block -> Context -> String */
 function renderCode(block, ctx) {
   const { language, attrs } = block.info;
@@ -688,7 +699,9 @@ function renderCode(block, ctx) {
     if (language === "rules") part.html = renderFragment(block.text, ctx.opts);
     return `<div class="pkn-part"${marker}></div>\n`;
   }
-  part.kind = attrs.exercise ? "exercise" : attrs.solution ? "solution" : "pyking";
+  // An `exercise` is read as a task, which tasks.js refuses by name.
+  part.kind = attrs.task || attrs.practice || attrs.exercise ? "task"
+    : attrs.solution ? "solution" : "pyking";
   if (attrs.norun) {
     return `<pre class="pkn-code" data-lang="pyking"${marker}><code>`
       + `${escapeHTML(block.text)}</code></pre>\n`;
@@ -715,7 +728,7 @@ export function inputLines(text) {
 /** A quiz's question and alternatives: the question is the text before
  *  the first alternative, and each alternative starts a line with `*`
  *  (one may be chosen) or `[]` (any may be), and runs to the next. The
- *  two markers mixed is a problem exercises.js reports.
+ *  two markers mixed is a problem tasks.js reports.
  *  String -> Context -> {question, alternatives, multiple, mixed} */
 function quizAlternatives(text, ctx) {
   const items = [];

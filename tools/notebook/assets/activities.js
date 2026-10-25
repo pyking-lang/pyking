@@ -1,12 +1,12 @@
-// The notebook's exercises, quizzes and rules on the page: what
-// exercises.js read out of the document, made into something a student
-// answers and a teacher reviews. A student sees an exercise's visible
+// The notebook's tasks, quizzes and rules on the page: what
+// tasks.js read out of the document, made into something a student
+// answers and a teacher reviews. A student sees a task's visible
 // tests, submits an answer and may ask for the solution; a teacher sees
 // every block. Progress is kept in the browser, per document. See
-// tools/notebook/README.md, "Exercises and quizzes".
+// tools/notebook/README.md, "Tasks and quizzes".
 //
 // Data structures:
-//   Activities -- the exercises and quizzes of one document (or one
+//   Activities -- the tasks and quizzes of one document (or one
 //     fragment of a page), their state, and the page around them.
 //   State -- per item: {key, state, points, failures, used, code?,
 //     chosen?, shown?, feedback?}; `state` is "open", "solved" or "failed".
@@ -18,7 +18,7 @@
 
 import { escapeHTML } from "./markdown.js";
 import { allowedLine, checkQuiz, award, graded, normalizeOutput, quizAward, rightAnswers, sameOutput,
-  summary } from "./exercises.js";
+  summary, overCalls } from "./tasks.js";
 
 /** How long one run of a submitted answer may take, in milliseconds. */
 const SUBMIT_TIMEOUT = 10000;
@@ -115,7 +115,7 @@ export class Activities {
     return { items, ...summary(this.notebook, this.states) };
   }
 
-  /** Forgets every answer and puts every exercise's code back. */
+  /** Forgets every answer and puts every task's code back. */
   startOver() {
     for (const item of this.notebook.items) {
       this.states[item.id] = { key: item.key, state: "open", points: 0, failures: 0, used: 0 };
@@ -159,13 +159,13 @@ export class Activities {
       }
     }
     for (const item of this.notebook.items) {
-      const widget = item.kind === "exercise"
-        ? new ExerciseWidget(this, item, at, used) : new QuizWidget(this, item, at, used);
+      const widget = item.kind === "task"
+        ? new TaskWidget(this, item, at, used) : new QuizWidget(this, item, at, used);
       this.widgets[item.id] = widget;
     }
     if (this.checks) this.buildReports(at);
     // Whatever is left is an input block that filled in a cell, or one
-    // exercises.js complained about: neither is shown.
+    // tasks.js complained about: neither is shown.
     for (const part of parts) {
       if (part.cell === null && !used.has(part.index) && part.kind !== "pyking") at(part)?.remove();
     }
@@ -195,8 +195,8 @@ export class Activities {
   // -- teacher checks ------------------------------------------------------
 
   /** A report under every element test mode checks -- the rules, each
-   *  exercise, each quiz, each cell the document runs -- and one where a
-   *  block exercises.js complained about stands on its own.
+   *  task, each quiz, each cell the document runs -- and one where a
+   *  block tasks.js complained about stands on its own.
    *  (Part -> Element?) -> () */
   buildReports(at) {
     const { doc } = this;
@@ -309,9 +309,9 @@ export class Activities {
   }
 }
 
-// ---------------------------------------------------------------- exercise
+// -------------------------------------------------------------------- task
 
-class ExerciseWidget {
+class TaskWidget {
   constructor(activities, item, at, used) {
     this.a = activities;
     this.item = item;
@@ -319,11 +319,11 @@ class ExerciseWidget {
     this.solutionCell = item.solution ? activities.cell(item.solution.cell) : null;
     const state = activities.states[item.id];
 
-    const box = element("section", "pkn-exercise");
+    const box = element("section", "pkn-taskbox");
     box.id = item.id;
     box.innerHTML = `
       <div class="pkn-activity-head">
-        <span class="pkn-activity-title">${exerciseTitle(item)} ${item.number}</span>
+        <span class="pkn-activity-title">${taskTitle(item)} ${item.number}</span>
         <span class="pkn-badges" data-r="badges"></span>
       </div>
       <div data-r="body"></div>
@@ -411,6 +411,9 @@ class ExerciseWidget {
         : `${formatNumber(item.points)} point${item.points === 1 ? "" : "s"}`));
       if (item.penalty && !this.git) badges.push(badge(`−${formatNumber(item.penalty)} per failed try`));
     }
+    for (const { max, name } of item.maxCalls) {
+      badges.push(badge(`${name} at most ${max} time${max === 1 ? "" : "s"}`));
+    }
     if (this.git) {
       badges.push(badge("submitted with git"));
     } else {
@@ -454,7 +457,9 @@ class ExerciseWidget {
     try {
       const tests = item.tests.length ? item.tests
         : [{ stdin: null, args: null, output: null, error: null, input: null }];
-      for (const test of tests) {
+      const over = overCalls(this.cell.source(), item.maxCalls);
+      if (over) failed = { problem: limitProblem(over), limit: true };
+      for (const test of failed ? [] : tests) {
         const stdin = test.stdin ?? item.stdin;
         const args = test.args ?? item.args;
         const answer = await this.run(this.cell.source(), stdin, args, "answer", test.events);
@@ -489,7 +494,8 @@ class ExerciseWidget {
       s.used += 1;
       const out = item.attempts !== null && s.used >= item.attempts;
       if (out) s.state = "failed";
-      const detail = item.attempts === 1 ? "" : failureHTML(failed);
+      const detail = failed.limit ? `<div>${escapeHTML(failed.problem)}</div>`
+        : item.attempts === 1 ? "" : failureHTML(failed);
       const left = item.attempts === null ? "" : out ? " No attempts are left."
         : ` ${item.attempts - s.used} attempt${item.attempts - s.used === 1 ? "" : "s"} left.`;
       s.feedback = { kind: "bad",
@@ -531,7 +537,7 @@ class ExerciseWidget {
       <div class="pkn-diff-legend"><span class="pkn-diff-del">only in your submission</span>
         <span class="pkn-diff-add">only in the possible solution</span>
         ${this.item.allowed.length
-          ? `<span class="pkn-diff-allowed">a difference the exercise allows</span>` : ""}</div>`);
+          ? `<span class="pkn-diff-allowed">a difference the task allows</span>` : ""}</div>`);
     if (drawn) {
       sections.push(`<h4 class="pkn-diff-title">tinyweb: what each drew on its page</h4>
         <div class="pkn-diff-pair">
@@ -554,7 +560,7 @@ class ExerciseWidget {
     }
     backdrop.innerHTML = `<div class="pkn-modal pkn-diff" role="dialog" aria-modal="true"
         aria-label="Result diff">
-      <div class="pkn-modal-head"><strong>${exerciseTitle(this.item)} ${this.item.number}: the first test that did not match</strong>
+      <div class="pkn-modal-head"><strong>${taskTitle(this.item)} ${this.item.number}: the first test that did not match</strong>
         <button class="pkn-icon pkn-modal-close" data-r="close" title="Close (Esc)"
           aria-label="Close">✕</button></div>
       <div class="pkn-modal-body">${sections.join("")}</div>
@@ -687,10 +693,17 @@ function compare(answer, expected, test, hasSolution, rules = []) {
 }
 
 /** One failed test, as the student is shown it. {..} -> String */
-/** What an exercise is called: "Practice" where it gives no points.
+/** Why an answer that writes a function's name too often is refused,
+ *  as nbverify words it too. {name, count, max} -> String */
+function limitProblem({ name, count, max }) {
+  return `Your program uses ${name} ${count} time${count === 1 ? "" : "s"}, `
+    + `and may use it at most ${max} time${max === 1 ? "" : "s"}.`;
+}
+
+/** What a task is called: "Practice" for a ```pyking practice.
  *  Item -> String */
-function exerciseTitle(item) {
-  return item.points ? "Exercise" : "Practice";
+function taskTitle(item) {
+  return item.practice ? "Practice" : "Task";
 }
 
 function failureHTML(failed) {

@@ -103,13 +103,13 @@ Which of these does the checker refuse?
 - `string(3)` is a `String`.
 ```
 
-## Exercise
+## Task
 
 Write a program that reads a temperature in whole degrees Celsius and
 prints it in Fahrenheit as a `Float`: $F = C \cdot 9 / 5 + 32$.
 Convert with `float` before computing.
 
-```pyking exercise name = "fahrenheit" points = 3 attempts = 3 stdin = "100"
+```pyking task name = "fahrenheit" points = 3 attempts = 3 stdin = "100"
 print("Add your code here")
 ```
 

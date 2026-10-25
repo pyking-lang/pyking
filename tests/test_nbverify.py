@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""The nbverify suite: tools/nbverify/nbverify.py grading the exercises
+"""The nbverify suite: tools/nbverify/nbverify.py grading the tasks
 and quizzes of the notebooks in tests/nbjson/ the way the ID2202
 autograder would run it.
 
-For every exercise and quiz of every notebook there, `paramdata` writes
+For every task and quiz of every notebook there, `paramdata` writes
 a test file per test, and each student solution for it in
 tests/nbverify/ -- `<book>_<name>_s<N>.pyk`, `<name>` being `default`
 for a notebook's only, unnamed item -- is run by each test's command,
@@ -104,13 +104,13 @@ def book_items(compiler, only=None):
         if not checks.check(ran.returncode == 0, f"{book.name}: --to-json", ran.stderr.strip()):
             continue
         notebook = json.loads(ran.stdout)
-        counts, items = {"exercise": 0, "quiz": 0}, []
+        counts, items = {"task": 0, "practice": 0, "quiz": 0}, []
         for block in notebook["blocks"]:
             if block["type"] in counts:
                 counts[block["type"]] += 1
                 name = (block.get("attributes") or {}).get("name")
                 items.append(name or f"{block['type']}-{counts[block['type']]}")
-        if len(items) == 1 and items[0] in ("exercise-1", "quiz-1"):
+        if len(items) == 1 and items[0] in ("task-1", "practice-1", "quiz-1"):
             items = ["default"]
         for name in items:
             with tempfile.TemporaryDirectory(prefix="pyk-nbverify-") as directory:
@@ -366,15 +366,15 @@ def check_command_line(compiler):
     status, out, _ = nbverify([], json.dumps(encoded))
     checks.check(status == 1 and json.loads(out)["accepted"] is False, "a base64 stream is decoded", out)
     for data, said in [("{not json", "the input is not JSON"),
-                       (json.dumps(dict(accepted, params={"kind": "essay"})), "params.kind is exercise or quiz")]:
+                       (json.dumps(dict(accepted, params={"kind": "essay"})), "params.kind is task or quiz")]:
         status, out, _ = nbverify([], data)
         checks.check(status == 2 and said in json.loads(out)["reason"], f"refuses input: {said}", out)
     with tempfile.TemporaryDirectory(prefix="pyk-nbverify-") as directory:
         two = Path(directory) / "two.md"
-        two.write_text("```pyking exercise name = \"a\"\nprint(1)\n```\n\n```stdout\n1\n```\n\n"
+        two.write_text("```pyking task name = \"a\"\nprint(1)\n```\n\n```stdout\n1\n```\n\n"
                        "Text.\n\n```quiz\n* x\n\n* y\n```\n\n```answer\n-> r\n- w\n```\n")
         one = Path(directory) / "one.md"
-        one.write_text("```pyking exercise\nprint(1)\n```\n\n```stdin\n1\n```\n\n```stdout\n1\n```\n\n"
+        one.write_text("```pyking task\nprint(1)\n```\n\n```stdin\n1\n```\n\n```stdout\n1\n```\n\n"
                        "```stdin\n2\n```\n\n```stdout\n1\n```\n")
         status, out, _ = nbverify(["paramdata", str(two), "--name", "quiz-1"], env=env)
         checks.check(status == 0 and "verifier_params.kind = \"quiz\"" in out,
@@ -383,8 +383,8 @@ def check_command_line(compiler):
         checks.check(status == 0 and "test 2 of 2" in out and 'stdin = "2\\n"' in out,
                      "--case N prints that test", out[:300])
         refusals = [
-            (["paramdata", str(two)], "has 2 exercises and quizzes (a, quiz-1): give --name"),
-            (["paramdata", str(two), "--name", "b"], "no exercise or quiz named 'b'"),
+            (["paramdata", str(two)], "has 2 tasks and quizzes (a, quiz-1): give --name"),
+            (["paramdata", str(two), "--name", "b"], "no task or quiz named 'b'"),
             (["paramdata", str(one)], "has 2 tests: give --case N"),
             (["paramdata", str(one), "--case", "3"], "has 2 tests"),
             (["paramdata", str(one), "--case", "1", "--output-dir", directory], "give one"),
@@ -467,7 +467,7 @@ def main(argv):
     for failure in failures:
         print(f"nbverify: FAILED {failure}")
     tests = sum(len(t) for t in items.values())
-    print(f"nbverify: {len(items)} exercises and quizzes, {tests} tests, {count} solutions.")
+    print(f"nbverify: {len(items)} tasks and quizzes, {tests} tests, {count} solutions.")
     suite.footer("nbverify", passed, len(failures), f"{count} solutions")
     return 1 if failures else 0
 

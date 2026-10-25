@@ -20,8 +20,8 @@
 //   import { mountCells } from "./notebook/notebook.js";
 //   mountCells(document.querySelectorAll(".pkn-cell"), { theme: "dark" });
 //
-// A document's exercises, quizzes and rules are activities.js's, made
-// from what exercises.js reads out of it; `mode` says whether a student
+// A document's tasks, quizzes and rules are activities.js's, made
+// from what tasks.js reads out of it; `mode` says whether a student
 // or a teacher is reading, and `results()` what has been solved.
 //
 // Data structures:
@@ -39,7 +39,7 @@
 import { renderMarkdown, escapeHTML } from "./markdown.js";
 import { Activities } from "./activities.js";
 import { checkNotebook } from "./checks.js";
-import { pictures } from "./exercises.js";
+import { pictures } from "./tasks.js";
 
 const HERE = new URL(".", import.meta.url);
 
@@ -152,7 +152,7 @@ function watch(url, source) {
  *  run queue. A placeholder is a `.pkn-cell` element inside a
  *  `.pkn-notebook` one, holding the code as a `<pre>`, with what
  *  `cellSpec` reads in its data attributes -- or a `.pkn-fragment`
- *  holding a piece of a notebook in `data-markdown`, whose exercises
+ *  holding a piece of a notebook in `data-markdown`, whose tasks
  *  and quizzes work as they do in one. Resolves to the mounted Cells.
  *  [Element] -> {...} -> Promise<Cells> */
 export async function mountCells(placeholders, options = {}) {
@@ -229,11 +229,11 @@ class Cells {
     this.executions = 0;       // the [n] counter, as in Jupyter
     this.themeChoice = cfg.theme ?? loadTheme();
     this.media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
-    this.activities = [];      // the exercises and quizzes, per document
+    this.activities = [];      // the tasks and quizzes, per document
     this.fragments = [];       // mountCells' fragments, cells or none
   }
 
-  /** Every exercise's and quiz's state, and the totals.
+  /** Every task's and quiz's state, and the totals.
    *  () -> {items, solved, total, points, max, pass, passed, done} */
   results() {
     const all = this.activities.map((a) => a.results());
@@ -474,13 +474,13 @@ class Cells {
   /** What a solution's save_canvas saves: its solution run on its own
    *  input, the canvas named drawn on white at its own size, as a PNG.
    *  Resolves to the PNG, or to why there is none.
-   *  {exercise, canvas, file} -> Doc -> Promise<{blob?, problem?}> */
-  async picture({ exercise, canvas }, doc) {
-    const spec = doc.cells[exercise.solution.cell];
+   *  {task, canvas, file} -> Doc -> Promise<{blob?, problem?}> */
+  async picture({ task, canvas }, doc) {
+    const spec = doc.cells[task.solution.cell];
     const result = await this.capture(spec.source, {
-      name: `${exercise.id}-solution.pyk`,
-      stdin: spec.stdin ?? exercise.stdin,
-      args: this.web.splitArguments(spec.args ?? exercise.args),
+      name: `${task.id}-solution.pyk`,
+      stdin: spec.stdin ?? task.stdin,
+      args: this.web.splitArguments(spec.args ?? task.args),
       tinyweb: true,
     });
     if (!result.ok) return { problem: `the solution did not run: ${(result.text ?? "").trim()}` };
@@ -687,7 +687,7 @@ class Notebook extends Cells {
       this.cells.push(new Cell(this, spec, placeholder));
     }
     // Cells in document order, so the [n] of a cell and Shift+Enter's
-    // next cell follow the page even when an exercise moves one.
+    // next cell follow the page even when a task moves one.
     this.cells.sort((a, b) => a.spec.index - b.spec.index);
     this.activities.push(new Activities(this, doc, host, {
       mode: cfg.mode,

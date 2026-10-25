@@ -1,0 +1,6 @@
+import tinyweb as tw
+import tinyweb.color as color
+c = tw.canvas(100, 40)
+tw.rect(c, 10, 10, 20, 20, color.blue)
+tw.rect(c, 40, 10, 20, 20, color.blue)
+tw.rect(c, 70, 10, 20, 20, color.blue)

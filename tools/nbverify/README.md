@@ -1,6 +1,6 @@
 # nbverify
 
-`nbverify.py` grades a Pyking notebook's exercises and quizzes for the
+`nbverify.py` grades a Pyking notebook's tasks and quizzes for the
 [ID2202 autograder](https://johnwikman.github.io/id2202-autograder/index.html).
 The autograder runs a student's program, then hands what it did to a
 *verifier* -- a Python 3 script reading JSON on standard input
@@ -55,7 +55,7 @@ With no argument it does not print the help: it waits for the JSON.
 ```
 $ python3 nbverify.py paramschema
 [test.options.verifier_param_schema]
-kind = {type = "string", default = "exercise"}
+kind = {type = "string", default = "task"}
 name = {type = "string", default = ""}
 compare_stdout = {type = "bool", default = false}
 expected_stdout = {type = "string", default = ""}
@@ -72,13 +72,14 @@ reads back into the list.
 
 | Param | Type | Means |
 |---|---|---|
-| `kind` | string | `exercise` or `quiz` |
+| `kind` | string | `task` or `quiz`; a practice is graded as a task |
 | `name` | string | the item's name |
 | `compare_stdout`, `expected_stdout` | bool, string | standard output is compared with this |
 | `compare_stderr`, `expected_stderr` | bool, string | what `debug` writes is compared with this |
 | `compare_tinyweb`, `expected_tinyweb` | bool, string | tinyweb's log is compared with this |
 | `compare_code`, `expected_code` | bool, int | the exit status is compared with this |
-| `diff_allowed` | list, as JSON in a string | the lines of the exercise's diff-allowed blocks |
+| `diff_allowed` | list, as JSON in a string | the lines of the task's diff-allowed blocks |
+| `max_calls` | list, as JSON in a string | the task's `max_calls`, as `[N, name]` pairs: the answer's source may write each name at most N times |
 | `details` | bool | the reason also shows the test and both outputs, as the page does unless `attempts = 1` |
 | `test_stdin`, `test_args`, `test_events` | string, list as JSON in a string, string | the test's input, for `details` |
 | `quiz_alternatives` | int | how many alternatives the quiz has |
@@ -92,11 +93,11 @@ reads back into the list.
 $ pyk notebook week1.md --to-json
 $ python3 nbverify.py paramdata week1.json --name square --output-dir tests/square
 $ cat tests/square/square_t01.test.toml
-# nbverify paramdata: week1 exercise 'square', test 1 of 2
+# nbverify paramdata: week1 task 'square', test 1 of 2
 [test.options]
 args = ["run", "solution.pyk"]
 stdin = "4\n"
-verifier_params.kind = "exercise"
+verifier_params.kind = "task"
 verifier_params.name = "square"
 verifier_params.compare_stdout = true
 verifier_params.expected_stdout = "16\n"
@@ -105,17 +106,18 @@ verifier_params.expected_stdout = "16\n"
 
 - `BOOK` is the notebook's JSON, or its Markdown, which is turned into
   JSON with `pyk notebook --to-json`.
-- `--name` picks the item: its `name = ` attribute, or `exercise-N` /
-  `quiz-N` (counting exercises and quizzes apart, as the page does). A
+- `--name` picks the item: its `name = ` attribute, or `task-N`,
+  `practice-N` or `quiz-N` (counting tasks, practices and quizzes
+  apart, as the page does). A
   notebook with one item needs none, and an unnamed one is `default`.
   Several items and no `--name` is refused, with their names.
-- An exercise gives one test file per test: per stdin block, or per
+- A task gives one test file per test: per stdin block, or per
   piece of one split by `lines_per_multi_input`, or one on the
-  exercise's own input where it has no tests. A quiz gives one.
+  task's own input where it has no tests. A quiz gives one.
   `--output-dir DIR` writes them all as `NAME_tNN.test.toml`, `--case N`
   prints the N-th, and with neither a single test is printed (several
   are refused).
-- Where the exercise has a solution, it is run with pyk on each test's
+- Where the task has a solution, it is run with pyk on each test's
   input, events and arguments, and what it prints, writes with `debug`,
   draws and ends with is what the answer must do; a solution that does
   not run is refused. Without one, the stdout and stderr blocks are what
@@ -124,7 +126,7 @@ verifier_params.expected_stdout = "16\n"
   autograder runs it (`solution.pyk` by default). `--pyk` names pyk;
   else `$PYK`, else `pyk` on the `PATH`.
 
-Every exercise is graded this way, `method = git` ones included: those
+Every task is graded this way, `method = git` ones included: those
 are the ones the page leaves to "elsewhere".
 
 ### `run`
@@ -137,14 +139,15 @@ After what the program wrote to standard error it writes a line
 `--- nbverify run ---` and one line of JSON:
 
 ```
-{"status": "ok", "stderr": "...", "error": "", "tinyweb": "canvas \"canvas\" 40 40\n..."}
+{"status": "ok", "stderr": "...", "error": "", "tinyweb": "canvas \"canvas\" 40 40\n...", "source": "..."}
 ```
 
 `status` is `failed` where pyk refused or stopped the program (a type
 error, a runtime error) rather than the program ending itself, and
-`error` is then pyk's report. The verifier reads the last such trailer;
-without one, the whole of standard error is what `debug` wrote and
-there is no tinyweb log.
+`error` is then pyk's report. `source` is `FILE`'s text, which
+`max_calls` is checked against. The verifier reads the last such
+trailer; without one, the whole of standard error is what `debug` wrote,
+there is no tinyweb log, and a test with `max_calls` is refused.
 
 ### `try`
 
@@ -196,7 +199,7 @@ verifier_path = "./nbverify.py"
 
 [test.options.verifier_param_schema]
 # paste `nbverify.py paramschema` here
-kind = {type = "string", default = "exercise"}
+kind = {type = "string", default = "task"}
 ...
 ```
 
@@ -210,18 +213,19 @@ runs is `bin` and the test's `args`, so the program is found as
 $ echo '{"cmd": ["nbverify.py", "run", "solution.pyk"], "code": 0,
          "stdout": {"enc": "utf8", "data": "15\n"},
          "stderr": {"enc": "utf8", "data": ""}, "files": {},
-         "params": {"kind": "exercise", "compare_stdout": true, "expected_stdout": "16\n"}}' \
+         "params": {"kind": "task", "compare_stdout": true, "expected_stdout": "16\n"}}' \
   | python3 nbverify.py
 {"accepted": false, "reason": "The output is not what it should be."}
 $ echo $?
 1
 ```
 
-An exercise's answer is compared as the notebook's Submit compares it,
+A task's answer is compared as the notebook's Submit compares it,
 and refused with the reason the page would give:
 
 | Reason | When |
 |---|---|
+| `Your program uses NAME N times, and may use it at most M times.` | the source writes a name more often than `max_calls` allows, outside comments and strings; checked before the rest |
 | `Your program did not run:` and pyk's report | pyk refused it or it stopped with a runtime error |
 | `The output is not what it should be.` | standard output differs |
 | `What it drew with tinyweb is not what it should be.` | tinyweb's log differs |

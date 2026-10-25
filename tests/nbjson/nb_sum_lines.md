@@ -19,7 +19,7 @@ Write a program that reads two whole numbers, one per line, and prints
 
 it prints `3 + 4 = 7`. Each pair of lines below is a test of its own.
 
-```pyking exercise name = "sum" stdin = "3\n4"
+```pyking practice name = "sum" stdin = "3\n4"
 import io
 print("Add your code here")
 ```
@@ -56,7 +56,7 @@ print(a, "+", b, "=", a + b)
 Write a program that reads one whole number `N` and prints `N squared is
 SQUARE`. A negative number squares to a positive one.
 
-```pyking exercise name = "square" stdin = "9"
+```pyking practice name = "square" stdin = "9"
 import io
 print("Add your code here")
 ```

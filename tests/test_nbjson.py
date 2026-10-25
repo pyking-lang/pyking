@@ -223,18 +223,18 @@ EDGES = {
     "no final newline": "Text.\n\n```pyking\nprint(1)\n```",
     "unclosed": "Text.\n\n```pyking\nprint(1)\n",
     "unclosed, no newline": "```stdout\n1",
-    "crlf": "Text.\r\n\r\n```pyking exercise points = 1\r\nprint(1)\r\n```\r\n\r\n```stdout\r\n1\r\n```\r\n",
-    "tight headers": "```pyking exercise name=\"x\" points=10 stdin=\"3\" method=inline\nprint(1)\n```\n",
-    "attributes out of order": "```pyking points = 2 exercise\nprint(1)\n```\n```stdout\n1\n```\n",
+    "crlf": "Text.\r\n\r\n```pyking task points = 1\r\nprint(1)\r\n```\r\n\r\n```stdout\r\n1\r\n```\r\n",
+    "tight headers": "```pyking task name=\"x\" points=10 stdin=\"3\" method=inline\nprint(1)\n```\n",
+    "attributes out of order": "```pyking points = 2 task\nprint(1)\n```\n```stdout\n1\n```\n",
     "braces": "```{.pyking .norun}\ndef f(): ...\n```\n",
     "pyk and capitals": "```pyk ReadOnly\nprint(1)\n```\n",
     "tilde fence": "~~~pyking\nprint(1)\n~~~\n",
     "long fence": "````pyking\nprint(\"```\")\n````\n",
     "long close": "```pyking\nprint(1)\n`````\n",
     "a fence in the body": "````stdout\n```\n````\n",
-    "no blank line between": "```pyking exercise\nprint(1)\n```\n```stdout\n1\n```\n",
-    "two blank lines between": "```pyking exercise\nprint(1)\n```\n\n\n```stdout\n1\n```\n",
-    "spaces in the gap": "```pyking exercise\nprint(1)\n```\n  \n```stdout\n1\n```\n",
+    "no blank line between": "```pyking task\nprint(1)\n```\n```stdout\n1\n```\n",
+    "two blank lines between": "```pyking task\nprint(1)\n```\n\n\n```stdout\n1\n```\n",
+    "spaces in the gap": "```pyking task\nprint(1)\n```\n  \n```stdout\n1\n```\n",
     "front matter": "---\ntitle: T\nnote: ```pyking\n---\n\n```pyking\nprint(1)\n```\n",
     "html": "<div>\n```pyking\nprint(1)\n```\n</div>\n\n```pyking\nprint(2)\n```\n",
     "comment": "<!--\n```pyking\nprint(1)\n```\n-->\n",
@@ -244,11 +244,11 @@ EDGES = {
     "a quiz written loosely": "```quiz\nWhich?\n*   One\n  more\n*Two\n* Three\n```\n```answer\n->  Right\n  still\n-\n```\n",
     "an answer with stray text": "```quiz\n* A\n```\n```answer\nhello\n-> A\n```\n",
     "stray blocks": "```answer\n- x\n```\n\n```stdout\n1\n```\n\n```pyking solution\nprint(1)\n```\n",
-    "out of order": "```pyking exercise\nprint(1)\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nx [+/-1]\n```\n"
+    "out of order": "```pyking task\nprint(1)\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nx [+/-1]\n```\n"
                     "```stdin\n1\n```\n```stderr\nd\n```\n```stdout\n1\n```\n```events\nclick \"a\"\n```\n",
     "cell examples": "```pyking\nprint(1)\n```\n```stdin\nx\n```\n```events\nclick \"b\"\n```\n```stdout\n1\n```\n",
     "input before a cell": "```stdin\nAda\n```\n```args\na b\n```\n```pyking\nprint(1)\n```\n",
-    "odd values": "```pyking exercise points = 1.50 attempts = abc penalty = -1 stdin = 'it''s' args = \"a\\\"b\"\n```\n",
+    "odd values": "```pyking task points = 1.50 attempts = abc penalty = -1 stdin = 'it''s' args = \"a\\\"b\"\n```\n",
 }
 
 
@@ -273,18 +273,18 @@ def check_edges(compiler, schema):
         # An attribute changed in the JSON is written, even where the
         # header was not written the canonical way.
         md = Path(directory) / "edit.md"
-        md.write_text("```pyking exercise points=10 name=\"x\"\nprint(1)\n```\n```stdout\n1\n```\n")
+        md.write_text("```pyking task points=10 name=\"x\"\nprint(1)\n```\n```stdout\n1\n```\n")
         _, out, _ = run(compiler, ["notebook", str(md), "--to-json", "-o", "-"])
         value = json.loads(out)
-        exercise = value["blocks"][0]
-        checks.check(exercise["type"] == "exercise" and exercise["attributes"] == {"points": 10, "name": "x"}
-                     and "info" in exercise, "an exercise's attributes, typed", json.dumps(exercise))
-        exercise["attributes"]["points"] = 5
-        exercise["tests"][0]["stdout"]["text"] = "2\n"
+        task = value["blocks"][0]
+        checks.check(task["type"] == "task" and task["attributes"] == {"points": 10, "name": "x"}
+                     and "info" in task, "a task's attributes, typed", json.dumps(task))
+        task["attributes"]["points"] = 5
+        task["tests"][0]["stdout"]["text"] = "2\n"
         js = Path(directory) / "edit.json"
         js.write_text(json.dumps(value))
         _, back, _ = run(compiler, ["notebook", str(js), "--to-markdown", "-o", "-"])
-        checks.check(back == "```pyking exercise points = 5 name = \"x\"\nprint(1)\n```\n```stdout\n2\n```\n",
+        checks.check(back == "```pyking task points = 5 name = \"x\"\nprint(1)\n```\n```stdout\n2\n```\n",
                      "an edited attribute is written in the canonical way", repr(back))
         quiz = {"format": "pyking-notebook", "version": 1, "blocks": [
             {"type": "markdown", "text": "Pick:\n\n"},
@@ -308,7 +308,7 @@ def check_command_line(compiler):
     checks = Checks()
     with tempfile.TemporaryDirectory(prefix="pyk-nbjson-") as directory:
         book = Path(directory) / "book.md"
-        book.write_text("# Book\n\n```pyking exercise name = \"e\"\nprint(1)\n```\n\n```stdout\n1\n```\n")
+        book.write_text("# Book\n\n```pyking task name = \"e\"\nprint(1)\n```\n\n```stdout\n1\n```\n")
         status, _, err = run(compiler, ["notebook", str(book), "--to-json"], cwd=directory)
         checks.check(status == 0 and (Path(directory) / "book.json").exists(),
                      "--to-json writes book.json beside book.md", err)

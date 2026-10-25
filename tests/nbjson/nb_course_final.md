@@ -5,7 +5,7 @@ title: Final exam
 # Final exam
 
 ```rules max = 23 pass = 15
-The exam has six exercises and four quizzes, worth 23 points. You pass
+The exam has six tasks and four quizzes, worth 23 points. You pass
 with **15 points** or more.
 
 Every item has a limited number of attempts, and each failed Submit
@@ -13,7 +13,7 @@ costs points. Read each task carefully before you submit.
 ```
 
 You may use the standard library: `io`, `sys` and `text` below, and
-`tinyweb` for the last exercise.
+`tinyweb` for the last task.
 
 ```pyking readonly
 import text
@@ -26,7 +26,7 @@ print(text.length("exam"), text.char_at("exam", 0), text.words("a b  c"))
 
 Read one line and print it reversed.
 
-```pyking exercise name = "reverse" attempts = 3 points = 3 penalty = 1
+```pyking task name = "reverse" attempts = 3 points = 3 penalty = 1
 import io
 line = io.read_line()
 print(line)
@@ -65,7 +65,7 @@ a multiple of 3 is printed as `Fizz`, a multiple of 5 as `Buzz` and a
 multiple of both as `FizzBuzz`. Pyking has no remainder operator:
 `a - a / b * b` is the remainder of `a` by `b`.
 
-```pyking exercise name = "fizz" attempts = 4 points = 3 penalty = 1
+```pyking task name = "fizz" attempts = 4 points = 3 penalty = 1
 print("Add your code here")
 ```
 
@@ -98,7 +98,7 @@ Print how many arguments the program was given, and then the longest of
 them (the first one if several are as long). There is always at least
 one.
 
-```pyking exercise name = "longest" attempts = 2 points = 2 penalty = 1 args = "a bbb cc"
+```pyking task name = "longest" attempts = 2 points = 2 penalty = 1 args = "a bbb cc"
 import sys
 print(sys.args())
 ```
@@ -131,7 +131,7 @@ same
 Read an integer. If it is negative, print `negative` and end the program
 with exit status 2 (`sys.exit(2)`); otherwise print `ok` and the number.
 
-```pyking exercise name = "status" attempts = 3 points = 3 penalty = 2
+```pyking task name = "status" attempts = 3 points = 3 penalty = 2
 print("Add your code here")
 ```
 
@@ -170,7 +170,7 @@ negative
 Read a line of integers separated by spaces and print their sum. After
 adding each number, `debug` the total so far.
 
-```pyking exercise name = "running" attempts = 3 points = 2 penalty = 1
+```pyking task name = "running" attempts = 3 points = 2 penalty = 1
 print("Add your code here")
 ```
 
@@ -214,7 +214,7 @@ Read $n$ and draw a staircase of $n$ green steps on a 200 × 200 canvas:
 step $k$ (from 0) is a rectangle at $(20k, 20k)$, 20 pixels high and
 $200 - 20k$ wide. Print nothing.
 
-```pyking exercise name = "stairs" attempts = 3 points = 3 penalty = 1
+```pyking task name = "stairs" attempts = 3 points = 3 penalty = 1
 import tinyweb as tw
 tw.web_init(0)
 ```

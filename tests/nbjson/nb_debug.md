@@ -28,7 +28,7 @@ writes, with `debug`, one line `read X total so far Y` per number, so
 whoever runs it can follow along. Both what it prints and what it
 writes with `debug` are checked.
 
-```pyking exercise name = "trace" stdin = "1\n2\n3"
+```pyking practice name = "trace" stdin = "1\n2\n3"
 import io
 print("Add your code here")
 ```
@@ -84,7 +84,7 @@ total: 0
 Write a program that prints `result: 7` and then writes the warning
 `warning: this result is made up` with `debug`.
 
-```pyking exercise name = "warn"
+```pyking practice name = "warn"
 print("Add your code here")
 ```
 

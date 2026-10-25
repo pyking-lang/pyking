@@ -52,10 +52,10 @@ print("not Pyking")
 
     an indented code block
 
-## Exercises and quizzes
+## Tasks and quizzes
 
 ``` rules max = 12 pass = 9
-Solve all exercises and quizzes. An **exercise** is checked against its
+Solve all tasks and quizzes. An **task** is checked against its
 tests when it is submitted.
 ```
 
@@ -129,7 +129,7 @@ to stderr
 Write a program that reads a line and prints it twice, then its
 arguments.
 
-```pyking exercise name = "twice" attempts = 3 stdin = "123" args = "go for it" points = 5
+```pyking task name = "twice" attempts = 3 stdin = "123" args = "go for it" points = 5
 print("Add your code here")
 ```
 
@@ -160,10 +160,10 @@ args: ['other', '77']
 args: ['go', 'for', 'it']
 ```
 
-An exercise with no solution, checked against its stdout only, and
-worth no points:
+A practice, worth no points, with no solution, checked against its
+stdout only:
 
-```pyking exercise
+```pyking practice
 print("Hello")
 ```
 
@@ -171,10 +171,10 @@ print("Hello")
 Hello, world
 ```
 
-An exercise whose solution cannot be shown, losing a point for each
+A task whose solution cannot be shown, losing a point for each
 failed try:
 
-```pyking exercise attempts = 2 points = 1 penalty = 1
+```pyking task attempts = 2 points = 1 penalty = 1
 print(0)
 ```
 
@@ -185,7 +185,7 @@ print(6 * 7)
 A page whose button counts its clicks, clicked twice once the program's
 top level has ended:
 
-```pyking exercise name = "counter"
+```pyking practice name = "counter"
 import tinyweb as tw
 tw.web_init(0)
 ```
@@ -210,6 +210,20 @@ click "More"
 ```stdout visible = true
 1
 2
+```
+
+A practice whose answer may name `print` at most twice, outside
+comments and strings:
+
+```pyking practice name = "twice_print" max_calls = (2,print)
+# print what the solution prints, with at most two "print"
+print(1)
+```
+
+```pyking solution
+xs = [1, 2, 3]
+for x in xs:
+    print(x)
 ```
 
 Which is true of Pyking?

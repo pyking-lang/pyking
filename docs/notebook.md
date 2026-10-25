@@ -2,13 +2,13 @@
 
 A Pyking notebook is a Markdown file whose fenced ```` ```pyking ````
 blocks are cells a reader edits and runs in the browser. Other fenced
-blocks make it an assignment: exercises with solutions and tests,
+blocks make it an assignment: tasks with solutions and tests,
 quizzes with answers, and the rules that say how many points pass. This
 page lists everything a notebook can hold, with an example of each, and
 the JSON form of a notebook (`--to-json`, `--to-markdown`,
 `--json-schema`). `tools/notebook/README.md` covers the page itself:
 embedding it, its layout and its keys. `tools/nbverify/README.md`
-covers grading a notebook's exercises with the ID2202 autograder.
+covers grading a notebook's tasks with the ID2202 autograder.
 
 ## Running a notebook
 
@@ -146,25 +146,28 @@ runs again or **■** is pressed.
 
 ````markdown
 ```rules max = 10 pass = 8
-Solve all the exercises and quizzes. Each failed Submit costs a point.
+Solve all the tasks and quizzes. Each failed Submit costs a point.
 ```
 ````
 
 At most one per notebook, shown at the top with `max` and `pass`.
-`max` must be the sum of the `points` of every exercise and quiz, an
-exercise with `method = git` included. A student passes with `pass`
-points or more. An exercise with no points (none given, or `points = 0`)
-is titled "Practice" rather than "Exercise".
+`max` must be the sum of the `points` of every task and quiz, a
+task with `method = git` included. A student passes with `pass`
+points or more.
 
-### Exercises
+### Tasks and practices
 
-The prose before a ```` ```pyking exercise ```` block states the task;
-the block holds the code the student starts from, which must run.
+The prose before a ```` ```pyking task ```` block states the task;
+the block holds the code the student starts from, which must run. A
+```` ```pyking practice ```` block is a task that gives no points:
+everything below holds for it, but it takes no `points` or `penalty`,
+and it is titled "Practice" rather than "Task". ```` ```pyking
+exercise ````, the old name for both, is refused.
 
 ````markdown
 Print the square of the number on standard input.
 
-```pyking exercise name = "square" points = 2 attempts = 3 penalty = 1
+```pyking task name = "square" points = 2 attempts = 3 penalty = 1
 print("Add your code here")
 ```
 
@@ -187,21 +190,27 @@ print(n * n)
 ```
 ````
 
-| Exercise header | Means | Default |
+| Task header | Means | Default |
 |---|---|---|
-| `name = "…"` | the exercise's name: letters, digits, `_` and `-`, starting with a letter or a digit, unique among the notebook's exercises and quizzes | none |
-| `attempts = N` | how many times Submit may fail before the exercise is failed | no limit |
+| `name = "…"` | the task's name: letters, digits, `_` and `-`, starting with a letter or a digit, unique among the notebook's tasks and quizzes | none |
+| `attempts = N` | how many times Submit may fail before the task is failed | no limit |
 | `points = N` | what solving it gives | none: solved or not |
 | `penalty = N` | taken off the points for each failed Submit, never below 0 | 0 |
 | `stdin = "…"`, `args = "…"` | the input the code box starts with, and what a test without its own input uses | empty |
 | `readonly` | the starting code cannot be edited | editable |
 | `method = inline` or `git` | answered in the page's code box, or elsewhere and pushed with git | `inline` |
+| `max_calls = (N,name)` | the answer may write `name` at most N times; several limits as `(2,rect) (1,circle)` | no limit |
 
 `method = code_box`, the old name for `inline`, is refused.
 
-After the exercise, with only blank lines between, come in order: an
+`max_calls` counts every place the answer writes the name outside its
+comments and strings, as a whole name: `rect(...)`, `tw.rect(...)`,
+`int::rect(...)` and `def rect` all count, `rect_w` and `rectangle` do
+not. Test mode checks that the solution keeps to it.
+
+After the task, with only blank lines between, come in order: an
 optional solution, then the tests and diff-allowed blocks. The next
-exercise, quiz, cell or any prose ends the group.
+task, quiz, cell or any prose ends the group.
 
 **The solution**, ```` ```pyking solution ````:
 
@@ -209,17 +218,17 @@ exercise, quiz, cell or any prose ends the group.
 |---|---|---|
 | `available = true` | a student may ask to see it | `false` |
 | `readonly` | cannot be edited where shown | editable |
-| `stdin = "…"`, `args = "…"` | its input when it runs on its own | the exercise's |
+| `stdin = "…"`, `args = "…"` | its input when it runs on its own | the task's |
 | `save_canvas = "c"`, `file = "x.png"` | the tinyweb canvas `c` it draws is saved as `x.png` beside the notebook and shown wherever the prose names that image | none |
 
 **A test** is a ```` ```stdin ```` block, an ```` ```events ```` block,
 a ```` ```stdout ```` block or a ```` ```stderr ```` block, or several of
-them, the input first. One with no stdin block runs on the exercise's
+them, the input first. One with no stdin block runs on the task's
 own input.
 
 | Test block | Headers |
 |---|---|
-| ```` ```stdin ```` | `args = "…"` the test's arguments (empty, not the exercise's, where not given); `visible = true`; `lines_per_multi_input = N` makes a test of every N lines, each compared with the solution, so it needs a solution and no stdout or stderr after it |
+| ```` ```stdin ```` | `args = "…"` the test's arguments (empty, not the task's, where not given); `visible = true`; `lines_per_multi_input = N` makes a test of every N lines, each compared with the solution, so it needs a solution and no stdout or stderr after it |
 | ```` ```events ```` | `visible = true`. One tinyweb event a line, delivered once the program's top level has ended |
 | ```` ```stdout ```` | `visible = true`. What the program prints |
 | ```` ```stderr ```` | `visible = true`. What `debug` writes; it is compared only where the test has one |
@@ -228,7 +237,7 @@ An events block uses the lines of an events file (docs/libraries.md,
 "Testing a page"):
 
 ````markdown
-```pyking exercise name = "counter"
+```pyking task name = "counter"
 import tinyweb as tw
 tw.web_init(0)
 ```
@@ -291,9 +300,11 @@ end with the same status, and, where the test has a stderr block, write
 the same with `debug`. Without one, the answer must print what the
 stdout block says and write what the stderr block says. Output matches
 when it is the same apart from spaces at the end of a line and blank
-lines at the end. A failed Submit uses an attempt, says why in one of
-these words:
+lines at the end. An answer that writes a name more often than
+`max_calls` allows is refused before it is run. A failed Submit uses an
+attempt, says why in one of these words:
 
+- Your program uses *name* *N* times, and may use it at most *M* times.
 - Your program did not run: *the error*
 - The output is not what it should be.
 - What it drew with tinyweb is not what it should be.
@@ -305,7 +316,7 @@ the answer printed. **See result diff** shows the first test that
 differed side by side, pictures included. Running a cell with **▶** is
 free.
 
-**An exercise with `method = git`** shows "Please submit via your git
+**A task with `method = git`** shows "Please submit via your git
 account" instead of a code box. Its tests and solution are still the
 notebook's, and `nbverify` grades the answer from them.
 
@@ -339,8 +350,8 @@ Which are true?
 
 | Quiz header | Means | Default |
 |---|---|---|
-| `name = "…"` | as for an exercise | none |
-| `attempts`, `points`, `penalty` | as for an exercise | no limit, none, 0 |
+| `name = "…"` | as for a task | none |
+| `attempts`, `points`, `penalty` | as for a task | no limit, none, 0 |
 | `available = true` | once the attempts are used up, the right answers are marked and every explanation shown | `false`: only "failed" |
 | `one_point_correct = true` | a `[]` quiz gives a point for each right alternative checked, none when more are checked than there are right ones; its `points` is the number of `->` entries, and it has one attempt unless `attempts` says otherwise | `false` |
 
@@ -364,20 +375,23 @@ in the browser's local storage, per document.
 line:
 
 - the blocks are where this page puts them, with valid headers: a
-  solution after its exercise, an answer after its quiz with an entry
+  solution after its task, an answer after its quiz with an entry
   per alternative, one `->` in a `*` quiz, numbers and booleans where
   they belong, names valid and unique, `method` inline or git, an events
-  block under a cell or an exercise;
+  block under a cell or a task, no ```` ```pyking exercise ````, no
+  `points` or `penalty` on a practice, `max_calls` one or more
+  `(N,name)`;
 - one rules block at most, whose `max` is the sum of the points and is
   not less than `pass`;
-- every cell runs, every `error` cell is refused, and every exercise's
+- every cell runs, every `error` cell is refused, and every task's
   starting code runs;
 - each solution and each cell prints, on each test's input and events,
-  what any stdout or stderr block after it says;
-- an exercise without a solution has an output to compare an answer
+  what any stdout or stderr block after it says, and each solution
+  keeps to its task's `max_calls`;
+- a task without a solution has an output to compare an answer
   with; `save_canvas` has a `file`, a `.png`; `lines_per_multi_input`
   splits into whole pieces, with a solution and no output after it; a
-  diff-allowed block is under an exercise with a solution, and each line
+  diff-allowed block is under a task with a solution, and each line
   holds a `[+/-N]`.
 
 ## JSON
@@ -408,7 +422,8 @@ line and no newline. `blocks` is the document in order, each one of:
 | `markdown` | `text`: the Markdown between notebook blocks, exactly as written |
 | `rules` | `attributes` (`max`, `pass`), `text` |
 | `cell` | a ```` ```pyking ```` cell: `attributes`, `code`, and `tests` written under it |
-| `exercise` | `attributes`, `code` (the starting code), `solution` (`attributes`, `code`), `tests`, `diff_allowed` (each `text`) |
+| `task` | `attributes`, `code` (the starting code), `solution` (`attributes`, `code`), `tests`, `diff_allowed` (each `text`) |
+| `practice` | as `task`, for a ```` ```pyking practice ```` |
 | `quiz` | `attributes`, `question`, `alternatives` (each `marker`, `*` or `[]`, and `text`), `answer` (`entries`, each `correct` and `text`) |
 | `block` | any other notebook block where it stands, belonging to nothing: `language`, `attributes`, `text` (or `code` for pyking) |
 
@@ -422,8 +437,9 @@ header's attributes in the order written, typed: `max`, `pass`,
 `attempts`, `points`, `penalty` and `lines_per_multi_input` are numbers,
 `available`, `visible` and `one_point_correct` booleans, a bare word
 (`readonly`, `norun`, `error`, `playground`) is `true`, and every other
-value a string. The word `exercise` or `solution` that says what a
-pyking block is is not among them.
+value a string, `max_calls` as written (`"(2,rect) (1,circle)"`). The
+word `task`, `practice` or `solution` that says what a pyking block is
+is not among them.
 
 This notebook:
 
@@ -436,7 +452,7 @@ Solve both.
 
 Print the square of the number on standard input.
 
-```pyking exercise name = "square" points = 2 attempts = 3
+```pyking task name = "square" points = 2 attempts = 3
 print("Add your code here")
 ```
 
@@ -479,7 +495,7 @@ is this JSON:
     { "type": "rules", "attributes": { "max": 3, "pass": 2 }, "text": "Solve both.\n" },
     { "type": "markdown", "text": "\nPrint the square of the number on standard input.\n\n" },
     {
-      "type": "exercise",
+      "type": "task",
       "attributes": { "name": "square", "points": 2, "attempts": 3 },
       "code": "print(\"Add your code here\")\n",
       "solution": { "code": "import io\nn = int(io.read_line())\nprint(n * n)\n" },
@@ -511,9 +527,9 @@ is this JSON:
 
 A block is written back in one canonical layout: ```` ``` ```` (or a
 longer fence where its text holds one), the language, the word
-`exercise` or `solution` where there is one, then `key = value` for each
-attribute, strings in double quotes with `\"`, `\\`, `\n` and `\t`
-escaped; the text; the closing fence; and one empty line between blocks
+`task`, `practice` or `solution` where there is one, then `key =
+value` for each attribute, strings in double quotes with `\"`, `\\`,
+`\n` and `\t` escaped and `(...)` groups bare; the text; the closing fence; and one empty line between blocks
 that follow one another. Where the source wrote a block another way,
 the JSON keeps how, beside the fields:
 
@@ -524,7 +540,7 @@ the JSON keeps how, beside the fields:
 | `close` | the closing line is not the opening fence; `null` where the block runs to the end of the file |
 | `gap` | the blank lines before a block that follows another are not one empty line |
 | `body` | a quiz's or an answer's text is not the one its fields write |
-| `order` | an exercise's or a cell's blocks are not in the order solution, each test's stdin, events, stdout and stderr, then the diff-allowed blocks: a list such as `["solution", "diff_allowed[0]", "tests[0].stdin"]` |
+| `order` | a task's or a cell's blocks are not in the order solution, each test's stdin, events, stdout and stderr, then the diff-allowed blocks: a list such as `["solution", "diff_allowed[0]", "tests[0].stdin"]` |
 
 `info` and `body` are used only while they still say what the fields
 do: change an attribute or an alternative in the JSON, and that block is
@@ -542,7 +558,7 @@ The blocks are found and grouped as the page finds and groups them:
   matter. Anything else, a block in a list item included, stays in a
   `markdown` block's text;
 - blocks with only blank lines between them are a group, and inside a
-  group an exercise takes the solution, tests and diff-allowed blocks
+  group a task or a practice takes the solution, tests and diff-allowed blocks
   after it, a quiz the answer right after it, and a cell the stdin,
   events, stdout and stderr blocks after it;
 - a block that belongs to none of them is a `block` where it stands.
@@ -551,13 +567,14 @@ The blocks are found and grouped as the page finds and groups them:
 
 ## Grading with nbverify
 
-`tools/nbverify/nbverify.py` grades the exercises and quizzes of a
+`tools/nbverify/nbverify.py` grades the tasks and quizzes of a
 notebook for the ID2202 autograder, which runs a student's program and
 hands its output to a verifier. `nbverify.py paramdata book.json --name
 square` makes each test's options from the notebook: the input, and
 what the solution prints on it, which it runs with pyk to find out. The
-verifier then needs nothing but those options, and gives the reasons
-listed under "Exercises" above. A quiz is answered by a program printing
+verifier then needs nothing but those options and the answer's source,
+which `nbverify.py run` hands it for `max_calls`, and gives the reasons
+listed under "Tasks and practices" above. A quiz is answered by a program printing
 the alternatives chosen, numbered from 1: `print([1, 3])`. See
 `tools/nbverify/README.md`.
 

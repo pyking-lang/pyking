@@ -21,7 +21,7 @@ print(sound.note("A4"), sound.note("A5"))
 of `bpm`, one beat lasts $60 / bpm$ seconds, so the note number $k$
 (counting from 0) of a melody of one-beat notes starts at $k \cdot 60 / bpm$.
 
-## Exercise: play a melody
+## Task: play a melody
 
 The first line of the input is the tempo, a `Float`, and the second the
 melody: note names separated by spaces. Write a program that
@@ -35,7 +35,7 @@ melody: note names separated by spaces. Write a program that
 The times and the length may be off by a hundredth of a second, so they
 may be rounded.
 
-```pyking exercise name = "melody" points = 3 attempts = 4
+```pyking task name = "melody" points = 3 attempts = 4
 print("Add your code here")
 ```
 

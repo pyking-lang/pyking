@@ -379,7 +379,7 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
   background: color-mix(in srgb, var(--pkn-warn) 12%, transparent);
 }
 
-/* --- exercises, quizzes and rules --- */
+/* --- tasks, quizzes and rules --- */
 .pkn-notebook { --pkn-good-soft: #eef8f0; --pkn-activity: #f4f6fb; }
 .pkn-notebook[data-theme="dark"] { --pkn-good-soft: rgba(143, 206, 106, .09); --pkn-activity: #1b1f27; }
 
@@ -411,16 +411,16 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
 .pkn-progress .pkn-start-over { margin-left: auto; }
 .pkn-prose > .pkn-progress:last-child { margin-top: 2.5rem; }
 
-.pkn-exercise, .pkn-quiz {
+.pkn-taskbox, .pkn-quiz {
   margin: 0 0 1.6rem; padding: .8rem 1rem 1rem;
   border: 1px solid var(--pkn-edge); border-left: 4px solid var(--pkn-accent);
   border-radius: .6rem; background: var(--pkn-activity);
 }
 .pkn-quiz { border-left-color: var(--pkn-important); }
-.pkn-exercise[data-state="solved"], .pkn-quiz[data-state="solved"] {
+.pkn-taskbox[data-state="solved"], .pkn-quiz[data-state="solved"] {
   border-left-color: var(--pkn-good); background: var(--pkn-good-soft);
 }
-.pkn-exercise[data-state="failed"], .pkn-quiz[data-state="failed"] { border-left-color: var(--pkn-bad); }
+.pkn-taskbox[data-state="failed"], .pkn-quiz[data-state="failed"] { border-left-color: var(--pkn-bad); }
 .pkn-activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; margin-bottom: .6rem; }
 .pkn-activity-title { font-weight: 700; font-size: .98rem; }
 .pkn-badges { display: flex; flex-wrap: wrap; gap: .35rem; }
@@ -432,7 +432,7 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
 .pkn-badge-attempts { color: var(--pkn-warn); border-color: color-mix(in srgb, var(--pkn-warn) 40%, transparent); }
 .pkn-badge-solved { color: #fff; background: var(--pkn-good); border-color: var(--pkn-good); }
 .pkn-badge-failed { color: #fff; background: var(--pkn-bad); border-color: var(--pkn-bad); }
-.pkn-exercise .pkn-cell, .pkn-solution .pkn-cell { margin: 0 0 .6rem 0; }
+.pkn-taskbox .pkn-cell, .pkn-solution .pkn-cell { margin: 0 0 .6rem 0; }
 .pkn-tests { display: grid; gap: .4rem; margin: .2rem 0 .6rem; }
 .pkn-tests-label {
   font: 700 .68rem/1.4 var(--pkn-sans); letter-spacing: .06em; text-transform: uppercase;
@@ -542,7 +542,7 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
   .pkn-anchor { display: none; }
 }
 
-/* --- an exercise submitted with git, and the pictures solutions save --- */
+/* --- a task submitted with git, and the pictures solutions save --- */
 .pkn-git {
   margin: 0 0 .6rem; padding: .6rem .8rem; border-radius: 6px;
   background: var(--pkn-accent-soft); border-left: 3px solid var(--pkn-accent);

@@ -4,22 +4,23 @@
 // caller hands in how a program is run. See tools/notebook/README.md,
 // "Test mode".
 //
-// What is checked: the problems exercises.js finds in the blocks; that
+// What is checked: the problems tasks.js finds in the blocks; that
 // every cell runs, and every `error` cell is refused; that each
-// exercise's starting code runs; that each solution runs on every input
+// task's starting code runs; that each solution runs on every input
 // it is tested with and prints what any stdout or stderr block after it
-// says; and the same of an ordinary cell's stdout and stderr blocks.
+// says, and keeps to its task's max_calls; and the same of an ordinary
+// cell's stdout and stderr blocks.
 //
 // Data structures:
 //   Run -- (source, name, stdin, args, events) -> Promise<{ok, text?,
 //     stdout, stderr}>: runs one program, `args` as the text a header
 //     writes, `events` the tinyweb events delivered after its top level.
-//   Problem -- {line, message}, as exercises.js reports one.
+//   Problem -- {line, message}, as tasks.js reports one.
 //
 // Functions:
 //   checkNotebook(doc, run) -- every problem in a rendered document.
 
-import { sameOutput } from "./exercises.js";
+import { sameOutput, overCalls } from "./tasks.js";
 
 /** Every problem in a document renderMarkdown answered: the blocks' own,
  *  then what running its programs finds, sorted by line.
@@ -38,7 +39,7 @@ export async function checkNotebook(doc, run) {
   // Every cell runs, or is refused where it says it should be.
   const roles = new Map();
   for (const item of notebook.items) {
-    if (item.kind !== "exercise") continue;
+    if (item.kind !== "task") continue;
     if (item.cell !== null) roles.set(item.cell, item);
     if (item.solution) roles.set(item.solution.cell, item);
   }
@@ -49,7 +50,7 @@ export async function checkNotebook(doc, run) {
     const stdin = cell.stdin ?? (item ? item.stdin : "");
     const args = cell.args ?? (item ? item.args : "");
     const result = await run(cell.source, name, stdin, args);
-    const what = cell.attrs.exercise ? "the exercise's starting code"
+    const what = item?.cell === cell.index ? `the ${item.practice ? "practice" : "task"}'s starting code`
       : cell.attrs.solution ? "the solution" : "this cell";
     if (cell.attrs.error) {
       check(!result.ok, lineOf(cell), "this cell is marked error, but it runs");
@@ -58,7 +59,7 @@ export async function checkNotebook(doc, run) {
     }
   }
 
-  // Each test of an exercise with a solution, and each example under a
+  // Each test of a task with a solution, and each example under a
   // cell: what runs is what the block after it says.
   const compare = async (source, name, line, test, stdin, args) => {
     const result = await run(source, name, stdin, args, test.events ?? "");
@@ -76,8 +77,11 @@ export async function checkNotebook(doc, run) {
     }
   };
   for (const item of notebook.items) {
-    if (item.kind !== "exercise" || !item.solution) continue;
+    if (item.kind !== "task" || !item.solution) continue;
     const source = doc.cells[item.solution.cell].source;
+    const over = overCalls(source, item.maxCalls);
+    check(over === null, item.solution.line, over === null ? ""
+      : `the solution uses ${over.name} ${over.count} times, and max_calls allows ${over.max}`);
     for (const test of item.tests) {
       await compare(source, `${item.id}-solution.pyk`, test.line, test,
         test.stdin ?? item.stdin, test.args ?? item.args);

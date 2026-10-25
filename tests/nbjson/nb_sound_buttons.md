@@ -20,7 +20,7 @@ tw.play(hat, at = 0.25, volume = 0.5)
 A button calls a function each time it is clicked. The button's id is
 its title, so the test below clicks it by that name.
 
-## Exercise: two pads
+## Task: two pads
 
 Write a page with two buttons:
 
@@ -30,7 +30,7 @@ Write a page with two buttons:
 
 Load each sample once, before the buttons are made, kick first.
 
-```pyking exercise name = "pads" points = 2 attempts = 3
+```pyking task name = "pads" points = 2 attempts = 3
 import tinyweb as tw
 tw.web_init(0)
 ```

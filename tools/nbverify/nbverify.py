@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""nbverify: grades a Pyking notebook's exercises and quizzes for the
+"""nbverify: grades a Pyking notebook's tasks and quizzes for the
 ID2202 autograder, as its `run_verifier` tests run a verifier -- the
 answer's run arrives as JSON on standard input, and whether it is
 accepted goes out as JSON on standard output. What a test is checked
@@ -32,7 +32,10 @@ Data structures:
 
 Functions:
     verify(data) -- the verdict on one run.
-    verify_exercise(params, run) -- the verdict on an exercise's run.
+    verify_task(params, run) -- the verdict on a task's run.
+    call_count(source, name) -- how often a program names a function.
+    over_calls(source, limits) -- the first max_calls limit a program
+        goes past.
     verify_quiz(params, run) -- the verdict on a quiz's answer.
     same_output(a, b, rules) -- whether two outputs count as the same.
     allowed_rules(text) -- a diff-allowed block's lines as rules.
@@ -41,7 +44,7 @@ Functions:
     launch(argv) -- `run`: a program run, its trailer on stderr.
     read_toml(text) -- the TOML paramdata writes, read.
     attempt(argv) -- `try`: one test's run of a program, verified.
-    items(notebook) -- a notebook's exercises and quizzes, named.
+    items(notebook) -- a notebook's tasks and quizzes, named.
     cases(item, pyk) -- what each test of an item should do.
     paramdata(argv) -- `paramdata`.
     paramschema() -- `paramschema`.
@@ -81,7 +84,7 @@ autograder's run_verifier hands it over -- {"cmd", "code", "stdout",
 "stderr", "files", "params"} -- and prints {"accepted": true, "reason":
 null} with status 0, or {"accepted": false, "reason": "..."} with status 1:
 the reason a student would be given in the notebook. "params" says what
-is checked, and is what `paramdata` writes for each test of an exercise
+is checked, and is what `paramdata` writes for each test of a task
 or a quiz, from the notebook (.json, or .md through `pyk notebook
 --to-json`). The solution is run there, with pyk, for what it prints;
 --pyk names pyk, else $PYK, else pyk on the PATH.
@@ -102,7 +105,8 @@ With --json it verifies nothing and prints the run instead, the JSON
 nbverify.py with no argument reads.
 
 BOOK's items are named by their name = attribute; one item with no name
-is `default`, and an unnamed one may be called exercise-N or quiz-N.
+is `default`, and an unnamed one may be called task-N, practice-N or
+quiz-N.
 See tools/nbverify/README.md."""
 
 #: How long `paramdata` lets a solution run, in seconds.
@@ -113,7 +117,7 @@ TRAILER = "--- nbverify run ---\n"
 
 #: Every verifier parameter: name, type, default, and what it says.
 PARAMS = [
-    ("kind", "string", "exercise", "exercise or quiz"),
+    ("kind", "string", "task", "task or quiz; a practice is graded as a task"),
     ("name", "string", "", "the item's name, for the reasons"),
     ("compare_stdout", "bool", False, "standard output is compared"),
     ("expected_stdout", "string", "", "what it should print"),
@@ -124,6 +128,7 @@ PARAMS = [
     ("compare_code", "bool", False, "the exit status is compared"),
     ("expected_code", "int", 0, "the exit status it should end with"),
     ("diff_allowed", "list", [], "diff-allowed lines, with the solution"),
+    ("max_calls", "list", [], "[N, name] pairs: name written at most N times"),
     ("details", "bool", False, "the reason shows the test and both outputs"),
     ("test_stdin", "string", "", "the test's standard input, for details"),
     ("test_args", "list", [], "the test's arguments, for details"),
@@ -265,12 +270,12 @@ def decoded(stream):
 
 def answer_run(data):
     """What a run of an answer did: its output, what debug wrote, the
-    tinyweb log, its status, and whether it ran at all -- read from the
-    trailer `run` adds to standard error, where there is one.
-    {..} -> {stdout, stderr, tinyweb, code, ok, error}"""
+    tinyweb log, its status, whether it ran at all and its source -- read
+    from the trailer `run` adds to standard error, where there is one.
+    {..} -> {stdout, stderr, tinyweb, code, ok, error, source?}"""
     stderr = decoded(data.get("stderr"))
     run = {"stdout": decoded(data.get("stdout")), "stderr": stderr, "tinyweb": "",
-           "code": data.get("code"), "ok": True, "error": ""}
+           "code": data.get("code"), "ok": True, "error": "", "source": None}
     at = stderr.rfind(TRAILER)
     if at >= 0 and (at == 0 or stderr[at - 1] == "\n"):
         try:
@@ -281,6 +286,8 @@ def answer_run(data):
         run["tinyweb"] = trailer.get("tinyweb", "")
         run["ok"] = trailer.get("status", "ok") == "ok"
         run["error"] = trailer.get("error", "")
+        if isinstance(trailer.get("source"), str):
+            run["source"] = trailer["source"]
     if run["code"] is None:
         run["code"] = 0
     return run
@@ -301,7 +308,7 @@ def first_difference(expected, got, rules):
 
 def details(params, run, drawing=False):
     """The failed test and both outputs, as the notebook shows them under
-    an exercise; where what it drew differs, the first line of tinyweb's
+    a task; where what it drew differs, the first line of tinyweb's
     log that does. {..} -> {..} -> Bool -> String"""
     rows = []
     if params["test_stdin"]:
@@ -337,9 +344,61 @@ def quoted_argument(argument):
 
 
 
-def verify_exercise(params, run):
-    """The reason an exercise's run is refused, as the notebook gives it,
+def code_only(source):
+    """A program's text with every comment and string literal blanked
+    out, so only its code is left. String -> String"""
+    out, i = [], 0
+    while i < len(source):
+        c = source[i]
+        if c == "#":
+            while i < len(source) and source[i] != "\n":
+                i += 1
+        elif c in "'\"":
+            i += 1
+            while i < len(source) and source[i] not in (c, "\n"):
+                i += 2 if source[i] == "\\" else 1
+            i += 1
+            out.append(" ")
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def call_count(source, name):
+    """How many times a program writes `name` as a whole name outside its
+    comments and strings: `rect(`, `tw.rect(` and `def rect` all count,
+    `rect_w` and `rectangle` do not. String -> String -> Int"""
+    word = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(name) + r"(?![A-Za-z0-9_])")
+    return len(word.findall(code_only(source)))
+
+
+def over_calls(source, limits):
+    """The first [N, name] limit a program writes its name more often
+    than, as (name, count, N), or None. String -> [[Int, String]] ->
+    (String, Int, Int)?"""
+    for limit in limits:
+        if not (isinstance(limit, list) and len(limit) == 2):
+            raise Refusal(f"params.max_calls holds {limit!r}, not an [N, name] pair")
+        most, name = limit
+        count = call_count(source, str(name))
+        if count > int(most):
+            return name, count, int(most)
+    return None
+
+
+def verify_task(params, run):
+    """The reason a task's run is refused, as the notebook gives it,
     or None where it passes. {..} -> {..} -> String?"""
+    if params["max_calls"]:
+        if run["source"] is None:
+            raise Refusal("the run carries no source to check max_calls against: "
+                          "run the answer with nbverify.py run")
+        over = over_calls(run["source"], params["max_calls"])
+        if over:
+            name, count, most = over
+            return (f"Your program uses {name} {count} time{'' if count == 1 else 's'}, "
+                    f"and may use it at most {most} time{'' if most == 1 else 's'}.")
     if not run["ok"]:
         return "Your program did not run:\n" + run["error"].rstrip()
     rules = allowed_rules(params["diff_allowed"])
@@ -431,10 +490,10 @@ def verify(data):
     run = answer_run(data)
     if params["kind"] == "quiz":
         reason = verify_quiz(params, run)
-    elif params["kind"] == "exercise":
-        reason = verify_exercise(params, run)
+    elif params["kind"] == "task":
+        reason = verify_task(params, run)
     else:
-        raise Refusal(f"params.kind is exercise or quiz, not {params['kind']!r}")
+        raise Refusal(f"params.kind is task or quiz, not {params['kind']!r}")
     return {"accepted": reason is None, "reason": reason}
 
 
@@ -524,8 +583,9 @@ def run_arguments(command, argv):
 def launch(argv):
     """`run`: runs a program with standard input and output its own, then
     writes what it wrote to standard error, the trailer line, and one
-    line of JSON: its status, what debug wrote, its error and the
-    tinyweb log. Exits with the program's status. [String] -> Int"""
+    line of JSON: its status, what debug wrote, its error, the tinyweb
+    log and the program's source. Exits with the program's status.
+    [String] -> Int"""
     pyk, events, libs, path, args = run_arguments("run", argv)
     sys.stdout.flush()
     ran = run_program(find_pyk(pyk), path, None, args, events, libs, stream=True)
@@ -534,9 +594,14 @@ def launch(argv):
     if written and not written.endswith("\n"):
         sys.stderr.write("\n")
     sys.stderr.write(TRAILER)
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            source = f.read()
+    except OSError:
+        source = ""
     sys.stderr.write(json.dumps({"status": "ok" if ran["ok"] else "failed",
                                  "stderr": ran["stderr"], "error": ran["error"],
-                                 "tinyweb": ran["tinyweb"]}) + "\n")
+                                 "tinyweb": ran["tinyweb"], "source": source}) + "\n")
     sys.stderr.flush()
     return ran["code"]
 
@@ -781,10 +846,11 @@ def read_notebook(path, pyk):
 
 
 def items(notebook):
-    """A notebook's exercises and quizzes, in order, each with the names it
+    """A notebook's tasks and quizzes, in order, each with the names it
     may be called by: its name = (or `default` where it is the only item
-    and has none), and exercise-N or quiz-N. {..} -> [({..}, [String])]"""
-    found, counts = [], {"exercise": 0, "quiz": 0}
+    and has none), and task-N, practice-N or quiz-N.
+    {..} -> [({..}, [String])]"""
+    found, counts = [], {"task": 0, "practice": 0, "quiz": 0}
     for block in notebook.get("blocks", []):
         kind = block.get("type")
         if kind in counts:
@@ -804,18 +870,18 @@ def chosen_item(notebook, name, path):
     {..} -> String? -> String -> ({..}, String)"""
     found = items(notebook)
     if not found:
-        raise Refusal(f"{path} has no exercise or quiz")
+        raise Refusal(f"{path} has no task or quiz")
     if name is None:
         if len(found) > 1:
             listed = ", ".join(names[0] for _, names in found)
-            raise Refusal(f"{path} has {len(found)} exercises and quizzes ({listed}): "
+            raise Refusal(f"{path} has {len(found)} tasks and quizzes ({listed}): "
                           "give --name to say which")
         return found[0][0], found[0][1][0]
     for block, names in found:
         if name in names:
             return block, names[0]
     listed = ", ".join(names[0] for _, names in found)
-    raise Refusal(f"{path} has no exercise or quiz named {name!r}; it has {listed}")
+    raise Refusal(f"{path} has no task or quiz named {name!r}; it has {listed}")
 
 
 def input_lines(text):
@@ -824,7 +890,7 @@ def input_lines(text):
 
 
 def test_cases(item):
-    """An exercise's tests as the notebook runs them: each with its stdin,
+    """A task's tests as the notebook runs them: each with its stdin,
     arguments, events and the stdout and stderr blocks after it, a stdin
     block split by lines_per_multi_input one test a piece.
     {..} -> [{stdin, args, events, stdout?, stderr?}]"""
@@ -859,14 +925,28 @@ def test_cases(item):
     return cases
 
 
-def exercise_params(item, name, pyk):
-    """Each test of an exercise as [test.options]: its stdin and
+def max_calls(value, name):
+    """A task's max_calls = as [N, name] pairs; none where it has none.
+    String? -> String -> [[Int, String]]"""
+    if value is None:
+        return []
+    group = re.compile(r"\(\s*([0-9]+)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")
+    text = value if isinstance(value, str) else ""
+    found = list(group.finditer(text))
+    if not found or group.sub("", text).strip():
+        raise Refusal(f"{name!r} has max_calls = {value!r}, not one or more (N,name)")
+    return [[int(m.group(1)), m.group(2)] for m in found]
+
+
+def task_params(item, name, pyk):
+    """Each test of a task as [test.options]: its stdin and
     arguments, and the params its run is verified with -- what the
     solution does on that input, where there is one, and what the stdout
     and stderr blocks say where there is not. {..} -> String -> String? ->
     [({..}, {..})]"""
     solution = item.get("solution")
     attempts = (item.get("attributes") or {}).get("attempts")
+    limits = max_calls((item.get("attributes") or {}).get("max_calls"), name)
     rules = [line for block in item.get("diff_allowed") or []
              for line in block.get("text", "").split("\n")]
     out = []
@@ -877,8 +957,9 @@ def exercise_params(item, name, pyk):
                 f.write(solution.get("code", ""))
         for k, case in enumerate(test_cases(item)):
             args = split_arguments(case["args"])
-            params = dict(DEFAULTS, kind="exercise", name=name,
-                          details=attempts != 1, test_stdin=case["stdin"], test_args=args,
+            params = dict(DEFAULTS, kind="task", name=name,
+                          details=attempts != 1, max_calls=limits,
+                          test_stdin=case["stdin"], test_args=args,
                           test_events=case["events"])
             if solution:
                 ran = run_program(find_pyk(pyk), program, case["stdin"], args, case["events"])
@@ -978,7 +1059,7 @@ def paramdata(argv):
         raise Refusal("paramdata: --case prints one test and --output-dir writes them all; give one")
     notebook = read_notebook(book, pyk)
     item, called = chosen_item(notebook, name, book)
-    made = quiz_params(item, called) if item["type"] == "quiz" else exercise_params(item, called, pyk)
+    made = quiz_params(item, called) if item["type"] == "quiz" else task_params(item, called, pyk)
     total = len(made)
     stem = os.path.splitext(os.path.basename(book))[0]
     texts = [test_toml(run, params, program,

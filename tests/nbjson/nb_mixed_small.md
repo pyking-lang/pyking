@@ -3,7 +3,7 @@
 Write a program that reads a whole number from its input and prints
 its square.
 
-```pyking exercise name = "square" points = 2 attempts = 3 stdin = "4"
+```pyking task name = "square" points = 2 attempts = 3 stdin = "4"
 print("Add your code here")
 ```
 

@@ -5,14 +5,14 @@ and `f` is called with the new value whenever the reader moves it.
 `tw.label(text)` shows a line of text and answers its id, which
 `tw.set_text` takes to change it.
 
-## Exercise
+## Task
 
 Show a label reading `volume 5` and a slider from 0 to 10 starting at
 5. Whenever the slider moves to n, the label should read `volume n`,
 or `volume n (loud)` when n is 8 or more. The program prints nothing;
 what is checked is what it does to the page.
 
-```pyking exercise
+```pyking practice
 print("Add your code here")
 ```
 

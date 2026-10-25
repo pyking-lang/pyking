@@ -11,7 +11,7 @@ c = tw.canvas(60, 60)
 tw.rect(c, 5, 5, 20, 30, color.blue)
 ```
 
-## Exercise: a square of a given size
+## Task: a square of a given size
 
 Read a size from standard input and draw a green square that big, with
 its top left corner at (10, 10), on a canvas of 120 × 120 pixels. Then
@@ -21,7 +21,7 @@ this:
 
 ![A green square of side 50](square.png)
 
-```pyking exercise name = "square" points = 3
+```pyking task name = "square" points = 3
 print("Add your code here")
 ```
 

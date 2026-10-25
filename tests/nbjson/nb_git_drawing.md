@@ -26,7 +26,7 @@ tw.polygon(c, [tw.Point(10, 90), tw.Point(90, 90), tw.Point(50, 10)], color.gree
 Draw a sun: on a canvas of 200 × 200 painted `color.cyan` (a rectangle
 over all of it), a yellow circle of radius 30 centred at (150, 50).
 
-```pyking exercise name = "sun" points = 2
+```pyking task name = "sun" points = 2
 print("Add your code here")
 ```
 
@@ -52,7 +52,7 @@ order:
 
 Then print `house of width` and w. The roof's top may be one pixel off.
 
-```pyking exercise name = "house" points = 4 method = git
+```pyking task name = "house" points = 4 method = git
 ```
 
 ```pyking solution

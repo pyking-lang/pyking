@@ -5,7 +5,7 @@ title: Reading what the reader types
 # Reading what the reader types
 
 ```rules max = 5 pass = 3
-Two exercises and a quiz. The first is compared with a solution, the
+Two tasks and a quiz. The first is compared with a solution, the
 second with the output written under it.
 ```
 
@@ -24,7 +24,7 @@ Show a label reading `Who are you?` and a text field whose placeholder
 is `your name`. When a name is entered, the label should read
 `Hello, ` and the name and `!`, and the program prints the same line.
 
-```pyking exercise name = "greet" points = 2 attempts = 3
+```pyking task name = "greet" points = 2 attempts = 3
 print("Add your code here")
 ```
 
@@ -60,7 +60,7 @@ Make a text field with no placeholder. Each time something is entered,
 print it between brackets and then how many characters it has, as
 below. Nothing is printed before the first line is entered.
 
-```pyking exercise name = "count" points = 2
+```pyking task name = "count" points = 2
 print("Add your code here")
 ```
 

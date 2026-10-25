@@ -1,5 +1,5 @@
 // Makes the Pyking cells on a page runnable, with the notebook's own
-// cells (notebook.js, mountCells) -- and its exercises and quizzes, which
+// cells (notebook.js, mountCells) -- and its tasks and quizzes, which
 // arrive as fragments of a notebook -- and keeps their theme the site's.
 // Loaded on every page; does nothing on a page with no cell. The
 // runtime -- notebook/, webrun/, vendor/, pyking/, lib/ -- is served

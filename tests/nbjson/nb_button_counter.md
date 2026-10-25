@@ -10,14 +10,14 @@ import tinyweb as tw
 tw.button("Hello", on_click = () => print("hello!"))
 ```
 
-## Exercise
+## Task
 
 Make a button titled `Click me` and a label reading `0 clicks`. Every
 click adds one to a count, prints `clicked` and the count, and sets the
 label to the count followed by ` clicks`. Before any click the program
 prints `ready`.
 
-```pyking exercise name = "counter" points = 3
+```pyking task name = "counter" points = 3
 print("Add your code here")
 ```
 

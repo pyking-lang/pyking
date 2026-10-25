@@ -211,7 +211,7 @@ the website build and `make -C tools/playground check`, which run in a
 checkout; `tests/test_notebook.py` checks that `pyk` serves every file
 they name and the same manifest. `pyk notebook --mode test` serves
 nothing: it runs `tools/notebook/check.js` under node, which checks the document's
-exercises and quizzes and runs its programs, so test mode needs node. `make playground` and `make notebook` go through `./pyk` the same
+tasks and quizzes and runs its programs, so test mode needs node. `make playground` and `make notebook` go through `./pyk` the same
 way, after `make vendor` has downloaded Ace, KaTeX and Monaco once.
 
 A program using a library that needs a page -- `tinyweb` -- is shown by

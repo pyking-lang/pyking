@@ -17,7 +17,7 @@ Write a program that reads one line and prints it in capital letters.
 Then, with `debug`, it writes `length N`, the number of characters in
 the line, for whoever is checking.
 
-```pyking exercise name = "shout" stdin = "hello"
+```pyking practice name = "shout" stdin = "hello"
 import io
 import text
 print("Add your code here")
@@ -62,7 +62,7 @@ accepted.
 is what it prints for `dogs and cats`. `float(n)` makes an `Int` a
 `Float`, and `math.round` rounds a `Float` to the nearest `Int`.
 
-```pyking exercise name = "stats" stdin = "dogs and cats"
+```pyking practice name = "stats" stdin = "dogs and cats"
 import io
 import text
 print("Add your code here")

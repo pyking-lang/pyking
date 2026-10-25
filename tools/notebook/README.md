@@ -14,8 +14,8 @@ pyk notebook --mode test exam.md         # check it, and serve nothing
 make notebook                            # at the repository root: the tutorial
 ```
 
-A notebook may hold **exercises and quizzes**, checked in the page; see
-"Exercises and quizzes" below.
+A notebook may hold **tasks and quizzes**, checked in the page; see
+"Tasks and quizzes" below.
 
 As with the playground, **nothing executes on the server**. The page loads
 the real compiler — `src/` compiled to JavaScript, `share/pyking.js` — into a
@@ -173,9 +173,9 @@ The page's title is the front matter's `title:`, or else the first
 level-1 heading. The contents sidebar lists the headings down to level 3,
 leaving out a lone level-1 heading, since that is the title.
 
-## Exercises and quizzes
+## Tasks and quizzes
 
-A notebook can be an assignment: exercises a student solves in the page,
+A notebook can be an assignment: tasks a student solves in the page,
 quizzes they answer, and points that add up to a pass. Everything is
 written as fenced blocks, so the file still reads correctly anywhere.
 `tests/notebook/features.md` uses every one of them.
@@ -185,21 +185,24 @@ written as fenced blocks, so the file still reads correctly anywhere.
 ```` ```rules max = 10 pass = 8 ```` holds what the student is told about
 the assignment, shown in a box of its own at the top with `max` and
 `pass`. A notebook has at most one. `max` is the sum of every
-exercise's and quiz's `points`, and test mode checks that it is. A
-student passes with `pass` points or more; an exercise or quiz without
+task's and quiz's `points`, and test mode checks that it is. A
+student passes with `pass` points or more; a task or quiz without
 points is solved or not, and counts towards nothing.
 
-A bar at the top and at the end says how many exercises and quizzes are
+A bar at the top and at the end says how many tasks and quizzes are
 solved, with a green mark once all are, and the points and whether they
 pass. Its **start over** forgets every answer.
 
-### Exercises
+### Tasks and practices
 
-The exercise is the prose before a cell marked `exercise`, and the cell
-holds the code the student starts from:
+The task is the prose before a cell marked `task`, and the cell
+holds the code the student starts from. A cell marked `practice` is a
+task that gives no points: it takes no `points` or `penalty`, is
+titled "Practice", and is otherwise a task. A cell marked `exercise`,
+the old name, is refused.
 
 ````markdown
-```pyking exercise attempts = 3 points = 5 penalty = 1 stdin = "123" args = "go"
+```pyking task attempts = 3 points = 5 penalty = 1 stdin = "123" args = "go"
 print("Add your code here")
 ```
 
@@ -222,12 +225,13 @@ Another example
 
 | Header | Means | Default |
 |---|---|---|
-| `attempts = N` | how many times **Submit** may fail; then the exercise is failed | no limit |
+| `attempts = N` | how many times **Submit** may fail; then the task is failed | no limit |
 | `points = N` | what solving it gives | none: solved or not |
 | `penalty = N` | taken off the points for each failed Submit, never below 0 | 0 |
 | `stdin = "…"`, `args = "…"` | the input the cell starts with, and that a test without its own uses | empty |
-| `name = "…"` | what the exercise is called: letters, digits, `_` and `-`, unique in the notebook; nbverify finds it by it | none |
+| `name = "…"` | what the task is called: letters, digits, `_` and `-`, unique in the notebook; nbverify finds it by it | none |
 | `method = inline` or `git` | where the answer is written: in the page, or elsewhere and pushed with git | `inline` |
+| `max_calls = (N,name)` | the answer may write `name` at most N times; several as `(2,rect) (1,circle)` | no limit |
 
 The blocks after it are, in this order and each optional: one
 ```` ```pyking solution ````, then the tests. A test is a
@@ -235,8 +239,8 @@ The blocks after it are, in this order and each optional: one
 given), an ```` ```events ```` block, a ```` ```stdout ```` or
 ```` ```stderr ```` block, or several of them with the outputs after the
 input; an output or events with no input before it runs on the
-exercise's own input. A solution with no exercise before it
-is an error, and so is anything else between them. The next exercise
+task's own input. A solution with no task before it
+is an error, and so is anything else between them. The next task
 starts a new one.
 
 **Submit** runs the student's code on every test. With a solution, the
@@ -247,7 +251,12 @@ has a stderr block. The blocks' own text is then only checked by test
 mode, against the solution. Without a solution, the student's output
 must match the stdout and stderr blocks. Output matches when it is the
 same apart from spaces at the end of a line and blank lines at the end.
-Each run may take ten seconds. A failed Submit uses an attempt and, unless
+Each run may take ten seconds. An answer writing a name more often than
+`max_calls` allows is refused before anything runs, with how often it
+does; a name counts wherever it is written outside comments and
+strings, as `rect(...)`, `tw.rect(...)` or `def rect`, and not inside
+`rect_w` or `rectangle`. Each limit is shown as a badge. A failed
+Submit uses an attempt and, unless
 `attempts = 1`, shows one failed test: its input, what was expected and
 what the answer printed. Running the cell with **▶** is free.
 
@@ -258,9 +267,9 @@ and side by side what each printed and what each sent its page, a line
 only the submission wrote in red and one only the solution wrote in
 green.
 
-**Show a solution** shows the solution under the exercise, at any time,
+**Show a solution** shows the solution under the task, at any time,
 where it says `available = true`; without it the solution is never shown
-in student mode. A solved exercise turns green, with a check mark.
+in student mode. A solved task turns green, with a check mark.
 
 An **```` ```events ````** block is what a tinyweb page is sent, one event a
 line as an events file writes them (`click "Go"`, `slide "Speed" 7`,
@@ -284,7 +293,7 @@ click "More"
 
 A stdin block with **`lines_per_multi_input = N`** is a test for every
 N lines of it, each run on its own with the block's arguments; every one
-must pass. Its pieces are compared with the solution, so the exercise
+must pass. Its pieces are compared with the solution, so the task
 needs one, and no stdout or stderr block follows it.
 
 ````markdown
@@ -295,7 +304,7 @@ needs one, and no stdout or stderr block follows it.
 ```
 ````
 
-A **```` ```diff-allowed ````** block under an exercise loosens how an
+A **```` ```diff-allowed ````** block under a task loosens how an
 answer is compared with its solution. Each line of it is a pattern: its
 text must match a line exactly, except that each `[+/-N]` stands for a
 number, and a line of the answer and the solution's line count as the
@@ -311,7 +320,7 @@ circle "canvas" 75 0 [+/-2] "#000000" "" 1.000 1.000
 ```
 ````
 
-An exercise with **`method = git`** is answered somewhere else and
+A task with **`method = git`** is answered somewhere else and
 pushed with git: the page shows "Please submit via your git account"
 in place of the code box and Submit, and grades nothing. Its points are
 left out of the page's running totals, but count towards `max`.
@@ -328,7 +337,7 @@ made.
 ````markdown
 ![For 40](square.png)
 
-```pyking exercise
+```pyking task
 print("Add your code here")
 ```
 
@@ -358,13 +367,13 @@ next, and may hold inline Markdown.
 ```
 ````
 
-A quiz takes **`name = "…"`** as an exercise does.
+A quiz takes **`name = "…"`** as a task does.
 
 An ```` ```answer ```` block follows every quiz, with one entry per
 alternative, in order: `->` for a right one and `-` for a wrong one,
 then what explains it, which may be left empty. A `*` quiz has exactly
 one `->`. `attempts`, `points` and `penalty` mean what they mean for an
-exercise.
+task.
 
 **Submit** with a wrong answer uses an attempt and shows the explanation
 of each alternative chosen, right or wrong; for checkboxes it also says
@@ -407,7 +416,7 @@ solution only when asked for, a test only where it says `visible =
 true`, and no answers. `--mode teacher` shows every solution, test and
 answer, and grades the same way. It also runs what test mode checks
 (below), in the page's worker, and shows under each element -- the
-rules, each exercise, each quiz and each cell -- that it has no problems,
+rules, each task, each quiz and each cell -- that it has no problems,
 in green, or its problems with their lines, in red. A block with a
 problem that belongs to none of them shows it where it stands, and a
 line at the top says how many problems the document has. Solutions and answers are in the page in
@@ -415,7 +424,7 @@ both modes -- the browser checks the answers -- so a student who reads
 the page's source can find them.
 
 Progress is kept in the browser's local storage, per document: each
-exercise's code, what was chosen in each quiz, the attempts used and the
+task's code, what was chosen in each quiz, the attempts used and the
 points. An item whose block is edited starts again.
 
 ### Test mode
@@ -427,22 +436,25 @@ teacher mode runs too), and prints `file:line: message`
 for each problem, and exits with 1 if there was one:
 
 - the blocks are in an order this section allows, with a valid header:
-  a solution after its exercise, an answer after its quiz with as many
+  a solution after its task, an answer after its quiz with as many
   entries, one `->` for a `*` quiz, as many points as `->` entries for
   a `one_point_correct` quiz, numbers where numbers belong, one
   rules block whose `max` is the sum of the points and is not less than
   `pass`;
-- every cell runs, and every `error` cell is refused; an exercise's
+- every cell runs, and every `error` cell is refused; a task's
   starting code included;
 - a solution prints, on each test's input, what any stdout or stderr
-  block after it says, and so does an ordinary cell;
-- an exercise with no solution has an output to compare an answer with;
+  block after it says, and so does an ordinary cell, and a solution
+  keeps to its task's `max_calls`;
+- a task with no solution has an output to compare an answer with;
 - an item's `name` is letters, digits, `_` and `-`, and no other item
-  has it, and an events block is under a cell or an exercise;
-- an exercise's `method` is inline or git, a solution's `save_canvas`
+  has it, and an events block is under a cell or a task;
+- no cell is marked `exercise`, a practice has no `points` or
+  `penalty`, a `max_calls` is one or more `(N,name)`;
+- a task's `method` is inline or git, a solution's `save_canvas`
   has a `file`, a .png beside the notebook, and a stdin block split by
   `lines_per_multi_input` is whole pieces, with a solution and no output
-  after it, and a diff-allowed block is under an exercise with a
+  after it, and a diff-allowed block is under a task with a
   solution, each line holding a `[+/-N]`.
 
 `tests/notebook/broken.md` makes every one of these mistakes, and
@@ -457,7 +469,7 @@ follows (notebook.schema.json); `-o` names another file, and `-o -`
 prints it. `pyk notebook FILE.json` serves and tests the notebook as it
 does the Markdown, which it converts on every request. The format is
 docs/notebook.md's, "JSON"; tools/nbverify/ grades a notebook's
-exercises and quizzes from it for the ID2202 autograder.
+tasks and quizzes from it for the ID2202 autograder.
 
 ## Embedding it in another page
 
@@ -497,14 +509,14 @@ a theme is a few overrides. The mounted object has `cells`, `run(index)`,
 `reset(index)`, `stop()`, `setTheme(choice)`, `results()` and `title`.
 
 `watch: true` reloads the page when the document at `url` changes, as
-`pyk notebook` does. Three options are about exercises and quizzes:
+`pyk notebook` does. Three options are about tasks and quizzes:
 `mode` (`"student"`, the default, or `"teacher"`, which also runs test
 mode's checks), `storageKey` (where progress is kept; by default
 from `url`, or from the text given as `markdown`), and `onChange(results)`,
-called whenever an answer is checked. `results()` answers every exercise
+called whenever an answer is checked. `results()` answers every task
 and quiz -- `{id, kind, number, state, points, maxPoints, attemptsLeft,
 graded}`, `state` being `"open"`, `"solved"` or `"failed"`, and `graded`
-false for an exercise submitted with git -- with the totals, which leave
+false for a task submitted with git -- with the totals, which leave
 those out: `solved`, `total`, `points`, `max`, `pass`, `passed` and
 `done`. The host element also receives a `pkn-results` event, the same
 object in `detail`.
@@ -554,9 +566,9 @@ is run, rather than all at once: a page of a hundred cells would hold the
 browser for seconds. Until then the cell shows its code as text.
 
 A placeholder may instead be a `.pkn-fragment` holding a piece of a
-notebook as Markdown in `data-markdown` -- an exercise and its blocks,
+notebook as Markdown in `data-markdown` -- a task and its blocks,
 a quiz and its answer -- which is rendered there and works as it does
-in a notebook, in `mode`; the website's pages hold their exercises and
+in a notebook, in `mode`; the website's pages hold their tasks and
 quizzes this way. The mounted Cells then also has `results()`.
 
 The renderer is usable on its own, with no page at all:
@@ -566,8 +578,8 @@ import { renderMarkdown } from "./notebook/markdown.js";
 const { html, cells, notebook, headings, title, math } = renderMarkdown(text);
 ```
 
-`notebook` is what `exercises.js` reads out of the blocks: the rules,
-the exercises and quizzes, and `problems`, each `{line, message}`.
+`notebook` is what `tasks.js` reads out of the blocks: the rules,
+the tasks and quizzes, and `problems`, each `{line, message}`.
 
 ## Layout
 
@@ -579,9 +591,9 @@ tools/notebook/
   assets/
     index.html       the page `/` serves: mounts the component
     notebook.js      the UI (ES module, exports mountNotebook)
-    activities.js    the exercises, quizzes and rules on the page
+    activities.js    the tasks, quizzes and rules on the page
     markdown.js      Markdown to HTML, pure (ES module)
-    exercises.js     what the exercise and quiz blocks mean, and the
+    tasks.js         what the task and quiz blocks mean, and the
                      grading; pure (ES module)
     checks.js        what test mode checks, given how to run a program
     notebook.css     all styles, scoped under .pkn-notebook
@@ -604,12 +616,12 @@ listens on `localhost` only.
 `tests/notebook/features.md` — every feature above — against
 `features.html`, checks a list of short cases against CommonMark's own
 answers, runs every cell of `PYKING-TUTORIAL.md` through the compiler's
-worker under node, checks what `exercises.js` makes of `features.md` and
+worker under node, checks what `tasks.js` makes of `features.md` and
 its grading arithmetic, starts `pyk notebook` and `pyk playground` to fetch
 what their pages load, and runs test mode on `features.md` and
 `broken.md`. Where a Chromium is found and the editor is vendored,
 `tests/notebook/page.mjs` drives `features.md` in it, in both modes:
-exercises submitted, quizzes answered, a reload, and start over; and in
+tasks submitted, quizzes answered, a reload, and start over; and in
 teacher mode the checks under each element, and the page reloading
 when its file is edited. The
 editors' keys are not covered.

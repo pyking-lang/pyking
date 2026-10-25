@@ -1,11 +1,11 @@
 ---
-title: Drawing exercises
+title: Drawing tasks
 ---
 
-# Drawing exercises
+# Drawing tasks
 
 ```rules max = 9 pass = 4
-Two exercises are graded in the page; the third is submitted with git.
+Two tasks are graded in the page; the third is submitted with git.
 ```
 
 ## A square
@@ -17,7 +17,7 @@ this:
 
 ![A red square](square.png)
 
-```pyking exercise points = 2
+```pyking task points = 2
 print("Add your code here")
 ```
 
@@ -46,7 +46,7 @@ rect "canvas" 10 10 [+/-2] [+/-2] 0 "#ff0000" "" 1.000 1.000
 
 A program reads two numbers, one per line, and prints each doubled.
 
-```pyking exercise points = 2
+```pyking task points = 2
 print("Add your code here")
 ```
 
@@ -68,7 +68,7 @@ print(a * 2, b * 2)
 
 Write the same program in any language you like.
 
-```pyking exercise points = 5 method = git
+```pyking task points = 5 method = git
 ```
 
 ```pyking solution

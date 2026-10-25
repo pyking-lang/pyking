@@ -9,10 +9,10 @@ A second rules block.
 ```
 
 ```pyking solution
-print("a solution with no exercise")
+print("a solution with no task")
 ```
 
-```pyking exercise attempts = 0 points = many
+```pyking task attempts = 0 points = many
 print("starting code")
 ```
 
@@ -24,11 +24,11 @@ print("starting code")
 an input with no output and no solution
 ```
 
-```pyking exercise
+```pyking practice
 print("no solution and nothing to compare with")
 ```
 
-```pyking exercise
+```pyking practice
 print("a solution that prints the wrong thing")
 ```
 
@@ -40,7 +40,7 @@ print("right")
 wrong
 ```
 
-```pyking exercise
+```pyking practice
 x := 1
 ```
 
@@ -116,10 +116,10 @@ print("prints this")
 prints something else
 ```
 
-An exercise submitted some other way, a picture with no file to save it
+A task submitted some other way, a picture with no file to save it
 as, and a stdin block that is not whole pieces.
 
-```pyking exercise method = svn
+```pyking practice method = svn
 print("starting code")
 ```
 
@@ -133,10 +133,10 @@ print("draws nothing")
 3
 ```
 
-An exercise with the old name for answering in the page and a name with
+A task with the old name for answering in the page and a name with
 a space in it, a quiz named as another item is, and events under nothing.
 
-```pyking exercise method = code_box name = "two words"
+```pyking practice method = code_box name = "two words"
 print("starting code")
 ```
 
@@ -144,7 +144,7 @@ print("starting code")
 starting code
 ```
 
-```pyking exercise name = "twice"
+```pyking practice name = "twice"
 print("starting code")
 ```
 
@@ -162,4 +162,49 @@ starting code
 
 ```events
 click "go"
+```
+
+The old name for a task, a practice that gives points, a block that is
+both, a max_calls that is not (N,name), and a solution that uses a
+function more often than its task's max_calls allows.
+
+```pyking exercise
+print("old")
+```
+
+```stdout
+old
+```
+
+```pyking practice points = 2
+print("points")
+```
+
+```stdout
+points
+```
+
+```pyking task practice
+print("both")
+```
+
+```stdout
+both
+```
+
+```pyking task max_calls = (two,rect)
+print("limit")
+```
+
+```stdout
+limit
+```
+
+```pyking task max_calls = (1,print)
+print("one")
+```
+
+```pyking solution
+print("one")
+print("two")
 ```

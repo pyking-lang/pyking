@@ -15,8 +15,8 @@ Five parts:
   renderer  tests/notebook/features.md, which uses every feature the
             renderer supports, against tests/notebook/features.html;
             then a list of short cases against the HTML CommonMark and
-            GitHub give for them; and what exercises.js makes of
-            tests/notebook/drawing.md -- an exercise submitted with git,
+            GitHub give for them; and what tasks.js makes of
+            tests/notebook/drawing.md -- a task submitted with git,
             a solution saving a picture, stdin split into tests -- and of
             the headers it refuses.
   cells     every runnable cell of PYKING-TUTORIAL.md and features.md,
@@ -35,7 +35,7 @@ Five parts:
   page      where a Chromium is found (tests/suite.py, find_chromium) and
             the editor has been vendored (`make vendor`), features.md
             served and driven in it by tests/notebook/page.mjs: in
-            student mode, exercises submitted wrong and right, quizzes
+            student mode, tasks submitted wrong and right, quizzes
             answered, progress kept over a reload and forgotten by start
             over; in teacher mode, every solution, test and answer shown.
             Then drawing.md in each: its picture made, shown and saved,
@@ -80,7 +80,7 @@ FEATURES = FIXTURES / "features.md"
 TUTORIAL = REPO / "PYKING-TUTORIAL.md"
 BUNDLE = REPO / "share" / "pyking.js"
 MARKDOWN = REPO / "tools" / "notebook" / "assets" / "markdown.js"
-EXERCISES = REPO / "tools" / "notebook" / "assets" / "exercises.js"
+TASKS = REPO / "tools" / "notebook" / "assets" / "tasks.js"
 BROKEN = FIXTURES / "broken.md"
 DRAWING = FIXTURES / "drawing.md"
 ACTIVITIES = REPO / "tools" / "notebook" / "assets" / "activities.js"
@@ -149,9 +149,9 @@ check("the front matter's title", features.title === "Every notebook feature",
       JSON.stringify(features.title));
 check("math is noticed", features.math === true);
 const flags = (c) => Object.keys(c.attrs).filter((a) => c.attrs[a]).join("+") || "-";
-check("sixteen runnable cells, with their attributes",
+check("eighteen runnable cells, with their attributes",
       features.cells.map(flags).join(" ") ===
-        "- error readonly - readonly error - - - exercise solution exercise exercise solution exercise solution",
+        "- error readonly - readonly error - - - task solution practice task solution practice solution practice solution",
       features.cells.map(flags).join(" "));
 check("a cell's input from its header, and from a block before it",
       features.cells[3].stdin === "Ada\n" && features.cells[3].args === "first 'second one'"
@@ -159,40 +159,44 @@ check("a cell's input from its header, and from a block before it",
       JSON.stringify(features.cells.slice(3, 7).map((c) => [c.stdin, c.args])));
 check("the headings the contents list is made from",
       features.headings.map((h) => h.id).join(" ") ===
-        "features code-cells exercises-and-quizzes lists tables quotes-and-callouts math "
+        "features code-cells tasks-and-quizzes lists tables quotes-and-callouts math "
         + "footnotes setext-heading features-1",
       features.headings.map((h) => h.id).join(" "));
 
-// 1b. What exercises.js makes of it.
+// 1b. What tasks.js makes of it.
 const nb = features.notebook;
 check("features.md has no notebook problems", nb.problems.length === 0,
       JSON.stringify(nb.problems));
 check("the rules: max 12, pass 9", nb.rules?.max === 12 && nb.rules?.pass === 9,
       JSON.stringify(nb.rules));
-check("four exercises and three quizzes, in order",
-      nb.items.map((i) => i.id).join(" ") === "exercise-1 exercise-2 exercise-3 exercise-4 quiz-1 quiz-2 quiz-3",
+check("two tasks, three practices and three quizzes, in order, each numbered as its kind",
+      nb.items.map((i) => i.id).join(" ")
+        === "task-1 practice-1 task-2 practice-2 practice-3 quiz-1 quiz-2 quiz-3",
       nb.items.map((i) => i.id).join(" "));
-const [ex1, ex2, ex3, counter, quiz1, quiz2, quiz3] = nb.items;
-check("names: an exercise's and a quiz's, and none where none is given",
+const [ex1, ex2, ex3, counter, limited, quiz1, quiz2, quiz3] = nb.items;
+check("names: a task's and a quiz's, and none where none is given",
       ex1.name === "twice" && quiz1.name === "typed" && ex2.name === null && quiz2.name === null,
       JSON.stringify(nb.items.map((i) => i.name)));
-check("an exercise's events: one test, its clicks delivered after the top level",
+check("a task's events: one test, its clicks delivered after the top level",
       counter.tests.length === 1 && counter.tests[0].events === 'click "More"\nclick "More"'
       && counter.tests[0].output?.text === "1\n2" && counter.tests[0].stdin === null,
       JSON.stringify(counter.tests.map((t) => [t.events, t.output?.text])));
-check("exercise 1: header, solution and three tests",
+check("task 1: header, solution and three tests",
       ex1.attempts === 3 && ex1.points === 5 && ex1.stdin === "123\n" && ex1.args === "go for it"
       && ex1.solution?.available === true && ex1.tests.length === 3
       && ex1.tests[0].args === "my 123" && ex1.tests[0].output === null
       && ex1.tests[1].output?.text.startsWith("Another") && ex1.tests[2].stdin === null,
       JSON.stringify(ex1).slice(0, 300));
-check("exercise 2: no solution, no points, a stdout",
-      ex2.solution === null && ex2.points === null && ex2.attempts === null
+check("a practice: no solution, no points, a stdout",
+      ex2.practice && !ex1.practice && ex2.solution === null && ex2.points === null && ex2.attempts === null
       && ex2.tests.length === 1 && ex2.tests[0].output.attrs.visible === "true",
       JSON.stringify(ex2).slice(0, 300));
-check("exercise 3: a solution that is not available, and a penalty",
+check("task 2: a solution that is not available, and a penalty",
       ex3.solution?.available === false && ex3.penalty === 1 && ex3.attempts === 2,
       JSON.stringify(ex3).slice(0, 300));
+check("a practice's max_calls: print at most twice",
+      JSON.stringify(limited.maxCalls) === '[{"max":2,"name":"print"}]',
+      JSON.stringify(limited.maxCalls));
 check("quiz 1: one answer, from *", !quiz1.multiple && quiz1.alternatives.length === 2
       && quiz1.answers.map((a) => a.correct).join() === "true,false" && !quiz1.available,
       JSON.stringify(quiz1).slice(0, 300));
@@ -214,19 +218,26 @@ check("examples under ordinary cells: one shown, one with input and stderr",
 
 // 1c. The fence header's attributes, and the grading arithmetic.
 const { parseInfo } = await import(pathToFileURL(plan.markdown).href);
-const grading = await import(pathToFileURL(plan.exercises).href);
+const grading = await import(pathToFileURL(plan.tasks).href);
 for (const [info, want] of [
-  ['pyking exercise attempts = 3 stdin = "1 2" points=5',
-   { exercise: true, attempts: "3", stdin: "1 2", points: "5" }],
+  ['pyking task attempts = 3 stdin = "1 2" points=5',
+   { task: true, attempts: "3", stdin: "1 2", points: "5" }],
   ["stdin args='a \\'b\\' c' visible=true", { args: "a 'b' c", visible: "true" }],
   ['pyking stdin = "two\\nlines"', { stdin: "two\nlines" }],
   ["{.pyking .norun}", { norun: true }],
   ["pyking norun, readonly", { norun: true, readonly: true }],
+  ["pyking practice max_calls = (2,rect) (1, circle) name = x",
+   { practice: true, max_calls: "(2,rect) (1, circle)", name: "x" }],
 ]) {
   const got = parseInfo(info).attrs;
   check("reads the fence header " + JSON.stringify(info),
         JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got));
 }
+check("a name is counted outside comments and strings, as a whole name",
+      grading.callCount('tw.rect(1)\n# rect\ns = "rect" ++ \'\\\'rect\'\nrect_w = rect(2)\nint::rect(rectangle)\n', "rect") === 3
+      && JSON.stringify(grading.overCalls("rect(1)\nrect(2)\n", [{ max: 1, name: "rect" }]))
+        === '{"name":"rect","count":2,"max":1}'
+      && grading.overCalls("rect(1)\n", [{ max: 1, name: "rect" }]) === null);
 check("output is compared without trailing spaces or blank lines",
       grading.sameOutput("a  \nb\n\n\n", "a\nb") && !grading.sameOutput("a\n b", "a\nb"));
 const radio = { multiple: false, answers: [{ correct: false }, { correct: true }] };
@@ -249,27 +260,27 @@ check("one point per right answer, none for choosing more than there are",
 check("points less the penalty for each failure, never below 0",
       grading.award({ points: 5, penalty: 2 }, 0) === 5 && grading.award({ points: 5, penalty: 2 }, 2) === 1
       && grading.award({ points: 5, penalty: 2 }, 3) === 0 && grading.award({ points: null, penalty: 0 }, 0) === 0);
-const totals = grading.summary(nb, { "exercise-1": { state: "solved", points: 5 },
+const totals = grading.summary(nb, { "task-1": { state: "solved", points: 5 },
   "quiz-1": { state: "solved", points: 2 }, "quiz-2": { state: "failed", points: 0 } });
 check("the totals: solved, points, and whether they pass",
-      totals.solved === 2 && totals.total === 7 && totals.points === 7 && totals.max === 12
+      totals.solved === 2 && totals.total === 8 && totals.points === 7 && totals.max === 12
       && totals.passed === false && totals.done === false, JSON.stringify(totals));
 
-// 1d. An exercise submitted with git, a solution that saves a picture,
+// 1d. A task submitted with git, a solution that saves a picture,
 //     and stdin blocks split into several tests.
 const drawing = renderMarkdown(fs.readFileSync(plan.drawing, "utf8"), { baseURL: "doc/" }).notebook;
 check("drawing.md has no notebook problems", drawing.problems.length === 0,
       JSON.stringify(drawing.problems));
 const [square, doubling, elsewhere] = drawing.items;
-check("an exercise is answered in the page unless it says method = git",
+check("a task is answered in the page unless it says method = git",
       square.method === "inline" && doubling.method === "inline" && elsewhere.method === "git"
       && grading.graded(square) && !grading.graded(elsewhere),
       JSON.stringify(drawing.items.map((i) => i.method)));
 check("a solution saves its canvas as a picture",
       JSON.stringify(square.solution.picture) === '{"canvas":"canvas","file":"square.png"}'
       && doubling.solution.picture === null
-      && JSON.stringify(grading.pictures(drawing).map((p) => [p.exercise.id, p.file]))
-        === '[["exercise-1","square.png"]]',
+      && JSON.stringify(grading.pictures(drawing).map((p) => [p.task.id, p.file]))
+        === '[["task-1","square.png"]]',
       JSON.stringify(square.solution));
 check("a solution is shown to a student only where it says available = true",
       elsewhere.solution.available === false && square.solution.available === false);
@@ -278,38 +289,38 @@ check("lines_per_multi_input splits a stdin block into tests",
       && JSON.stringify(doubling.tests.map((t) => t.stdin)) === '["1\\n2\\n","3\\n4\\n"]'
       && doubling.tests.every((t) => t.input === doubling.tests[0].input),
       JSON.stringify([square.tests.map((t) => t.stdin), doubling.tests.map((t) => t.stdin)]));
-const drawn = grading.summary(drawing, { "exercise-1": { state: "solved", points: 2 } });
-check("an exercise submitted with git is left out of the totals",
+const drawn = grading.summary(drawing, { "task-1": { state: "solved", points: 2 } });
+check("a task submitted with git is left out of the totals",
       drawn.total === 2 && drawn.solved === 1 && drawn.points === 2 && drawn.max === 9,
       JSON.stringify(drawn));
 for (const [header, problem] of [
-  ["```pyking exercise method = svn\n```\n", "method is inline or git, not 'svn'"],
-  ["```pyking exercise method = code_box\n```\n", "method code_box is now called inline"],
-  ["```pyking exercise name = \"two words\"\n```\n", "a name is letters, digits"],
-  ["```pyking exercise name = \"a\"\n```\n```stdout\n\n```\n\nText.\n\n```quiz name = \"a\"\n* x\n```\n```answer\n-> y\n```\n",
+  ["```pyking task method = svn\n```\n", "method is inline or git, not 'svn'"],
+  ["```pyking task method = code_box\n```\n", "method code_box is now called inline"],
+  ["```pyking task name = \"two words\"\n```\n", "a name is letters, digits"],
+  ["```pyking task name = \"a\"\n```\n```stdout\n\n```\n\nText.\n\n```quiz name = \"a\"\n* x\n```\n```answer\n-> y\n```\n",
    "the name 'a' is given to the item on line 1 too"],
-  ["```events\nclick \"go\"\n```\n", "an events block belongs under a cell or an exercise"],
-  ["```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n```stdin lines_per_multi_input = 1\n1\n```\n```events\nclick \"go\"\n```\n```stdout\n1\n```\n",
+  ["```events\nclick \"go\"\n```\n", "an events block belongs under a cell or a task"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```stdin lines_per_multi_input = 1\n1\n```\n```events\nclick \"go\"\n```\n```stdout\n1\n```\n",
    "compared with the solution"],
-  ["```pyking exercise\n```\n```pyking solution save_canvas = \"c\"\nprint(1)\n```\n",
+  ["```pyking task\n```\n```pyking solution save_canvas = \"c\"\nprint(1)\n```\n",
    "save_canvas = needs file"],
-  ["```pyking exercise\n```\n```pyking solution save_canvas = \"c\" file = \"../x.png\"\nprint(1)\n```\n",
+  ["```pyking task\n```\n```pyking solution save_canvas = \"c\" file = \"../x.png\"\nprint(1)\n```\n",
    "file is a .png beside the notebook"],
-  ["```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n```stdin lines_per_multi_input = 2\n1\n2\n3\n```\n",
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```stdin lines_per_multi_input = 2\n1\n2\n3\n```\n",
    "are not pieces of 2"],
-  ["```pyking exercise\n```\n```stdin lines_per_multi_input = 1\n1\n```\n```stdout\n1\n```\n",
+  ["```pyking task\n```\n```stdin lines_per_multi_input = 1\n1\n```\n```stdout\n1\n```\n",
    "compared with the solution"],
-  ["```diff-allowed\nx [+/-1]\n```\n", "belongs under an exercise"],
-  ["```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nx [1]\n```\n",
+  ["```diff-allowed\nx [+/-1]\n```\n", "belongs under a task"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nx [1]\n```\n",
    "holds +/- and a number"],
-  ["```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nno slot here\n```\n",
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nno slot here\n```\n",
    "needs a [+/-N]"],
 ]) {
   const found = renderMarkdown(header).notebook.problems.map((p) => p.message);
   check("refuses " + JSON.stringify(header.split("\n")[header.includes("solution save") ? 2 : 0]),
         found.some((m) => m.includes(problem)), JSON.stringify(found));
 }
-const evented = renderMarkdown("```pyking exercise name = \"go\"\n```\n```pyking solution\nprint(1)\n```\n"
+const evented = renderMarkdown("```pyking task name = \"go\"\n```\n```pyking solution\nprint(1)\n```\n"
   + "```stdin lines_per_multi_input = 1\n1\n2\n```\n```events\nclick \"go\"\n```\n"
   + "```events\nclick \"stop\"\n```\n```stdout\n1\n```\n").notebook;
 check("an events block belongs to the test before it, every piece of a split stdin included",
@@ -327,7 +338,7 @@ check("a number may differ by what a rule allows, and no more",
       && !grading.sameOutput(rect(40, "#ff0000"), rect(41, "#0000ff"), square.allowed)
       && !grading.sameOutput("40", "41", [])
       && !grading.sameOutput("40\n41", "40", square.allowed));
-const decimals = renderMarkdown("```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n"
+const decimals = renderMarkdown("```pyking task\n```\n```pyking solution\nprint(1)\n```\n"
   + "```diff-allowed\nx = [+/-3.21], y = [+/- 0.5]\n```\n").notebook.items[0].allowed;
 check("a rule's slots may be decimals, several on a line",
       grading.allowedLine(decimals, "x = 1.5, y = 2", "x = -1.71, y = 2.5")
@@ -337,7 +348,7 @@ check("a rule's slots may be decimals, several on a line",
 const { lineDiff } = await import(pathToFileURL(plan.activities).href);
 const rows = lineDiff("a\nb\nc\nd", "a\nB\nc\nd\ne");
 const loose = lineDiff("v 1\nw", "v 2\nw", (x, y) => x === y || grading.allowedLine(
-  renderMarkdown("```pyking exercise\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nv [+/-1]\n```\n")
+  renderMarkdown("```pyking task\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nv [+/-1]\n```\n")
     .notebook.items[0].allowed, x, y));
 check("a line diff takes lines a rule allows as the same",
       loose.every((r) => r.kind === "same") && loose[0].left === "v 1" && loose[0].right === "v 2",
@@ -498,7 +509,7 @@ def run_driver(update):
     not be run at all. Bool -> (Int?, [String], Int)"""
     plan = {
         "markdown": str(MARKDOWN),
-        "exercises": str(EXERCISES),
+        "tasks": str(TASKS),
         "activities": str(ACTIVITIES),
         "drawing": str(DRAWING),
         "worker": str(WORKER),
@@ -614,7 +625,7 @@ def check_server(compiler):
         try:
             check("it serves on the port asked for", f"localhost:{port}/" in printed)
             for path in ["/", "/notebook/notebook.js", "/notebook/markdown.js",
-                         "/notebook/notebook.css", "/notebook/exercises.js",
+                         "/notebook/notebook.css", "/notebook/tasks.js",
                          "/notebook/activities.js", "/webrun/web.js",
                          "/webrun/pyking-worker.js", "/webrun/pyking-runtime.js",
                          "/webrun/pyking-mode.js", "/lib/io/io.pyk",

@@ -1,10 +1,10 @@
 (** Notebooks as JSON: a notebook's Markdown read into one structured
-    value -- the text between its blocks kept as it is, each exercise
+    value -- the text between its blocks kept as it is, each task
     with its solution, tests and diff-allowed blocks, each quiz with its
     answer, each cell with the tests under it -- and that value written
     back as the same Markdown, character for character. Also the JSON
     Schema such a value follows. The blocks are found and grouped as
-    tools/notebook/assets/markdown.js and exercises.js find and group
+    tools/notebook/assets/markdown.js and tasks.js find and group
     them. See docs/notebook.md ("JSON").
 
     Data structures:
@@ -48,7 +48,7 @@ let number_keys = [ "max"; "pass"; "attempts"; "points"; "penalty"; "lines_per_m
 let bool_keys = [ "available"; "visible"; "one_point_correct" ]
 
 (** The words written bare, standing for themselves. *)
-let flag_keys = [ "exercise"; "solution"; "norun"; "readonly"; "error"; "playground" ]
+let flag_keys = [ "task"; "practice"; "exercise"; "solution"; "norun"; "readonly"; "error"; "playground" ]
 
 let is_space c = c = ' ' || c = '\t' || c = '\n' || c = '\r' || c = '\011' || c = '\012'
 
@@ -59,11 +59,15 @@ let trim_spaces s =
   while !j > !i && is_space s.[!j - 1] do decr j done;
   String.sub s !i (!j - !i)
 
-type word = Equals | Word of string * bool  (** text, and whether it was quoted *)
+type word =
+  | Equals
+  | Word of string * bool  (** text, and whether it was quoted *)
+  | Group of string  (** a (...) group, as written *)
 
 (** A fence's info string as markdown.js's parseInfo reads it: the
     language, lowercased, and each attribute with its raw value (Some
-    text, or None for a bare word). string -> (string, [(string, string?)]) *)
+    text, or None for a bare word); a value of (...) groups is them with
+    one space between. string -> (string, [(string, string?)]) *)
 let parse_info info =
   let raw = trim_spaces info in
   let inner =
@@ -94,6 +98,9 @@ let parse_info info =
       in
       let j = text (i + 1) in
       words (j + 1) (Word (Buffer.contents buffer, true) :: acc))
+    else if inner.[i] = '(' then
+      let j = match String.index_from_opt inner i ')' with Some j -> j + 1 | None -> n in
+      words j (Group (String.sub inner i (j - i)) :: acc)
     else
       let rec stop j = if j < n && (not (separator inner.[j])) && inner.[j] <> '=' then stop (j + 1) else j in
       let j = stop i in
@@ -103,7 +110,7 @@ let parse_info info =
   in
   let words = Array.of_list (words 0 []) in
   let language =
-    if Array.length words > 0 then match words.(0) with Word (t, _) -> String.lowercase_ascii t | Equals -> ""
+    if Array.length words > 0 then match words.(0) with Word (t, _) | Group t -> String.lowercase_ascii t | Equals -> ""
     else ""
   in
   let set attrs name v =
@@ -116,12 +123,19 @@ let parse_info info =
     else
       match words.(k) with
       | Equals | Word (_, true) -> go (k + 1) attrs
-      | Word (text, false) ->
+      | Word (text, false) | Group text ->
           let name = String.lowercase_ascii text in
           if name = "" then go (k + 1) attrs
           else if k + 2 < count && words.(k + 1) = Equals && words.(k + 2) <> Equals then
-            let v = match words.(k + 2) with Word (t, _) -> t | Equals -> "" in
-            go (k + 3) (set attrs name (Some v))
+            let rec groups j v =
+              match words.(j), (if j + 1 < count then Some words.(j + 1) else None) with
+              | Group _, Some (Group t) -> groups (j + 1) (v ^ " " ^ t)
+              | _ -> (j, v)
+            in
+            let last, v =
+              match words.(k + 2) with Word (t, _) -> (k + 2, t) | Group t -> groups (k + 2) t | Equals -> (k + 2, "")
+            in
+            go (last + 1) (set attrs name (Some v))
           else go (k + 1) (set attrs name None)
   in
   (language, go 1 [])
@@ -169,12 +183,17 @@ let quoted s =
   Buffer.add_char buffer '"';
   Buffer.contents buffer
 
+(** Whether a value reads back as itself written bare: (...) groups with
+    one space between. string -> bool *)
+let bare_groups s = String.length s > 0 && s.[0] = '(' && snd (parse_info ("x v = " ^ s)) = [ ("v", Some s) ]
+
 (** One attribute as a canonical header writes it. (string, value) -> string *)
 let attribute_text (name, v) =
   match v with
   | VBool true when List.mem name flag_keys -> name
   | VBool b -> Printf.sprintf "%s = %b" name b
   | VNumber f -> Printf.sprintf "%s = %s" name (number_text f)
+  | VString s when bare_groups s -> Printf.sprintf "%s = %s" name s
   | VString s -> Printf.sprintf "%s = %s" name (quoted s)
 
 (** The info string a canonical header writes. string -> [(string, value)] -> string *)
@@ -514,15 +533,15 @@ let fence_fields f key drop =
 
 let has_flag f name = List.assoc_opt name f.attrs = Some (VBool true)
 
-(** A test under an exercise or a cell, as it is built: its blocks, by
+(** A test under a task or a cell, as it is built: its blocks, by
     slot, in the order written. *)
 type test = (string * fence) list
 
-(** The JSON of a group's owner: an exercise or a cell, with what came
-    under it. *)
+(** The JSON of a group's owner: a task, a practice or a cell, with
+    what came under it. *)
 type owner = {
   head : fence;
-  is_exercise : bool;
+  task : string option;  (** "task" or "practice"; None for a cell *)
   solution : fence option;
   tests : test list;  (** the last first *)
   allowed : fence list;  (** the last first *)
@@ -549,13 +568,13 @@ let canonical_order o =
   @ List.mapi (fun k _ -> Printf.sprintf "diff_allowed[%d]" k) (List.rev o.allowed)
 
 let owner_json o =
-  let drop = if o.is_exercise then [ "exercise" ] else [] in
+  let drop = Option.to_list o.task in
   let tests = List.rev o.tests in
   let order = List.rev o.order in
-  [ ("type", Json.String (if o.is_exercise then "exercise" else "cell")) ]
+  [ ("type", Json.String (Option.value o.task ~default:"cell")) ]
   @ fence_fields o.head "code" drop
   @ (match o.solution with Some s -> [ ("solution", Json.Object (fence_fields s "code" [ "solution" ])) ] | None -> [])
-  @ (if tests = [] && not o.is_exercise then [] else [ ("tests", Json.List (List.map test_json tests)) ])
+  @ (if tests = [] && o.task = None then [] else [ ("tests", Json.List (List.map test_json tests)) ])
   @ (if o.allowed = [] then []
      else [ ("diff_allowed", Json.List (List.rev_map (fun f -> Json.Object (fence_fields f "text" [])) o.allowed)) ])
   @ if order = canonical_order o then [] else [ ("order", Json.List (List.map (fun s -> Json.String s) order)) ]
@@ -602,7 +621,7 @@ let quiz_json q answer =
     @ answer_fields)
 
 (** The JSON of one run of blocks with only blank lines between them,
-    grouped as exercises.js groups them. [fence] -> [Json] *)
+    grouped as tasks.js groups them. [fence] -> [Json] *)
 let group_json fences =
   let out = ref [] in
   let emit j = out := j :: !out in
@@ -619,13 +638,13 @@ let group_json fences =
         let next = match rest with g :: _ -> Some g | [] -> None in
         let attach kind =
           match !owner, kind with
-          | Some o, "solution" when o.is_exercise && o.solution = None && o.tests = [] ->
+          | Some o, "solution" when o.task <> None && o.solution = None && o.tests = [] ->
               owner := Some (add { o with solution = Some f } "solution");
               true
-          | Some o, "diff-allowed" when o.is_exercise ->
+          | Some o, "diff-allowed" when o.task <> None ->
               owner := Some (add { o with allowed = f :: o.allowed } (Printf.sprintf "diff_allowed[%d]" (List.length o.allowed)));
               true
-          | Some o, "stdin" when o.is_exercise || List.exists (fun g -> List.mem g.language [ "stdout"; "stderr"; "events" ]) (Option.to_list next) ->
+          | Some o, "stdin" when o.task <> None || List.exists (fun g -> List.mem g.language [ "stdout"; "stderr"; "events" ]) (Option.to_list next) ->
               let k = List.length o.tests in
               owner := Some (add { o with tests = [ ("stdin", f) ] :: o.tests } (Printf.sprintf "tests[%d].stdin" k));
               true
@@ -652,15 +671,17 @@ let group_json fences =
           | _ -> false
         in
         let kind =
-          if pyking f && has_flag f "exercise" then "exercise"
+          if pyking f && has_flag f "task" && not (has_flag f "practice") then "task"
+          else if pyking f && has_flag f "practice" && not (has_flag f "task") then "practice"
           else if pyking f && has_flag f "solution" then "solution"
           else if pyking f then "cell"
           else f.language
         in
         match kind with
-        | "exercise" | "cell" ->
+        | "task" | "practice" | "cell" ->
             end_owner ();
-            owner := Some { head = f; is_exercise = kind = "exercise"; solution = None; tests = []; allowed = []; order = [] };
+            let task = if kind = "cell" then None else Some kind in
+            owner := Some { head = f; task; solution = None; tests = []; allowed = []; order = [] };
             go rest
         | "quiz" -> (
             end_owner ();
@@ -864,7 +885,7 @@ let to_markdown value =
           after_fence := false
       | Some "rules" -> put (io where block [ "rules" ])
       | Some "cell" -> owner where block None
-      | Some "exercise" -> owner where block (Some "exercise")
+      | Some ("task" | "practice" as kind) -> owner where block (Some kind)
       | Some "quiz" ->
           let question = Option.value ~default:"" (string_field where "question" block) in
           let alternatives =
@@ -984,6 +1005,24 @@ let order_prop =
 
 let tests_prop = ("tests", obj [ typ "array"; ("items", refer "test") ])
 
+(** A task's or a practice's definition: the same but for the points.
+    string -> string -> bool -> Json *)
+let task_def kind description scored =
+  kind_def kind description ~required:[ "code" ]
+    [ attributes
+        ([ name_attr; ("attempts", count "How many times Submit may fail.") ]
+        @ (if scored then [ ("points", number "What solving it gives."); ("penalty", number "Taken off for each failed Submit.") ] else [])
+        @ [ ("stdin", text_of "The input a test without its own reads."); ("args", text_of "The arguments a test without its own is given.");
+            ("readonly", boolean "The starting code cannot be edited.");
+            ("method", obj [ ("enum", Json.List [ str "inline"; str "git" ]); ("description", str "Answered in the page, or pushed with git and graded elsewhere.") ]);
+            ( "max_calls",
+              obj
+                [ typ "string"; ("pattern", str "^\\( *[0-9]+ *, *[A-Za-z_][A-Za-z0-9_]* *\\)( \\( *[0-9]+ *, *[A-Za-z_][A-Za-z0-9_]* *\\))*$");
+                  ("description", str "Each (N,name): an answer may write the function's name at most N times, outside comments and strings.") ] ) ]);
+      ("code", text_of "The starting code.");
+      ("solution", refer "solution"); tests_prop;
+      ("diff_allowed", obj [ typ "array"; ("items", refer "diff_allowed") ]); order_prop ]
+
 (** The JSON Schema every notebook's JSON follows, as text. string *)
 let schema =
   Json.pretty
@@ -992,7 +1031,7 @@ let schema =
          ("$schema", str "https://json-schema.org/draft/2020-12/schema");
          ("$id", str "https://pyking.org/notebook.schema.json");
          ("title", str "Pyking notebook");
-         ("description", str "A Pyking notebook as JSON, as `pyk notebook --to-json` writes it: the Markdown between its blocks kept as written, and each exercise, quiz, cell and other notebook block structured. `pyk notebook --to-markdown` writes it back as the same Markdown. See docs/notebook.md.");
+         ("description", str "A Pyking notebook as JSON, as `pyk notebook --to-json` writes it: the Markdown between its blocks kept as written, and each task, practice, quiz, cell and other notebook block structured. `pyk notebook --to-markdown` writes it back as the same Markdown. See docs/notebook.md.");
          typ "object";
          ("additionalProperties", Json.Bool false);
          ("required", Json.List [ str "format"; str "version"; str "blocks" ]);
@@ -1012,7 +1051,7 @@ let schema =
                    [
                      ( "oneOf",
                        Json.List
-                         (List.map refer [ "markdown"; "rules"; "cell"; "exercise"; "quiz"; "other" ]) );
+                         (List.map refer [ "markdown"; "rules"; "cell"; "task"; "practice"; "quiz"; "other" ]) );
                    ] );
                ( "markdown",
                  obj
@@ -1034,17 +1073,8 @@ let schema =
                          ("stdin", text_of "What it reads on standard input."); ("args", text_of "Its arguments, as one line.") ];
                      ("code", text_of "The program, each line with its newline.");
                      tests_prop; order_prop ] );
-               ( "exercise",
-                 kind_def "exercise" "A ```pyking exercise block, the starting code, with its solution, tests and diff-allowed blocks." ~required:[ "code" ]
-                   [ attributes
-                       [ name_attr; ("attempts", count "How many times Submit may fail."); ("points", number "What solving it gives.");
-                         ("penalty", number "Taken off for each failed Submit.");
-                         ("stdin", text_of "The input a test without its own reads."); ("args", text_of "The arguments a test without its own is given.");
-                         ("readonly", boolean "The starting code cannot be edited.");
-                         ("method", obj [ ("enum", Json.List [ str "inline"; str "git" ]); ("description", str "Answered in the page, or pushed with git and graded elsewhere.") ]) ];
-                     ("code", text_of "The starting code.");
-                     ("solution", refer "solution"); tests_prop;
-                     ("diff_allowed", obj [ typ "array"; ("items", refer "diff_allowed") ]); order_prop ] );
+               ("task", task_def "task" "A ```pyking task block, the starting code, with its solution, tests and diff-allowed blocks." true);
+               ("practice", task_def "practice" "A ```pyking practice block: a task that gives no points." false);
                ( "solution",
                  sub_def "A ```pyking solution block." ~required:[ "code" ]
                    [ attributes
@@ -1105,7 +1135,7 @@ let schema =
                                  ("properties", obj [ ("correct", boolean "-> where right, - where wrong."); ("text", text_of "What explains it.") ]) ] ) ] );
                      ("body", text_of "The block's text, where it is not written the canonical way.") ] );
                ( "other",
-                 kind_def "block" "Any other notebook block where it stands: one that belongs to no exercise, cell or quiz there." ~required:[ "language" ]
+                 kind_def "block" "Any other notebook block where it stands: one that belongs to no task, practice, cell or quiz there." ~required:[ "language" ]
                    [ ("language", obj [ ("enum", Json.List (List.map str notebook_languages)) ]);
                      ( "attributes",
                        obj [ typ "object"; ("additionalProperties", obj [ ("type", Json.List [ str "string"; str "number"; str "boolean" ]) ]) ] );

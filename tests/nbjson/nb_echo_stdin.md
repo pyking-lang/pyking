@@ -25,7 +25,7 @@ how many people it greeted:
 An empty line is a name too (an empty one), so stop only at the end of
 the input.
 
-```pyking exercise name = "greet" stdin = "Ada\nGrace\n"
+```pyking practice name = "greet" stdin = "Ada\nGrace\n"
 import io
 print("Add your code here")
 ```
