@@ -1,0 +1,18 @@
+# Pictures drawn at the top level, with no frames: the page waits for a
+# picture to load before drawing it and what comes after it.
+
+import tinyweb as tw
+import tinyweb.color as color
+
+tw.web_init(0)
+c = tw.canvas(200, 100)
+tile = tw.load_image("tile.png")
+star = tw.load_image("star.png")
+missing = tw.load_image("no_such_picture.png")
+
+tw.image(c, tile, 0, 0, 200, 100)
+tw.rect(c, 20, 20, 60, 30, color.hex(0x204080))
+tw.image(c, star, 100, 10, 50, 50, alpha = 0.5)
+tw.image(c, missing, 10, 60, 30, 30)
+tw.circle(c, 170, 70, 15, color.hex(0xc03030))
+print("drawn")

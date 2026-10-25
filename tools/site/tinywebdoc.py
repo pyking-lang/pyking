@@ -145,7 +145,8 @@ DESCRIPTIONS = {
                   "answers the string that names it to `draw_image`.",
     "draw_image": "Draws a loaded picture on the canvas `c`, its top left corner at "
                   "(`x`, `y`), stretched to `width` by `height`, at `alpha`. One still "
-                  "loading is not drawn.",
+                  "loading is drawn once it has loaded, and what is drawn after it "
+                  "waits until then.",
     "make_button": "A button showing `title`, placed below what the page already "
                    "shows, which calls `on_click` each time it is pressed. Answers the "
                    "string that names it: `title`, with a number added where something "

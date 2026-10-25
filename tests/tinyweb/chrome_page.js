@@ -282,7 +282,29 @@
     for (const line of snapshot()) record.push("  | " + line);
   };
 
+  // Every picture the page made, so that settling waits until each has
+  // loaded or failed in both places the page looks for it, and the page
+  // has drawn what waited for it.
+  const pictures = [];
+  const NativeImage = window.Image;
+  window.Image = function (...args) {
+    const made = new NativeImage(...args);
+    const picture = { settled: false };
+    made.addEventListener("load", () => { picture.settled = true; });
+    made.addEventListener("error", () => {
+      if (made.src.includes("tinyweb_assets/")) picture.settled = true;
+    });
+    pictures.push(picture);
+    return made;
+  };
+  window.Image.prototype = NativeImage.prototype;
+
+  const unsettled = (picture) => !picture.settled;
+
   window.__pykSettle = async () => {
+    for (let i = 0; i < 500 && pictures.some(unsettled); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
     for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
   };
 

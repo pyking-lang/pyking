@@ -742,6 +742,13 @@ CHROME_DRIVER = HERE / "tinyweb" / "chrome.mjs"
 # them: one answering on a thread of its own, one from a select loop
 # once the top level has ended.
 CHROMIUM_SERVED_TARGETS = ["python12", "interpret"]
+# What a case's recording must hold, in this order, where the three
+# pages could agree by all leaving it out: a picture drawn at the top
+# level, before it has loaded, and what is drawn after it.
+CHROMIUM_DRAWS = {
+    "lib_tinyweb_image_top": ["drawImage(tile.png, 0, 0, 200, 100)", "rect(20, 20, 60, 30)",
+                              "drawImage(star.png, 100, 10, 50, 50)", "arc(170, 70, 15,"],
+}
 def marked(page):
     """A page whose module script says when its program's top level has
     ended, which the driver waits for. Path -> ()"""
@@ -789,6 +796,11 @@ def check_chromium(compiler, chromium, case):
         for directory, recording in zip(pages, recordings):
             if "error" in recording:
                 return f"{directory.name}: {recording['error']}"
+        wanted = CHROMIUM_DRAWS.get(stem.name, [])
+        lines = iter(recordings[0]["record"])
+        for draw in wanted:
+            if not any(draw in line for line in lines):
+                return f"drawing directly: no {draw} where it belongs"
         names = ["drawing directly", "through commands", "interpreted"]
         for name, recording in zip(names[1:], recordings[1:]):
             if recording["record"] != recordings[0]["record"]:

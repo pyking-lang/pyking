@@ -1633,6 +1633,11 @@ libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
+file = "lib_tinyweb_image_top.pyk"
+libs = ["math", "text", "tinyweb"]
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+[[cases]]
 file = "lib_tinyweb_widgets.pyk"
 libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }

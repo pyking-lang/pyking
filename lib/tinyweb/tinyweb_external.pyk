@@ -84,8 +84,10 @@ def draw_bitmap(c: String, b: String, x: Int, y: Int, scale: Float) -> ()
 # topic: Images
 ## Starts loading a picture, so that `image` can draw it. The file is
 ## looked for beside the page first, then among the pictures tinyweb
-## ships: `ball.png`, `star.png` and `tile.png`. A picture drawn before
-## it has loaded is not drawn; the next frame draws it.
+## ships: `ball.png`, `star.png` and `tile.png`. Drawing a picture
+## before it has loaded waits for it: the page holds that and everything
+## after it until the picture has loaded, so what is drawn later still
+## lands on top of it.
 ##
 ## # Parameters
 ## - `name`: the file's name, such as `"ball.png"`.
@@ -100,10 +102,7 @@ def draw_bitmap(c: String, b: String, x: Int, y: Int, scale: Float) -> ()
 ## tw.web_init(0)
 ## c = tw.canvas(200, 100)
 ## ball = tw.load_image("ball.png")
-## def draw(t: Float):
-##     tw.clear(c)
-##     tw.image(c, ball, 80, 30, 40, 40)
-## tw.on_frame(draw)
+## tw.image(c, ball, 80, 30, 40, 40)
 ## ```
 ## ```stdout
 ## ```

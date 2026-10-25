@@ -58,7 +58,7 @@ import sys
 import tempfile
 
 # BEGIN version (written by make from VERSION; do not edit)
-VERSION = "0.1.5"
+VERSION = "0.1.6-dev"
 # END version
 
 USAGE = """\

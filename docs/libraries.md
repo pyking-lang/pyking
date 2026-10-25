@@ -356,7 +356,14 @@ keeps the last 64 a canvas used. `measure` asks the page how wide a text
 is, and the page answers with a `measured` event once the code that
 asked has finished. `image_load` and `image` load and draw a picture,
 found as a sample is (beside the page, then in `tinyweb_assets/`, which
-ships `ball.png`, `star.png` and `tile.png`). `clear` starts its canvas
+ships `ball.png`, `star.png` and `tile.png`). An `image` naming a
+picture still loading holds itself and everything after it --
+commands, frames, events and the clock, as the splash screen does --
+until the picture has loaded or failed (`waitFor`, `release`), so a
+program may draw a picture at its top level and draw over it; a picture
+that fails is not drawn. The held commands are carried out even if the
+page was frozen in the meantime, since a top level that only draws
+ends before its pictures load. `clear` starts its canvas
 afresh: every `push` closed, no transformation, shadow, blending,
 clipping or dashes, so what a late page is sent before a clear can be
 dropped. The drawing itself is the style block's `drawShape`,

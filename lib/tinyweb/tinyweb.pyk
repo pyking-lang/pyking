@@ -1575,8 +1575,8 @@ public def blend(c: String, mode: String) -> ():
 # topic: Images
 
 ## Draws a picture `load_image` loaded on the canvas `c`, stretched to
-## the rectangle given. A picture not loaded yet is not drawn: the next
-## frame draws it.
+## the rectangle given. A picture not loaded yet is drawn once it has
+## loaded, and what the program draws after it waits until then.
 ##
 ## # Parameters
 ## - `c`: the canvas.

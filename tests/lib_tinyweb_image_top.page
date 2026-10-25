@@ -1,0 +1,9 @@
+canvas "canvas" 200 100
+load_image "tile.png"
+load_image "star.png"
+load_image "no_such_picture.png"
+image "canvas" "tile.png" 0 0 200 100 1.000
+rect "canvas" 20 20 60 30 0 "#204080" "" 1.000 1.000
+image "canvas" "star.png" 100 10 50 50 0.500
+image "canvas" "no_such_picture.png" 10 60 30 30 1.000
+circle "canvas" 170 70 15 "#c03030" "" 1.000 1.000
