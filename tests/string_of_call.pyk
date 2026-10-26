@@ -12,4 +12,4 @@ def pair() -> (Int, Float):
 
 print(string(zero()) == "0", string(zero()) == "zero")
 x = string(zero())
-print(x ++ "!", string(half()), string(pair()), string(half()) == "0.5")
+print(x + "!", string(half()), string(pair()), string(half()) == "0.5")

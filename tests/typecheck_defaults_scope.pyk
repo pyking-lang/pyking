@@ -6,6 +6,7 @@
 # definition kept the binding that stood where it was written
 # (PYKING.md, "Default parameters").
 
+use mutation
 
 size = 10
 

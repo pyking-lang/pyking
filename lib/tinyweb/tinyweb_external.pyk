@@ -346,7 +346,7 @@ def on_mouse(c: String, click: (Int, Int) -> ()) -> ()
 ## tw.web_init(0)
 ## shown = tw.label("press a key")
 ## def pressed(key: String):
-##     tw.set_text(shown, "you pressed " ++ key)
+##     tw.set_text(shown, "you pressed " + key)
 ## tw.on_key(pressed)
 ## ```
 ## ```stdout
@@ -367,7 +367,7 @@ public def on_key(pressed: (String) -> ()) -> ()
 ## tw.web_init(0)
 ## shown = tw.label("hold a key")
 ## def released(key: String):
-##     tw.set_text(shown, "you let go of " ++ key)
+##     tw.set_text(shown, "you let go of " + key)
 ## tw.on_key_up(released)
 ## ```
 ## ```stdout
@@ -387,6 +387,7 @@ public def on_key_up(released: (String) -> ()) -> ()
 ##
 ## # Examples
 ## ```pyking
+## use mutation
 ## import tinyweb as tw
 ## import tinyweb.color as color
 ## tw.web_init(0)

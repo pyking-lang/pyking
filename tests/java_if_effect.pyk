@@ -2,6 +2,8 @@
 # function changed: on Java it is an if statement, which may read a
 # variable a lambda could not.
 
+use mutation
+
 def show(x: Int):
     print(x)
 

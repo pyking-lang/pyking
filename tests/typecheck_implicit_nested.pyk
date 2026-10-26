@@ -12,7 +12,7 @@ implicit def float::leq(x: Float, y: Float) -> Bool: x <= y
 
 implicit def list::leq(xs: [a], ys: [a], implicit leq: (a, a) -> Bool) -> Bool:
     match (xs, ys):
-        case ([x] ++ xrest, [y] ++ yrest):
+        case ([x] + xrest, [y] + yrest):
             if leq(x, y):
                 list::leq(xrest, yrest)
             else:

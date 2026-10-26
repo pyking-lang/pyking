@@ -43,11 +43,11 @@ document = 10
 print(document)
 
 
-# `++` pulls in the concatenation helper, and printing a Bool pulls in
+# `+` on two Strings pulls in the concatenation helper, and printing a Bool pulls in
 # the formatter -- so each name above is live beside the helper it would
 # otherwise redeclare, and each global above is shadowed where the
 # formatter would have used it.
-print("a" ++ "b", true, false)
+print("a" + "b", true, false)
 print("quote'd", "tab\there")
 
 

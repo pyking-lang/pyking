@@ -20,8 +20,10 @@
 # string with `host_find` and `host_replace` rather than one character
 # at a time.
 
+use mutation
 
 # `k` held to 0..top.
+
 def within(k: Int, top: Int) -> Int:
     if k < 0:
         0
@@ -162,7 +164,7 @@ public def code(s: String, k: Int) -> Int:
 ## # Examples
 ## ```pyking
 ## import text
-## print(text.from_code(65) ++ text.from_code(229) ++ text.from_code(128081))
+## print(text.from_code(65) + text.from_code(229) + text.from_code(128081))
 ## print(text.from_code(-1) == "")
 ## ```
 ## ```stdout
@@ -335,7 +337,7 @@ public def lower(s: String) -> String:
 ## # Examples
 ## ```pyking
 ## import text
-## print("[" ++ text.trim("  two words \n") ++ "]")
+## print("[" + text.trim("  two words \n") + "]")
 ## ```
 ## ```stdout
 ## [two words]
@@ -405,8 +407,8 @@ public def repeat(s: String, n: Int) -> String:
             break
         else:
             half = k / 2
-            more = if k - half * 2 == 1 then out ++ piece else out
-            (half, if half == 0 then piece else piece ++ piece, more)
+            more = if k - half * 2 == 1 then out + piece else out
+            (half, if half == 0 then piece else piece + piece, more)
     out
 
 
@@ -442,8 +444,8 @@ public def split(s: String, by: String) -> [String]:
             if k < 0:
                 break
             else:
-                (k + m, parts ++ [host_slice(s, at, k)])
-        parts ++ [host_slice(s, at, host_length(s))]
+                (k + m, parts + [host_slice(s, at, k)])
+        parts + [host_slice(s, at, host_length(s))]
 
 
 ## The words of `s`: the pieces between its spaces, tabs, newlines and
@@ -489,20 +491,20 @@ public def words(s: String) -> [String]:
 ## ```
 public def join(parts: [String], between: String) -> String:
     # A chunk of parts is joined before it is added to the whole, so no
-    # one `++` copies much.
+    # one `+` copies much.
     var whole = ""
     var chunk = ""
     var count = 0
     var chunks = 0
     for part in parts:
-        chunk := if count == 0 then part else chunk ++ between ++ part
+        chunk := if count == 0 then part else chunk + between + part
         count := count + 1
         if count == 128:
-            whole := if chunks == 0 then chunk else whole ++ between ++ chunk
+            whole := if chunks == 0 then chunk else whole + between + chunk
             chunks := chunks + 1
             chunk := ""
             count := 0
-    if count == 0 then whole else if chunks == 0 then chunk else whole ++ between ++ chunk
+    if count == 0 then whole else if chunks == 0 then chunk else whole + between + chunk
 
 
 ## The lines of `s`. A line ends at a newline, or at a carriage return

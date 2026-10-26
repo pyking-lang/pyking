@@ -9,4 +9,4 @@ def both(f: Float) -> ():
 tw.web_init(0)
 frequency = float(io.read_line())
 both(frequency)
-print("played " ++ string(frequency) ++ "   ")
+print("played " + string(frequency) + "   ")

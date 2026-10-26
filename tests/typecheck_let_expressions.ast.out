@@ -5,11 +5,11 @@ pair: (Int, (Int, Int)) = (1, (2, 3))
 print(let (x, (y, z)): (Int, (Int, Int)) = pair in x + y * z)
 print(let t: (Int, String) = (4, 'four') in t)
 print(1 + (let x: Int = 10 in x) * 2)
-square_plus: (Int) -> Int = (n:Int) => let m: Int = n * n in m + 1
+square_plus: (Int) -> Int = lam (n:Int). let m: Int = n * n in m + 1
 print(square_plus(5))
-print(let twice: (Int) -> Int = (k:Int) => k * 2 in twice(twice(3)))
+print(let twice: (Int) -> Int = lam (k:Int). k * 2 in twice(twice(3)))
 def sign(n:Int) -> String:
-    let s: String = if n < 0 then '-' else '+' in s ++ string(n)
+    let s: String = if n < 0 then '-' else '+' in s + string(n)
 print(sign(4), sign(-4))
 x: Int = 100
 print(let x: Int = 1 in x + 1, x)

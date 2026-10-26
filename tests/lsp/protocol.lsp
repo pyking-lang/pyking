@@ -2,7 +2,7 @@
 # twice, a method the server does not have, a notification it does not
 # know, JSON that does not parse, a document never opened, and a request
 # after shutdown.
-hover main.pyk 1:1
+hover main.pyk 3:1
 notify textDocument/didOpen {}
 initialize
 initialize
@@ -15,5 +15,5 @@ raw [1, 2]
 hover never_opened.pyk 1:1
 symbols never_opened.pyk
 shutdown
-hover main.pyk 1:1
+hover main.pyk 3:1
 exit

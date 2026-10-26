@@ -10,7 +10,7 @@ def scale(n, factor):
 
 
 def greet(name: String) -> String
-def greet(name): "hello " ++ name
+def greet(name): "hello " + name
 
 
 def apply(f: (Int) -> Int, x: Int) -> Int

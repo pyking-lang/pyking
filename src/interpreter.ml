@@ -563,9 +563,11 @@ let call_free_symbols stmts =
    Typesystem's: the same operators, with what they *compute* here
    beside what they *accept* there. *)
 
-(* A division that fails has no node to hand, so it raises with this and
-   `apply_binary` puts the real position in. Every other rule answers
-   None and lets the operand message below do the reporting. *)
+(* A rule that fails for a reason of its own -- a division by zero, an
+   index outside its list, a negative exponent or shift -- has no node to
+   hand, so it raises with this and `apply_binary` puts the real position
+   in. A rule given operands it does not take answers None instead, and
+   lets the operand message below do the reporting. *)
 let divide_info = { file = "<division>"; row1 = 0; col1 = 0; row2 = 0; col2 = 0 }
 
 let arith op float_op left right =
@@ -613,13 +615,95 @@ let equals left right =
   | VBool a, VBool b -> Some (boolean (a = b))
   | _ -> None
 
+let not_equals left right =
+  match equals left right with
+  | Some (VBool b) -> Some (boolean (not b))
+  | other -> other
+
+(** The remainder, truncating toward zero as `/` does, so that
+    `a == (a / b) * b + a % b`; OCaml's `mod` is exactly that. A Float
+    remainder is IEEE's fmod. value -> value -> value option *)
+let remainder left right =
+  match (left, right) with
+  | VInt _, VInt 0 -> raise (Trap (divide_info, "division by zero"))
+  | VInt a, VInt b -> Some (VInt (a mod b))
+  | VFloat a, VFloat b -> Some (VFloat (Float.rem a b))
+  | _ -> None
+
+(** `^`: an Int raised to an Int at least 0 by repeated squaring, a
+    Float to a Float by IEEE's pow. A negative Int exponent has no Int
+    answer. value -> value -> value option *)
+let power left right =
+  match (left, right) with
+  | VInt _, VInt b when b < 0 ->
+      raise
+        (Trap
+           ( divide_info,
+             Printf.sprintf
+               "an Int raised to %d: an Int power is an Int, so the \
+                exponent is at least 0"
+               b ))
+  | VInt a, VInt b ->
+      let rec go base exponent acc =
+        if exponent = 0 then acc
+        else
+          go (base * base) (exponent / 2)
+            (if exponent mod 2 = 1 then acc * base else acc)
+      in
+      Some (VInt (go a b 1))
+  | VFloat a, VFloat b -> Some (VFloat (Float.pow a b))
+  | _ -> None
+
+let bitwise op left right =
+  match (left, right) with VInt a, VInt b -> Some (VInt (op a b)) | _ -> None
+
+(** A shift by a count from 0 up. Past the host's width the bits are all
+    gone: a left shift is 0, and a right one keeps only the sign.
+    bool -> value -> value -> value option *)
+let shift left_shift left right =
+  match (left, right) with
+  | VInt _, VInt n when n < 0 ->
+      raise (Trap (divide_info, Printf.sprintf "a shift by %d: the count is at least 0" n))
+  | VInt a, VInt n ->
+      let width = Sys.int_size in
+      Some
+        (VInt
+           (if left_shift then if n >= width then 0 else a lsl n
+            else if n >= width then if a < 0 then -1 else 0
+            else a asr n))
+  | _ -> None
+
+(** `xs[i]`: element i of a list, counting from 0. An index outside the
+    list is a Pyking error rather than a crash. value -> value -> value option *)
+let element left right =
+  match (left, right) with
+  | VList items, VInt i ->
+      let n = List.length items in
+      if i < 0 || i >= n then
+        raise
+          (Trap
+             ( divide_info,
+               Printf.sprintf "the index %d is outside a list of %d element%s" i n
+                 (if n = 1 then "" else "s") ))
+      else Some (List.nth items i)
+  | _ -> None
+
 (** An operator's spelling and what it computes, or None for an
     expression that is not one.
     expr -> (string, value -> value -> value option) option *)
 let operator_rule e =
   match e with
-  | EAdd _ -> Some ("+", arith (fun a b -> a + b) (fun a b -> a +. b))
-  | EConcat _ -> Some ("++", concat)
+  (* `+` on two Strings or two lists is an EConcat by the time it runs
+     (elaborate.ml); one the checker left open until later -- a REPL
+     entry's lambda, decided by the next entry -- joins here too. *)
+  | EAdd _ ->
+      Some
+        ( "+",
+          fun left right ->
+            match arith (fun a b -> a + b) (fun a b -> a +. b) left right with
+            | Some value -> Some value
+            | None -> concat left right )
+  | EConcat _ -> Some ("+", concat)
   | ESub _ -> Some ("-", arith (fun a b -> a - b) (fun a b -> a -. b))
   | EMul _ -> Some ("*", arith (fun a b -> a * b) (fun a b -> a *. b))
   | EDiv _ -> Some ("/", divide)
@@ -632,6 +716,23 @@ let operator_rule e =
   | EGreatThanEq _ ->
       Some (">=", compare_with (fun a b -> a >= b) (fun a b -> a >= b))
   | EEq _ -> Some ("==", equals)
+  | EIndex _ -> Some ("[]", element)
+  | EBinary (_, op, _, _, _) ->
+      let rule =
+        match op with
+        | BMod -> remainder
+        | BPow -> power
+        | BNeq -> not_equals
+        | BBitAnd _ -> bitwise ( land )
+        | BBitOr _ -> bitwise ( lor )
+        | BXor -> bitwise ( lxor )
+        | BShiftLeft -> shift true
+        | BShiftRight -> shift false
+        (* Short-circuit: never applied to two values, since the machine
+           takes them as the `if` they mean (`as_choice`). *)
+        | BAnd _ | BOr _ -> fun _ _ -> None
+      in
+      Some (binop_text op, rule)
   | _ -> None
 
 (** The two operands of a binary operator application.
@@ -647,8 +748,19 @@ let binary_operands e =
   | ELessThanEq (_, left, right, _)
   | EGreatThan (_, left, right, _)
   | EGreatThanEq (_, left, right, _)
-  | EEq (_, left, right, _) ->
+  | EEq (_, left, right, _)
+  | EBinary (_, _, left, right, _)
+  | EIndex (_, left, right, _) ->
       Some (left, right)
+  | _ -> None
+
+(** `a and b` and `a or b` on Bools as the `if` they mean, so the right
+    operand runs only where it decides the answer; None for any other
+    expression. expr -> expr option *)
+let as_choice e =
+  match e with
+  | EBinary (i, BAnd _, l, r, s) -> Some (EIf (i, l, r, EBool (i, false, 0), s))
+  | EBinary (i, BOr _, l, r, s) -> Some (EIf (i, l, EBool (i, true, 0), r, s))
   | _ -> None
 
 (** The value of one binary operator application. Raises Trap for
@@ -676,11 +788,14 @@ let apply_unary node operand =
   match (node, operand) with
   | ENeg _, VInt a -> VInt (-a)
   | ENeg _, VFloat a -> VFloat (-.a)
+  | EUnary (_, UNot _, _, _), VBool b -> VBool (not b)
+  | EUnary (_, UBitNot _, _, _), VInt a -> VInt (lnot a)
   | _ ->
+      let spelling = match node with EUnary (_, op, _, _) -> unop_text op | _ -> "-" in
       raise
         (Trap
            ( expr_info node,
-             Printf.sprintf "`-` cannot be applied to %s" (describe operand) ))
+             Printf.sprintf "`%s` cannot be applied to %s" spelling (describe operand) ))
 
 (* --- builtins --- *)
 
@@ -938,7 +1053,8 @@ let rec evaluate e env =
           List.map (fun (Param (_, n, _, _, _)) -> n) params,
           [ SExprStmt (expr_info body, body, 0) ],
           env )
-  | ENeg (_, operand, _) -> apply_unary e (evaluate operand env)
+  | ENeg (_, operand, _) | EUnary (_, _, operand, _) -> apply_unary e (evaluate operand env)
+  | EBinary (_, (BAnd _ | BOr _), _, _, _) -> evaluate (Option.get (as_choice e)) env
   | ELet (_, target, _, value, body, _) ->
       evaluate body (bind_target env target (evaluate value env))
   | EIf (_, cond, then_expr, else_expr, _) -> (
@@ -1422,12 +1538,20 @@ and step_eval state e =
           control = CEval record;
           kont = Some (KField (e, state.env, state.kont));
         }
-    | ENeg (_, operand, _) ->
+    | ENeg (_, operand, _) | EUnary (_, _, operand, _) ->
         {
           state with
           control = CEval operand;
           kont = Some (KNegate (e, state.env, state.kont));
         }
+    | EBinary (_, (BAnd _ | BOr _), _, _, _) -> step_eval state (Option.get (as_choice e))
+    (* A literal the machine built itself -- the `false` an `and` is
+       taken as (`as_choice`) -- has no symbol of its own to be found
+       call-free by. *)
+    | EInt _ | EFloat _ | EString _ | EBool _ -> (
+        match evaluate e state.env with
+        | value -> { state with control = CApply value }
+        | exception Trap (info, message) -> failed state info message)
     | EListComp _ -> comprehend state e [] [] state.env state.env state.kont
     | EIf (_, cond, _, _, _) ->
         {

@@ -26,7 +26,7 @@ def reverse(xs:[Int]) -> [Int]:
         case []:
             return []
         case [x, ..rest]:
-            return reverse(rest) ++ [x]
+            return reverse(rest) + [x]
 
 
 def ends(xs:[Int]) -> String:

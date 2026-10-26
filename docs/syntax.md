@@ -138,12 +138,18 @@ The mechanism is `min_prec`, threaded through `pprint_expr` the way a
 Pratt parser threads a minimum binding power: each call says "the
 result must bind at least this tightly," and `_wrap(prec, min_prec, s)`
 parenthesizes `s` exactly when its own precedence falls short. `EAdd`
-prints its own operator at precedence 2 and asks its right operand for
-precedence 3 (`pprint_expr(r, 3)`) — one *more* than its own — which is
-what makes `1 + (2 + 3)` keep its parens while `(1 + 2) + 3` sheds them:
-addition is left-associative, so only the right side of one `+` ever
-needs protecting from being re-associated. `EConcat` prints at the same
-two numbers, since `++` shares `+`'s level and associativity. `ENeg`'s comment spells out
+prints its own operator at `prec_add` and asks its right operand for
+`prec_add + 1` -- one *more* than its own -- which is what makes
+`1 + (2 + 3)` keep its parens while `(1 + 2) + 3` sheds them: addition
+is left-associative, so only the right side of one `+` ever needs
+protecting from being re-associated. The levels are multiples of ten,
+loosest first (`prec_low` for `lam`/`if`/`let`, then `prec_or`,
+`prec_and`, `prec_not`, `prec_compare`, the bitwise ones, `prec_add`,
+`prec_mul`, `prec_unary`, `prec_power`, `prec_atom`), which leaves room
+for `level + 1`. `EConcat` prints as `+`, since a join is a `+` the
+checker typed as a String or a list. The words `and`/`or`/`not` print
+at their own level even where elaboration made them bitwise, which is
+where the parser read them. `ENeg`'s comment spells out
 the same idea for unary minus, including a case worth reading closely:
 `-(-5)` is deliberately printed with parens around the inner negation
 even though `--5` would parse identically, because a token that reads
@@ -166,11 +172,11 @@ parsers exist (`parse_if_expr_tail` for the expression, the loop in
 the desugaring its own parser rule performed.
 
 `ELambda` shares `EIf`'s precedence 0, and prints its body at 0 for the
-same reason `EIf` prints its `else` branch there: `=>` associates to the
-right, so `(x) => (y) => x + y` stays flat. Its parameter list is
-*always* parenthesized, whatever the source wrote — `x => e` and
-`(x) => e` are the same node, and the parenthesized spelling is the one
-the parser reads back whatever the parameters look like. A parameter's
+same reason `EIf` prints its `else` branch there: a lambda associates to
+the right, so `lam (x). lam (y). x + y` stays flat. Its parameter list
+is *always* parenthesized, whatever the source wrote — `lam x. e` and
+`lam (x). e` are the same node, and the parenthesized spelling is the
+one the parser reads back whatever the parameters look like. A parameter's
 type prints from `tmap` like every other annotation, so a lambda whose
 parameter the source left bare prints with the type the checker worked
 out for it.

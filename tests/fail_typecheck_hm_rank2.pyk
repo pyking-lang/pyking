@@ -19,7 +19,7 @@
 
 def identity(x): x
 
-def use(f):
+def use_it(f):
     print(f(1), f(true))
 
-use(identity)
+use_it(identity)

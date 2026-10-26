@@ -208,6 +208,19 @@ the concrete mechanism behind PYKING.md's promise that mutual recursion
 works at the REPL prompt the same way it works in a file — the *first*
 half of it is never treated as a mistake, only as incomplete.
 
+## `use`: a feature turned on for the rest of the session
+
+A file's `use` lines turn a feature on for the whole of it; a session
+is one module written an entry at a time, so a `use` typed at the
+prompt turns the feature on for every entry after it. The session
+keeps the features its entries have turned on (`features`), and each
+entry is parsed with them already on (`parse_entry`, through
+`Parser.parse_with`); an entry's own `use` lines add to them. An entry
+that is only `use mutation` has no statements, and answers nothing.
+`pyk repl --use mutation` starts a session with the feature on
+(`with_features`), and the playground's REPL tab keeps the same
+session state, so a `use` there behaves the same.
+
 ## Imports: a module arrives with the entry that names it
 
 An entry's imports are handled before the entry is desugared, since the

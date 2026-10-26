@@ -9,4 +9,4 @@ public area: Int = width * height
 public label: String = "area"
 
 public def describe(unit:String) -> String:
-    return label ++ " in " ++ unit
+    return label + " in " + unit

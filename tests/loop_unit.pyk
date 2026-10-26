@@ -11,6 +11,8 @@
 # comparison worth having: the accumulator loops elsewhere in this
 # directory need no mutable state at all.
 
+use mutation
+
 var countdown = 3
 loop:
     if countdown == 0:

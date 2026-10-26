@@ -29,14 +29,16 @@ print("Add your code here")
 ```
 
 ```pyking solution available = true
+use mutation
+
 import io
 import sys
 args = sys.args()
 var i = 0
 for word in args:
     i := i + 1
-    print(string(i) ++ ": " ++ word)
-print("separator: " ++ io.read_line())
+    print(string(i) + ": " + word)
+print("separator: " + io.read_line())
 print(len(args), "arguments")
 ```
 

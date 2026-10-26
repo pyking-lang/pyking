@@ -10,12 +10,12 @@ def foo(x: a, implicit bar: (a) -> b) -> (b, b):
 
 def my1() -> ():
     implicit def bar(z: Int) -> String:
-        string(z) ++ "!"
+        string(z) + "!"
     print(foo(78), foo(10))
 
 def my2() -> ():
     implicit def bar(z: String) -> String:
-        z ++ "!"
+        z + "!"
     print(foo("hi"), foo("wow"))
 
 my1()

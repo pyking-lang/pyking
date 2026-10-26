@@ -6,6 +6,8 @@
 # started with, and worth unit where it carries none. A loop with no
 # `break` at all never ends, which is allowed.
 
+use mutation
+
 def count_to(limit:Int) -> Int:
     # The accumulator is both what the loop carries and what it is
     # worth, so this answers with the count it stopped on.
@@ -50,7 +52,7 @@ def carried() -> (Int, String):
         if n > 2:
             break
         else:
-            (n + 1, s ++ "x")
+            (n + 1, s + "x")
 
 
 print(count_to(3), count_to(0))

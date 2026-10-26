@@ -16,13 +16,13 @@ print(let t: (Int, String) = (4, "four") in t)
 print(1 + (let x = 10 in x) * 2)
 
 # In a lambda's body, and a lambda as the value.
-square_plus = (n) => let m = n * n in m + 1
+square_plus = lam n. let m = n * n in m + 1
 print(square_plus(5))
-print(let twice = (k: Int) => k * 2 in twice(twice(3)))
+print(let twice = lam (k: Int). k * 2 in twice(twice(3)))
 
 # In an if expression, and an if expression as the value.
 def sign(n: Int) -> String:
-    let s = if n < 0 then "-" else "+" in s ++ string(n)
+    let s = if n < 0 then "-" else "+" in s + string(n)
 
 print(sign(4), sign(-4))
 

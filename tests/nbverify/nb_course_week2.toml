@@ -100,7 +100,7 @@ reason = "The output is not what it should be.\nevents:\nclick \"Right\"\nclick 
 [[solution]]
 file = "nb_course_week2_mover_s6.pyk"
 accepted = false
-reason = "Your program did not run:\n'solution.pyk' 10:4-10:15 Name error: cannot update 'x' with ':=': it\n  is a binding (declared on line 5), not a mutable variable (declare\n  it with 'var' to make it one)"
+reason = "Your program did not run:\n'solution.pyk' 12:4-12:15 Name error: cannot update 'x' with ':=': it\n  is a binding (declared on line 7), not a mutable variable (declare\n  it with 'var' to make it one)"
 
 [[solution]]
 file = "nb_course_week2_trace_s1.pyk"

@@ -14,6 +14,8 @@ draw the shapes in the order the text asks for.
 keeps the position, and `:=` moves it on.
 
 ```pyking
+use mutation
+
 import tinyweb as tw
 import tinyweb.color as color
 c = tw.canvas(200, 60)
@@ -36,6 +38,8 @@ print("Add your code here")
 ```
 
 ```pyking solution available = true
+use mutation
+
 import tinyweb as tw
 import tinyweb.color as color
 import io

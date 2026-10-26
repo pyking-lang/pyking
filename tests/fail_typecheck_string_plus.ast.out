@@ -1,3 +1,4 @@
-'tests/fail_typecheck_string_plus.pyk' 16:9-16:25 Type error: `+`
-  cannot be applied to String and String; it accepts Int + Int or
-  Float + Float. Did you mean `++`, the concatenation operator?
+'tests/fail_typecheck_string_plus.pyk' 13:8-13:26 Type error: `+`
+  cannot be applied to String and Int; it accepts Int + Int or Float +
+  Float or String + String or two lists of one type. `+` joins two
+  Strings and converts nothing: write string(n)

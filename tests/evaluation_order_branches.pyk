@@ -8,6 +8,8 @@
 # they are chosen. Whatever pins the order down has to stay inside the
 # expression it belongs to.
 
+use mutation
+
 def step(label:String, value:Int) -> Int:
     print("step", label)
     value

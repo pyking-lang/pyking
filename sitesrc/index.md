@@ -18,7 +18,7 @@ hero:
 
 ```pyking norun playground
 for name in ["Ada", "Grace", "Don"]:
-    print("Hello, " ++ name)
+    print("Hello, " + name)
 ```
 
 ## What Pyking is

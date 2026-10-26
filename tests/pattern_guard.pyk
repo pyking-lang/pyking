@@ -54,8 +54,8 @@ print(size(1))
 # A guard sees what a string split bound.
 def command(line: String) -> String:
     match line:
-        case "say " ++ rest if len(rest) > 3: "long: " ++ rest
-        case "say " ++ rest: "short: " ++ rest
+        case "say " + rest if len(rest) > 3: "long: " + rest
+        case "say " + rest: "short: " + rest
         case _: "?"
 
 

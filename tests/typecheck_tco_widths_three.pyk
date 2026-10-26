@@ -38,11 +38,11 @@ def start(a: String, b: Int) -> String:
     if b == 0:
         finish(a)
     else:
-        start(a ++ "*", b - 1)
+        start(a + "*", b - 1)
 
 
 def finish(a: String) -> String:
-    a ++ "!"
+    a + "!"
 
 
 print(start("", 3))

@@ -5,6 +5,8 @@
 # program as written, so its `debug` lines are there -- on standard
 # error, which is why the one .out serves both.
 
+use mutation
+
 def square(x: Int) -> Int:
     debug("square of", x)
     return x * x

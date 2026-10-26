@@ -1175,11 +1175,21 @@ let range_helper_def =
 let int_helper = "pyk_int_of_string"
 let truncate_helper = "pyk_truncate"
 let float_parse_helper = "pyk_float_of_string"
+let power_helper = "pyk_ipow"
 
 (** The text of one conversion helper. string -> string *)
 let conversion_def name =
   String.concat "\n"
-    (if name = int_helper then
+    (if name = power_helper then
+       [
+         "(* An Int raised to an Int at least 0, by repeated squaring. *)";
+         Printf.sprintf "let rec %s base exponent =" name;
+         "  if exponent <= 0 then 1";
+         "  else";
+         Printf.sprintf "    let half = %s (base * base) (exponent / 2) in" name;
+         "    if exponent mod 2 = 1 then base * half else half";
+       ]
+     else if name = int_helper then
        [
          Printf.sprintf "let %s s =" name;
          "  let n = String.length s in";
@@ -1380,6 +1390,42 @@ let rec expr ctx acc e =
   (* OCaml's `=` is structural equality, which is what Pyking's `==`
      means for every type it compares. *)
   | EEq (_, left, right, _) -> binary ctx acc "=" left right
+  | EBinary (_, op, left, right, _) -> (
+      let float = match IntMap.find_opt (expr_sym left) ctx.tmap with Some (TFloat _) -> true | _ -> false in
+      match op with
+      (* OCaml's `&&` and `||` decide whether the right operand runs, as
+         Pyking's `and` and `or` do, so each side is translated on its
+         own rather than pinned in order. *)
+      | BAnd _ | BOr _ ->
+          let a, acc = expr ctx acc left in
+          let b, acc = expr ctx acc right in
+          (OBin ((match op with BAnd _ -> "&&" | _ -> "||"), a, b), acc)
+      (* `<>` is structural, as `=` is, and IEEE's on two floats. *)
+      | BNeq -> binary ctx acc "<>" left right
+      | BMod when float ->
+          let pieces, sequence, acc = in_order ctx acc [ left; right ] in
+          (sequence (OApp (OVar "Float.rem", pieces)), acc)
+      (* `mod` truncates toward zero, as Pyking's `%` does. *)
+      | BMod -> binary ctx acc "mod" left right
+      | BPow when float -> binary ctx acc "**" left right
+      | BPow ->
+          let pieces, sequence, acc = in_order ctx acc [ left; right ] in
+          let acc =
+            if List.mem power_helper acc.conversions then acc
+            else { acc with conversions = acc.conversions @ [ power_helper ] }
+          in
+          (sequence (OApp (OVar power_helper, pieces)), acc)
+      | BBitAnd _ -> binary ctx acc "land" left right
+      | BBitOr _ -> binary ctx acc "lor" left right
+      | BXor -> binary ctx acc "lxor" left right
+      | BShiftLeft -> binary ctx acc "lsl" left right
+      | BShiftRight -> binary ctx acc "asr" left right)
+  | EUnary (_, op, operand, _) ->
+      let o_operand, acc = expr ctx acc operand in
+      (OApp (OVar (match op with UNot _ -> "not" | UBitNot _ -> "lnot"), [ o_operand ]), acc)
+  | EIndex (_, list, index, _) ->
+      let pieces, sequence, acc = in_order ctx acc [ list; index ] in
+      (sequence (OApp (OVar "List.nth", pieces)), acc)
   | EConstruct (_, _, name, args, _) -> (
       let canonical =
         match type_of ctx e with TCon (_, c, _, _) -> c | _ -> name
@@ -2898,22 +2944,32 @@ let polish_items all keep interfaced =
 let p_seq = 1
 let p_let = 2
 let p_if = 3
-let p_cmp = 4
-let p_concat = 5
-let p_add = 6
-let p_mul = 7
-let p_app = 8
-let p_atom = 9
+let p_or = 4
+let p_and = 5
+let p_cmp = 6
+let p_concat = 7
+let p_add = 8
+let p_mul = 9
+let p_pow = 10
+let p_app = 11
+let p_atom = 12
 
 let op_level op =
   match op with
-  | "=" | "<" | "<=" | ">" | ">=" -> p_cmp
+  | "||" -> p_or
+  | "&&" -> p_and
+  | "=" | "<>" | "<" | "<=" | ">" | ">=" -> p_cmp
   (* `@` joins lists and `^` joins strings; both associate to the right
      at the same level in OCaml. *)
   | "^" | "@" -> p_concat
   | "+" | "-" | "+." | "-." -> p_add
-  | "*" | "/" | "*." | "/." -> p_mul
+  | "*" | "/" | "*." | "/." | "mod" | "land" | "lor" | "lxor" -> p_mul
+  | "**" | "lsl" | "asr" -> p_pow
   | _ -> p_cmp
+
+(** Whether an operator associates to the right in OCaml, so that a
+    left operand at its own level needs parentheses. string -> bool *)
+let right_associative op = op = "**" || op = "lsl" || op = "asr"
 
 (* Where a refusal that belongs to no node in the source points. *)
 let builtin_info = { file = "<ocaml>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
@@ -3146,8 +3202,9 @@ and pprint_bare e level =
          neither: it associates to the right *and* joining strings is
          associative, so a chain of them prints flat however the
          translation happened to nest it. *)
-      let right_need = if op = "^" then level_ else level_ + 1 in
-      ( Printf.sprintf "%s %s %s" (pprint left level_ level) op
+      let right_need = if op = "^" || right_associative op then level_ else level_ + 1 in
+      let left_need = if right_associative op then level_ + 1 else level_ in
+      ( Printf.sprintf "%s %s %s" (pprint left left_need level) op
           (pprint right right_need level),
         level_ )
   | OIf (cond, then_, else_) -> (pprint_if cond then_ else_ level, p_if)

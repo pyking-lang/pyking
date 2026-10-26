@@ -5,7 +5,7 @@ Pyking REPL.  :help for commands, :quit to leave.
 > greet = <function> : (String) -> String
 > (String) -> String
 > > 'yo again' : String
-> def greet(who:String = "again") -> String: "yo " ++ who
+> def greet(who:String = "again") -> String: "yo " + who
 > '<repl>' 1:13-1:14 Name error: 'greet' has no parameter 'nope'
 > > '<repl>' 1:0-1:12 Name error: 'g' is a binding, not a function
   definition; default and named arguments are available only when

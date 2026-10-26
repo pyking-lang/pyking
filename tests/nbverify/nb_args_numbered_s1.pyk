@@ -6,7 +6,7 @@ def show(words: [String], n: Int) -> Int:
         case []:
             return n
         case [w, ..rest]:
-            print(string(n + 1) ++ ": " ++ w)
+            print(string(n + 1) + ": " + w)
             return show(rest, n + 1)
 
 count = show(sys.args(), 0)

@@ -29,13 +29,13 @@
 def map(f, lst):
     match lst:
         case [x, ..xs]:
-            [f(x)] ++ map(f, xs)
+            [f(x)] + map(f, xs)
         case []:
             []
 
 def double(n): n * 2
 
-def label(n): 'n=' ++ string(n)
+def label(n): 'n=' + string(n)
 
 numbers = [1, 4, 6, 9]
 

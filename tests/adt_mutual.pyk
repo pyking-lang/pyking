@@ -23,16 +23,16 @@ def count_all(f: Forest) -> Int:
 
 def labels(r: Rose) -> [String]:
     match r:
-        case Rose(l, kids): [l] ++ forest_labels(kids)
+        case Rose(l, kids): [l] + forest_labels(kids)
 
 
 def forest_labels(f: Forest) -> [String]:
     match f:
         case Nil: []
-        case Cons(r, rest): labels(r) ++ forest_labels(rest)
+        case Cons(r, rest): labels(r) + forest_labels(rest)
 
 
-leaf = name => Rose(name, Nil)
+leaf = lam name. Rose(name, Nil)
 tree = Rose("root", Cons(leaf("a"), Cons(Rose("b", Cons(leaf("c"), Nil)), Nil)))
 print(count(tree))
 print(labels(tree))

@@ -32,4 +32,4 @@ print(host.flip(host.flip(true)))
 
 print(host.origin)
 print(host.greeting)
-print(host.shout(host.greeting) ++ "/" ++ host.greeting)
+print(host.shout(host.greeting) + "/" + host.greeting)

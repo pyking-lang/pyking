@@ -17,7 +17,7 @@ def pair(both:(Int, String)) -> String:
     match both:
         case (n, text):
             if n > 5:
-                return text ++ '!'
+                return text + '!'
             return text
 print(pair(pair__default__both()))
 print(pair((9, 'z')))
@@ -27,7 +27,7 @@ def countdown(n:Int, sofar:[Int]) -> [Int]:
     loop (n, sofar): (Int, [Int]) = (n, sofar):
         if n <= 0:
             return sofar
-        (n - 1, sofar ++ [n])
+        (n - 1, sofar + [n])
 print(countdown(4, countdown__default__sofar()))
 print(countdown(2, [99]))
 sum_: Int = loop acc: Int = 0 for i in range(4):

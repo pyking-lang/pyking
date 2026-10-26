@@ -1,3 +1,4 @@
+use mutation
 def three_deep(start:Int) -> Int:
     var depth = start
     def middle() -> ():
@@ -16,7 +17,7 @@ var counted = 0
     if i > 3:
         break
     else:
-        (i + 1, made ++ [add_turn])
+        (i + 1, made + [add_turn])
 def run_all(fs:[() -> ()]) -> ():
     loop fs: [() -> ()] = fs:
         match fs:

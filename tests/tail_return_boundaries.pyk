@@ -2,8 +2,11 @@
 # form -- the cases that distinguish "the last statement" from "any
 # statement that happens to be an expression".
 
+use mutation
+
 # The if/match is NOT last: another expression follows, so the if runs
 # for its effect and only the trailing expression is the value.
+
 def not_last(n):
     var acc = 0
     if n > 0:

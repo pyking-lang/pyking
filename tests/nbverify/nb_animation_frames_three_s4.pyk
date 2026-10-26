@@ -1,4 +1,7 @@
 # The right text, but every bar is ten pixels wide.
+
+use mutation
+
 import tinyweb as tw
 import tinyweb.color as color
 

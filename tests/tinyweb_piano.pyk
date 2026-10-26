@@ -48,7 +48,7 @@ def draw(lit: String):
 
 def play(note: String):
     tw.play(piano, rate = sound.rate_of(note, base = "C4"))
-    tw.set_text(shown, note ++ " at " ++ string(sound.note(note)) ++ " Hz")
+    tw.set_text(shown, note + " at " + string(sound.note(note)) + " Hz")
     draw(note)
 
 # The note under (x, y): a black key where one is, else a white one.

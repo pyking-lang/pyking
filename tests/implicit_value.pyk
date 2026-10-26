@@ -8,7 +8,7 @@ implicit width = 4
 
 def pad(text: String, implicit width: Int) -> String:
     loop out = text while len(out) < width:
-        out ++ "."
+        out + "."
 
 print(pad("a"))
 print(pad("abcdef"))

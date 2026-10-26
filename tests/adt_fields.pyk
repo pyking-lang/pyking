@@ -2,6 +2,8 @@
 # order, leaving fields out of a pattern, and defaults evaluated at each
 # construction.
 
+use mutation
+
 datatype Person:
     Person(name: String, age: Int, email: String = "none", admin: Bool = false)
 
@@ -15,8 +17,8 @@ print(q)
 def role(x: Person) -> String:
     match x:
         case Person(admin = true): "admin"
-        case Person(age = a, name = n) if a < 18: n ++ " is young"
-        case Person(n, email = "none"): n ++ " has no email"
+        case Person(age = a, name = n) if a < 18: n + " is young"
+        case Person(n, email = "none"): n + " has no email"
         case Person(name = n): n
 
 

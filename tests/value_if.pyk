@@ -1,6 +1,8 @@
 # An `if` statement bound with `=`: it stays a statement, but every branch
 # ends in an expression, and the branch that runs supplies the bound value.
 
+use mutation
+
 y = 3
 my = 2
 x = if 7 > my:
@@ -69,7 +71,7 @@ depth = if y > 0:
         "deep"
     else:
         "shallow"
-    inner ++ "!"
+    inner + "!"
 else:
     "none"
 

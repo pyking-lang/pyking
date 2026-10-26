@@ -6,4 +6,4 @@ public def double(n: Int) -> Int:
 
 ## A greeting for a name.
 public def greet(name: String) -> String:
-    return "hello " ++ name
+    return "hello " + name

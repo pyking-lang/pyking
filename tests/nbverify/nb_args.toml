@@ -30,4 +30,4 @@ reason = "The output is not what it should be.\nstdin:\n--\nargs: red \"light bl
 [[solution]]
 file = "nb_args_numbered_s6.pyk"
 accepted = false
-reason = "Your program did not run:\n'solution.pyk' 6:10-6:19 Type error: `++` cannot be applied to Int and\n  String; it accepts String ++ String or two lists of one type"
+reason = "Your program did not run:\n'solution.pyk' 8:10-8:18 Type error: `+` cannot be applied to Int and\n  String; it accepts Int + Int or Float + Float or String + String or\n  two lists of one type. `+` joins two Strings and converts nothing:\n  write string(n)"

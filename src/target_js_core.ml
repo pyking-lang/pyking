@@ -413,6 +413,32 @@ let rec translate_expr e scope =
           JsMember (info, JsVar (info, "Math"), "trunc"),
           [ JsBinary (info, "/", translate_expr l scope, translate_expr r scope) ]
         )
+  | EBinary (info, op, l, r, _) ->
+      (* JavaScript has every one of these, spelled as Pyking's symbols
+         are: `%` truncates toward zero on integers and is fmod on
+         doubles, `**` is the power, and the bitwise operators work on
+         32-bit integers -- the range a Pyking Int promises. *)
+      let spelling =
+        match op with
+        | BAnd _ -> "&&"
+        | BOr _ -> "||"
+        | BNeq -> "!=="
+        | BMod -> "%"
+        | BPow -> "**"
+        | BBitAnd _ -> "&"
+        | BBitOr _ -> "|"
+        | BXor -> "^"
+        | BShiftLeft -> "<<"
+        | BShiftRight -> ">>"
+      in
+      JsBinary (info, spelling, translate_expr l scope, translate_expr r scope)
+  | EUnary (info, op, operand, _) ->
+      JsUnary
+        ( info,
+          (match op with UNot _ -> "!" | UBitNot _ -> "~"),
+          translate_expr operand scope )
+  | EIndex (info, list, index, _) ->
+      JsIndex (info, translate_expr list scope, translate_expr index scope)
   | EList (info, elements, _) ->
       JsList (info, List.map (fun el -> translate_expr el scope) elements)
   | EListComp (info, element, clauses, _) ->
@@ -1425,23 +1451,29 @@ let translate_program ?(taken = []) ?(external_fields = []) ?(externals = [])
 
 let precedence op =
   match op with
-  | "*" | "/" -> 12
+  | "**" -> 13
+  | "*" | "/" | "%" -> 12
   | "+" | "-" -> 11
+  | "<<" | ">>" -> 10
   | "<" | "<=" | ">" | ">=" -> 9
-  | "===" -> 8
-  (* `&&` joins the tests a pattern is compiled into; looser than every
-     comparison above it, which is what lets those go
+  | "===" | "!==" -> 8
+  | "&" -> 7
+  | "^" -> 6
+  | "|" -> 5
+  (* `&&` also joins the tests a pattern is compiled into; looser than
+     every comparison above it, which is what lets those go
      unparenthesized. *)
   | "&&" -> 4
+  | "||" -> 3
   | _ -> 0
 
 let unary_precedence = 14
-let conditional_precedence = 3
+let conditional_precedence = 2
 
 (* An arrow function is an AssignmentExpression, looser than everything
    else printed here -- so one used as a callee or an operand is
    parenthesized. *)
-let arrow_precedence = 2
+let arrow_precedence = 1
 let call_precedence = 17
 
 let escape_char c =
@@ -1495,6 +1527,13 @@ let rec pprint_js_expr ?(min_prec = 0) e runtime =
   | JsUnary (_, op, operand) ->
       parens unary_precedence min_prec
         (Printf.sprintf "%s%s" op (at (unary_precedence + 1) operand))
+  | JsBinary (_, "**", left, right) ->
+      (* `**` associates to the right, and JavaScript refuses a unary
+         operator directly on its left: `(-2) ** 2` keeps its
+         parentheses. *)
+      let prec = precedence "**" in
+      parens prec min_prec
+        (Printf.sprintf "%s ** %s" (at (unary_precedence + 1) left) (at prec right))
   | JsBinary (_, op, left, right) ->
       let prec = precedence op in
       (* Left-associative: the right operand needs the tighter bound. *)

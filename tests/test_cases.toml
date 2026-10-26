@@ -35,6 +35,7 @@ excluded = { c = "lists need a heap, and C has no garbage collector to free one"
 
 [[cases]]
 file = "concatenation.pyk"
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "else_if.pyk"
@@ -1985,3 +1986,155 @@ file = "string_of_call.pyk"
 file = "lib_tinyweb_splash_voice.pyk"
 libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
+
+# Steps 1 and 2 of design/steps.md: `use mutation`, the operators
+# `+` (joining), `and`/`or`/`not` and `&&`/`||`/`!`, `%`, `^`, `!=`, the
+# bitwise ones, `xs[i]` and `lam` lambdas; and every refusal they bring.
+
+[[cases]]
+file = "operators_boolean.pyk"
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "operators_bitwise.pyk"
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "operators_arithmetic.pyk"
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "list_index.pyk"
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "concatenation_plus.pyk"
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "use_mutation.pyk"
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "typecheck_operators.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "operators_scalar.pyk"
+
+[[cases]]
+file = "use_mutation_module.pyk"
+modules = ["use_mutation_module_mod1.pyk"]
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "fail_typecheck_and_mixed.pyk"
+
+[[cases]]
+file = "fail_typecheck_andand_int.pyk"
+
+[[cases]]
+file = "fail_typecheck_bang_int.pyk"
+
+[[cases]]
+file = "fail_typecheck_bitand_bool.pyk"
+
+[[cases]]
+file = "fail_typecheck_bitor_bool.pyk"
+
+[[cases]]
+file = "fail_typecheck_compare_chain.pyk"
+
+[[cases]]
+file = "fail_typecheck_if_int.pyk"
+
+[[cases]]
+file = "fail_typecheck_index_bracket_missing.pyk"
+
+[[cases]]
+file = "fail_typecheck_index_string.pyk"
+
+[[cases]]
+file = "fail_typecheck_index_type.pyk"
+
+[[cases]]
+file = "fail_typecheck_lambda_arrow.pyk"
+
+[[cases]]
+file = "fail_typecheck_lambda_no_dot.pyk"
+
+[[cases]]
+file = "fail_typecheck_lambda_several_bare.pyk"
+
+[[cases]]
+file = "fail_typecheck_lambda_typed_bare.pyk"
+
+[[cases]]
+file = "fail_typecheck_mod_string.pyk"
+
+[[cases]]
+file = "fail_typecheck_neq_types.pyk"
+
+[[cases]]
+file = "fail_typecheck_not_string.pyk"
+
+[[cases]]
+file = "fail_typecheck_oror_int.pyk"
+
+[[cases]]
+file = "fail_typecheck_pattern_barbar.pyk"
+
+[[cases]]
+file = "fail_typecheck_pattern_concat.pyk"
+
+[[cases]]
+file = "fail_typecheck_plus_bool.pyk"
+
+[[cases]]
+file = "fail_typecheck_plus_list_element.pyk"
+
+[[cases]]
+file = "fail_typecheck_plus_lists_mixed.pyk"
+
+[[cases]]
+file = "fail_typecheck_plus_typevar.pyk"
+
+[[cases]]
+file = "fail_typecheck_power_mixed.pyk"
+
+[[cases]]
+file = "fail_typecheck_power_starstar.pyk"
+
+[[cases]]
+file = "fail_typecheck_reserved_class.pyk"
+
+[[cases]]
+file = "fail_typecheck_reserved_self.pyk"
+
+[[cases]]
+file = "fail_typecheck_tilde_bool.pyk"
+
+[[cases]]
+file = "fail_typecheck_use_late.pyk"
+
+[[cases]]
+file = "fail_typecheck_use_mutate.pyk"
+
+[[cases]]
+file = "fail_typecheck_use_nested.pyk"
+
+[[cases]]
+file = "fail_typecheck_use_same_line.pyk"
+
+[[cases]]
+file = "fail_typecheck_use_twice.pyk"
+
+[[cases]]
+file = "fail_typecheck_use_unknown.pyk"
+
+[[cases]]
+file = "fail_typecheck_use_var.pyk"
+
+[[cases]]
+file = "fail_typecheck_xor_bool.pyk"

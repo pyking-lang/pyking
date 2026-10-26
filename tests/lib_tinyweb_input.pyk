@@ -15,16 +15,16 @@ tw.text(c, 10, 10, "click \"me\"", size = 20)
 status = tw.label("nothing yet")
 
 def clicked(x: Int, y: Int):
-    tw.set_text(status, "clicked at " ++ string(x) ++ ", " ++ string(y))
+    tw.set_text(status, "clicked at " + string(x) + ", " + string(y))
     tw.circle(c, x, y, 5, color.blue)
 
 def pressed(key: String):
-    print("key [" ++ key ++ "]")
+    print("key [" + key + "]")
     if key == "Enter":
         tw.play_file("snare1.wav")
 
 def moved(value: Int):
-    tw.set_text(status, "slider at " ++ string(value))
+    tw.set_text(status, "slider at " + string(value))
 
 tw.on_click(c, clicked)
 tw.on_key(pressed)

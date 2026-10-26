@@ -16,7 +16,7 @@ def label(words:[String]) -> String:
         case [only]:
             return only
         case [first, ..rest]:
-            return first ++ "..."
+            return first + "..."
 
 
 print([1, 2, 3])

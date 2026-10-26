@@ -15,9 +15,9 @@ def name(c: Color) -> String:
     match c:
         case Green: "green"
         case Blue | Yellow: "blue or yellow"
-        case Black(n): "black " ++ string(n)
+        case Black(n): "black " + string(n)
         case Red: "red"
-        case Gray(num = n): "gray " ++ string(n)
+        case Gray(num = n): "gray " + string(n)
         case White: "white"
 
 print(name(Green), name(Black(3)), name(Gray(num = 7)), name(White), name(Yellow))

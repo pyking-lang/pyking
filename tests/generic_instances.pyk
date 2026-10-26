@@ -35,7 +35,7 @@ def unbox(b: Box(a)) -> a:
 print(first((1, "one")), first(("two", 2)))
 print(swap((true, 3.5)), swap(swap(("a", 1))))
 print(pick(true, "yes", "no"), pick(false, 1, 2))
-print(twice(ident, 5), twice((s) => s ++ "!", "hey"))
+print(twice(ident, 5), twice(lam s. s + "!", "hey"))
 print(unbox(Box(Box(7))), unbox(Box("x")))
 same = ident
 print(same(3), same("three"))

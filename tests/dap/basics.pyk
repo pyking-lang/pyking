@@ -1,6 +1,8 @@
 # A program to step through: a recursive function, a loop over a
 # list, and a var it adds to.
 
+use mutation
+
 def fact(n: Int) -> Int:
     if n <= 1:
         return 1

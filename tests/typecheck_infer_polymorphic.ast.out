@@ -1,13 +1,13 @@
 def map(f:(a) -> b, lst:[a]) -> [b]:
     match lst:
         case [x, ..xs]:
-            [f(x)] ++ map(f, xs)
+            [f(x)] + map(f, xs)
         case []:
             []
 def double(n:Int) -> Int:
     n * 2
 def label(n:Int) -> String:
-    'n=' ++ string(n)
+    'n=' + string(n)
 numbers: [Int] = [1, 4, 6, 9]
 print(map(double, numbers))
 print(map(label, numbers))

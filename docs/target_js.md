@@ -210,10 +210,11 @@ closures.
 
 ## Lists, `match` and value forms
 
-`++` is `pykConcat`, which looks at its left operand: a Pyking list is
-an array and JavaScript's `+` would stringify one, so which of the two
-`++` means is decided at run time. This backend infers no types, so
-that is the same answer `pykFormat` gives for printing.
+A `+` the checker typed as two Strings or two lists is `pykConcat`,
+which looks at its left operand: a Pyking list is an array and
+JavaScript's `+` would stringify one, so which of the two joins it is is
+decided at run time -- the same answer `pykFormat` gives for printing.
+Every other `+` is JavaScript's own.
 
 Lists, list comprehensions and `match` *are* supported. A Pyking tuple
 is a JavaScript array, so a **list is an array carrying a marker** --
@@ -358,7 +359,7 @@ loop i, made = 0, []:              while (true) {
         break                        if (i > 3) { break; }
     else:                            tmp1 = [i + 1, pykConcat(made, pykList([show]))];
         (i + 1,                    }
-         made ++ [show])
+         made + [show])
 ```
 
 A loop with no function in its body keeps the plain `let`, so ordinary
@@ -367,7 +368,7 @@ JavaScript already gives each iteration its own binding for the element.
 
 A **lambda** in the body is the same case and gets the same answer:
 `defines_function` answers true for one, so `loop made = [] for i in
-[0, 1, 2]: made ++ [x => x + i]` gets the carrier and the per-turn
+[0, 1, 2]: made + [lam x. x + i]` gets the carrier and the per-turn
 `const` exactly as a `def` does. It matches `Walk.NExpr (ELambda _)` as
 well as `Walk.NStmt (SFunctionDef _)`, which is the whole of the
 difference — a lambda is an expression, so a predicate that looked only
@@ -380,8 +381,8 @@ A lambda is an arrow function, and its parameters are its own scope —
 the one place this backend needs no renaming at all:
 
 ```pyking                          // generated JavaScript
-double = x => x * 2                const double = (x) => x * 2;
-adder = x => y => x + y            const adder = (x) => (y) => x + y;
+double = lam x. x * 2              const double = (x) => x * 2;
+adder = lam x. lam y. x + y        const adder = (x) => (y) => x + y;
 ```
 
 The body is one expression in both languages, so the arrow's
@@ -390,13 +391,15 @@ a `return`.
 
 An arrow function is an `AssignmentExpression`, which binds looser than
 everything else this printer emits, so one used as a **callee** or as
-an operand is parenthesized: `(x => x + 1)(5)` has to print as
+an operand is parenthesized: `(lam x. x + 1)(5)` has to print as
 `((x) => x + 1)(5)`, since `(x) => x + 1(5)` is an arrow whose body is
 a call. `tests/lambda_basic.pyk` pins it.
 
 ### Control flow, functions, expressions
 
 ```pyking
+use mutation
+
 def sign(n): if n < 0 then "neg" else "pos"
 
 
@@ -712,7 +715,7 @@ and no order for the program to arrange.
 
 ```pyking
 public def greet(name:String) -> String:
-    "hello, " ++ name
+    "hello, " + name
 
 def priv(): 1
 ```

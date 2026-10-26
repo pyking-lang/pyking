@@ -11,14 +11,14 @@ def pair(both:(Int, String) = (1, 'a')) -> String:
     match both:
         case (n, text):
             if n > 5:
-                return text ++ '!'
+                return text + '!'
             return text
 print(pair())
 print(pair((9, 'z')))
 def countdown(n:Int, sofar:[Int] = []) -> [Int]:
     if n <= 0:
         return sofar
-    return countdown(n - 1, sofar ++ [n])
+    return countdown(n - 1, sofar + [n])
 print(countdown(4))
 print(countdown(2, [99]))
 sum_ = loop acc = 0 for i in range(4):

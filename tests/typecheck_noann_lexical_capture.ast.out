@@ -2,7 +2,7 @@ x: Int = 1
 def show() -> Int:
     x
 x: String = 'two'
-label: String = x ++ '!'
+label: String = x + '!'
 count: Int = show() + 1
 y: Int = 1
 def f():

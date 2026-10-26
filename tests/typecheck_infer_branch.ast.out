@@ -1,7 +1,7 @@
 def shout(word:String) -> String:
-    word ++ '!'
+    word + '!'
 def whisper(word:String) -> String:
-    word ++ '...'
+    word + '...'
 def chooser(loud:Bool) -> (String) -> String:
     if loud:
         shout

@@ -21,7 +21,7 @@ def double(n):
 
 def exclaim : (String) -> String
 def exclaim(s):
-    return s ++ "!"
+    return s + "!"
 
 
 def positive : (Int) -> Bool

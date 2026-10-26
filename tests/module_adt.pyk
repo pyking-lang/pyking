@@ -9,8 +9,8 @@ from module_adt_mod1 import Point, Option
 
 def describe(s: shapes.Shape) -> String:
     match s:
-        case shapes.Circle(r): "circle " ++ string(r)
-        case shapes.Rect(w, height = h): "rect " ++ string(w) ++ "x" ++ string(h)
+        case shapes.Circle(r): "circle " + string(r)
+        case shapes.Rect(w, height = h): "rect " + string(w) + "x" + string(h)
 
 
 for s in [shapes.Circle(1.0), shapes.Rect(2.0), shapes.Rect(width = 3.0, height = 4.0), shapes.unit_square()]:

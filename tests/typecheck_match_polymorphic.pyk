@@ -31,7 +31,7 @@ def flatten(xss):
         case []:
             return []
         case [first, ..rest]:
-            return first ++ flatten(rest)
+            return first + flatten(rest)
 
 
 print(head([1, 2], 0), head(["a"], "z"), head([], true))

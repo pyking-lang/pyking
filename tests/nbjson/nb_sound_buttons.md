@@ -36,6 +36,8 @@ tw.web_init(0)
 ```
 
 ```pyking solution available = true
+use mutation
+
 import tinyweb as tw
 tw.web_init(0)
 kick = tw.load_sample("kick1.wav")

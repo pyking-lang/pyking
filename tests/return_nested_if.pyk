@@ -2,6 +2,8 @@
 # `else`, with statements after the outer `if`: the `return` leaves the
 # function, and what follows runs only when it does not.
 
+use mutation
+
 var calls = 0
 
 

@@ -379,8 +379,8 @@ and `tests/typecheck_type_first_class_outer.pyk`.
 metavariable.** Quantification is for definitions, and a lambda is not
 one (PYKING.md, "Lambdas"): `check_lambda` replaces each variable the
 annotations name with one fresh metavariable — one per *name*, so
-`(x: a, y: a) => …` still demands two arguments of one type — and
-generalises nothing afterwards. `(x: a) => x` therefore means "some
+`lam (x: a, y: a). …` still demands two arguments of one type — and
+generalises nothing afterwards. `lam (x: a). x` therefore means "some
 type, to be settled by the uses", which is what monomorphic has to mean
 when a variable is written down.
 
@@ -405,7 +405,7 @@ pattern is a **demand**:
    case 1:              unify(subject, Int)
    case 'x':            unify(subject, String)
    case (a, b):         unify(subject, (?1, ?2)), then recurse
-   case [h] ++ t:       unify(subject, [?e]), then recurse on ?e
+   case [h] + t:        unify(subject, [?e]), then recurse on ?e
    case name:           binds; demands nothing
    case _:              demands nothing
 ```
@@ -480,45 +480,48 @@ unannotated function's return type be decided by a `return` written
 inside a loop (`tests/typecheck_infer_loop_return.pyk`).
 
 **The accumulator needs no special case to widen.** `loop kept = []`
-starts as `[?e]`, and a body ending in `kept ++ [x]` solves `?e` by
+starts as `[?e]`, and a body ending in `kept + [x]` solves `?e` by
 ordinary unification — the same rule as everywhere else.
 
-## `+` and `++`: naming the operator that would have worked
+## Naming what to write instead
 
-Splitting concatenation out of `+` moves a class of mistake from "wrong
-types" to "wrong operator", and a message that only said what `+`
-accepts would leave the reader to work out the rest. So a failing
-operator names its look-alike when — and only when — that look-alike
-would have taken these operands:
+A failing operator says what it accepts, and where the mistake has an
+obvious cure, names it -- when, and only when, the cure would take these
+operands (`alternative` in `src/typesystem.ml`):
 
 ```
-'prog.pyk' 3:6-3:18 Type error: `+` cannot be applied to String and
-  String; it accepts Int + Int. Did you mean `++`, the concatenation
-  operator?
+'prog.pyk' 1:6-1:16 Type error: `+` cannot be applied to String and
+  Int; it accepts Int + Int or Float + Float or String + String or two
+  lists of one type. `+` joins two Strings and converts nothing: write
+  string(n)
+'prog.pyk' 1:6-1:18 Type error: `&` cannot be applied to Bool and Bool;
+  it accepts Int & Int. On Bools, write 'and' (or '&&')
+'prog.pyk' 1:6-1:12 Type error: `&&` cannot be applied to Int and Int;
+  it accepts Bool && Bool. On Ints, write 'and' or '&'
 ```
 
-`ALTERNATIVES` pairs the two in both directions, so `1 ++ 2` is told
-about `+` by the same rule. The condition is checked against the
-partner's row in `OPERATORS` rather than hard-coded, which keeps the
-suggestion honest: `1 + 'a'` gets none, because no operator takes an Int
-and a String, and `'x' - 'y'` gets none, because `-` has no look-alike.
+`1 & 'a'` gets no suggestion, because nothing takes an Int and a
+String. The language server turns each of these into a quick fix
+(`src/lsp.ml`, `code_actions`).
 
 ## Operators: one type, then the table
 
 **Every operator Pyking has takes two operands of one type.** So
 `check_binary` unifies the operands with *each other* first, and only
-then asks `OPERATORS` about that one type:
+then asks the table (`operator_of`, `binop_rows`) about that one type:
 
 ```
    left, right  ──► unify ──► common ──► operator_result
                                              │
         ┌────────────────────────────────────┴──────────────┐
-        │ `++`      → String ++ String is String, and        │
-        │             [a] ++ [a] is [a] — either way the     │
-        │             result is `common` itself              │
+        │ `+` on lists → [a] + [a] is [a]: `common` itself   │
+        │ `+` on two   → left open, recorded in             │
+        │   open operands  `pending_plus` (below)           │
         │ one row   → unify `common` with what it wants      │
         │ several rows, one result  → that result; nothing   │
         │             here has to decide which row (`==`)    │
+        │ several results → the first row: `-` is Int,      │
+        │             `and` is Bool                          │
         │ `common` concrete → the row it matches             │
         └───────────────────────────────────────────────────┘
 ```
@@ -526,9 +529,30 @@ then asks `OPERATORS` about that one type:
 Doing it the other way round — trying each signature against each
 operand — would pick the first row a still-open operand happened to fit,
 and pin two types that had said nothing to whichever row the table lists
-first. `x ++ y` where both sides are open would become `String ++
-String`, and a list concatenation written in a recursive base case would
-be refused.
+first.
+
+**A `+` whose operands nothing has decided waits.** It is worth what
+its operands are on every one of its rows -- Int, Float, String or a
+list -- so its type is left open and recorded in `store.pending_plus`,
+and a later use decides it: `def join(a, b): a + b` called with two
+Strings joins them, as the `++` Pyking used to have did. Two rules keep
+that sound:
+
+- **A definition does not generalise over such a type.**
+  `infer_definition` adds every still-open `pending_plus` operand to the
+  metavariables the definition may not generalise, so the definition is
+  monomorphic in it -- a type variable would have to add and join at
+  once, and no backend can compile that. Its first use decides it, as
+  it does for a lambda.
+- **`settle_plus` runs when the module is done**: an operand still open
+  becomes an Int, the arithmetic default; one that became an Int, a
+  Float, a String or a list stays; anything else -- `join(true, false)`
+  -- is refused at the `+`.
+
+`elaborate.ml` then turns a `+` the checker typed as a String or a list
+into the `EConcat` node every backend compiles as a join, and `and`,
+`or` and `not` typed as Ints into the bitwise nodes, keeping their
+spelling for `-t pyking`.
 
 ## Comparing types: never `==`
 

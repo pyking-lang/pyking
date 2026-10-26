@@ -13,21 +13,21 @@
 
 def filter(p, lst):
     match lst:
-        case [x] ++ xs:
+        case [x] + xs:
             if p(x):
-                [x] ++ filter(p, xs)
+                [x] + filter(p, xs)
             else:
                 filter(p, xs)
         case []: []
 
 def zip(one, other):
     match (one, other):
-        case ([x] ++ xs, [y] ++ ys): [(x, y)] ++ zip(xs, ys)
+        case ([x] + xs, [y] + ys): [(x, y)] + zip(xs, ys)
         case (_, _): []
 
 def fold(f, acc, lst):
     match lst:
-        case [x] ++ xs: fold(f, f(acc, x), xs)
+        case [x] + xs: fold(f, f(acc, x), xs)
         case []: acc
 
 def small(n): n < 4
@@ -36,7 +36,7 @@ def short(word): len(word) < 3
 
 def add(total, n): total + n
 
-def join(text, word): text ++ word
+def join(text, word): text + word
 
 def take_first(total, pair):
     n, s = pair

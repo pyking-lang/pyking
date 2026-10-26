@@ -93,7 +93,8 @@ be changed, but is exposed as a customizable option the same way
 (defconst pyking-mode-keywords
   '("for" "in" "if" "while" "loop" "break" "continue" "then" "let" "else"
     "var" "def" "return" "match" "case" "public" "implicit" "import" "from" "as"
-    "datatype" "struct")
+    "datatype" "struct" "use" "lam" "and" "or" "not" "xor"
+    "class" "interface" "extends" "self" "super")
   "Reserved keywords in Pyking.
 Mirrors the `keywords' list in src/lexer.ml, minus the names broken out
 into `pyking-mode-types' and `pyking-mode-constants' below (each gets its
@@ -107,7 +108,10 @@ and `import'/`from'/`as' are how another module reaches it. `implicit'
 marks a definition an implicit argument may be resolved to, and an
 implicit parameter in a header or a function type (see \"Implicits\").
 `datatype' declares an algebraic data type (see \"Datatypes\"), and
-`struct' one with a single constructor (see \"Structs\").")
+`struct' one with a single constructor (see \"Structs\"). `use' turns
+a feature on for a module (`use mutation'), `lam' starts a lambda, and
+`and'/`or'/`not'/`xor' are operators. The last five are reserved for a
+later part of the language and mean nothing yet.")
 
 (defconst pyking-mode-keywords-regexp
   (regexp-opt pyking-mode-keywords 'symbols)
@@ -197,21 +201,14 @@ builtin.")
    ;; mutation = ident , ":=" , expr -- Pyking's one deliberate departure
    ;; from plain Python assignment (see PYKING.md), worth calling out.
    '(":=" . font-lock-keyword-face)
-   ;; `++' -- concatenation, and Pyking's deliberate departure from
-   ;; Python's `+' meaning both addition and joining (see PYKING.md,
-   ;; "Concatenation"). Called out for the same reason `:=' is. Escaped:
-   ;; a bare "++" would be a regexp repeat and match a single `+' too.
-   '("\\+\\+" . font-lock-keyword-face)
+   ;; The symbol spellings of the Boolean operators, `&&', `||' and `!'
+   ;; (but not the `!' of `!='), called out as their word spellings are.
+   '("&&\\|||\\|!\\(?:[^=]\\|$\\)" . font-lock-keyword-face)
    ;; def_name = ident | qualified_name -- the `q::' of an overloaded
    ;; definition's name (see PYKING.md, "Static overloading"). The whole
    ;; thing is one identifier to the lexer; only the qualifier and the
    ;; `::' are highlighted, so the base name still reads as a name.
    '("\\_<\\(\\sw+::\\)\\sw" 1 font-lock-type-face)
-   ;; lambda = lambda_params , "=>" , expr -- Pyking's lambda arrow (see
-   ;; PYKING.md, "Lambdas"). Called out for the same reason `:=' and
-   ;; `++' are: it is a marker with no Python spelling. Escaped so the
-   ;; `=' is literal rather than a regexp operator's operand.
-   '("=>" . font-lock-keyword-face)
    ;; `all a b.' -- the quantifier that binds type variables. Not in
    ;; `pyking-mode-keywords' because it is not in src/lexer.ml's
    ;; `keywords' either: it is recognized only in type position (see

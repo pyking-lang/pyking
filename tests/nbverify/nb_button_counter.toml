@@ -30,12 +30,12 @@ reason = "The output is not what it should be.\nevents:\nclick \"Click me\"\nexp
 [[solution]]
 file = "nb_button_counter_counter_s6.pyk"
 accepted = false
-reason = "Your program did not run:\n'solution.pyk' 8:4-8:22 Name error: cannot update 'count' with ':=':\n  it is a binding (declared on line 4), not a mutable variable\n  (declare it with 'var' to make it one)"
+reason = "Your program did not run:\n'solution.pyk' 11:4-11:22 Name error: cannot update 'count' with ':=':\n  it is a binding (declared on line 7), not a mutable variable\n  (declare it with 'var' to make it one)"
 
 [[solution]]
 file = "nb_button_counter_counter_s7.pyk"
 accepted = false
-reason = "Your program did not run:\n'solution.pyk' 5:17-5:27 Runtime error: 'label_text' is in scope, but\n  its 'def' has not run yet"
+reason = "Your program did not run:\n'solution.pyk' 8:17-8:27 Runtime error: 'label_text' is in scope, but\n  its 'def' has not run yet"
 
 [[solution]]
 file = "nb_button_counter_why-var_s1.pyk"

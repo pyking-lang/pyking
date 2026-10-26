@@ -27,7 +27,7 @@ print(step(3, 4))
 def repeat(text: String, times: Int = 3) -> String:
     if times <= 0:
         return ""
-    return text ++ repeat(text, times - 1)
+    return text + repeat(text, times - 1)
 
 
 print(repeat("ab"))

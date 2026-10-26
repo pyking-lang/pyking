@@ -31,7 +31,7 @@ def reverse(xs):
         case []:
             return []
         case [x, ..rest]:
-            return reverse(rest) ++ [x]
+            return reverse(rest) + [x]
 
 
 def ends(xs):

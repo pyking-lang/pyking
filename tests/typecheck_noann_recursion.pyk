@@ -21,7 +21,7 @@ def spell(n):
     if n < 1:
         ""
     else:
-        "x" ++ spell(n - 1)
+        "x" + spell(n - 1)
 
 # Mutual recursion: each body names the other, and neither is written
 # first in any sense that matters.
@@ -39,7 +39,7 @@ def is_odd(n):
 
 # A plain forward reference: no cycle, just a helper written afterwards.
 def describe(n):
-    label(n) ++ "!"
+    label(n) + "!"
 
 def label(n):
     if n < 0:

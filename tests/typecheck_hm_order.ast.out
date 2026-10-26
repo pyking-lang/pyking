@@ -3,13 +3,13 @@ def id(x:a) -> a:
 def first_shape(f:(a) -> b, lst:[a]) -> [b]:
     match lst:
         case [x, ..xs]:
-            [f(x)] ++ first_shape(f, xs)
+            [f(x)] + first_shape(f, xs)
         case []:
             []
 def second_shape(f:(a) -> b, lst:[a]) -> [b]:
     match lst:
         case [x, ..xs]:
-            [f(x)] ++ second_shape(f, xs)
+            [f(x)] + second_shape(f, xs)
         case []:
             []
 def double(n:Int) -> Int:

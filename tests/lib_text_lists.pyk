@@ -14,7 +14,7 @@ print(text.words(""), text.words(" \t\n\r "), text.words("one"))
 print(text.words("åäö 👑\n🎉"))
 
 print(text.join(["a", "b", "c"], ", "))
-print("[" ++ text.join([], ", ") ++ "]", text.join(["only"], "-"), text.join(["", ""], "+"))
+print("[" + text.join([], ", ") + "]", text.join(["only"], "-"), text.join(["", ""], "+"))
 print(text.join(text.words(" spaced   out "), "_"), text.join(["å", "👑"], ""))
 many = [string(i) for i in range(300)]
 joined = text.join(many, ",")

@@ -1,4 +1,4 @@
-# A larger program built on `++` patterns: a tiny reader that takes a
+# A larger program built on `+` patterns: a tiny reader that takes a
 # command string apart, and list splitting beside it.
 #
 # Every `match` here is the statement form, so this runs on the
@@ -7,35 +7,35 @@
 
 def command(line:String) -> String:
     match line:
-        case "get " ++ rest:
-            return "GET(" ++ rest ++ ")"
-        case "put " ++ rest:
-            return "PUT(" ++ rest ++ ")"
-        case "quit" ++ _:
+        case "get " + rest:
+            return "GET(" + rest + ")"
+        case "put " + rest:
+            return "PUT(" + rest + ")"
+        case "quit" + _:
             return "QUIT"
         case "":
             return "EMPTY"
         case other:
-            return "UNKNOWN(" ++ other ++ ")"
+            return "UNKNOWN(" + other + ")"
 
 
 def strip_quotes(s:String) -> String:
     match s:
-        case "'" ++ inside ++ "'":
+        case "'" + inside + "'":
             return inside
-        case "\"" ++ inside ++ "\"":
+        case "\"" + inside + "\"":
             return inside
         case _:
             return s
 
 
 # A recursion that eats a fixed piece off the front until it is gone.
-# Only a *literal* can be stripped this way: `_ ++ rest` would leave two
+# Only a *literal* can be stripped this way: `_ + rest` would leave two
 # parts open and is refused, since a string has no element patterns for
 # a fixed-length one to be built from.
 def leading_dots(s:String) -> Int:
     match s:
-        case "." ++ rest:
+        case "." + rest:
             return 1 + leading_dots(rest)
         case _:
             return 0
@@ -43,16 +43,16 @@ def leading_dots(s:String) -> Int:
 
 def pairs_up(xs:[Int]) -> [Int]:
     match xs:
-        case [a, b] ++ rest:
-            return [a + b] ++ pairs_up(rest)
+        case [a, b] + rest:
+            return [a + b] + pairs_up(rest)
         case _:
             return []
 
 
 def rotate(xs:[Int]) -> [Int]:
     match xs:
-        case [first] ++ rest:
-            return rest ++ [first]
+        case [first] + rest:
+            return rest + [first]
         case _:
             return xs
 

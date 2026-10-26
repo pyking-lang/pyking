@@ -3,7 +3,7 @@ def describe_length(xs):
         case []:
             return "empty"
         case [x]:
-            return "exactly one: " ++ string(x)
+            return "exactly one: " + string(x)
         case [a, b, c]:
             return "exactly three"
         case other:
@@ -13,7 +13,7 @@ def describe_length(xs):
 def prefix_rest(xs):
     match xs:
         case [first, ..rest]:
-            return "first=" ++ string(first) ++ " rest=" ++ string(rest)
+            return "first=" + string(first) + " rest=" + string(rest)
         case []:
             return "empty"
 
@@ -21,7 +21,7 @@ def prefix_rest(xs):
 def rest_suffix(xs):
     match xs:
         case [..init, last]:
-            return "init=" ++ string(init) ++ " last=" ++ string(last)
+            return "init=" + string(init) + " last=" + string(last)
         case []:
             return "empty"
 
@@ -29,21 +29,21 @@ def rest_suffix(xs):
 def match_middle(xs):
     match xs:
         case [p, q, ..mid, r]:
-            return "p=" ++ string(p) ++ " q=" ++ string(q) ++ " mid=" ++ string(mid) ++ " r=" ++ string(r)
+            return "p=" + string(p) + " q=" + string(q) + " mid=" + string(mid) + " r=" + string(r)
         case other:
             return "too short"
 
 
 def ignore_rest(xs):
     match xs:
-        case [u, v, ..]: "u=" ++ string(u) ++ " v=" ++ string(v)
+        case [u, v, ..]: "u=" + string(u) + " v=" + string(v)
         case other: "too short"
 
 
 def wildcard_head(xs):
     match xs:
         case [_, ..w]:
-            return "w=" ++ string(w)
+            return "w=" + string(w)
         case []:
             return "empty"
 

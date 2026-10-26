@@ -33,14 +33,14 @@ def fold(f: (b, a) -> b, init: b, l: List(a)) -> b:
 
 
 def reverse(l: List(a)) -> List(a):
-    fold((acc, x) => Cons(x, acc), Nil, l)
+    fold(lam (acc, x). Cons(x, acc), Nil, l)
 
 
 l = from_array([1, 2, 3, 4])
 print(l)
-print(length(l), fold((a, b) => a + b, 0, l))
-print(reverse(map(x => x * x, l)))
-print(map(x => "n" ++ string(x), from_array([7])))
+print(length(l), fold(lam (a, b). a + b, 0, l))
+print(reverse(map(lam x. x * x, l)))
+print(map(lam x. "n" + string(x), from_array([7])))
 match l:
     case Cons(head = h, tail = Cons(head = second)): print(h, second)
     case _: print("short")

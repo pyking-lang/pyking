@@ -12,7 +12,7 @@
 
 def collect(lst):
     loop kept = [] for x in lst:
-        kept ++ [x]
+        kept + [x]
 
 def total(lst):
     loop sum = 0 for n in lst:

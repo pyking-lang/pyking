@@ -1,3 +1,5 @@
+use mutation
+
 def classify(n:Int) -> String:
     match n:
         case 0: "zero"
@@ -6,7 +8,7 @@ def classify(n:Int) -> String:
 
 def make_pairs(xs:[Int]) -> [(Int, Int)]:
     return loop out = [] for x in xs:
-        out ++ [(x, x * 10)]
+        out + [(x, x * 10)]
 
 
 def summarize(matrix:[[Int]], label:String) -> (String, Int):
@@ -19,7 +21,7 @@ def summarize(matrix:[[Int]], label:String) -> (String, Int):
 
 def report(data:(String, [Int], Bool)) -> String:
     (name, numbers, flag) = data
-    return "ok: " ++ name ++ " " ++ string(numbers) ++ " " ++ string(flag)
+    return "ok: " + name + " " + string(numbers) + " " + string(flag)
 
 
 print(classify(0))

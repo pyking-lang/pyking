@@ -61,9 +61,9 @@ length. One with a marker takes every length from its fixed part up.
 `[]` and `[x, ..rest]` cover a list between them for this reason, and
 so do `[]`, `[x]` and `[x, y, ..r]`.
 
-## Strings split with `++`
+## Strings split with `+`
 
-A `"prefix" ++ rest ++ "suffix"` pattern is treated as a literal of its
+A `"prefix" + rest + "suffix"` pattern is treated as a literal of its
 own. It matches some strings, and the check does not try to say which.
 The result is conservative in both directions:
 
@@ -96,7 +96,7 @@ Every target can rely on a `match` running one of its arms.
   which `javac` and C's "every path returns" check need.
 - **OCaml** is the one target whose host checks exhaustiveness itself.
   It cannot see through a `when`, and a `when` is how it compiles a
-  guard, a `++` split and a list pattern with elements after `..`. So
+  guard, a `+` split and a list pattern with elements after `..`. So
   it asks `Exhaustive.covers` of the arms it *can* see, and adds `| _
   -> assert false` only when those do not cover.
   - Adding one where OCaml can see the arms cover would be warning 11,

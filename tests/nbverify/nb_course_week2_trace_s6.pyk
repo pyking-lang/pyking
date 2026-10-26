@@ -1,3 +1,5 @@
+use mutation
+
 import io
 var total = 1
 n = int(io.read_line())

@@ -1,3 +1,5 @@
+use mutation
+
 def vec_add(a:(Int, Int), b:(Int, Int)) -> (Int, Int):
     (ax, ay) = a
     (bx, by) = b
@@ -8,9 +10,9 @@ def classify3(t:(Int, Int, Int)) -> String:
     match t:
         case (0, 0, 0):
             return "zero vector"
-        case (x, 0, 0): "on x axis: " ++ string(x)
+        case (x, 0, 0): "on x axis: " + string(x)
         case (x, y, z):
-            return "general: " ++ string(x + y + z)
+            return "general: " + string(x + y + z)
 
 
 def unpack_nested(data):

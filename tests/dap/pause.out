@@ -9,7 +9,7 @@
 > wait stopped
 {"body": {"allThreadsStopped": true, "reason": "pause", "threadId": 1}, "event": "stopped", "type": "event"}
 > stack
-{"body": {"stackFrames": [{"column": 5, "endColumn": 15, "endLine": 3, "id": 1, "line": 3, "name": "<module pause>", "source": {"name": "pause.pyk", "path": "$CASES/pause.pyk"}}], "totalFrames": 1}, "command": "stackTrace", "success": true, "type": "response"}
+{"body": {"stackFrames": [{"column": 5, "endColumn": 15, "endLine": 5, "id": 1, "line": 5, "name": "<module pause>", "source": {"name": "pause.pyk", "path": "$CASES/pause.pyk"}}], "totalFrames": 1}, "command": "stackTrace", "success": true, "type": "response"}
 > request terminate {}
 {"body": {}, "command": "terminate", "success": true, "type": "response"}
 > disconnect

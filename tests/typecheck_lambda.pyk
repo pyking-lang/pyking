@@ -6,25 +6,25 @@
 # polymorphic function is written (PYKING.md, "Lambdas").
 
 # Decided by the body: `+ 1` is Int arithmetic.
-inc = x => x + 1
+inc = lam x. x + 1
 print(inc(1))
 
 # Decided by the use: nothing in the body says what `x` is.
 def on_text(f: (String) -> String) -> String: f("ab")
-print(on_text(x => x ++ "!"))
+print(on_text(lam x. x + "!"))
 
 # An annotation on a parameter is checked like any other.
-half = (n: Int) => n / 2
+half = lam (n: Int). n / 2
 print(half(9))
 
 # A lambda answering with a lambda.
-pair = (a: Int) => (b: Int) => a * b
+pair = lam (a: Int). lam (b: Int). a * b
 print(pair(6)(7))
 
 # One written where a function type is wanted, and one returned from a
 # `def` whose return type says what it is.
 def apply_twice(f: (Int) -> Int, n: Int) -> Int: f(f(n))
-print(apply_twice(x => x * 3, 2))
+print(apply_twice(lam x. x * 3, 2))
 
-def make(k: Int) -> (Int) -> Int: x => x + k
+def make(k: Int) -> (Int) -> Int: lam x. x + k
 print(make(100)(5))

@@ -54,8 +54,21 @@ type bound_value = BExpr of expr | BStmt of stmt
 (* --- parser --- *)
 
 let join_error =
-  "'++' joins list patterns or string patterns, and the two may not be mixed; \
+  "'+' joins list patterns or string patterns, and the two may not be mixed; \
    every part but one name must have a fixed length"
+
+(* What each spelling Pyking no longer has is answered with. *)
+let concat_message =
+  "'++' is now written '+': 'a + b' joins two strings or two lists"
+
+let lambda_message = "a lambda is now written 'lam x. x + 1'"
+
+(** Why a reserved word cannot stand where a name would. String -> String *)
+let reserved_message word =
+  Printf.sprintf
+    "'%s' is reserved for a later part of the language, so it cannot be \
+     used as a name"
+    word
 
 
 (** Refuses a qualified name where only a plain one may stand. `::` is
@@ -161,6 +174,7 @@ and parse_atom eof tokens =
           raise
             (Parse_error
                (here eof rest, "expected ',', 'for', or ']' in list literal")))
+  | TokReserved (i, word) :: _ -> raise (Parse_error (i, reserved_message word))
   | t :: _ -> raise (Parse_error (token_info t, "unexpected token in expression"))
   | [] ->
       raise
@@ -192,6 +206,15 @@ and parse_call_tail eof e tokens =
       parse_call_tail eof
         (EField (combine_info (expr_info e) ni, e, name, 0))
         rest
+  | TokLBracket lb :: rest when lb.row1 = (expr_info e).row2 -> (
+      (* `xs[i]`: the `[` is on the row the list ends on, for the reason
+         a call's `(` is -- otherwise a list literal starting the next
+         line would index this one. *)
+      let index, rest = parse_expr eof rest in
+      match rest with
+      | TokRBracket rb :: rest ->
+          parse_call_tail eof (EIndex (combine_info (expr_info e) rb, e, index, 0)) rest
+      | _ -> raise (Parse_error (here eof rest, "expected ']' after the index")))
   | TokLParen lp :: rest when lp.row1 = (expr_info e).row2 ->
       let args, rparen, rest = parse_args eof rest in
       let call_info = combine_info (expr_info e) rparen in
@@ -305,118 +328,218 @@ and parse_comp_clauses eof tokens =
   in
   clauses_from tokens []
 
-(** Parses unary minus (`-expr`) or falls through to an atom.
-    info -> [token] -> (expr, [token]) *)
+(** Parses a prefix operator -- unary minus, `!` or `~` -- or falls
+    through to a power. All three bind tighter than `*` and looser than
+    `^`, so `-2 ^ 2` is `-(2 ^ 2)`. info -> [token] -> (expr, [token]) *)
 and parse_unary eof tokens =
+  let prefix i make rest =
+    let operand, rest = parse_unary eof rest in
+    (make (combine_info i (expr_info operand)) operand, rest)
+  in
   match tokens with
-  | TokSub i :: rest ->
-      let operand, rest = parse_unary eof rest in
-      (ENeg (combine_info i (expr_info operand), operand, 0), rest)
-  | _ -> parse_atom eof tokens
+  | TokSub i :: rest -> prefix i (fun info o -> ENeg (info, o, 0)) rest
+  | TokBang i :: rest -> prefix i (fun info o -> EUnary (info, UNot Symbol, o, 0)) rest
+  | TokTilde i :: rest -> prefix i (fun info o -> EUnary (info, UBitNot Symbol, o, 0)) rest
+  | _ -> parse_power eof tokens
 
-(** Parses `*`/`/`, left-associative. info -> [token] -> (expr, [token]) *)
-and parse_multiplicative eof tokens =
-  let left, rest = parse_unary eof tokens in
-  let rec more left rest =
-    match rest with
-    | TokMul _ :: rest2 ->
-        let right, rest2 = parse_unary eof rest2 in
-        more
-          (EMul (combine_info (expr_info left) (expr_info right), left, right, 0))
-          rest2
-    | TokDiv _ :: rest2 ->
-        let right, rest2 = parse_unary eof rest2 in
-        more
-          (EDiv (combine_info (expr_info left) (expr_info right), left, right, 0))
-          rest2
-    | _ -> (left, rest)
-  in
-  more left rest
-
-(** Parses `+`/`++`/`-`, left-associative.
+(** Parses `atom ^ unary`. `^` associates to the right -- its right
+    operand is another unary, which may itself be a power -- and `**`,
+    Python's spelling, is refused with the one Pyking uses.
     info -> [token] -> (expr, [token]) *)
-and parse_additive eof tokens =
-  let left, rest = parse_multiplicative eof tokens in
+and parse_power eof tokens =
+  let base, rest = parse_atom eof tokens in
+  match rest with
+  | TokCaret _ :: rest ->
+      let exponent, rest = parse_unary eof rest in
+      (EBinary (combine_info (expr_info base) (expr_info exponent), BPow, base, exponent, 0), rest)
+  | TokStarStar i :: _ ->
+      raise (Parse_error (i, "a power is written with '^', as in 'a ^ b'"))
+  | _ -> (base, rest)
+
+(** Parses a left-associative chain of binary operators over `operand`,
+    each token mapped to the node it builds by `operator`.
+    (info -> [token] -> (expr, [token])) -> (token -> (expr -> expr -> info -> expr) option)
+    -> info -> [token] -> (expr, [token]) *)
+and parse_chain operand operator eof tokens =
+  let left, rest = operand eof tokens in
   let rec more left rest =
     match rest with
-    | TokAdd _ :: rest2 ->
-        let right, rest2 = parse_multiplicative eof rest2 in
-        more
-          (EAdd (combine_info (expr_info left) (expr_info right), left, right, 0))
-          rest2
-    | TokConcat _ :: rest2 ->
-        let right, rest2 = parse_multiplicative eof rest2 in
-        more
-          (EConcat
-             (combine_info (expr_info left) (expr_info right), left, right, 0))
-          rest2
-    | TokSub _ :: rest2 ->
-        let right, rest2 = parse_multiplicative eof rest2 in
-        more
-          (ESub (combine_info (expr_info left) (expr_info right), left, right, 0))
-          rest2
-    | _ -> (left, rest)
+    | t :: rest2 -> (
+        match operator t with
+        | Some make ->
+            let right, rest2 = operand eof rest2 in
+            more (make left right (combine_info (expr_info left) (expr_info right))) rest2
+        | None -> (left, rest))
+    | [] -> (left, rest)
   in
   more left rest
+
+(** Parses `*`/`/`/`%`, left-associative. info -> [token] -> (expr, [token]) *)
+and parse_multiplicative eof tokens =
+  parse_chain parse_unary
+    (function
+      | TokMul _ -> Some (fun l r i -> EMul (i, l, r, 0))
+      | TokDiv _ -> Some (fun l r i -> EDiv (i, l, r, 0))
+      | TokPercent _ -> Some (fun l r i -> EBinary (i, BMod, l, r, 0))
+      | _ -> None)
+    eof tokens
+
+(** Parses `+`/`-`, left-associative. `+` both adds and joins; the
+    checker says which. `++`, which used to join, is refused where it
+    stands. info -> [token] -> (expr, [token]) *)
+and parse_additive eof tokens =
+  parse_chain parse_multiplicative
+    (function
+      | TokAdd _ -> Some (fun l r i -> EAdd (i, l, r, 0))
+      | TokSub _ -> Some (fun l r i -> ESub (i, l, r, 0))
+      | TokConcat i -> raise (Parse_error (i, concat_message))
+      | _ -> None)
+    eof tokens
+
+(** Parses `<<`/`>>`, left-associative. info -> [token] -> (expr, [token]) *)
+and parse_shift eof tokens =
+  parse_chain parse_additive
+    (function
+      | TokShiftLeft _ -> Some (fun l r i -> EBinary (i, BShiftLeft, l, r, 0))
+      | TokShiftRight _ -> Some (fun l r i -> EBinary (i, BShiftRight, l, r, 0))
+      | _ -> None)
+    eof tokens
+
+(** Parses `&`, left-associative. info -> [token] -> (expr, [token]) *)
+and parse_bit_and eof tokens =
+  parse_chain parse_shift
+    (function
+      | TokAmp _ -> Some (fun l r i -> EBinary (i, BBitAnd Symbol, l, r, 0))
+      | _ -> None)
+    eof tokens
+
+(** Parses `xor`, left-associative. info -> [token] -> (expr, [token]) *)
+and parse_xor eof tokens =
+  parse_chain parse_bit_and
+    (function
+      | TokXor _ -> Some (fun l r i -> EBinary (i, BXor, l, r, 0))
+      | _ -> None)
+    eof tokens
+
+(** Parses `|`, left-associative. The bitwise operators bind tighter
+    than a comparison, as Python's do, so `flags & 4 == 4` is
+    `(flags & 4) == 4`. info -> [token] -> (expr, [token]) *)
+and parse_bit_or eof tokens =
+  parse_chain parse_xor
+    (function
+      | TokBar _ -> Some (fun l r i -> EBinary (i, BBitOr Symbol, l, r, 0))
+      | _ -> None)
+    eof tokens
+
+(** Parses `not`, which binds as loosely as Python's: `not a == b` is
+    `not (a == b)`. info -> [token] -> (expr, [token]) *)
+and parse_not eof tokens =
+  match tokens with
+  | TokNot i :: rest ->
+      let operand, rest = parse_not eof rest in
+      (EUnary (combine_info i (expr_info operand), UNot Word, operand, 0), rest)
+  | _ -> parse_comparison eof tokens
+
+(** Parses `and`/`&&`, left-associative, keeping which was written.
+    info -> [token] -> (expr, [token]) *)
+and parse_and eof tokens =
+  parse_chain parse_not
+    (function
+      | TokAnd _ -> Some (fun l r i -> EBinary (i, BAnd Word, l, r, 0))
+      | TokAmpAmp _ -> Some (fun l r i -> EBinary (i, BAnd Symbol, l, r, 0))
+      | _ -> None)
+    eof tokens
+
+(** Parses `or`/`||`, left-associative, keeping which was written.
+    info -> [token] -> (expr, [token]) *)
+and parse_or eof tokens =
+  parse_chain parse_and
+    (function
+      | TokOr _ -> Some (fun l r i -> EBinary (i, BOr Word, l, r, 0))
+      | TokBarBar _ -> Some (fun l r i -> EBinary (i, BOr Symbol, l, r, 0))
+      | _ -> None)
+    eof tokens
 
 (** Parses the lowest-precedence expression level: a lambda, an if
-    expression, a let expression or a comparison.
+    expression, a let expression or an `or`. A `=>` after it is the
+    lambda syntax Pyking had before `lam`, and is refused by name.
     info -> [token] -> (expr, [token]) *)
 and parse_expr eof tokens =
-  match tokens with
-  | TokIf i :: rest ->
-      let cond, rest = parse_expr eof rest in
-      parse_if_expr_tail eof i cond rest
-  | TokLet i :: rest -> parse_let eof i rest
-  | _ -> (
-      match parse_lambda eof tokens with
-      | Some answer -> answer
-      | None -> parse_comparison eof tokens)
+  let e, rest =
+    match tokens with
+    | TokIf i :: rest ->
+        let cond, rest = parse_expr eof rest in
+        parse_if_expr_tail eof i cond rest
+    | TokLet i :: rest -> parse_let eof i rest
+    | TokLam i :: rest -> parse_lambda eof i rest
+    | _ -> parse_or eof tokens
+  in
+  match rest with
+  | TokFatArrow i :: _ -> raise (Parse_error (i, lambda_message))
+  | _ -> (e, rest)
 
-(** Parses one lambda, or answers None where these tokens do not start
-    one. The body is `parse_expr`, so a lambda takes everything to its
-    right that one expression can hold: `x => y => e` is curried, and
-    `x => a, b` is a pair whose first element is the lambda, as a
-    comma binds looser than any expression.
+(** Parses one lambda after its `lam`: one parameter with no type, or a
+    parenthesized list of them, then a `.` and the body. The body is
+    `parse_expr`, so a lambda takes everything to its right that one
+    expression can hold: `lam x. lam y. e` is curried, and `lam x. a, b`
+    is a pair whose first element is the lambda, as a comma binds looser
+    than any expression.
 
-    The parenthesized form is decided by *trying* it: a parameter list
-    is only a parameter list when `=>` follows the ')', and `(x)` is
-    otherwise the parenthesized expression it has always been.
-    info -> [token] -> (expr, [token]) option *)
-and parse_lambda eof tokens =
+    A typed parameter is always in parentheses: a type may hold a `.`
+    of its own (`geo.Point`, `all a. a`), and in parentheses it ends at
+    the `)`, so the next `.` can only be the lambda's.
+    info -> info -> [token] -> (expr, [token]) *)
+and parse_lambda eof lam_info tokens =
+  let body_after params rest =
+    match rest with
+    | TokDot _ :: rest ->
+        let body, rest = parse_expr eof rest in
+        (ELambda (combine_info lam_info (expr_info body), params, body, 0), rest)
+    | _ ->
+        raise
+          (Parse_error
+             (here eof rest, "expected '.' after the parameters of a lambda, as in 'lam x. x + 1'"))
+  in
   match tokens with
-  | TokIdent (i, name) :: TokFatArrow _ :: rest ->
+  | TokIdent (i, name) :: TokColon _ :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             Printf.sprintf
+               "a lambda parameter with a type is written in parentheses, \
+                as in 'lam (%s: Int). ...'"
+               name ))
+  | TokIdent (i, name) :: TokComma _ :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             Printf.sprintf
+               "a lambda's parameters are written in parentheses when there \
+                are several, as in 'lam (%s, y). ...'"
+               name ))
+  | TokIdent (i, name) :: rest ->
       check_plain_name i name "a parameter";
-      let body, rest = parse_expr eof rest in
-      Some
-        ( ELambda
-            ( combine_info i (expr_info body),
-              [ Param (i, name, None, None, 0) ],
-              body,
-              0 ),
-          rest )
-  | TokLParen lparen :: after -> (
-      match (try Some (parse_params eof after) with Parse_error _ -> None) with
-      | Some (params, implicits, TokFatArrow _ :: rest) ->
-          List.iter check_no_lambda_default params;
-          (match implicits with
-          | Param (info, name, _, _, _) :: _ ->
-              raise
-                (Parse_error
-                   ( info,
-                     Printf.sprintf
-                       "the lambda parameter '%s' may not be implicit: an \
-                        implicit parameter is part of a function's type, \
-                        and only a 'def' writes one down"
-                       name ))
-          | [] -> ());
-          let body, rest = parse_expr eof rest in
-          Some
-            ( ELambda
-                (combine_info lparen (expr_info body), params, body, 0),
-              rest )
-      | _ -> None)
-  | _ -> None
+      body_after [ Param (i, name, None, None, 0) ] rest
+  | TokLParen _ :: after ->
+      let params, implicits, rest = parse_params eof after in
+      List.iter check_no_lambda_default params;
+      (match implicits with
+      | Param (info, name, _, _, _) :: _ ->
+          raise
+            (Parse_error
+               ( info,
+                 Printf.sprintf
+                   "the lambda parameter '%s' may not be implicit: an \
+                    implicit parameter is part of a function's type, and \
+                    only a 'def' writes one down"
+                   name ))
+      | [] -> ());
+      body_after params rest
+  | _ ->
+      raise
+        (Parse_error
+           ( here eof tokens,
+             "expected a parameter or '(' after 'lam', as in 'lam x. x + 1'" ))
 
 (** A lambda parameter may not carry a default: a default is evaluated
     where the definition is written, and a lambda is an expression that
@@ -429,7 +552,8 @@ and check_no_lambda_default (Param (info, name, _, default, _)) =
         (Parse_error
            ( info,
              Printf.sprintf
-               "the lambda parameter '%s' may not have a default value; only                 a 'def' parameter may"
+               "the lambda parameter '%s' may not have a default value; only \
+                a 'def' parameter may"
                name ))
 
 (** Parses `target[: type] = value in body`, given the already-parsed
@@ -532,25 +656,44 @@ and parse_if_stmt_tail eof if_info cond colon_info tokens =
 (** Parses a comparison operator; comparisons do not chain.
     info -> [token] -> (expr, [token]) *)
 and parse_comparison eof tokens =
-  let left, rest = parse_additive eof tokens in
+  let left, rest = parse_bit_or eof tokens in
   let span right = combine_info (expr_info left) (expr_info right) in
-  match rest with
-  | TokLessThan _ :: rest ->
-      let right, rest = parse_additive eof rest in
-      (ELessThan (span right, left, right, 0), rest)
-  | TokLessThanEq _ :: rest ->
-      let right, rest = parse_additive eof rest in
-      (ELessThanEq (span right, left, right, 0), rest)
-  | TokGreatThan _ :: rest ->
-      let right, rest = parse_additive eof rest in
-      (EGreatThan (span right, left, right, 0), rest)
-  | TokGreatThanEq _ :: rest ->
-      let right, rest = parse_additive eof rest in
-      (EGreatThanEq (span right, left, right, 0), rest)
-  | TokEqEq _ :: rest ->
-      let right, rest = parse_additive eof rest in
-      (EEq (span right, left, right, 0), rest)
-  | _ -> (left, rest)
+  let operand rest = parse_bit_or eof rest in
+  let built, rest =
+    match rest with
+    | TokLessThan _ :: rest ->
+        let right, rest = operand rest in
+        (ELessThan (span right, left, right, 0), rest)
+    | TokLessThanEq _ :: rest ->
+        let right, rest = operand rest in
+        (ELessThanEq (span right, left, right, 0), rest)
+    | TokGreatThan _ :: rest ->
+        let right, rest = operand rest in
+        (EGreatThan (span right, left, right, 0), rest)
+    | TokGreatThanEq _ :: rest ->
+        let right, rest = operand rest in
+        (EGreatThanEq (span right, left, right, 0), rest)
+    | TokEqEq _ :: rest ->
+        let right, rest = operand rest in
+        (EEq (span right, left, right, 0), rest)
+    | TokNotEq _ :: rest ->
+        let right, rest = operand rest in
+        (EBinary (span right, BNeq, left, right, 0), rest)
+    | _ -> (left, rest)
+  in
+  (* Comparisons do not chain; a second one is refused with what to
+     write instead. *)
+  match (built, rest) with
+  | (ELessThan _ | ELessThanEq _ | EGreatThan _ | EGreatThanEq _ | EEq _
+    | EBinary (_, BNeq, _, _, _)),
+    (( TokLessThan i | TokLessThanEq i | TokGreatThan i | TokGreatThanEq i
+     | TokEqEq i | TokNotEq i ) :: _) ->
+      raise
+        (Parse_error
+           ( i,
+             "comparisons do not chain: write 'a < b and b < c' rather than \
+              'a < b < c'" ))
+  | _ -> (built, rest)
 
 (** Parses one expression, or a bare (unparenthesized) tuple
     `expr, expr, ...`. info -> [token] -> (expr, [token]) *)
@@ -1130,8 +1273,8 @@ and parse_pattern_paren_tail eof tokens =
             (Parse_error
                (here eof rest, "expected ',' or ')' in tuple pattern")))
 
-(** Parses patterns joined with `++`, which is how a list or a string is
-    split around a name: `[x] ++ xs` is `[x, ..xs]`, and `"ab" ++ rest`
+(** Parses patterns joined with `+`, which is how a list or a string is
+    split around a name: `[x] + xs` is `[x, ..xs]`, and `"ab" + rest`
     is the same idea for a string. The chain is folded into one ordinary
     pattern here, so nothing after the parser knows the form exists.
     info -> [token] -> (pattern, [token]) *)
@@ -1139,9 +1282,10 @@ and parse_pattern_concat eof tokens =
   let first, rest = parse_pattern_atom eof tokens in
   let rec segments_from rest collected =
     match rest with
-    | TokConcat _ :: after ->
+    | TokAdd _ :: after ->
         let segment, rest = parse_pattern_atom eof after in
         segments_from rest (segment :: collected)
+    | TokConcat i :: _ -> raise (Parse_error (i, concat_message))
     | _ -> (List.rev collected, rest)
   in
   let segments, rest = segments_from rest [ first ] in
@@ -1157,6 +1301,10 @@ and parse_pattern_or eof tokens =
     | TokBar _ :: after ->
         let next, rest = parse_pattern_concat eof after in
         alternatives rest (next :: collected)
+    | TokBarBar i :: _ ->
+        raise
+          (Parse_error
+             (i, "alternatives in a pattern are separated by '|', not '||'"))
     | _ -> (List.rev collected, rest)
   in
   match alternatives rest [ first ] with
@@ -1375,6 +1523,13 @@ and parse_bound_value eof tokens =
 (** Parses one statement. info -> [token] -> (stmt, [token]) *)
 and parse_statement eof tokens =
   match tokens with
+  | TokUse i :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             "'use' turns on a feature for the whole module, so it is \
+              written before anything else" ))
+  | TokReserved (i, word) :: _ -> raise (Parse_error (i, reserved_message word))
   | (TokImport i | TokFrom i) :: _ ->
       raise
         (Parse_error
@@ -2569,14 +2724,121 @@ let parse_top_statement eof tokens =
       let stmt, rest = parse_statement eof tokens in
       ([ stmt ], rest)
 
-(** Parses a full token stream into a list of top-level statements.
-    [token] -> [stmt] *)
-let parse tokens =
+(* --- features turned on with `use` --- *)
+
+(** Every feature a `use` line may name (design/steps.md, step 1).
+    [string] *)
+let features = [ "mutation"; "objects" ]
+
+(** Reads the `use` lines a module starts with: the features they name,
+    each with where it was written, and the tokens after them. A feature
+    no `use` knows, or one named twice, is refused.
+    info -> [token] -> ([(string, info)], [token]) *)
+let parse_uses eof tokens =
+  let rec names rest found =
+    match rest with
+    | TokIdent (i, name) :: rest -> (
+        if not (List.mem name features) then
+          raise
+            (Parse_error
+               ( i,
+                 Printf.sprintf "there is no feature '%s'; the features are %s"
+                   name
+                   (String.concat " and " features) ));
+        if List.mem_assoc name found then
+          raise (Parse_error (i, Printf.sprintf "'use %s' is written twice" name));
+        let found = found @ [ (name, i) ] in
+        match rest with
+        | TokComma _ :: rest -> names rest found
+        | _ -> (found, rest))
+    | _ ->
+        raise
+          (Parse_error
+             ( here eof rest,
+               Printf.sprintf "expected the name of a feature after 'use': %s"
+                 (String.concat " or " features) ))
+  in
+  let rec lines rest found last =
+    match rest with
+    | TokUse i :: after ->
+        (match last with
+        | Some previous when previous.row2 >= i.row1 ->
+            raise (Parse_error (i, "each 'use' starts a line of its own"))
+        | _ -> ());
+        let found, after = names after found in
+        let last = Some (snd (List.nth found (List.length found - 1))) in
+        lines after found last
+    | next :: _ -> (
+        match last with
+        | Some previous when previous.row2 >= (token_info next).row1 ->
+            raise
+              (Parse_error
+                 ( token_info next,
+                   "each statement must start on a new line, and this one \
+                    follows a 'use' on the same line" ))
+        | _ -> (found, rest))
+    | [] -> (found, rest)
+  in
+  lines tokens [] None
+
+(** The features a module's `use` lines turn on, read from its tokens
+    alone -- what `-t pyking` writes back above the program, since the
+    statements do not hold them. [token] -> [string] *)
+let uses tokens =
+  match List.rev tokens with
+  | [] -> []
+  | last :: _ -> (
+      try List.map fst (fst (parse_uses (token_info last) tokens))
+      with Parse_error _ -> [])
+
+(** The `use` lines a module's tokens start with, as `-t pyking` writes
+    them above the program: one line per feature. [token] -> string *)
+let use_lines tokens =
+  String.concat "" (List.map (fun feature -> "use " ^ feature ^ "\n") (uses tokens))
+
+(** Refuses every construct of a feature these statements' module has
+    not turned on. They are parsed like everything else -- one parser
+    reads every module -- and refused here, as a syntax error that names
+    the `use` line which would allow them. [string] -> [stmt] -> () *)
+let check_features enabled stmts =
+  if not (List.mem "mutation" enabled) then
+    Walk.fold_stmts
+      (fun () node ->
+        match node with
+        | Walk.NStmt (SVar (i, _, _, _)) ->
+            raise
+              (Parse_error
+                 ( { i with row2 = i.row1; col2 = i.col1 + 3 },
+                   "'var' declares a mutable variable, which needs 'use \
+                    mutation' at the top of this module" ))
+        | Walk.NStmt (SMutate (i, name, _, _)) ->
+            raise
+              (Parse_error
+                 ( i,
+                   Printf.sprintf
+                     "':=' changes the mutable variable '%s', which needs \
+                      'use mutation' at the top of this module"
+                     name ))
+        | _ -> ())
+      () stmts
+
+(** Parses a module's tokens with some features already on -- a REPL
+    session's, which an earlier entry turned on -- answering the features
+    its own `use` lines turn on, and its statements.
+    [string] -> [token] -> ([string], [stmt]) *)
+let parse_with enabled tokens =
   let eof =
     match List.rev tokens with
     | last :: _ -> token_info last
     | [] -> { file = "<empty>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
   in
+  (* A reserved word means nothing yet, so it is refused wherever it
+     stands -- a name, a parameter, a pattern -- with the same message. *)
+  (match List.find_opt (function TokReserved _ -> true | _ -> false) tokens with
+  | Some (TokReserved (i, word)) -> raise (Parse_error (i, reserved_message word))
+  | _ -> ());
+  let own, tokens = parse_uses eof tokens in
+  let own = List.map fst own in
   let rec statements rest collected =
     match rest with
     | [] -> List.rev collected
@@ -2595,4 +2857,9 @@ let parse tokens =
   in
   let stmts = statements tokens [] in
   check_loop_context stmts false None;
-  stmts
+  check_features (enabled @ own) stmts;
+  (own, stmts)
+
+(** Parses a full token stream into a list of top-level statements.
+    [token] -> [stmt] *)
+let parse tokens = snd (parse_with [] tokens)

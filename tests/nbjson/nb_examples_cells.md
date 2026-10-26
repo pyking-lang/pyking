@@ -111,6 +111,8 @@ read 7
 A page that counts clicks, clicked twice once its top level has run:
 
 ```pyking
+use mutation
+
 import tinyweb as tw
 tw.web_init(0)
 var n = 0
@@ -136,7 +138,7 @@ On the website this cell gets a link that opens it in the playground:
 
 ```pyking playground
 def greet(name: String) -> String:
-    "Hello, " ++ name ++ "!"
+    "Hello, " + name + "!"
 print(greet("playground"))
 ```
 

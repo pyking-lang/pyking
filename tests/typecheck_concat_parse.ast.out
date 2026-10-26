@@ -1,15 +1,15 @@
 def command(line:String) -> String:
     match line:
         case 'get ' ++ rest:
-            return 'GET(' ++ rest ++ ')'
+            return 'GET(' + rest + ')'
         case 'put ' ++ rest:
-            return 'PUT(' ++ rest ++ ')'
+            return 'PUT(' + rest + ')'
         case 'quit' ++ _:
             return 'QUIT'
         case '':
             return 'EMPTY'
         case other:
-            return 'UNKNOWN(' ++ other ++ ')'
+            return 'UNKNOWN(' + other + ')'
 def strip_quotes(s:String) -> String:
     match s:
         case '\'' ++ inside ++ '\'':
@@ -27,13 +27,13 @@ def leading_dots(s:String) -> Int:
 def pairs_up(xs:[Int]) -> [Int]:
     match xs:
         case [a, b, ..rest]:
-            return [a + b] ++ pairs_up(rest)
+            return [a + b] + pairs_up(rest)
         case _:
             return []
 def rotate(xs:[Int]) -> [Int]:
     match xs:
         case [first, ..rest]:
-            return rest ++ [first]
+            return rest + [first]
         case _:
             return xs
 print(command('get key'))

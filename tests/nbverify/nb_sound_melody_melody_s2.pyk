@@ -18,4 +18,4 @@ bpm = float(io.read_line())
 sound.tempo(bpm)
 beat = 60.0 / bpm
 n = play_all(text.words(io.read_line()), beat, 0)
-print(string(n) ++ " notes, " ++ string(rounded(float(n) * beat)) ++ " seconds")
+print(string(n) + " notes, " + string(rounded(float(n) * beat)) + " seconds")

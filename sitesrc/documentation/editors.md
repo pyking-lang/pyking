@@ -39,8 +39,9 @@ The server gives:
 - **Folding**: blocks, runs of comment lines, and the imports.
 - **Semantic highlighting**: functions, parameters, variables (a `var`
   apart from an `=` binding), modules, types, constructors and fields.
-- **Quick fixes**: `++` for a `+` on strings and the other way round, a
-  name in scope for a misspelt one, and an annotation changed to the type
+- **Quick fixes**: `+` for the `++` and `^` for the `**` Pyking no
+  longer has, `and` for an `&` on Bools and the like, the `use mutation`
+  line a `var` needs, a name in scope for a misspelt one, and an annotation changed to the type
   of the value.
 
 Each document is checked as a program, together with the modules it

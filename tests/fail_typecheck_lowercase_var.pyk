@@ -3,6 +3,8 @@
 # This program is expected to FAIL parsing. Its `.ast.out` holds the
 # error message, not a program's output.
 
+use mutation
+
 var Count = 0
 Count := Count + 1
 print(Count)

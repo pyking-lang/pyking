@@ -5,7 +5,7 @@
 
 
 def greet(who: String = "world") -> String:
-    return "hi " ++ who
+    return "hi " + who
 
 
 g = greet

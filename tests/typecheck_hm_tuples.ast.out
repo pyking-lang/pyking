@@ -15,7 +15,7 @@ def make_pair(x:a, y:b) -> (a, b):
 def add(a:Int, b:Int) -> Int:
     a + b
 def join(a:String, b:String) -> String:
-    a ++ b
+    a + b
 print(swap((1, 'a')))
 print(swap((true, 2)))
 print(fst(swap(('x', 9))))

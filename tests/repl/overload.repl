@@ -3,7 +3,7 @@ def bool::show(x: Bool) -> String: string(x)
 show(5)
 show(true)
 int::show(7)
-implicit def fmt(n: Int) -> String: string(n) ++ "!"
+implicit def fmt(n: Int) -> String: string(n) + "!"
 def loud(n: Int, implicit fmt: (Int) -> String) -> String: fmt(n)
 loud(3)
 def plain(n: Int) -> String: string(n)

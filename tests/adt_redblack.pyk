@@ -32,7 +32,7 @@ def insert(t: Tree(Int), x: Int) -> Tree(Int):
 def elements(t: Tree(a)) -> [a]:
     match t:
         case E: []
-        case T(_, l, v, r): elements(l) ++ [v] ++ elements(r)
+        case T(_, l, v, r): elements(l) + [v] + elements(r)
 
 
 def depth(t: Tree(a)) -> Int:

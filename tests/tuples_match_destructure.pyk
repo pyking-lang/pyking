@@ -3,9 +3,9 @@ def classify(p):
         case (0, 0):
             return "origin"
         case (x, 0):
-            return "x-axis: " ++ string(x)
+            return "x-axis: " + string(x)
         case (0, y):
-            return "y-axis: " ++ string(y)
+            return "y-axis: " + string(y)
         case (x, y):
             return "point"
 
@@ -13,7 +13,7 @@ def classify(p):
 def describe_triple(t):
     match t:
         case 0, 0, 0: "all zero"
-        case a, b, c: "sum: " ++ string(a + b + c)
+        case a, b, c: "sum: " + string(a + b + c)
 
 
 def first_of(pair):

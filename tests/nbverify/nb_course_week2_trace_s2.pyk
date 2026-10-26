@@ -1,6 +1,6 @@
 import io
 def fact(k: Int) -> Int:
-    debug("fact " ++ string(k))
+    debug("fact " + string(k))
     if k <= 1:
         return 1
     rest = fact(k - 1)

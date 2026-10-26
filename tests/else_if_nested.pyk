@@ -1,8 +1,11 @@
 # `else if` ladders nested inside other blocks, and mixed with the
 # `if ... then ... else` *expression*, which spells its own chain inline.
 
+use mutation
+
 # A ladder whose branches hold further if statements -- the inner `else`
 # belongs to the inner `if`, since the dedent closes its block first.
+
 def quadrant(x, y):
     if x >= 0:
         if y >= 0:

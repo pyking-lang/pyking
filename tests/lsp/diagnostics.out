@@ -17,13 +17,16 @@ diagnostics $CASES/broken.pyk v4 [{"code": "Lexing error", "message": "unexpecte
 diagnostics $CASES/broken.pyk v5 [{"code": "Module error", "message": "cannot read module 'nowhere': looked for '$CASES/nowhere_external.pyk' (local), '$CASES/nowhere.pyk' (local), '$LIB/nowhere/nowhere_external.pyk' (built-in), '$LIB/nowhere/nowhere.pyk' (built-in). A module is beside the file that imports it, or in a library folder on the search path (-L, PYKING_LIB_PATH)", "range": {"end": {"character": 14, "line": 0}, "start": {"character": 0, "line": 0}}, "severity": 1, "source": "pyking"}]
 > change broken.pyk
 > idle
-diagnostics $CASES/broken.pyk v6 [{"code": "Type error", "message": "'n' is Int, but this ':=' gives String", "range": {"end": {"character": 10, "line": 1}, "start": {"character": 0, "line": 1}}, "severity": 1, "source": "pyking"}]
+diagnostics $CASES/broken.pyk v6 [{"code": "Type error", "message": "'n' is Int, but this ':=' gives String", "range": {"end": {"character": 10, "line": 2}, "start": {"character": 0, "line": 2}}, "severity": 1, "source": "pyking"}]
 > change broken.pyk
 > idle
-diagnostics $CASES/broken.pyk v7 [{"code": "Name error", "message": "cannot update 'value' with ':=': it is a binding (declared on line 1), not a mutable variable (declare it with 'var' to make it one)", "range": {"end": {"character": 10, "line": 1}, "start": {"character": 0, "line": 1}}, "severity": 1, "source": "pyking"}]
+diagnostics $CASES/broken.pyk v7 [{"code": "Parsing error", "message": "'var' declares a mutable variable, which needs 'use mutation' at the top of this module", "range": {"end": {"character": 3, "line": 0}, "start": {"character": 0, "line": 0}}, "severity": 1, "source": "pyking"}]
 > change broken.pyk
 > idle
-diagnostics $CASES/broken.pyk v8 []
+diagnostics $CASES/broken.pyk v8 [{"code": "Name error", "message": "cannot update 'value' with ':=': it is a binding (declared on line 2), not a mutable variable (declare it with 'var' to make it one)", "range": {"end": {"character": 10, "line": 2}, "start": {"character": 0, "line": 2}}, "severity": 1, "source": "pyking"}]
+> change broken.pyk
+> idle
+diagnostics $CASES/broken.pyk v9 []
 > open uses_broken.pyk
 > idle
 diagnostics $CASES/uses_broken.pyk v1 [{"code": "Parsing error", "message": "'$CASES/broken_module.pyk' 1:23: unexpected end of input in expression", "range": {"end": {"character": 20, "line": 0}, "start": {"character": 0, "line": 0}}, "severity": 1, "source": "pyking"}]

@@ -53,7 +53,7 @@
     },
     "keyword": {
       "name": "keyword.control.pyking",
-      "match": "\\b(for|in|if|while|loop|break|continue|then|let|else|var|def|return|match|case|public|implicit|import|from|as|datatype|struct)\\b"
+      "match": "\\b(for|in|if|while|loop|break|continue|then|let|else|var|def|return|match|case|public|implicit|import|from|as|datatype|struct|use|lam|and|or|not|xor|class|interface|extends|self|super)\\b"
     },
     "type": {
       "name": "support.type.pyking",
@@ -79,7 +79,7 @@
         },
         {
           "name": "keyword.operator.pyking",
-          "match": "->|=>|\\+\\+|\\.\\.|==|<=|>=|[-+*/<>]"
+          "match": "->|\\.\\.|==|!=|<=|>=|<<|>>|&&|\\|\\||[-+*/%^&|~!<>]"
         }
       ]
     }

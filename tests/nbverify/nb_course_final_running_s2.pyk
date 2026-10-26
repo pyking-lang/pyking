@@ -5,6 +5,6 @@ def go(words: [String], total: Int) -> Int:
         case []: total
         case [w, ..rest]:
             now = total + int(w)
-            debug(string(now) ++ "  ")
+            debug(string(now) + "  ")
             go(rest, now)
 print(go(text.words(io.read_line()), 0))

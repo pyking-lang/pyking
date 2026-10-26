@@ -6,7 +6,7 @@ print(step(3, 4))
 def repeat(text:String, times:Int = 3) -> String:
     if times <= 0:
         return ''
-    return text ++ repeat(text, times - 1)
+    return text + repeat(text, times - 1)
 print(repeat('ab'))
 print(repeat('ab', 1))
 def describe(flag:Bool = true, name:String = 'pyk', size:Int = 2, ratio:Float = 0.5) -> Float:

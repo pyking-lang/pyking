@@ -27,7 +27,7 @@ def take(lst, n):
         []
     else:
         match lst:
-            case [x] ++ xs: [x] ++ drop_one(xs, n)
+            case [x] + xs: [x] + drop_one(xs, n)
             case []: []
 
 def drop_one(lst, n): take(lst, n - 1)

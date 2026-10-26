@@ -1,3 +1,5 @@
+use mutation
+
 x = "test"
 
 # A second `=` binds a fresh name that shadows the first. Both are

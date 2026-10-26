@@ -1,3 +1,5 @@
+use mutation
+
 import tinyweb as tw
 
 def pad(title: String, sample: String, volume: Float, said: (Int) -> String) -> ():
@@ -5,12 +7,12 @@ def pad(title: String, sample: String, volume: Float, said: (Int) -> String) -> 
     def hit():
         count := count + 1
         tw.play(sample, volume = volume)
-        print(said(count) ++ "  ")
+        print(said(count) + "  ")
     tw.button(title, on_click = hit)
     ()
 
 def boom(n: Int) -> String:
-    "boom " ++ string(n)
+    "boom " + string(n)
 
 def clap(n: Int) -> String:
     "clap"

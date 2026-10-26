@@ -6,6 +6,8 @@
 # written inside a loop body belongs to that body, so every turn gets a
 # fresh one.
 
+use mutation
+
 var deepest = 0
 for a in range(3):
     for b in range(3):
@@ -35,7 +37,7 @@ loop acc = [] for row in [[1, 2], [3, 4, 5]]:
     var here = 0
     for cell in row:
         here := here + cell
-    acc ++ [here]
+    acc + [here]
 
 print(sums)
 

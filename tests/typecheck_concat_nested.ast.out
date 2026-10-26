@@ -1,7 +1,7 @@
 def inner(xss:[[Int]]) -> String:
     answer: String = match xss:
         case [[a, ..more], ..rest]:
-            'first row starts ' ++ string(a)
+            'first row starts ' + string(a)
         case []:
             'no rows'
         case _:
@@ -10,20 +10,20 @@ def inner(xss:[[Int]]) -> String:
 def tagged(p:(String, [Int])) -> String:
     answer: String = match p:
         case ('id:' ++ name, [n, ..]):
-            name ++ '=' ++ string(n)
+            name + '=' + string(n)
         case ('id:' ++ name, []):
-            name ++ '=none'
+            name + '=none'
         case (other, _):
-            '?' ++ other
+            '?' + other
     return answer
 def both_ends(s:String) -> String:
     answer: String = match s:
         case '(' ++ body ++ ')':
-            'paren ' ++ body
+            'paren ' + body
         case '[' ++ body ++ ']':
-            'square ' ++ body
+            'square ' + body
         case _:
-            'bare ' ++ s
+            'bare ' + s
     return answer
 def peel(s:String) -> String:
     answer: String = match s:

@@ -4,6 +4,8 @@
 # that a visible mutable variable owns, which is what keeps `:=`
 # unambiguous. See "Names and scoping" in PYKING.md.
 
+use mutation
+
 count = 100
 
 

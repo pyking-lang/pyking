@@ -1,19 +1,19 @@
 # Lambdas: an expression that is a function.
 #
-# `x => x + 1` is the same as `(x) => x + 1`; several parameters need
+# `lam x. x + 1` is the same as `lam (x). x + 1`; several parameters need
 # the parentheses, and a parameter may be annotated. The body is one
 # expression (PYKING.md, "Lambdas").
 
-double = x => x * 2
+double = lam x. x * 2
 print(double(21))
 
-add = (x, y) => x + y
+add = lam (x, y). x + y
 print(add(3, 4))
 
-typed = (x: Int) => x - 1
+typed = lam (x: Int). x - 1
 print(typed(10))
 
-nothing = () => 7
+nothing = lam (). 7
 print(nothing())
 
 # A lambda is an ordinary value: it is passed, returned and called like
@@ -22,17 +22,17 @@ def twice(f: (Int) -> Int, x: Int) -> Int:
     f(f(x))
 
 print(twice(double, 5))
-print(twice(y => y + 10, 1))
+print(twice(lam y. y + 10, 1))
 
 # The body takes everything to its right that one expression can hold,
-# so `=>` associates to the right and a lambda may answer with one.
-adder = x => y => x + y
+# so `lam` associates to the right and a lambda may answer with one.
+adder = lam x. lam y. x + y
 print(adder(6)(7))
 
 # An `if` expression is one expression, so it needs no parentheses.
-sign = n => if n < 0 then 0 - 1 else 1
+sign = lam n. if n < 0 then 0 - 1 else 1
 print(sign(0 - 5), sign(5))
 
 # A lambda applied where it stands: the callee needs parentheses in
 # every target that has an expression form for one.
-print((x => x + 1)(5))
+print((lam x. x + 1)(5))

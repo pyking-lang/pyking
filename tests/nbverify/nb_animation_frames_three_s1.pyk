@@ -1,3 +1,5 @@
+use mutation
+
 import tinyweb as tw
 import tinyweb.color as color
 
@@ -8,6 +10,6 @@ def draw(t: Float):
     frames := frames + 1
     if frames <= 3:
         tw.rect(c, 0, 0, frames * 10, 20, color.orange)
-        print("frame " ++ string(frames) ++ " at " ++ string(t))
+        print("frame " + string(frames) + " at " + string(t))
 
 tw.on_frame(draw)

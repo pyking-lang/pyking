@@ -8,7 +8,7 @@
 # binding of the accumulator.
 
 makers = loop made = [] for i in [0, 1, 2]:
-    made ++ [x => x + i]
+    made + [lam x. x + i]
 
 for f in makers:
     print(f(10))
@@ -21,7 +21,7 @@ loop n, kept = 1, []:
     if n > 8:
         break
     else:
-        (n * 2, kept ++ [x => x * n])
+        (n * 2, kept + [lam x. x * n])
 
 print(total)
 for f in seen:

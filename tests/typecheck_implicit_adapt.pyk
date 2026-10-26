@@ -15,7 +15,7 @@ def bar(a, f: (Int, implicit my: Int) -> Int):
 def adds(x: Int, implicit my: Int) -> Int: x + my
 
 print(bar(7, adds))
-print(bar(2, x => x + 1))
+print(bar(2, lam x. x + 1))
 
 # The same two, where the parameter asks for nothing: `adds` is adapted
 # by supplying its implicit *here*, from the `my` in scope here.
@@ -25,4 +25,4 @@ def plain(a, f):
     f(a + 1)
 
 print(plain(7, adds))
-print(plain(2, x => x + 1))
+print(plain(2, lam x. x + 1))

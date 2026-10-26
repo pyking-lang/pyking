@@ -756,7 +756,7 @@ let compile_modules main target =
   | Targets.Pyking ->
       per_unit (fun unit tmap ->
           [ (unit.Module.name ^ ".pyking.pyk",
-             Syntax.pprint_program unit.stmts false tmap ^ "\n") ])
+             Parser.use_lines unit.tokens ^ Syntax.pprint_program unit.stmts false tmap ^ "\n") ])
   | Targets.Python ->
       per_unit (fun unit tmap ->
           let context = Module.context checked unit in
@@ -933,7 +933,12 @@ let compile_source source target name =
              front end *saw*, not code any host could run. *)
           let out = stem ^ ".pyking.pyk" in
           done_ ~views:[ out ]
-            [ (out, Syntax.pprint_program program false (Some tmap) ^ "\n") ]
+            [ ( out,
+                (* The `use` lines are not statements, so they are read
+                   back off the source's tokens. *)
+                (try Parser.use_lines (Lexer.lexing name (Lexer.chars_of_string source))
+                 with _ -> "")
+                ^ Syntax.pprint_program program false (Some tmap) ^ "\n" ) ]
         else
           (* A `def name : type` line is another spelling of the
              annotations a header could carry, so it is folded onto the
@@ -1236,9 +1241,9 @@ let repl_complete text =
     entry is submitted. Empty where text does not parse or its imports
     are refused, which submitting it then reports. string -> string *)
 let repl_imports text =
-  match Repl_session.parse_source text with
+  match Repl_session.parse_entry !repl_state text with
   | exception _ -> "[]"
-  | stmts -> (
+  | _, stmts -> (
       match Repl_session.imported_modules !repl_state stmts with
       | exception _ -> "[]"
       | units ->
@@ -1265,12 +1270,12 @@ let repl_submit text =
       repl_state := outcome.out_session;
       (outcome.pending, None))
     else
-      match Repl_session.parse_source text with
+      match Repl_session.parse_entry !repl_state text with
       | exception e ->
           report e;
           ("", None)
-      | stmts -> (
-          match Repl_session.submit !repl_state stmts report text with
+      | session, stmts -> (
+          match Repl_session.submit session stmts report text with
           | exception Program_exit code -> ("", Some code)
           | session, refused -> (
               repl_state := session;

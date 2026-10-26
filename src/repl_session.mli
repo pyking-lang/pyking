@@ -57,9 +57,20 @@ val indent_width : string
     [Module.lib_entry]? -> host -> session *)
 val new_session : ?libs:Module.lib_entry list -> host -> session
 
-(** source as a list of statements. Raises Lex_error/Parse_error.
-    string? -> string -> [stmt] *)
-val parse_source : ?name:string -> string -> Syntax.stmt list
+(** source as a list of statements, with `features` already on (as a
+    `use` line would turn them on). Raises Lex_error/Parse_error.
+    string? -> [string]? -> string -> [stmt] *)
+val parse_source : ?name:string -> ?features:string list -> string -> Syntax.stmt list
+
+(** session with these features on, as a `use` line would turn them
+    on. session -> [string] -> session *)
+val with_features : session -> string list -> session
+
+(** One entry's statements, parsed with the features the session's
+    earlier `use` lines turned on, and the session with this entry's own
+    added. Raises Lex_error/Parse_error.
+    string? -> session -> string -> (session, [stmt]) *)
+val parse_entry : ?name:string -> session -> string -> session * Syntax.stmt list
 
 (** Whether source is a whole entry, per the parser. string -> bool *)
 val complete : string -> bool

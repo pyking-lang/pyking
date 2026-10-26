@@ -8,7 +8,7 @@ implicit def fmt(n: Int) -> String: string(n)
 
 def show(n: Int, implicit fmt: (Int) -> String) -> String: fmt(n)
 
-def loud(n: Int) -> String: string(n) ++ "!"
+def loud(n: Int) -> String: string(n) + "!"
 
 print(show(3))
 print(show(3, loud))
@@ -19,6 +19,6 @@ print(show(3, fmt = loud))
 # Two implicit parameters, both written out.
 def pair(n: Int, implicit a: (Int) -> String,
          implicit b: (Int) -> String) -> String:
-    a(n) ++ "/" ++ b(n)
+    a(n) + "/" + b(n)
 
 print(pair(7, fmt, loud))

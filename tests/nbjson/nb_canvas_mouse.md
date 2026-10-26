@@ -10,7 +10,7 @@ moving and the button coming up.
 import tinyweb as tw
 import tinyweb.color as color
 c = tw.canvas(150, 80)
-tw.on_click(c, (x: Int, y: Int) => tw.circle(c, x, y, 3, color.black))
+tw.on_click(c, lam (x: Int, y: Int). tw.circle(c, x, y, 3, color.black))
 ```
 
 ## Dots
@@ -65,6 +65,8 @@ print("Add your code here")
 ```
 
 ```pyking solution
+use mutation
+
 import tinyweb as tw
 import tinyweb.color as color
 

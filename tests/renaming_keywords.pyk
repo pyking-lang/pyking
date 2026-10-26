@@ -4,14 +4,18 @@
 # which is what the shared `.out` file checks.
 #
 # Every name here is a keyword in at least one target:
-#   class, lambda, pass, del, global, raise, yield          -- Python
-#   class, function, typeof, delete, new, instanceof, super -- JavaScript
+#   lambda, pass, del, global, raise, yield                 -- Python
+#   function, typeof, delete, new, instanceof               -- JavaScript
 #   double, union, unsigned, static, void, char, sizeof     -- C
 #   static, final, abstract, synchronized, native           -- Java
-# and several are keywords in more than one at once.
+# and several are keywords in more than one at once. (`class` and
+# `super` are reserved in Pyking itself, for objects.)
+
+use mutation
 
 # A function named after a C and Java keyword, and one after a Python and
 # JavaScript keyword. Both are called normally.
+
 def double(n):
     n * 2
 
@@ -25,8 +29,8 @@ print(double(21), lambda(41))
 
 # Keywords as parameter names, including one shadowed by the function's
 # own parameter list.
-def combine(class, static, void):
-    class + static + void
+def combine(lambda, static, void):
+    lambda + static + void
 
 
 print(combine(1, 2, 3))

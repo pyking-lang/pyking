@@ -26,6 +26,11 @@ This is a plan written before any code. Each step lists what it adds,
 the decisions it needs, and what it touches. Where a decision is
 proposed rather than settled, the step says so under **Open**.
 
+**Status:** steps 1 and 2 are implemented (October 2026), with the
+decisions marked **Decided** below; where the code and this file
+disagree, the code is right. `PYKING.md` is the reference for what was
+built.
+
 ## Contents
 
 1. [Where Pyking stands](#where-pyking-stands)
@@ -219,9 +224,8 @@ builtins.
   of the session. `pyk repl --use mutation` does the same from the
   start.
 - **Notebook**: each code cell is checked as its own module, so a cell
-  writes its own `use`. **Open**: alternatively a notebook-wide
-  `use = mutation` in the front matter, which would let a task's
-  starting code hide the line from beginners.
+  writes its own `use`. **Decided**: per cell; no notebook-wide
+  setting.
 - **Playground**: like a file. The LSP offers a quick fix, "Add 'use
   mutation' at the top of the module", on the gate's error.
 
@@ -249,8 +253,9 @@ line:
 ### Open
 
 - Should a feature be turned on from the command line
-  (`pyk --use mutation prog.pyk`) for teaching set-ups? The proposal is
-  no outside the REPL, so that a file always says what it needs.
+  (`pyk --use mutation prog.pyk`) for teaching set-ups? **Decided**: no
+  outside the REPL (`pyk repl --use mutation`), so that a file always
+  says what it needs.
 
 ---
 
@@ -291,7 +296,10 @@ greeting = "Hello, " + name + "!"
   A chain `a + b + c` is left-associative, so the rule holds for every
   operand: all strings or all lists, never a mixture.
 - **Inference**: `+` becomes one more overloaded operator, with four
-  rows instead of two.
+  rows instead of two. **As built**: a `+` whose operands nothing has
+  decided is left open and decided by a later use -- as `++` was --
+  and a definition is not generalised over it; what nothing decides by
+  the end of the module adds two Ints (docs/typesystem.md).
   - **Deciding the row**: where an operand's type is known, it
     decides; a String literal on either side makes the other side a
     String.
@@ -395,10 +403,9 @@ collide with any of them:
    parameter is a single name with no type.
 2. **`lam x.y` with no space** is a lambda whose body is `y`, not a
    lambda reading field `y` of `x`. It is unambiguous to the parser,
-   but a reader can take it for field access. **Open**: refuse a body
-   that starts on the same column as the `.` ("write a space after the
-   lambda's '.'"), as the parser already checks other layout rules
-   against token positions. The proposal is to require the space.
+   but a reader can take it for field access. **Decided**: accepted
+   without a space, as the lambda calculus writes `λx.y`; no layout
+   rule.
 3. **Several parameters: `lam (x, y)` or `lam x, y`?** The proposal is
    parentheses, the same list a `def` writes, because `lam x, y. e` in
    a call (`f(lam x, y. e)`) looks like two arguments. `(x, y)` is a
@@ -407,8 +414,8 @@ collide with any of them:
    **Not proposed**: `lam x y. e`. It reads as curried, and Pyking
    functions take several arguments at once, so `lam x. lam y. e` is
    how currying is written.
-4. **No parameters**: `lam (). e`, matching `def f():`. **Open**: the
-   shorter `lam. e`.
+4. **No parameters**: `lam (). e`, matching `def f():`. **Decided**:
+   `lam (). e`; `lam. e` is not accepted.
 5. **Familiarity.** `lam x. e` follows the lambda calculus
    (`λx. e`), not Python's `lambda x: e` or JavaScript's `x => e`. That
    is a deliberate choice for teaching, not a syntax conflict.
@@ -450,10 +457,9 @@ print(rows[1][0])                        # 3
 - **Out of range**, including any negative index, is a runtime error
   in the interpreter, and whatever the host does in compiled code,
   until step 4 makes it a defined failure on every target. So `xs[-1]`
-  is not the last element. **Open**: Python's negative indices. They
-  are decided together with slicing in step 5, so that `xs[-1]` and
-  `xs[-2:]` follow one rule. The proposal here is to refuse them now,
-  which leaves step 5 free to choose.
+  is not the last element. **Decided**: refused now (a runtime error in
+  the interpreter); Python's negative indices are decided together with
+  slicing in step 5, so that `xs[-1]` and `xs[-2:]` follow one rule.
 - **Lists only, for now.** Strings, slices, tuples and maps are
   indexed in steps 5 and 8. **Not here**: `t[0]` on a tuple, which
   would need a different result type per index.
@@ -536,8 +542,7 @@ mask = flags and 0xff                    # an Int
   refused with a hint: "on Ints, write 'and' or '&'". In C and
   JavaScript, `5 && 2` is `1` (or `2`) and `!5` is `0`. Making them
   bitwise here would give a student from those languages a different
-  answer with no error. **Open**: overloading the symbols as well, for
-  uniformity. The proposal is not to.
+  answer with no error. **Decided**: the symbols stay Bool's alone.
 - **Python differs too.** In Python `12 and 10` answers `10` (the
   second operand, by truthiness), not `8`. Here it is a type-checked
   bitwise and, so the step's tests and the `PYKING.md` section must
@@ -591,8 +596,7 @@ power       = atom , [ "^" , unary ] ;
   still one operator; only where it may be written differs.
 - **Mixing spellings** in one expression (`a and b || c`) is allowed:
   `||` and `or` share a precedence level, as do `&&` and `and`.
-  **Open**: refuse a mixture, or leave it to `pyk fmt` (step 14) and an
-  LSP hint. The proposal is to allow it.
+  **Decided**: allowed.
 - **The spelling is kept**: the AST records which spelling was
   written, so `-t pyking` prints the program back as it was written.
   Backends ignore it.
@@ -616,9 +620,8 @@ power       = atom , [ "^" , unary ] ;
   refused with a hint: "on Bools, write 'and' (or '&&')". Pyking keeps
   one way to combine conditions and that way short-circuits. The words
   `and`, `or` and `not` are the one bridge: they work on both, as
-  logic on Bools and bitwise on Ints. **Open**:
-  `xor` on two Bools, which has no short-circuit to lose and would be
-  `!=`. The proposal is to refuse it too, suggesting `!=`.
+  logic on Bools and bitwise on Ints. **Decided**: `xor` on two Bools
+  is refused too, suggesting `!=`.
 - **Precedence is Python's**: the bitwise operators bind tighter than
   comparison, so `flags & mask == 0` is `(flags & mask) == 0`, as in
   Python. C, Java and JavaScript read it the other way, which is a

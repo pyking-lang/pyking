@@ -8,7 +8,7 @@ def fold_left(f:(a, b) -> a, acc:a, lst:[b]) -> a:
 def add(total:Int, n:Int) -> Int:
     total + n
 def join(text:String, word:String) -> String:
-    text ++ word
+    text + word
 def count(total:Int, word:String) -> Int:
     total + len(word)
 print(fold_left(add, 0, [1, 2, 3]))

@@ -1,7 +1,9 @@
+use mutation
+
 import io
 import text
 line = io.read_line()
 var out = ""
 for k in range(1, text.length(line)):
-    out := text.char_at(line, k) ++ out
+    out := text.char_at(line, k) + out
 print(out)

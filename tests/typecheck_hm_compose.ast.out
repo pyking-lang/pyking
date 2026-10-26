@@ -3,7 +3,7 @@ def compose(f:(a) -> b, g:(c) -> a, x:c) -> b:
 def id(x:a) -> a:
     x
 def show(n:Int) -> String:
-    'n=' ++ string(n)
+    'n=' + string(n)
 def size(s:String) -> Int:
     len(s)
 def bump(n:Int) -> Int:

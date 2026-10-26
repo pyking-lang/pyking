@@ -1,3 +1,4 @@
+use mutation
 def capped(limit:Int) -> Int:
     loop acc: Int = 0:
         if acc > limit:
@@ -18,7 +19,7 @@ def marked(width:Int) -> String:
         if made == width:
             break
         made := made + 1
-        text ++ '*'
+        text + '*'
 print(capped(10), capped(0))
 print(counted(3), counted(50))
 print(marked(5), marked(0))

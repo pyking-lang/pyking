@@ -3,6 +3,8 @@
 # the same clock, so it sounds where the picture says it is. The
 # .events file delivers four frames.
 
+use mutation
+
 import tinyweb as tw
 import tinyweb.color as color
 
@@ -17,7 +19,7 @@ def draw(t: Float):
     tw.clear(c, color.hex(0x111111))
     tw.circle(c, int(t * 100.0), 50, 10, color.hex(0xffcc00))
     if t >= next_beat:
-        print("beat scheduled at " ++ string(next_beat + beat) ++ ", drawn at " ++ string(t))
+        print("beat scheduled at " + string(next_beat + beat) + ", drawn at " + string(t))
         tw.play(kick, at = next_beat + beat)
         next_beat := next_beat + beat
 

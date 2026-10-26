@@ -4,6 +4,6 @@ import tinyweb as tw
 shown = tw.label("volume 5")
 
 def moved(n: String):
-    tw.set_text(shown, "volume " ++ n)
+    tw.set_text(shown, "volume " + n)
 
 tw.slider(0, 10, 5, on_change = moved)

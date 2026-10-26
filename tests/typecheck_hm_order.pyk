@@ -15,12 +15,12 @@ def id(x): x
 
 def first_shape(f, lst):
     match lst:
-        case [x] ++ xs: [f(x)] ++ first_shape(f, xs)
+        case [x] + xs: [f(x)] + first_shape(f, xs)
         case []: []
 
 def second_shape(f, lst):
     match lst:
-        case [x] ++ xs: [f(x)] ++ second_shape(f, xs)
+        case [x] + xs: [f(x)] + second_shape(f, xs)
         case []: []
 
 def double(n): n * 2

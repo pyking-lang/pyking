@@ -1,6 +1,8 @@
 # A canvas, two circles, two samples and buttons that play them: the
 # first tinyweb program.
 
+use mutation
+
 import tinyweb as tw
 import tinyweb.color as color
 
@@ -21,7 +23,7 @@ def play_kick():
 
 def play_sound():
     presses := presses + 1
-    print("snare, press " ++ string(presses))
+    print("snare, press " + string(presses))
     tw.play(snare, volume = 0.5)
 
 tw.button("Play kick", on_click = play_kick)

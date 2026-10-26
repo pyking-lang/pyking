@@ -25,7 +25,7 @@ print(weekend("sun"), weekend("mon"))
 def on_axis(p: (Int, Int)) -> String:
     match p:
         case (0, 0): "origin"
-        case (x, 0) | (0, x): "on an axis at " ++ string(x)
+        case (x, 0) | (0, x): "on an axis at " + string(x)
         case _: "elsewhere"
 
 
@@ -44,7 +44,7 @@ def describe(t: Token) -> String:
     match t:
         case Plus | Minus: "additive"
         case Times: "multiplicative"
-        case Number(n) if n < 0: "negative " ++ string(n)
+        case Number(n) if n < 0: "negative " + string(n)
         case Number(_) | Name(_): "operand"
 
 

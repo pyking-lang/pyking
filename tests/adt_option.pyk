@@ -43,13 +43,13 @@ def bind(r: Result(a, e), f: (a) -> Result(b, e)) -> Result(b, e):
 
 
 print(find([3, 5, 7], 7), find([3, 5, 7], 4))
-print(map_option(x => x * 10, find([3, 5, 7], 5)))
-print(map_option(x => string(x) ++ "!", Just(3)))
+print(map_option(lam x. x * 10, find([3, 5, 7], 5)))
+print(map_option(lam x. string(x) + "!", Just(3)))
 print(default(find([1], 2), 0 - 1), default(Just("x"), "y"))
 print(divide(7, 2), divide(1, 0))
-print(bind(divide(100, 5), n => divide(n, 2)))
-print(bind(divide(100, 0), n => divide(n, 2)))
-print(bind(divide(100, 5), n => divide(n, 0)))
+print(bind(divide(100, 5), lam n. divide(n, 2)))
+print(bind(divide(100, 0), lam n. divide(n, 2)))
+print(bind(divide(100, 5), lam n. divide(n, 0)))
 
 # An unannotated function works its datatype out like any other type.
 def or_else(o, d):

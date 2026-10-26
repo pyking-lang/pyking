@@ -1,7 +1,7 @@
 def identity(x:a) -> a:
     x
-def use : ((all a. (a) -> a)) -> ()
-def use(f):
+def use_it : ((all a. (a) -> a)) -> ()
+def use_it(f):
     print(f(1), f(true))
 def describe : ((all a. (a) -> a)) -> ()
 def describe(f):
@@ -15,7 +15,7 @@ def pack_int(k):
 def pack_string : ((all a. (a) -> a)) -> String
 def pack_string(k):
     k('hello')
-use(identity)
+use_it(identity)
 describe(identity)
 print(extract(pack_int), extract(pack_string))
 same: (a) -> a = identity

@@ -607,7 +607,15 @@ let checker_scope t frame =
     t -> frame -> string -> (Interpreter.value, string) result *)
 let run_text t frame text =
   let parsed =
-    try Ok (Parser.parse (Lexer.lexing "<debugger>" (Lexer.chars_of_string (text ^ "\n")))) with
+    (* What is typed here acts on a program that is running, from outside
+       its source, so every feature is on: a `var` given a new value is
+       a `:=` whatever the program's own `use` lines say. *)
+    try
+      Ok
+        (snd
+           (Parser.parse_with Parser.features
+              (Lexer.lexing "<debugger>" (Lexer.chars_of_string (text ^ "\n")))))
+    with
     | Lexer.Lex_error (_, message) | Parser.Parse_error (_, message) -> Error message
   in
   match parsed with

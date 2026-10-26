@@ -1,3 +1,5 @@
+use mutation
+
 def sum_list(xs:[Int]) -> Int:
     var total = 0
     for x in xs:
@@ -7,14 +9,14 @@ def sum_list(xs:[Int]) -> Int:
 
 def join_all(words:[String]) -> String:
     return loop text = "" for w in words:
-        text ++ w
+        text + w
 
 
 def flatten(rows:[[Int]]) -> [Int]:
     return loop out = [] for row in rows:
         added =
         loop inner = out for x in row:
-            inner ++ [x]
+            inner + [x]
         added
 
 

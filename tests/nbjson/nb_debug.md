@@ -34,6 +34,8 @@ print("Add your code here")
 ```
 
 ```pyking solution available = true
+use mutation
+
 import io
 var total = 0
 while io.is_eof() == false:

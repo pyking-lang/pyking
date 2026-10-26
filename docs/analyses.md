@@ -79,9 +79,9 @@ unchanged for the same reason: they don't bind anything, so what
 follows them sees exactly what they saw.
 
 One thing does make the walk look at an expression, and it is a
-binding rather than a write: a **lambda's parameters**. `x => x + 1` is
-an expression that binds a name, so `var count = 0` followed by
-`f = count => count` has to be refused by the same rule that refuses
+binding rather than a write: a **lambda's parameters**. `lam x. x + 1`
+is an expression that binds a name, so `var count = 0` followed by
+`f = lam count. count` has to be refused by the same rule that refuses
 every other shadowing of a `var`. `analyze_lambdas` walks one
 statement's own expressions through `Walk.children`, binds each lambda's
 parameters where it finds one, and follows that lambda's body in the

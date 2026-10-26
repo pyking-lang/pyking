@@ -8,8 +8,10 @@
 # This program is expected to FAIL the mutability analysis. Its
 # `.ast.out` holds the error message, not a program's output.
 
-def use(f: (Int) -> Int) -> Int: f(1)
+use mutation
+
+def use_it(f: (Int) -> Int) -> Int: f(1)
 
 var count = 0
 count := count + 1
-print(use(count => count * 2))
+print(use_it(lam count. count * 2))

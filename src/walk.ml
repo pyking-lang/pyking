@@ -62,8 +62,11 @@ let children n =
       | ELessThanEq (_, l, r, _)
       | EGreatThan (_, l, r, _)
       | EGreatThanEq (_, l, r, _)
-      | EEq (_, l, r, _) ->
+      | EEq (_, l, r, _)
+      | EBinary (_, _, l, r, _)
+      | EIndex (_, l, r, _) ->
           [ NExpr l; NExpr r ]
+      | EUnary (_, _, operand, _) -> [ NExpr operand ]
       | ENeg (_, operand, _) -> [ NExpr operand ]
       | ECall (_, func, args, _) -> NExpr func :: exprs_of (arg_exprs args)
       | EList (_, elements, _) | ETuple (_, elements, _) -> exprs_of elements

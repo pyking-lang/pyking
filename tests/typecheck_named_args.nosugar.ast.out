@@ -10,7 +10,7 @@ print(box(7))
 print(box(7, depth = 8))
 print(box(7, 8, depth = 9))
 def join(left:String, right:String) -> String:
-    return left ++ '-' ++ right
+    return left + '-' + right
 print(join('a', 'b'))
 print(join('a', right = 'c'))
 def scale(base:Int, factor:Int = 2) -> Int:

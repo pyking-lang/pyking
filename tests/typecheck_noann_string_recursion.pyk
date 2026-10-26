@@ -14,7 +14,7 @@ def repeat(piece, times):
     if times <= 0:
         ""
     else:
-        piece ++ repeat(piece, times - 1)
+        piece + repeat(piece, times - 1)
 
 def bar(width):
     repeat("#", width)
@@ -26,7 +26,7 @@ def countdown(from_):
     if from_ <= 1:
         "1"
     else:
-        string(from_) ++ ", " ++ countdown(from_ - 1)
+        string(from_) + ", " + countdown(from_ - 1)
 
 # Roman numerals: subtract the largest value that fits, name it, and ask
 # the same question about what is left. Every branch is a step down, so
@@ -36,31 +36,31 @@ def roman(n):
         ""
     else:
         if n >= 1000:
-            "M" ++ roman(n - 1000)
+            "M" + roman(n - 1000)
         else:
             if n >= 900:
-                "CM" ++ roman(n - 900)
+                "CM" + roman(n - 900)
             else:
                 if n >= 500:
-                    "D" ++ roman(n - 500)
+                    "D" + roman(n - 500)
                 else:
                     if n >= 400:
-                        "CD" ++ roman(n - 400)
+                        "CD" + roman(n - 400)
                     else:
                         if n >= 100:
-                            "C" ++ roman(n - 100)
+                            "C" + roman(n - 100)
                         else:
                             if n >= 90:
-                                "XC" ++ roman(n - 90)
+                                "XC" + roman(n - 90)
                             else:
                                 if n >= 50:
-                                    "L" ++ roman(n - 50)
+                                    "L" + roman(n - 50)
                                 else:
                                     if n >= 40:
-                                        "XL" ++ roman(n - 40)
+                                        "XL" + roman(n - 40)
                                     else:
                                         if n >= 10:
-                                            "X" ++ roman(n - 10)
+                                            "X" + roman(n - 10)
                                         else:
                                             small_roman(n)
 
@@ -69,13 +69,13 @@ def small_roman(n):
         "IX"
     else:
         if n >= 5:
-            "V" ++ small_roman(n - 5)
+            "V" + small_roman(n - 5)
         else:
             if n >= 4:
                 "IV"
             else:
                 if n >= 1:
-                    "I" ++ small_roman(n - 1)
+                    "I" + small_roman(n - 1)
                 else:
                     ""
 
@@ -86,20 +86,20 @@ def stripes(n):
     if n <= 0:
         ""
     else:
-        "-" ++ gaps(n - 1)
+        "-" + gaps(n - 1)
 
 def gaps(n):
     if n <= 0:
         ""
     else:
-        "_" ++ stripes(n - 1)
+        "_" + stripes(n - 1)
 
 # `len` is the other direction: text in, number out. A nested helper
 # keeps the padding rule to itself.
 def pad_to(text, width):
     def spaces(count):
         repeat(".", count)
-    text ++ spaces(width - len(text))
+    text + spaces(width - len(text))
 
 def longer(left, right):
     if len(left) >= len(right):
@@ -111,13 +111,13 @@ def longer(left, right):
 # rather than an alternative.
 def label(count, thing):
     if count == 1:
-        return "1 " ++ thing
-    return string(count) ++ " " ++ thing ++ "s"
+        return "1 " + thing
+    return string(count) + " " + thing + "s"
 
 print(bar(5), repeat("ab", 3))
 print(countdown(5))
 print(roman(2024), roman(49), roman(3999), roman(4))
 print(stripes(6), gaps(6))
-print(pad_to("name", 10) ++ "|", pad_to("a longer name", 10) ++ "|")
+print(pad_to("name", 10) + "|", pad_to("a longer name", 10) + "|")
 print(longer("short", "much longer"), len(longer("short", "much longer")))
 print(label(1, "file"), label(3, "file"), label(0, "file"))

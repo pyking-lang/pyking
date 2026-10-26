@@ -15,7 +15,7 @@ def map_pairs(xs):
         case []:
             return []
         case [(left, right), ..rest]:
-            return [left] ++ map_pairs(rest)
+            return [left] + map_pairs(rest)
 
 
 def take(xs, n):
@@ -25,7 +25,7 @@ def take(xs, n):
             if n < 1:
                 []
             else:
-                [first] ++ take(rest, n - 1)
+                [first] + take(rest, n - 1)
     return answer
 
 
@@ -44,7 +44,7 @@ def join(parts, sep):
     answer = match parts:
         case []: ""
         case [only]: only
-        case [first, ..rest]: first ++ sep ++ join(rest, sep)
+        case [first, ..rest]: first + sep + join(rest, sep)
     return answer
 
 

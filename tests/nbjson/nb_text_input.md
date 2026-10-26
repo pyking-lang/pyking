@@ -15,7 +15,7 @@ typed. The field's id is its placeholder, or `text` when it has none.
 
 ```pyking readonly
 import tinyweb as tw
-tw.text_input("anything", on_enter = (words: String) => print("got", words))
+tw.text_input("anything", on_enter = lam (words: String). print("got", words))
 ```
 
 ## Greeting
@@ -34,7 +34,7 @@ import tinyweb as tw
 shown = tw.label("Who are you?")
 
 def greet(name: String):
-    line = "Hello, " ++ name ++ "!"
+    line = "Hello, " + name + "!"
     tw.set_text(shown, line)
     print(line)
 

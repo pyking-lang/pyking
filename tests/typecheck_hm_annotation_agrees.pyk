@@ -25,12 +25,12 @@ def apply_inferred(f, x): f(x)
 def map_written : ((a) -> b, [a]) -> [b]
 def map_written(f, lst):
     match lst:
-        case [x] ++ xs: [f(x)] ++ map_written(f, xs)
+        case [x] + xs: [f(x)] + map_written(f, xs)
         case []: []
 
 def map_inferred(f, lst):
     match lst:
-        case [x] ++ xs: [f(x)] ++ map_inferred(f, xs)
+        case [x] + xs: [f(x)] + map_inferred(f, xs)
         case []: []
 
 def negate(n): 0 - n

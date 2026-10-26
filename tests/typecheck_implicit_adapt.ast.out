@@ -4,9 +4,9 @@ def bar(a:Int, f:(Int, implicit my: Int) -> Int) -> Int:
 def adds(x:Int, my:Int) -> Int:
     x + my
 print(bar(7, adds))
-print(bar(2, (__implicit__1:Int, __implicit__2:Int) => ((x:Int) => x + 1)(__implicit__1)))
+print(bar(2, lam (__implicit__1:Int, __implicit__2:Int). (lam (x:Int). x + 1)(__implicit__1)))
 my: Int = 100
 def plain(a:Int, f:(Int) -> a) -> a:
     f(a + 1)
-print(plain(7, (__implicit__1:Int) => adds(__implicit__1, my)))
-print(plain(2, (x:Int) => x + 1))
+print(plain(7, lam (__implicit__1:Int). adds(__implicit__1, my)))
+print(plain(2, lam (x:Int). x + 1))

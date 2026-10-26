@@ -2,6 +2,8 @@
 # parameters and returns, `while` loops (nested, and with early exits),
 # `if`/`else if`/`else`, mutable variables with `:=`, and recursion.
 
+use mutation
+
 def gcd(a, b):
     var x = a
     var y = b

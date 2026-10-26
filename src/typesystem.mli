@@ -127,6 +127,7 @@ type store = {
   datatypes : datatype SMap.t;
   constructors : string SMap.t;
   field_defaults : (typ * string) SMap.t;
+  pending_plus : (typ * info) list;
 }
 
 (** Type-checks one module -- or a whole one-file program, which is the

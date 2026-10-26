@@ -5,8 +5,11 @@
 # in is what the next turn carries. `break` and `continue` take no
 # operand -- there is nothing left for either of them to say.
 
+use mutation
+
 # 1. An accumulator and nothing else: `break` stops it, and the loop is
 # worth the accumulator the turn it stopped on started with.
+
 k = loop x = 0:
     if x == 10:
         break

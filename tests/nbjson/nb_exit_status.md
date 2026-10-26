@@ -95,7 +95,7 @@ import sys
 line = io.read_line()
 if line == "":
     sys.exit(4)
-print("got: " ++ line)
+print("got: " + line)
 sys.exit(0)
 ```
 

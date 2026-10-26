@@ -26,7 +26,7 @@ def tail_group4(state:Int, xs:[Int], acc:[Int]) -> [Int]:
                 case []:
                     return acc
                 case [x, ..rest]:
-                    (1, rest, acc ++ [x])
+                    (1, rest, acc + [x])
         else:
             match xs:
                 case []:

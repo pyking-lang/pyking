@@ -1,6 +1,8 @@
+use mutation
+
 import sys
 var i = 0
 for word in sys.args():
     i := i + 1
-    print(string(i) ++ ": " ++ word)
+    print(string(i) + ": " + word)
 print(i, "arguments")

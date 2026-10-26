@@ -12,13 +12,13 @@ def map_written : ((a) -> b, [a]) -> [b]
 def map_written(f, lst):
     match lst:
         case [x, ..xs]:
-            [f(x)] ++ map_written(f, xs)
+            [f(x)] + map_written(f, xs)
         case []:
             []
 def map_inferred(f:(a) -> b, lst:[a]) -> [b]:
     match lst:
         case [x, ..xs]:
-            [f(x)] ++ map_inferred(f, xs)
+            [f(x)] + map_inferred(f, xs)
         case []:
             []
 def negate(n:Int) -> Int:

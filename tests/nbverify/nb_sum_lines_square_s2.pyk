@@ -1,6 +1,6 @@
 import io
 line = io.read_line()
 n = int(line)
-print(line ++ " squared is " ++ string(n * n) ++ "    ")
+print(line + " squared is " + string(n * n) + "    ")
 print("")
 print("")

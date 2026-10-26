@@ -12,6 +12,8 @@
 # have no closures at all and refuse this file, which is why they are
 # not in its target list.
 
+use mutation
+
 var x = 8
 
 print(x)

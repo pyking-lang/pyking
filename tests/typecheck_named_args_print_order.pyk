@@ -9,6 +9,6 @@ def f2() -> String:
     print('f2')
     'num2'
 def foo(x:Int, my1:String, my2:String) -> String:
-    return string(x) ++ my1 ++ my2
+    return string(x) + my1 + my2
 k2: String = foo(78, my2= f2(), my1=f1())
 print(k2)

@@ -13,9 +13,13 @@ not visible in the next.
 ## Bindings and variables
 
 `=` binds a name to a value, and that binding never changes. A variable
-that changes is declared with `var` and updated with `:=`.
+that changes is declared with `var` and updated with `:=`, which a
+program turns on with `use mutation` at its top: a program is functional
+unless it says otherwise.
 
 ```pyking
+use mutation
+
 limit = 10
 var total = 0
 for i in range(1, limit + 1):
@@ -27,6 +31,8 @@ Updating a name that was bound with `=` is a compile-time error. This
 example is meant to be refused:
 
 ```pyking error
+use mutation
+
 count = 1
 count := count + 1
 ```
@@ -40,7 +46,7 @@ argument and result have the same type.
 ```pyking
 def twice(f, x): f(f(x))
 def inc(n): n + 1
-def shout(s): s ++ "!"
+def shout(s): s + "!"
 
 print(twice(inc, 5))
 print(twice(shout, "hey"))
@@ -49,12 +55,30 @@ print(twice(shout, "hey"))
 A function's value is its last expression, or what it `return`s. A body
 of one expression can go on the header's line, as above.
 
+## Operators
+
+`+` adds two numbers and joins two strings or two lists, and converts
+nothing on the way. `and`, `or` and `not` -- or `&&`, `||` and `!` --
+combine Bools, `%` is the remainder and `^` the power, and a list is
+indexed with `xs[i]`. A lambda is written `lam x. x + 1`.
+
+```pyking
+xs = [3, 1, 4, 1, 5]
+print("first", xs[0], "and last", xs[len(xs) - 1])
+print("joined: " + string(xs) + "!", xs + [9])
+print(17 % 5, 2 ^ 10, 7 > 3 and not (7 > 5))
+square = lam n. n * n
+print([square(x) for x in xs if x != 1])
+```
+
 ## Control flow
 
 `if` is a statement, and also an expression written
 `if c then a else b`. `while` loops while its condition holds.
 
 ```pyking
+use mutation
+
 var n = 27
 var steps = 0
 while n > 1:
@@ -80,7 +104,7 @@ print(factorial(10))
 
 ## Lists, tuples and pattern matching
 
-`match` takes values apart. A list pattern `[first] ++ rest` matches a
+`match` takes values apart. A list pattern `[first] + rest` matches a
 non-empty list, and a tuple is taken apart with `=`.
 
 ```pyking
@@ -93,7 +117,7 @@ def describe(n: Int) -> String:
 def sum(xs: [Int]) -> Int:
     match xs:
         case []: 0
-        case [first] ++ rest: first + sum(rest)
+        case [first] + rest: first + sum(rest)
 
 print(describe(0), describe(1), describe(7))
 print(sum([1, 2, 3, 4]))
@@ -131,7 +155,7 @@ Ada
 import io
 
 name = io.read_line("What is your name? ")
-io.write_line("Nice to meet you, " ++ name ++ "!")
+io.write_line("Nice to meet you, " + name + "!")
 ```
 
 ## Next steps

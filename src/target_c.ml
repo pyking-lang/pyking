@@ -58,8 +58,12 @@ let p_assign = 2
 let p_cond = 3
 let p_or = 4
 let p_and = 5
+let p_bit_or = 6
+let p_xor = 7
+let p_bit_and = 8
 let p_eq = 9
 let p_rel = 10
+let p_shift = 11
 let p_add = 12
 let p_mul = 13
 let p_unary = 14
@@ -539,6 +543,15 @@ let float_helper =
     ]
 
 let need_concat st = need_helper st "pyk_concat" concat_helper
+
+(* C leaves `>>` of a negative number to the compiler; Pyking's keeps
+   the sign. *)
+let shift_right_helper =
+  "static int pyk_shr(int a, int n)\n{\n    return a < 0 ? ~(~a >> n) : a >> n;\n}"
+
+(* An Int raised to an Int at least 0, by repeated squaring. *)
+let power_helper =
+  "static int pyk_ipow(int base, int exponent)\n{\n    int result = 1;\n    while (exponent > 0) {\n        if (exponent % 2 == 1)\n            result = result * base;\n        base = base * base;\n        exponent = exponent / 2;\n    }\n    return result;\n}"
 let need_float st = need_helper st "pyk_float_str" float_helper
 
 (** The typedef a host's callback parameter is written through:
@@ -921,8 +934,11 @@ let rec type_of ctx scope e =
         | EFloat (i, _, _) -> TFloat (i, 0)
         | EString (i, _, _) -> TString (i, 0)
         | EBool (i, _, _) | EEq (i, _, _, _) | ELessThan (i, _, _, _) | ELessThanEq (i, _, _, _)
-        | EGreatThan (i, _, _, _) | EGreatThanEq (i, _, _, _) ->
+        | EGreatThan (i, _, _, _) | EGreatThanEq (i, _, _, _)
+        | EBinary (i, (BNeq | BAnd _ | BOr _), _, _, _) | EUnary (i, UNot _, _, _) ->
             TBool (i, 0)
+        | EBinary (_, _, l, _, _) | EUnary (_, _, l, _) -> (
+            match IntMap.find_opt (expr_sym l) ctx.tmap with Some t -> t | None -> TInt (no_info, 0))
         | EVar (i, name, _) -> (match SMap.find_opt name scope.names with Some b -> b.btype | None -> TUnknown (i, 0))
         | EAdd (_, l, _, _) | ESub (_, l, _, _) | EMul (_, l, _, _) | EDiv (_, l, _, _) | ENeg (_, l, _)
         | EConcat (_, l, _, _) -> (
@@ -1245,6 +1261,43 @@ and expr ctx st scope e =
       match type_of ctx scope l with
       | TString _ -> (sequenced steps (binary p_eq "==" (atom (Printf.sprintf "strcmp(%s, %s)" a.text b.text)) (atom "0")), st)
       | _ -> (sequenced steps (binary p_eq "==" a b), st))
+  | EBinary (_, op, l, r, _) -> (
+      let float = match type_of ctx scope l with TFloat _ -> true | _ -> false in
+      let call name st =
+        let pieces, steps, st = in_order ctx st scope [ l; r ] in
+        ( sequenced steps
+            (atom (Printf.sprintf "%s(%s, %s)" name (List.nth pieces 0).text (List.nth pieces 1).text)),
+          st )
+      in
+      match op with
+      | BAnd _ | BOr _ ->
+          (* Each operand is one C expression with its own steps inside
+             it, so `&&` and `||` decide whether the right one runs, as
+             Pyking's do. *)
+          let a, st = expr ctx st scope l in
+          let b, st = expr ctx st scope r in
+          let prec, spelling = match op with BAnd _ -> (p_and, "&&") | _ -> (p_or, "||") in
+          (mk ~local_env:false prec (at prec a ^ " " ^ spelling ^ " " ^ at (prec + 1) b), st)
+      | BNeq -> (
+          let pieces, steps, st = in_order ctx st scope [ l; r ] in
+          let a = List.nth pieces 0 and b = List.nth pieces 1 in
+          match type_of ctx scope l with
+          | TString _ -> (sequenced steps (binary p_eq "!=" (atom (Printf.sprintf "strcmp(%s, %s)" a.text b.text)) (atom "0")), st)
+          | _ -> (sequenced steps (binary p_eq "!=" a b), st))
+      | BMod when float -> call "fmod" { st with includes_math = true }
+      | BMod -> arithmetic ctx st scope p_mul "%" l r
+      | BPow when float -> call "pow" { st with includes_math = true }
+      | BPow -> call "pyk_ipow" (need_helper st "pyk_ipow" power_helper)
+      | BBitAnd _ -> arithmetic ctx st scope p_bit_and "&" l r
+      | BBitOr _ -> arithmetic ctx st scope p_bit_or "|" l r
+      | BXor -> arithmetic ctx st scope p_xor "^" l r
+      | BShiftLeft -> arithmetic ctx st scope p_shift "<<" l r
+      | BShiftRight -> call "pyk_shr" (need_helper st "pyk_shr" shift_right_helper))
+  | EUnary (_, op, operand, _) ->
+      let v, st = expr ctx st scope operand in
+      let spelling = match op with UNot _ -> "!" | UBitNot _ -> "~" in
+      (mk p_unary (spelling ^ at p_unary v), st)
+  | EIndex _ -> unsupported info heap_reason
   | ELessThan (_, l, r, _) -> arithmetic ctx st scope p_rel "<" l r
   | ELessThanEq (_, l, r, _) -> arithmetic ctx st scope p_rel "<=" l r
   | EGreatThan (_, l, r, _) -> arithmetic ctx st scope p_rel ">" l r

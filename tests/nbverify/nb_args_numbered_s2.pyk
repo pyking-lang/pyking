@@ -1,7 +1,7 @@
 import io
 import sys
 n = loop k = 1 for a in sys.args():
-    print(string(k) ++ ": " ++ a)
+    print(string(k) + ": " + a)
     k + 1
-print("separator: " ++ io.read_line())
-print(string(n - 1) ++ " arguments")
+print("separator: " + io.read_line())
+print(string(n - 1) + " arguments")

@@ -8,7 +8,7 @@ def clamp(x, lo, hi):
 
 def label(n):
     prefix = if n < 10 then "small " else "big "
-    return prefix ++ string(n)
+    return prefix + string(n)
 
 
 print(sign(-5))

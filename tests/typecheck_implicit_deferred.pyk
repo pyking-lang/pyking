@@ -24,7 +24,7 @@ print(bar(7, foo))
 # `v * 1` is Int arithmetic, so `v` is an Int by the time the call is
 # resolved.
 def int::twice(x: Int) -> Int: x * 2
-def string::twice(x: String) -> String: x ++ x
+def string::twice(x: String) -> String: x + x
 
 def applied(v): twice(v * 1)
 

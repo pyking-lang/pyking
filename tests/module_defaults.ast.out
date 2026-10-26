@@ -1,12 +1,12 @@
 import module_defaults_mod1
-from module_defaults_mod1 import shout as yell, add, shout__default__text, shout__default__marks, add__default__right
-print(module_defaults_mod1.shout(module_defaults_mod1.shout__default__text(), module_defaults_mod1.shout__default__marks()))
-print(module_defaults_mod1.shout('go', module_defaults_mod1.shout__default__marks()))
-print(module_defaults_mod1.shout(module_defaults_mod1.shout__default__text(), 4))
+from module_defaults_mod1 import shout as yell, add
+print(module_defaults_mod1.shout('hi', 2))
+print(module_defaults_mod1.shout('go', 2))
+print(module_defaults_mod1.shout('hi', 4))
 print(module_defaults_mod1.shout('go', 1))
-print(yell(shout__default__text(), shout__default__marks()))
-print(yell(shout__default__text(), 1))
-print(add(1, add__default__right()))
+print(yell('hi', 2))
+print(yell('hi', 1))
+print(add(1, 100))
 print(add(1, 2))
 print(add(1, 3))
 print(module_defaults_mod1.squared())

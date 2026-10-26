@@ -55,4 +55,4 @@ reason = "What it drew with tinyweb is not what it should be.\nevents:\nframe 0.
 [[solution]]
 file = "nb_animation_frames_three_s5.pyk"
 accepted = false
-reason = "Your program did not run:\n'solution.pyk' 9:8-9:22 Runtime error: maximum call depth of 10000\n  exceeded; this is what a recursion that never ends looks like"
+reason = "Your program did not run:\n'solution.pyk' 12:8-12:22 Runtime error: maximum call depth of 10000\n  exceeded; this is what a recursion that never ends looks like"

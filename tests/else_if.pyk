@@ -1,6 +1,8 @@
 # `else if` -- two keywords, not `elif`. It is a *statement* form only;
 # the if expression chains inline with its own `else if` (see if_expr.pyk).
 
+use mutation
+
 def classify(n):
     if n < 0:
         return "negative"

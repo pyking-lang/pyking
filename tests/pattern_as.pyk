@@ -9,9 +9,9 @@ datatype Shape:
 
 def describe(s: Shape) -> String:
     match s:
-        case Dot as d: "a dot: " ++ string(d)
-        case Line(n) as l if n > 10: "a long " ++ string(l)
-        case (Line(_) | Box(_, _)) as other: "a shape: " ++ string(other)
+        case Dot as d: "a dot: " + string(d)
+        case Line(n) as l if n > 10: "a long " + string(l)
+        case (Line(_) | Box(_, _)) as other: "a shape: " + string(other)
 
 
 print(describe(Dot))
@@ -22,8 +22,8 @@ print(describe(Box(1, 2)))
 
 def dedupe(xs: [Int]) -> [Int]:
     match xs:
-        case [a, b, ..rest] if a == b: dedupe([b] ++ rest)
-        case [a, ..rest] as whole if len(whole) > 0: [a] ++ dedupe(rest)
+        case [a, b, ..rest] if a == b: dedupe([b] + rest)
+        case [a, ..rest] as whole if len(whole) > 0: [a] + dedupe(rest)
         case _: []
 
 
@@ -33,7 +33,7 @@ print(dedupe([1, 1, 2, 3, 3, 3, 1]))
 def pairs(xs: [(Int, Int)]) -> [String]:
     match xs:
         case [((a, b) as p), ..rest]:
-            [string(p) ++ "=" ++ string(a + b)] ++ pairs(rest)
+            [string(p) + "=" + string(a + b)] + pairs(rest)
         case []: []
 
 

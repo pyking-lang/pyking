@@ -9,7 +9,7 @@ def double(n):
     return n * 2
 def exclaim : (String) -> String
 def exclaim(s):
-    return s ++ '!'
+    return s + '!'
 def positive : (Int) -> Bool
 def positive(n):
     return n > 0

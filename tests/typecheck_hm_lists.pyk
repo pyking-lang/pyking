@@ -12,12 +12,12 @@
 
 def append(one, other):
     match one:
-        case [x] ++ xs: [x] ++ append(xs, other)
+        case [x] + xs: [x] + append(xs, other)
         case []: other
 
 def reverse(lst):
     match lst:
-        case [x] ++ xs: append(reverse(xs), [x])
+        case [x] + xs: append(reverse(xs), [x])
         case []: []
 
 def empty(): []

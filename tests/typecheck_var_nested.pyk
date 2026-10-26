@@ -5,7 +5,10 @@
 # there is never a second candidate. What *is* separate is a `var` of
 # the same name in a scope the write cannot see.
 
+use mutation
+
 # Three levels of function, and the write is at the bottom.
+
 def three_deep(start: Int) -> Int:
     var depth = start
 
@@ -37,7 +40,7 @@ loop i, made = 0, []:
     if i > 3:
         break
     else:
-        (i + 1, made ++ [add_turn])
+        (i + 1, made + [add_turn])
 
 
 def run_all(fs: [() -> ()]) -> ():

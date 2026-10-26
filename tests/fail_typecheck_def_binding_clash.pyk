@@ -14,7 +14,7 @@
 
 f = 1
 
-def use() -> Int:
+def use_it() -> Int:
     f
 
 def f(n:Int) -> Int:

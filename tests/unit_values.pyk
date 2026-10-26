@@ -2,7 +2,10 @@
 # prints it the same: `()`, never the host language's own name for
 # "no value" (Python's None, JavaScript's undefined).
 
+use mutation
+
 # The literal.
+
 u = ()
 print(u)
 print(())

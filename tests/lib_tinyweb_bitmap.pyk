@@ -9,7 +9,7 @@ c = tw.canvas(160, 100)
 
 
 def show(p: color.Color) -> String:
-    string(p.r) ++ " " ++ string(p.g) ++ " " ++ string(p.b)
+    string(p.r) + " " + string(p.g) + " " + string(p.b)
 
 
 b = bitmap.bitmap(16, 10)

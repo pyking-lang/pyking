@@ -1,3 +1,5 @@
+use mutation
+
 def counter(start: Int) -> (Int) -> Int:
     var count = start
     def step(by: Int) -> Int:

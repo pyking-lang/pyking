@@ -1,4 +1,7 @@
 # Calls a function before its def has run: a runtime error.
+
+use mutation
+
 import tinyweb as tw
 
 var count = 0
@@ -10,7 +13,7 @@ def clicked():
     tw.set_text(shown, label_text())
 
 def label_text() -> String:
-    string(count) ++ " clicks"
+    string(count) + " clicks"
 
 tw.button("Click me", on_click = clicked)
 print("ready")

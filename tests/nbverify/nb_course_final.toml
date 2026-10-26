@@ -65,7 +65,7 @@ reason = "The output is not what it should be.\nstdin:\n1\nexpected:\n1\ngot:\n"
 [[solution]]
 file = "nb_course_final_fizz_s5.pyk"
 accepted = false
-reason = "Your program did not run:\n'solution.pyk' 4:9-4:10 Lexing error: unexpected character '%'"
+reason = "The output is not what it should be.\nstdin:\n5\nexpected:\n1\n2\nFizz\n4\nBuzz\ngot:\n1\n2\n3\n4\n5"
 
 [[solution]]
 file = "nb_course_final_longest_s1.pyk"

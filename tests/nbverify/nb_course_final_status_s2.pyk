@@ -2,7 +2,7 @@ import io
 import sys
 n = int(io.read_line())
 if n >= 0:
-    print("ok " ++ string(n))
+    print("ok " + string(n))
 else:
     print("negative")
     sys.exit(1 + 1)

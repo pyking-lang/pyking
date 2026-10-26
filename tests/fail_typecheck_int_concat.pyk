@@ -1,10 +1,7 @@
-# `++` between two Ints -- the same mistake the other way round.
+# `++`, which joined strings and lists before `+` did, is refused where
+# it stands and named by what to write instead (design/steps.md, step 2).
 #
-# The pairing in `typesystem.ALTERNATIVES` runs both ways, so an
-# operator written where its look-alike belongs names that look-alike
-# whichever of the two was written.
-#
-# This program is expected to FAIL type checking. Its `.ast.out` holds
+# This program is expected to FAIL parsing. Its `.ast.out` holds
 # the error message, not a program's output.
 
 count = 2

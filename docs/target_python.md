@@ -490,8 +490,8 @@ Python `lambda` is a function scope, so its parameters never need the
 renaming a Pyking block's bindings need.
 
 ```pyking                          # generated Python
-double = x => x * 2                double = lambda x: x * 2
-adder = x => y => x + y            adder = lambda x: lambda y: x + y
+double = lam x. x * 2              double = lambda x: x * 2
+adder = lam x. lam y. x + y        adder = lambda x: lambda y: x + y
 ```
 
 A lambda **inside a loop** has the same problem a `def` there has, and a
@@ -501,7 +501,7 @@ lambda is written — so each turn's lambda holds that turn's value:
 
 ```pyking                          # generated Python
 for i in [0, 1, 2]:                for i in [0, 1, 2]:
-    made ++ [x => x + i]               made = made + [lambda x, i=i: x + i]
+    made + [lam x. x + i]              made = made + [lambda x, i=i: x + i]
 ```
 
 A default is never reached positionally, because the call has exactly as
@@ -514,7 +514,7 @@ neither would have failed loudly: `free_names`, so a binding that
 shadows a name a lambda reads from outside itself is still renamed, and
 `captured_names`, so a rebinding of a name a *lambda* captured gets its
 own Python variable the way one a `def` captured does. Without the
-second, `x = 1; f = () => x; x = 2` would print 2 where Pyking says 1.
+second, `x = 1; f = lam (). x; x = 2` would print 2 where Pyking says 1.
 `tests/lambda_loop_capture.pyk` and `tests/lambda_capture.pyk` pin both.
 
 ### Statement forms that Python spells differently
@@ -632,17 +632,17 @@ def describe(n):                   def describe(n):
 Every `match` matches every value (docs/exhaustive.md), so none needs a
 fallthrough. A guard is Python's own `case p if g:`, and an or-pattern
 and an `as` pattern are Python's `|` and `as`. One combination needs
-help: a guard that names what a `++` string split bound, since Python
+help: a guard that names what a `+` string split bound, since Python
 binds that only in the arm's body. There the split's bindings are made
 in the guard itself, each as `[name := value]` -- a one-element list,
 which is never false:
 
 ```pyking                          # generated Python
-case "say " ++ rest                case str() as __text if __text.startswith('say ') and [rest := __text[4:]] and len(rest) > 3:
+case "say " + rest                 case str() as __text if __text.startswith('say ') and [rest := __text[4:]] and len(rest) > 3:
         if len(rest) > 3: ...
 ```
 
-A `++` split inside an alternative of `|` is refused: the split is
+A `+` split inside an alternative of `|` is refused: the split is
 tested in the arm's guard, and Python's `|` has no guard per
 alternative.
 
@@ -855,7 +855,7 @@ of turns or broke out of them.
 ```pyking                                    # generated Python
 answer =                                     i, acc = 0, []
 loop i, acc = 0, [] for x in xs:             for x in xs:
-    (i + 1, [(i, x)] ++ acc)                     i, acc = i + 1, [(i, x)] + acc
+    (i + 1, [(i, x)] + acc)                      i, acc = i + 1, [(i, x)] + acc
                                              answer = (i, acc)
 ```
 

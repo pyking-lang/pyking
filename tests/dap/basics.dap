@@ -1,7 +1,7 @@
 # Stopping at a breakpoint, the stack, scopes and variables, evaluating
 # in a frame, stepping out, over and in, and a var given a new value.
 launch basics.pyk
-break basics.pyk 6
+break basics.pyk 8
 configure
 wait stopped
 stack

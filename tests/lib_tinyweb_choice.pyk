@@ -7,7 +7,7 @@ names = ["ocean", "candy", "forest"]
 shown = tw.label("ocean")
 
 def changed(position: Int):
-    tw.set_text(shown, "chose " ++ string(position))
+    tw.set_text(shown, "chose " + string(position))
 
 menu = tw.choice(names, on_change = changed)
 tw.choice(["one"], 0)

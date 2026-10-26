@@ -15,7 +15,7 @@ def identity(v):
 
 def both_ways : (all x. (x) -> x) -> String
 def both_ways(f):
-    return f("a") ++ string(f(1))
+    return f("a") + string(f(1))
 
 
 # The argument is used at two different types *inside* the body, which

@@ -39,12 +39,18 @@ type expr =
   | EMul of info * expr * expr * int (* left * right *)
   | EDiv of info * expr * expr * int (* left / right *)
   | ENeg of info * expr * int (* -operand (unary minus) *)
-  | EConcat of info * expr * expr * int (* left ++ right *)
+  | EConcat of info * expr * expr * int
+      (* left + right, where the two are strings or lists: the checker
+         decides that, and elaborate.ml turns such an EAdd into this *)
   | ELessThan of info * expr * expr * int (* left < right *)
   | ELessThanEq of info * expr * expr * int (* left <= right *)
   | EGreatThan of info * expr * expr * int (* left > right *)
   | EGreatThanEq of info * expr * expr * int (* left >= right *)
   | EEq of info * expr * expr * int (* left == right *)
+  | EBinary of info * binop * expr * expr * int
+      (* left op right, for every other binary operator *)
+  | EUnary of info * unop * expr * int (* op operand: not, !, ~ *)
+  | EIndex of info * expr * expr * int (* list[index] *)
   | ECall of info * expr * (string option * expr) list * int
       (* func(args...). Each argument carries the parameter name it was
          written with, where one was: `f(x, n = 1)`. Desugar_args
@@ -59,8 +65,9 @@ type expr =
   | EListComp of info * expr * comp_clause list * int
       (* [expr for pattern in seq {for ... | if ...}] *)
   | ELambda of info * param list * expr * int
-      (* (x, y) => expr -- one parameter needs no parentheses. The body
-         is one expression; nothing here holds statements. *)
+      (* lam (x, y). expr -- one parameter with no type needs no
+         parentheses. The body is one expression; nothing here holds
+         statements. *)
   | ELet of info * assign_target * typ option * expr * expr * int
       (* let target[: type] = value in body. Desugar_args.ml also makes
          them, for a call whose named arguments are not in parameter
@@ -73,6 +80,29 @@ type expr =
          through. Desugar_args puts every field in its position, named
          by the field's own name where it has one. *)
   | EField of info * expr * string * int (* expr.name -- a named field *)
+
+(* The binary operators beside the arithmetic and comparison ones above.
+   `and`, `or` and `not` keep how they were written, so `-t pyking`
+   prints a program back in its own spelling: the words, or `&&`, `||`
+   and `!`. On two Ints the words are bitwise, and elaborate.ml turns
+   such a BAnd into the BBitAnd it computes, spelled Word. *)
+and binop =
+  | BMod (* % *)
+  | BPow (* ^ *)
+  | BNeq (* != *)
+  | BAnd of spelling (* and / && on Bools: short-circuit *)
+  | BOr of spelling (* or / || on Bools: short-circuit *)
+  | BBitAnd of spelling (* & ; `and` on Ints where Word *)
+  | BBitOr of spelling (* | ; `or` on Ints where Word *)
+  | BXor (* xor *)
+  | BShiftLeft (* << *)
+  | BShiftRight (* >> *)
+
+and unop =
+  | UNot of spelling (* not / ! on a Bool *)
+  | UBitNot of spelling (* ~ ; `not` on an Int where Word *)
+
+and spelling = Word | Symbol
 
 and typ =
   | TInt of info * int (* Int *)
@@ -256,6 +286,9 @@ let expr_info e =
   | EGreatThan (i, _, _, _) -> i
   | EGreatThanEq (i, _, _, _) -> i
   | EEq (i, _, _, _) -> i
+  | EBinary (i, _, _, _, _) -> i
+  | EUnary (i, _, _, _) -> i
+  | EIndex (i, _, _, _) -> i
   | ECall (i, _, _, _) -> i
   | EList (i, _, _) -> i
   | ETuple (i, _, _) -> i
@@ -286,6 +319,9 @@ let expr_sym e =
   | EGreatThan (_, _, _, s) -> s
   | EGreatThanEq (_, _, _, s) -> s
   | EEq (_, _, _, s) -> s
+  | EBinary (_, _, _, _, s) -> s
+  | EUnary (_, _, _, s) -> s
+  | EIndex (_, _, _, s) -> s
   | ECall (_, _, _, s) -> s
   | EList (_, _, s) -> s
   | ETuple (_, _, s) -> s
@@ -476,6 +512,9 @@ let set_expr_info i e =
   | EGreatThan (_, l, r, s) -> EGreatThan (i, l, r, s)
   | EGreatThanEq (_, l, r, s) -> EGreatThanEq (i, l, r, s)
   | EEq (_, l, r, s) -> EEq (i, l, r, s)
+  | EBinary (_, op, l, r, s) -> EBinary (i, op, l, r, s)
+  | EUnary (_, op, o, s) -> EUnary (i, op, o, s)
+  | EIndex (_, l, x, s) -> EIndex (i, l, x, s)
   | ECall (_, f, a, s) -> ECall (i, f, a, s)
   | EList (_, es, s) -> EList (i, es, s)
   | ETuple (_, es, s) -> ETuple (i, es, s)
@@ -564,7 +603,7 @@ let with_sym cfg sym self_delimited text =
 let expr_self_delimited e =
   match e with
   | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ | EList _
-  | ETuple _ | EListComp _ | EConstruct _ | EField _ ->
+  | ETuple _ | EListComp _ | EConstruct _ | EField _ | EIndex _ ->
       true
   | _ -> false
 
@@ -586,6 +625,62 @@ let node_type cfg sym annotation =
   | Some m -> IntMap.find_opt sym m
 
 let wrap_prec prec min_prec s = if prec < min_prec then "(" ^ s ^ ")" else s
+
+(* The printer's precedence levels, loosest first (PYKING.md, the
+   grammar). A level is a multiple of ten so that an operand one level up
+   is `level + 1`. *)
+let prec_low = 0 (* lam, if ... then ... else, let *)
+let prec_or = 10
+let prec_and = 20
+let prec_not = 30
+let prec_compare = 40
+let prec_bit_or = 50
+let prec_xor = 60
+let prec_bit_and = 70
+let prec_shift = 80
+let prec_add = 90
+let prec_mul = 100
+let prec_unary = 110
+let prec_power = 120
+let prec_atom = 130
+
+(** How a binary operator is written. binop -> string *)
+let binop_text op =
+  match op with
+  | BMod -> "%"
+  | BPow -> "^"
+  | BNeq -> "!="
+  | BAnd Word | BBitAnd Word -> "and"
+  | BAnd Symbol -> "&&"
+  | BOr Word | BBitOr Word -> "or"
+  | BOr Symbol -> "||"
+  | BBitAnd Symbol -> "&"
+  | BBitOr Symbol -> "|"
+  | BXor -> "xor"
+  | BShiftLeft -> "<<"
+  | BShiftRight -> ">>"
+
+(** How a unary operator is written. unop -> string *)
+let unop_text op =
+  match op with
+  | UNot Word | UBitNot Word -> "not"
+  | UNot Symbol -> "!"
+  | UBitNot Symbol -> "~"
+
+(** The level a binary operator binds at. The words `and` and `or` keep
+    their own level on Ints as well, which is where the parser read them.
+    binop -> int *)
+let binop_prec op =
+  match op with
+  | BOr _ | BBitOr Word -> prec_or
+  | BAnd _ | BBitAnd Word -> prec_and
+  | BNeq -> prec_compare
+  | BBitOr Symbol -> prec_bit_or
+  | BXor -> prec_xor
+  | BBitAnd Symbol -> prec_bit_and
+  | BShiftLeft | BShiftRight -> prec_shift
+  | BMod -> prec_mul
+  | BPow -> prec_power
 
 let escape_print c =
   match c with
@@ -726,6 +821,18 @@ and pprint_expr_body cfg e min_prec =
   (* min_prec is the precedence required by the surrounding context; a
      sub-expression built from a lower-precedence operator is
      parenthesized so re-parsing reproduces the same AST. *)
+  let infix prec l text r =
+    (* Left-associative: the left operand may be at this level, the
+       right one has to be above it. *)
+    wrap_prec prec min_prec
+      (pprint_expr cfg l prec ^ " " ^ text ^ " " ^ pprint_expr cfg r (prec + 1))
+  in
+  let comparison l text r =
+    (* Comparisons do not chain, so neither operand may be one. *)
+    wrap_prec prec_compare min_prec
+      (pprint_expr cfg l (prec_compare + 1) ^ " " ^ text ^ " "
+      ^ pprint_expr cfg r (prec_compare + 1))
+  in
   match e with
   | EInt (_, v, _) -> string_of_int v
   (* The canonical text, so `-t pyking` output re-parses to the same
@@ -741,49 +848,47 @@ and pprint_expr_body cfg e min_prec =
       in
       if args = [] then reached
       else Printf.sprintf "%s(%s)" reached (pprint_args cfg args)
-  | EField (_, record, name, _) -> pprint_expr cfg record 5 ^ "." ^ name
-  | EAdd (_, l, r, _) ->
-      wrap_prec 2 min_prec
-        (pprint_expr cfg l 2 ^ " + " ^ pprint_expr cfg r 3)
-  | ESub (_, l, r, _) ->
-      wrap_prec 2 min_prec
-        (pprint_expr cfg l 2 ^ " - " ^ pprint_expr cfg r 3)
-  | EMul (_, l, r, _) ->
-      wrap_prec 3 min_prec
-        (pprint_expr cfg l 3 ^ " * " ^ pprint_expr cfg r 4)
-  | EDiv (_, l, r, _) ->
-      wrap_prec 3 min_prec
-        (pprint_expr cfg l 3 ^ " / " ^ pprint_expr cfg r 4)
+  | EField (_, record, name, _) -> pprint_expr cfg record prec_atom ^ "." ^ name
+  | EIndex (_, list, index, _) ->
+      pprint_expr cfg list prec_atom ^ "[" ^ pprint_expr cfg index prec_low ^ "]"
+  | EAdd (_, l, r, _) | EConcat (_, l, r, _) ->
+      (* Concatenation is written `+` as addition is: the checker tells
+         the two apart, and elaborate.ml is what made an EConcat. *)
+      infix prec_add l "+" r
+  | ESub (_, l, r, _) -> infix prec_add l "-" r
+  | EMul (_, l, r, _) -> infix prec_mul l "*" r
+  | EDiv (_, l, r, _) -> infix prec_mul l "/" r
   | ENeg (_, operand, _) ->
-      (* Unary minus binds tighter than `*`/`/`, which is precedence 4
-         here. Its operand prints at 5, one above everything with a
-         precedence, so any operator underneath is parenthesized while
-         an atom or call stays bare. *)
-      wrap_prec 4 min_prec ("-" ^ pprint_expr cfg operand 5)
-  | EConcat (_, l, r, _) ->
-      (* Concatenation sits at the additive level and associates to the
-         left, like `+`; the two never mix. *)
-      wrap_prec 2 min_prec
-        (pprint_expr cfg l 2 ^ " ++ " ^ pprint_expr cfg r 3)
-  | ELessThan (_, l, r, _) ->
-      wrap_prec 1 min_prec
-        (pprint_expr cfg l 2 ^ " < " ^ pprint_expr cfg r 2)
-  | ELessThanEq (_, l, r, _) ->
-      wrap_prec 1 min_prec
-        (pprint_expr cfg l 2 ^ " <= " ^ pprint_expr cfg r 2)
-  | EGreatThan (_, l, r, _) ->
-      wrap_prec 1 min_prec
-        (pprint_expr cfg l 2 ^ " > " ^ pprint_expr cfg r 2)
-  | EGreatThanEq (_, l, r, _) ->
-      wrap_prec 1 min_prec
-        (pprint_expr cfg l 2 ^ " >= " ^ pprint_expr cfg r 2)
-  | EEq (_, l, r, _) ->
-      wrap_prec 1 min_prec
-        (pprint_expr cfg l 2 ^ " == " ^ pprint_expr cfg r 2)
+      (* Unary minus binds tighter than `*`/`/`. Its operand prints one
+         level above it, so a `^` stays bare (`-2 ^ 2` is `-(2 ^ 2)`)
+         and any other operator underneath is parenthesized. *)
+      wrap_prec prec_unary min_prec ("-" ^ pprint_expr cfg operand prec_power)
+  | EUnary (_, op, operand, _) -> (
+      match op with
+      | UNot Word | UBitNot Word ->
+          (* `not` binds as loosely as Python's: below a comparison, so
+             `not a == b` is `not (a == b)`. *)
+          wrap_prec prec_not min_prec ("not " ^ pprint_expr cfg operand prec_not)
+      | UNot Symbol ->
+          wrap_prec prec_unary min_prec ("!" ^ pprint_expr cfg operand prec_power)
+      | UBitNot Symbol ->
+          wrap_prec prec_unary min_prec ("~" ^ pprint_expr cfg operand prec_power))
+  | EBinary (_, BPow, l, r, _) ->
+      (* `^` associates to the right, and its right operand may be a
+         negation: `2 ^ -1`. *)
+      wrap_prec prec_power min_prec
+        (pprint_expr cfg l prec_atom ^ " ^ " ^ pprint_expr cfg r prec_unary)
+  | EBinary (_, BNeq, l, r, _) -> comparison l "!=" r
+  | EBinary (_, op, l, r, _) -> infix (binop_prec op) l (binop_text op) r
+  | ELessThan (_, l, r, _) -> comparison l "<" r
+  | ELessThanEq (_, l, r, _) -> comparison l "<=" r
+  | EGreatThan (_, l, r, _) -> comparison l ">" r
+  | EGreatThanEq (_, l, r, _) -> comparison l ">=" r
+  | EEq (_, l, r, _) -> comparison l "==" r
   | ECall (_, f, args, _) ->
-      (* The callee prints at 5 so a negated one keeps its parens:
+      (* The callee prints as an atom so a negated one keeps its parens:
          `(-f)(x)` calls the negation, `-f(x)` negates the result. *)
-      Printf.sprintf "%s(%s)" (pprint_expr cfg f 5) (pprint_args cfg args)
+      Printf.sprintf "%s(%s)" (pprint_expr cfg f prec_atom) (pprint_args cfg args)
   | EList (_, elements, _) ->
       "["
       ^ String.concat ", " (List.map (fun x -> pprint_expr cfg x 0) elements)
@@ -808,16 +913,16 @@ and pprint_expr_body cfg e min_prec =
          at 1 so a nested if expression there is parenthesized too; the
          else branch prints at 0 so an `else if` chain stays flat. *)
       wrap_prec 0 min_prec
-        (Printf.sprintf "if %s then %s else %s" (pprint_expr cfg cond 1)
-           (pprint_expr cfg then_expr 1)
+        (Printf.sprintf "if %s then %s else %s" (pprint_expr cfg cond prec_or)
+           (pprint_expr cfg then_expr prec_or)
            (pprint_expr cfg else_expr 0))
   | ELambda (_, params, body, _) ->
       (* The parameter list is always parenthesized, which is the form
-         the parser reads whatever was written. The body prints at 0 --
-         the lambda is the lowest-precedence expression and associates
-         to the right, so `x => y => e` stays flat. *)
-      wrap_prec 0 min_prec
-        (Printf.sprintf "(%s) => %s"
+         the parser reads whatever was written. The body prints at the
+         lowest level -- a lambda reaches as far right as it can, so
+         `lam x. lam y. e` stays flat. *)
+      wrap_prec prec_low min_prec
+        (Printf.sprintf "lam (%s). %s"
            (String.concat ", " (List.map (pprint_param cfg) params))
            (pprint_expr cfg body 0))
   | ELet (_, target, type_, value, body, _) ->
@@ -874,8 +979,8 @@ and pprint_comp_clause_body cfg c =
   match c with
   | CompFor (_, pattern, sequence, _) ->
       Printf.sprintf "for %s in %s" (pprint_pattern cfg pattern)
-        (pprint_expr cfg sequence 1)
-  | CompIf (_, condition, _) -> "if " ^ pprint_expr cfg condition 1
+        (pprint_expr cfg sequence prec_or)
+  | CompIf (_, condition, _) -> "if " ^ pprint_expr cfg condition prec_or
 
 (** Formats one pattern. config -> pattern -> string *)
 and pprint_pattern cfg p =
@@ -1110,7 +1215,7 @@ and pprint_stmt_body cfg s level =
         let guard =
           match guard with
           | None -> ""
-          | Some g -> " if " ^ pprint_expr cfg g 1
+          | Some g -> " if " ^ pprint_expr cfg g prec_or
         in
         (pad ^ "    case " ^ pprint_pattern cfg pattern ^ guard ^ ":")
         :: List.map (fun st -> pprint_stmt cfg st (level + 2)) body

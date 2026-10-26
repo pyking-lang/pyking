@@ -15,7 +15,7 @@ game.cursor(c, "none")
 net.save_canvas(c)
 net.save_canvas(c, name = "circle.png")
 net.download("notes.txt", "line one\nline \"two\"")
-print("before:", "[" ++ net.file_text() ++ "]")
+print("before:", "[" + net.file_text() + "]")
 
 
 def loaded(name: String):

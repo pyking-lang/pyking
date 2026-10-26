@@ -1,5 +1,5 @@
 import io
 import text
 line = io.read_line()
-debug("length " ++ string(text.length(line)) ++ "  ")
-print(text.upper(line) ++ "   ")
+debug("length " + string(text.length(line)) + "  ")
+print(text.upper(line) + "   ")

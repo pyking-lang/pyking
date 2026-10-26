@@ -6,6 +6,8 @@
 ## that comes out the same each time, and a game that can be replayed.
 ## Without `seed` the generator starts from the clock.
 
+use mutation
+
 # The Pyking half of `random`, and the whole of it: Park and Miller's
 # minimal standard generator, x' = 16807 x mod (2^31 - 1), computed by
 # Schrage's method so that no product leaves 32 bits -- an Int holds at
@@ -203,4 +205,4 @@ public def shuffle(items: [a]) -> [a]:
         case _:
             i = randint(0, len(items) - 1)
             rest = [nth(items, j) for j in range(len(items)) if differ(i, j)]
-            [nth(items, i)] ++ shuffle(rest)
+            [nth(items, i)] + shuffle(rest)

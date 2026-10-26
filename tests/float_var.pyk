@@ -4,6 +4,8 @@
 # declaration and `:=` has to give that same type (PYKING.md, "Type
 # checking").
 
+use mutation
+
 var total = 0.0
 total := total + 1.5
 total := total + 2.25

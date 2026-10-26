@@ -8,7 +8,7 @@
 # the error message, not a program's output.
 
 implicit def a::bar(z: Int) -> String: string(z)
-implicit def b::bar(z: Int) -> String: string(z) ++ "!"
+implicit def b::bar(z: Int) -> String: string(z) + "!"
 
 def foo(x: Int, implicit bar: (Int) -> String) -> String:
     bar(x)

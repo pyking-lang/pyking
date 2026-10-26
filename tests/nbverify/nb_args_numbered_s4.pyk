@@ -1,3 +1,5 @@
+use mutation
+
 import io
 import sys
 import text
@@ -5,6 +7,6 @@ words = text.words(text.join(sys.args(), " "))
 var i = 0
 for word in words:
     i := i + 1
-    print(string(i) ++ ": " ++ word)
-print("separator: " ++ io.read_line())
+    print(string(i) + ": " + word)
+print("separator: " + io.read_line())
 print(i, "arguments")

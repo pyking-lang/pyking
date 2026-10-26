@@ -6,9 +6,9 @@ program, and it removes two pieces of syntax entirely:
 
 ```pyking                           # what the pass builds
 def greet(who: String = "world"):   def greet__default__who() -> String:
-    print("hi " ++ who)                 'world'
+    print("hi " + who)                  'world'
                                     def greet(who: String):
-greet()                                 print("hi " ++ who)
+greet()                                 print("hi " + who)
 greet(who = "you")
                                     greet(greet__default__who())
                                     greet('you')
@@ -43,7 +43,7 @@ def main():
     greet()
 
 def greet(who: String = "world"):
-    print("hi " ++ who)
+    print("hi " + who)
 ```
 
 A binding placed before `def greet` stands *after* `def main`, and

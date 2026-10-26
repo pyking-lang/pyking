@@ -6,8 +6,9 @@ Pyking borrows its syntax from Python — literals, arithmetic, functions,
 `for`/`while`/`if`, indentation-based blocks — and departs from it where
 Python's dynamism gets in the way: plain `=` is an *immutable binding*
 rather than an assignment, mutable variables are declared with `var` and
-updated with `:=`, and every block is a real scope, checked at compile
-time. It adds a loop built for that: `loop x = 0:` carries an
+updated with `:=` -- in a module that turns mutation on with
+`use mutation`, a program being functional unless it says otherwise --
+and every block is a real scope, checked at compile time. It adds a loop built for that: `loop x = 0:` carries an
 accumulator from turn to turn and is worth whatever it breaks with, so
 counting something up needs no mutable variable at all — and a function
 that calls itself in tail position is compiled into exactly such a loop,

@@ -27,6 +27,8 @@ print("Hello", "world", 2026)
 A cell that is meant to be refused:
 
 ``` pyking error
+use mutation
+
 x = 1
 x := 2
 ```
@@ -75,6 +77,8 @@ print(int(io.read_line()) * 2)
 ```
 
 ```pyking error stdin = "1"
+use mutation
+
 x = 1
 x := 2
 ```
@@ -191,6 +195,8 @@ tw.web_init(0)
 ```
 
 ```pyking solution
+use mutation
+
 import tinyweb as tw
 var count = 0
 tw.web_init(0)

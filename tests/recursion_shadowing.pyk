@@ -28,11 +28,11 @@ def depth(n:Int) -> Int:
 def branchy(n:Int) -> Int:
     mark = 5
     if n > 0:
-        def use(m:Int) -> Int:
+        def use_it(m:Int) -> Int:
             mark(m) + 1
         def mark(m:Int) -> Int:
             m * 10
-        use(n)
+        use_it(n)
     else:
         mark
 
@@ -56,7 +56,7 @@ def alternate(n:Int) -> String:
                 up(m - 1)
         up(n)
     else:
-        up ++ down
+        up + down
 
 
 print(depth(0), depth(4))

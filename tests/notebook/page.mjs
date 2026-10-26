@@ -52,7 +52,7 @@ const SOLUTION = JSON.stringify('import io\nimport sys\nline = io.read_line()\n'
   + 'print(line, "/", line)\nprint("args:", sys.args())\n');
 
 const SILENT = JSON.stringify('import tinyweb as tw\ntw.web_init(0)\ntw.button("More")\n');
-const COUNTER = JSON.stringify('import tinyweb as tw\nvar n = 0\ntw.web_init(0)\n'
+const COUNTER = JSON.stringify('use mutation\nimport tinyweb as tw\nvar n = 0\ntw.web_init(0)\n'
   + 'shown = tw.label("0")\ndef more():\n    n := n + 1\n    tw.set_text(shown, string(n))\n'
   + '    print(n)\ntw.button("More", on_click = more)\n');
 

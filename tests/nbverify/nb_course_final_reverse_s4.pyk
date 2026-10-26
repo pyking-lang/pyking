@@ -6,4 +6,4 @@ print(text.join(list_reverse(text.words(line)), " "))
 def list_reverse(xs: [String]) -> [String]:
     match xs:
         case []: []
-        case [x, ..rest]: list_reverse(rest) ++ [x]
+        case [x, ..rest]: list_reverse(rest) + [x]

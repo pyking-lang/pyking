@@ -45,9 +45,10 @@ section; everything else compiles:
 - lists and list comprehensions;
 - tuples, including a binding that takes one apart;
 - `return`, anywhere it can be written;
-- lambdas (`x => x + 1`);
-- integers, floats, strings and booleans; `+ - * /`, unary minus,
-  `++`, comparisons, `==`, and calls.
+- lambdas (`lam x. x + 1`);
+- integers, floats, strings and booleans; `+ - * / % ^`, unary minus,
+  comparisons, `==` and `!=`, `and`/`or`/`not`, the bitwise operators,
+  `xs[i]` (`List.nth`), and calls.
 
 A `def` needs no annotation here: the checker works one out from its
 body, and this backend reads the answer back. Annotations are erased
@@ -177,7 +178,7 @@ its parameters, and that is refused:
   value of type a
 ```
 
-### `|` around a `++` split or a list split from its end
+### `|` around a `+` split or a list split from its end
 
 Both are tested in the arm's `when` (see "`match` and patterns"), and an
 alternative of OCaml's `|` has no `when` of its own, so an alternative
@@ -195,9 +196,11 @@ take: a name or `_`. A literal or a nested list there is refused.
 **every expression**, not just the ones an annotation could be written
 on. This backend is the reason that is true. Two decisions need it:
 
-- **`print` and `debug` are the only things that need a type.** Pyking's `+` and
-  `++` map straight onto OCaml's `+` and `^`, so nothing has to ask an
-  operand's type to choose between them.
+- **`print` and `debug` are the only things that need a type.** A `+`
+  that joins is a node of its own by the time it arrives (elaborate.ml
+  makes it), and maps straight onto OCaml's `^` or `@`, so nothing has
+  to ask an operand's type to choose; the other operators are one OCaml
+  operator each, `+` or `+.` decided from the operand's type as `/` is.
 - **Type variables need nothing, up to a point.** This backend writes no
   type annotations, and OCaml generalizes what a `let` binds, so a
   polymorphic Pyking function becomes a polymorphic OCaml one by itself
@@ -429,7 +432,7 @@ def described(n:Int) -> String:
         if k == 13:
             return "unlucky"
         k * 3
-    "reached " ++ string(reached)
+    "reached " + string(reached)
 ```
 
 ```ocaml
@@ -460,7 +463,7 @@ Two shapes need what OCaml's patterns cannot say, and both go through
 one mechanism — an arm may carry a `when` guard and open its body with
 bindings the pattern could not make:
 
-- **a `++` pattern over a string.** OCaml's patterns do not split a
+- **a `+` pattern over a string.** OCaml's patterns do not split a
   string, so the whole subject is bound and the guard tests its length
   and its ends; the middle comes out with `String.sub`. The length test
   is written first, which is what makes the `String.sub`s after it safe.
@@ -517,6 +520,8 @@ same way: `var x = 0` becomes `let x = ref 0 in`, `x := e` stays
 where it stands), and every *read* of the name becomes `!x`.
 
 ```pyking
+use mutation
+
 var total = 0
 total := total + 1
 print(total)

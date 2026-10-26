@@ -45,11 +45,11 @@ def layered(n:Int) -> Int:
 # block that also shadows it.
 def closes_over(n:Int) -> Int:
     if n > 0:
-        def use(m:Int) -> Int:
+        def use_it(m:Int) -> Int:
             helper(m) + 1
         def helper(m:Int) -> Int:
             m * 100
-        use(n)
+        use_it(n)
     else:
         helper(n)
 

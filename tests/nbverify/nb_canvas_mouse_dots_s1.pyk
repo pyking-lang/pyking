@@ -3,7 +3,7 @@ import tinyweb.color as color
 
 c = tw.canvas(200, 200)
 tw.rect(c, 0, 0, 200, 200, color.hex(0xeeeeee))
-tw.on_click(c, (x: Int, y: Int) => dot(x, y))
+tw.on_click(c, lam (x: Int, y: Int). dot(x, y))
 
 def dot(x: Int, y: Int):
     tw.circle(c, x, y, 5, color.rgb(255, 0, 0))

@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `use` lines, which turn a part of the language on for one module
+  (design/steps.md, step 1): `use mutation` turns on `var` and `:=`, and
+  `use objects` is reserved. A construct of a feature the module has not
+  turned on is parsed as usual and refused as a syntax error naming the
+  `use` line; importing a module never turns a feature on. A `use` typed
+  in the REPL holds for the session, and `pyk repl --use mutation`
+  starts one with it on. `-t pyking` writes the `use` lines back.
+- Operators (design/steps.md, step 2): `and`, `or` and `not`, also
+  spelled `&&`, `||` and `!`, on Bools and short-circuiting; `!=`; `%`,
+  the remainder, truncating as `/` does; `^`, the power; the bitwise
+  operators `&`, `|`, `xor`, `~`, `<<` and `>>`, with `and`, `or` and
+  `not` bitwise on two Ints. Python's precedence, and comparisons do not
+  chain.
+- List indexing, `xs[i]`.
+- The language server offers a quick fix for each new refusal: `+` for
+  `++`, `^` for `**`, `and` for `&` on Bools and the like, and the
+  `use mutation` line a `var` needs.
+- `use`, `lam`, `and`, `or`, `not` and `xor` are keywords, and `class`,
+  `interface`, `extends`, `self` and `super` are reserved.
+
 - Notebooks: `max_calls = (N,name)` on a task, several as `(2,rect)
   (1,circle)`: an answer may write `name` at most N times, outside
   comments and strings, or Submit refuses it before running it. Test
@@ -20,6 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   titled "Practice".
 
 ### Changed
+
+- `var` and `:=` need `use mutation` at the top of the module.
+- `+` joins two Strings or two lists, as it adds two numbers, every
+  operand of one type; `++` is refused with a message saying so. A `+`
+  whose operands nothing has decided waits for the use that decides it,
+  and adds two Ints where nothing does.
+- Lambdas are written `lam x. x + 1` and `lam (x, y). x + y`; `=>` is
+  refused with a message saying so.
+- `**` is refused, with `^` named as the power.
 
 - Notebooks: ```` ```pyking exercise ```` is now ```` ```pyking task ````
   (or `practice`), and the old word is refused; the page, test mode,

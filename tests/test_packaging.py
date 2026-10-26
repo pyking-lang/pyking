@@ -107,7 +107,7 @@ HELLO_OUTPUT = "hello from the package 3\n"
 IMPORTS = "import sys\n\nprint(len(sys.args()))\n"
 # One that runs the standard library through the interpreter, which loads
 # each library's plugin from the tree.
-LIBRARY = ('import io\nimport sys\nio.write_line("read " ++ io.read_line())\n'
+LIBRARY = ('import io\nimport sys\nio.write_line("read " + io.read_line())\n'
            'print(sys.args())\n')
 LIBRARY_OUTPUT = "read typed\n['a', 'b']\n"
 

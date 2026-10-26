@@ -1,15 +1,15 @@
-inc: (Int) -> Int = (x:Int) => x + 1
+inc: (Int) -> Int = lam (x:Int). x + 1
 print(inc(1))
 def on_text(f:(String) -> String) -> String:
     f('ab')
-print(on_text((x:String) => x ++ '!'))
-half: (Int) -> Int = (n:Int) => n / 2
+print(on_text(lam (x:String). x + '!'))
+half: (Int) -> Int = lam (n:Int). n / 2
 print(half(9))
-pair: (Int) -> (Int) -> Int = (a:Int) => (b:Int) => a * b
+pair: (Int) -> (Int) -> Int = lam (a:Int). lam (b:Int). a * b
 print(pair(6)(7))
 def apply_twice(f:(Int) -> Int, n:Int) -> Int:
     f(f(n))
-print(apply_twice((x:Int) => x * 3, 2))
+print(apply_twice(lam (x:Int). x * 3, 2))
 def make(k:Int) -> (Int) -> Int:
-    (x:Int) => x + k
+    lam (x:Int). x + k
 print(make(100)(5))

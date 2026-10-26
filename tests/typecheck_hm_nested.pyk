@@ -15,7 +15,7 @@ def outer(n):
     def pick(x, y): x
     def later(lst):
         match lst:
-            case [x] ++ _: x
+            case [x] + _: x
             case []: n
     (pick(n, 'ignored'), pick(true, 1), later([]), later([n]))
 

@@ -5,6 +5,8 @@
 # turn carries, so "what does this loop carry" and "what is it worth"
 # have one answer rather than two.
 
+use mutation
+
 def capped(limit: Int) -> Int:
     # Climbs by threes and stops on the first turn past the limit, so
     # it is worth the value it stopped on.
@@ -35,7 +37,7 @@ def marked(width: Int) -> String:
         if made == width:
             break
         made := made + 1
-        text ++ "*"
+        text + "*"
 
 
 print(capped(10), capped(0))

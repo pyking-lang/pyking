@@ -2,6 +2,8 @@
 # anywhere an expression is -- bound, mutated, passed, returned, and
 # compared -- exactly like a comparison's result.
 
+use mutation
+
 found = true
 missing = false
 print(found, missing)

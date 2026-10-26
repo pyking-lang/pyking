@@ -5,14 +5,14 @@ Answer the quizzes below. Each quiz says how many points it is worth;
 you pass with 3 points of 5.
 ```
 
-`len` gives the length of a string, and `++` joins two of them.
+`len` gives the length of a string, and `+` joins two of them.
 
 ```pyking
-s = "pyk" ++ "ing"
+s = "pyk" + "ing"
 print(s, len(s))
 ```
 
-What does `len("abc" ++ "de")` give?
+What does `len("abc" + "de")` give?
 
 ```quiz name = "length" points = 2 attempts = 2
 * 2
@@ -47,12 +47,12 @@ Which of these are `String`s?
 A warm-up, worth nothing: which operator joins strings?
 
 ```quiz name = "warmup"
-* `++`
-
 * `+`
+
+* `&`
 ```
 
 ```answer
--> `++` is concatenation.
-- `+` adds numbers.
+-> `+` joins two strings, as it adds two numbers.
+- `&` is a bitwise and of two `Int`s.
 ```

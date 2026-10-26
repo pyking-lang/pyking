@@ -13,7 +13,7 @@ s: shapes.Shape = shapes.Circle(1.0)
 print(shapes.area(s))
 match s:
     case shapes.Circle(r):
-        print("a circle of radius " ++ string(r))
+        print("a circle of radius " + string(r))
     case shapes.Square(_):
         print("a square")
 

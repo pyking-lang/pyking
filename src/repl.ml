@@ -718,8 +718,8 @@ let meta_load session argument report =
         Printf.printf "cannot read '%s': %s\n" argument message;
         plain session
     | source -> (
-        match parse_source ~name:argument source with
-        | stmts -> plain (accept session stmts report source)
+        match parse_entry ~name:argument session source with
+        | session, stmts -> plain (accept session stmts report source)
         | exception (Lexer.Lex_error _ as e) ->
             report e;
             plain session
@@ -739,7 +739,7 @@ let quit_commands = [ ":quit"; ":q" ]
 
 (** Runs the REPL loop until end of input or `:quit`. `format_error` is
     the driver's (pyk.ml). (exn -> string option) -> int *)
-let start ?read ?session ?(libs = []) format_error =
+let start ?read ?session ?(libs = []) ?(features = []) format_error =
   let report error =
     match format_error error with
     | Some text -> prerr_endline text
@@ -769,14 +769,14 @@ let start ?read ?session ?(libs = []) format_error =
             loop outcome.out_session "")
           else loop outcome.out_session pending
         else
-          match parse_source source with
+          match parse_entry session source with
           | exception (Lexer.Lex_error _ as e) ->
               report e;
               loop session ""
           | exception (Parser.Parse_error _ as e) ->
               report e;
               loop session ""
-          | stmts -> (
+          | session, stmts -> (
               let session, refused = submit session stmts report source in
               match refused with
               | None -> loop session ""
@@ -791,6 +791,7 @@ let start ?read ?session ?(libs = []) format_error =
                       report refused;
                       loop session "")))
   in
-  loop
-    (match session with Some session -> session | None -> new_session ~libs terminal_host)
-    ""
+  let session =
+    match session with Some session -> session | None -> new_session ~libs terminal_host
+  in
+  loop (with_features session features) ""

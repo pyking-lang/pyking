@@ -25,4 +25,4 @@ reason = "The output is not what it should be.\nexpected:\nHello, world!\ngot:\n
 [[solution]]
 file = "nb_hello_default_s5.pyk"
 accepted = false
-reason = "Your program did not run:\n'solution.pyk' 1:18-1:19 Lexing error: unexpected character '!'"
+reason = "Your program did not run:\n'solution.pyk' 1:18-1:19 Parsing error: expected ',' or ')' in call\n  arguments"

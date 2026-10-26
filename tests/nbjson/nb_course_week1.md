@@ -64,6 +64,8 @@ cell checks for $n = 100$:
 ```
 
 ```pyking readonly
+use mutation
+
 var total = 0
 for k in range(1, 101):
     total := total + k
@@ -86,6 +88,8 @@ print("Add your code here")
 ```
 
 ```pyking solution available = true
+use mutation
+
 import io
 n = int(io.read_line())
 first = int(io.read_line())
@@ -218,7 +222,7 @@ Which of these print exactly `hi`?
 
 [] `print(["hi"])`
 
-[] `print("h" ++ "i")`
+[] `print("h" + "i")`
 
 [] `print('hi')`
 ```
@@ -226,7 +230,7 @@ Which of these print exactly `hi`?
 ```answer
 -> A string is printed without its quotes.
 - A list shows its strings quoted: `['hi']`.
--> `++` joins two strings.
+-> `+` joins two strings.
 - Pyking strings are written in double quotes.
 ```
 

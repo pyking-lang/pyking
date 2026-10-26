@@ -30,4 +30,4 @@ reason = "The output is not what it should be.\nstdin:\nAda\nGrace\nexpected:\nH
 [[solution]]
 file = "nb_echo_stdin_greet_s6.pyk"
 accepted = false
-reason = "Your program did not run:\n'solution.pyk' 6:6-6:25 Type error: `++` cannot be applied to String\n  and Int; it accepts String ++ String or two lists of one type"
+reason = "Your program did not run:\n'solution.pyk' 8:6-8:24 Type error: `+` cannot be applied to String\n  and Int; it accepts Int + Int or Float + Float or String + String or\n  two lists of one type. `+` joins two Strings and converts nothing:\n  write string(n)"

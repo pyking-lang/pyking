@@ -17,7 +17,7 @@ def id(x): x
 
 def bump(n): n + 1
 
-def show(n): 'n=' ++ string(n)
+def show(n): 'n=' + string(n)
 
 print(apply(id, 3))
 print(apply(id, 'hi'))

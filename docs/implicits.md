@@ -10,7 +10,7 @@ def foo(x: a, implicit bar: (a) -> b) -> (b, b):
     (bar(x), bar(x))
 
 def my1() -> ():
-    implicit def bar(z: Int) -> String: string(z) ++ "!"
+    implicit def bar(z: Int) -> String: string(z) + "!"
     print(foo(78))                      # ('78!', '78!')
 ```
 
@@ -77,7 +77,7 @@ own `implicit leq: (Int, Int) -> Bool` is then discharged to
 `int::leq`, and the argument built for it is
 
 ```pyking
-(__implicit__1: [Int], __implicit__2: [Int]) =>
+lam (__implicit__1: [Int], __implicit__2: [Int]). 
     list__leq(__implicit__1, __implicit__2, int__leq)
 ```
 
@@ -115,7 +115,7 @@ type -- but it can be *made* to, by supplying what it asks for, and the
 scope that has to answer is the one passing it. `elaborate.ml` writes
 
 ```pyking
-bar(7, (__implicit__1: Int) => foo(__implicit__1, my))
+bar(7, lam (__implicit__1: Int). foo(__implicit__1, my))
 ```
 
 Writing the implicit into `f`'s type says the other thing, and the two
@@ -138,7 +138,7 @@ def bar(a, f: (Int, implicit my: Int) -> Int):
     f(a + 1)
 
 print(bar(7, adds))         # adds asks for `my`: passed as it is
-print(bar(2, x => x + 1))   # the lambda does not: it is widened
+print(bar(2, lam x. x + 1))   # the lambda does not: it is widened
 ```
 
 and that is usually the annotation to write, because it is the one that

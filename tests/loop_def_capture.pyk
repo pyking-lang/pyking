@@ -15,7 +15,7 @@ loop i, made = 0, []:
     if i > 2:
         break
     else:
-        (i + 1, made ++ [show])
+        (i + 1, made + [show])
 
 for f in makers:
     print(f())
@@ -32,7 +32,7 @@ loop n, seen = 10, []:
     if n > 30:
         break
     else:
-        (n + 10, seen ++ [left])
+        (n + 10, seen + [left])
 
 for f in pairs:
     print(f())

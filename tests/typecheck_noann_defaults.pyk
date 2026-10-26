@@ -25,7 +25,7 @@ print(step(3, 4))
 def repeat(text, times = 3):
     if times <= 0:
         return ""
-    return text ++ repeat(text, times - 1)
+    return text + repeat(text, times - 1)
 
 
 print(repeat("ab"))

@@ -100,6 +100,11 @@ Only a `var` can be given a new value: setting one runs `name :=
 expression`, checked like any other, so the new value must have the
 `var`'s type. An `=` binding never changes, and the debugger says so.
 
+What is typed there is parsed with every feature on (`Parser.parse_with
+Parser.features`): it acts on a running program from outside its
+source, so a `:=` is accepted whatever the program's own `use` lines
+say -- a program with a `var` in it has turned mutation on anyway.
+
 ## Callbacks
 
 A tinyweb program does most of its work in callbacks, after its top

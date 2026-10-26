@@ -1,7 +1,7 @@
 import io
 def squares(k: Int, n: Int) -> ():
     if k < n:
-        print(string(k) ++ " " ++ string(k * k) ++ "   ")
+        print(string(k) + " " + string(k * k) + "   ")
         squares(k + 1, n)
 squares(0, int(io.read_line()))
 

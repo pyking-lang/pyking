@@ -21,7 +21,7 @@ tw.text(c, 150, 180, "Step 1", color.white, 18, font = "serif", align = "center"
 
 
 def show(c: color.Color) -> String:
-    string(c.r) ++ " " ++ string(c.g) ++ " " ++ string(c.b) ++ " " ++ string(c.a)
+    string(c.r) + " " + string(c.g) + " " + string(c.b) + " " + string(c.a)
 
 
 print(show(color.rgb(255, 136, 0)))

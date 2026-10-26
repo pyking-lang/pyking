@@ -7,6 +7,8 @@
 # `continue` and `break` take no operand: there is no accumulator for
 # either of them to say anything about.
 
+use mutation
+
 answer = loop:
     if true:
         break

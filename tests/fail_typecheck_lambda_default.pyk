@@ -8,5 +8,5 @@
 # This program is expected to FAIL parsing. Its `.ast.out` holds the
 # error message, not a program's output.
 
-f = (x = 1) => x
+f = lam (x = 1). x
 print(f(2))

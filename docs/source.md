@@ -183,8 +183,15 @@ The groups:
 
 - **`Expr`** — `EInt`, `EString`, `EBool`, `EVar`, `EAdd`, `ESub`,
   `EMul`, `EDiv`, `ENeg`, `EConcat`, `ELessThan`, `ELessThanEq`,
-  `EGreatThan`, `EGreatThanEq`, `EEq`, `ECall`, `EList`, `ETuple`,
-  `EIf`, `EListComp`, `ELambda`, `ELet`, `EConstruct`, `EField`. `ELambda`
+  `EGreatThan`, `EGreatThanEq`, `EEq`, `EBinary`, `EUnary`, `EIndex`,
+  `ECall`, `EList`, `ETuple`, `EIf`, `EListComp`, `ELambda`, `ELet`,
+  `EConstruct`, `EField`. `EBinary` and `EUnary` carry every other
+  operator as a `binop`/`unop` -- `%`, `^`, `!=`, `and`/`or`/`not` in
+  either spelling, and the bitwise ones -- with the spelling `and`,
+  `or` and `not` were written in, so `-t pyking` prints them back as
+  written. `EIndex` is `xs[i]`. The parser makes an `EAdd` of every
+  `+`; `elaborate.ml` makes one the checker typed as a String or a list
+  an `EConcat`, which is what every backend compiles as a join. `ELambda`
   holds a `Param` list and one *expression*: a lambda's body is never a
   block. `EConstruct` is a constructor applied to its fields, with the
   module it is reached through where it is another's; `EField` reads a
@@ -199,8 +206,8 @@ The groups:
   work without a construct of its own.
 - **`Pattern`** — `PInt`, `PString`, `PBool`, `PWildcard`, `PCapture`,
   `PTuple`, `PList`, `PText`, `PConstructor`, `POr`, `PAs`. `PText` is a
-  string split around a fixed beginning and end (`"ab" ++ rest`); the
-  list form of `++` is folded into `PList` by the parser, so only the
+  string split around a fixed beginning and end (`"ab" + rest`); the
+  list form of `+` is folded into `PList` by the parser, so only the
   string one is a node. `PConstructor` carries positional and named
   field patterns; after `desugar_args.ml` every field is positional.
 - **`Type`** — `TInt`, `TString`, `TBool`, `TList`, `TTuple`,
@@ -276,10 +283,11 @@ a token list and returning `(node, rest)`:
 `parse_multiplicative` → `parse_additive` → `parse_comparison` →
 `parse_expr` → `parse_tuple_or_expr`.
 
-`parse_expr` is also where a lambda is read: `parse_lambda` answers
-`None` where the tokens do not start one, and its parenthesized form is
-decided by trying `parse_params` and looking for a `=>` after the `)`
-(docs/parser.md, "Where the grammar is not LL(1)").
+`parse_expr` is also where a lambda is read: `lam` starts one, and
+`parse_lambda` reads its parameters up to the `.` (docs/parser.md).
+`parse_uses` reads a module's leading `use` lines, and
+`check_features` refuses what a feature the module did not turn on
+would allow -- `var` and `:=` without `use mutation`.
 
 Around them:
 
@@ -303,7 +311,7 @@ Around them:
 - **`parse_pattern`, `parse_case`, `parse_cases`, `parse_match_stmt`** —
   `match`/`case`, including list patterns with a `..rest` marker, and a
   case's `if` guard. `parse_pattern_as` and `parse_pattern_or` are the
-  two levels above `++`; `parse_constructor_pattern` reads a
+  two levels above the `+` that splits; `parse_constructor_pattern` reads a
   constructor's field patterns, positional first. `check_alternatives`
   refuses an or-pattern whose alternatives bind different names.
 - **`parse_datatype`, `parse_constructor`, `parse_field`** — a
@@ -740,18 +748,18 @@ scheme specifically).
   settles it where `check_stmt` reaches that def. A written annotation is read through `resolved`, which
   replaces every datatype name with the canonical one and refuses one
   that is unknown or applied to the wrong number of types.
-- **`OPERATORS`** — node class → (spelling, list of signatures). A *list*
-  because `==` is overloaded: it relates two `Int`s, two `String`s or
-  two `Bool`s, and both operands must match the same signature. `+` and
-  `++` each have one signature apiece — `Int + Int` and
-  `String ++ String` — which is the point of their being two operators.
-- **`ALTERNATIVES` / `alternative(expr, left, right)`** — the two
-  operators that are easy to write for one another, paired both ways.
-  A failing `+` whose operands `++` *would* have taken has the swap
-  suggested to it, and vice versa; the suggestion is read off the
-  partner's own row in `OPERATORS`, so it cannot claim an acceptance
-  the checker does not have. `1 + 'a'`, which nothing accepts, is
-  offered nothing.
+- **`operator_of` / `binop_rows`** — an operator's spelling and its
+  rows, one per operand type it accepts. A *list* because operators are
+  overloaded: `==` relates two `Int`s, `Float`s, `String`s or `Bool`s,
+  `+` adds two numbers or joins two Strings (lists have a case of their
+  own), and the words `and`/`or` are logic on Bools and bitwise on Ints.
+  Both operands must match the same row. A `+` whose operands nothing
+  has decided is left open in `pending_plus` and settled by
+  `settle_plus` (docs/typesystem.md).
+- **`alternative(expr, left, right)`** — what to write instead, where
+  the mistake has an obvious cure: `string(n)` for a String `+` an Int,
+  `and` for `&` on Bools, `&` for `&&` on Ints. `1 & 'a'`, which nothing
+  accepts, is offered nothing.
 - **`Type_error (info, message)`** — a type error, or the floor:
   `Construct is not supported`, raised for everything outside the
   fragment. That floor is deliberate — a checker that quietly accepted
@@ -1844,7 +1852,7 @@ refused).
 - **`matcher`** and **`arm_for`** — one Pyking pattern as an OCaml
   pattern plus the two things OCaml cannot say there: the conditions
   the arm tests with `when`, and the bindings its body opens with. That
-  is what compiles a `++` pattern over a string and a list pattern with
+  is what compiles a `+` pattern over a string and a list pattern with
   elements after `..`. A `when` hides an arm from OCaml's exhaustiveness
   check, so the catch-all is decided from the unguarded arms alone.
 - **`escaping`** and **`OEscape`** — a `return` OCaml has no value

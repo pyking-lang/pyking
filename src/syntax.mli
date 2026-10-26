@@ -34,7 +34,8 @@
         one-constructor nodes.
       set_expr_info / set_type_info / set_pattern_info /
         set_target_info -- one node with its span replaced.
-      strip s -- a string with leading and trailing blanks removed. *)
+      strip s -- a string with leading and trailing blanks removed.
+      binop_text op / unop_text op -- how an operator is written. *)
 
 open Lexer
 
@@ -51,12 +52,18 @@ type expr =
   | EMul of info * expr * expr * int (* left * right *)
   | EDiv of info * expr * expr * int (* left / right *)
   | ENeg of info * expr * int (* -operand (unary minus) *)
-  | EConcat of info * expr * expr * int (* left ++ right *)
+  | EConcat of info * expr * expr * int
+      (* left + right, where the two are strings or lists: the checker
+         decides that, and elaborate.ml turns such an EAdd into this *)
   | ELessThan of info * expr * expr * int (* left < right *)
   | ELessThanEq of info * expr * expr * int (* left <= right *)
   | EGreatThan of info * expr * expr * int (* left > right *)
   | EGreatThanEq of info * expr * expr * int (* left >= right *)
   | EEq of info * expr * expr * int (* left == right *)
+  | EBinary of info * binop * expr * expr * int
+      (* left op right, for every other binary operator *)
+  | EUnary of info * unop * expr * int (* op operand: not, !, ~ *)
+  | EIndex of info * expr * expr * int (* list[index] *)
   | ECall of info * expr * (string option * expr) list * int
       (* func(args...). Each argument carries the parameter name it was
          written with, where one was: `f(x, n = 1)`. Desugar_args
@@ -71,8 +78,9 @@ type expr =
   | EListComp of info * expr * comp_clause list * int
       (* [expr for pattern in seq {for ... | if ...}] *)
   | ELambda of info * param list * expr * int
-      (* (x, y) => expr -- one parameter needs no parentheses. The body
-         is one expression; nothing here holds statements. *)
+      (* lam (x, y). expr -- one parameter with no type needs no
+         parentheses. The body is one expression; nothing here holds
+         statements. *)
   | ELet of info * assign_target * typ option * expr * expr * int
       (* let target[: type] = value in body. Desugar_args.ml also makes
          them, for a call whose named arguments are not in parameter
@@ -85,6 +93,29 @@ type expr =
          through. Desugar_args puts every field in its position, named
          by the field's own name where it has one. *)
   | EField of info * expr * string * int (* expr.name -- a named field *)
+
+(* The binary operators beside the arithmetic and comparison ones above.
+   `and`, `or` and `not` keep how they were written, so `-t pyking`
+   prints a program back in its own spelling: the words, or `&&`, `||`
+   and `!`. On two Ints the words are bitwise, and elaborate.ml turns
+   such a BAnd into the BBitAnd it computes, spelled Word. *)
+and binop =
+  | BMod (* % *)
+  | BPow (* ^ *)
+  | BNeq (* != *)
+  | BAnd of spelling (* and / && on Bools: short-circuit *)
+  | BOr of spelling (* or / || on Bools: short-circuit *)
+  | BBitAnd of spelling (* & ; `and` on Ints where Word *)
+  | BBitOr of spelling (* | ; `or` on Ints where Word *)
+  | BXor (* xor *)
+  | BShiftLeft (* << *)
+  | BShiftRight (* >> *)
+
+and unop =
+  | UNot of spelling (* not / ! on a Bool *)
+  | UBitNot of spelling (* ~ ; `not` on an Int where Word *)
+
+and spelling = Word | Symbol
 
 and typ =
   | TInt of info * int (* Int *)
@@ -378,3 +409,9 @@ val pprint_program : stmt list -> bool -> typ IntMap.t option -> string
 (** A string with leading and trailing blanks removed.
     string -> string *)
 val strip : string -> string
+
+(** How a binary operator is written. binop -> string *)
+val binop_text : binop -> string
+
+(** How a unary operator is written. unop -> string *)
+val unop_text : unop -> string

@@ -3,7 +3,7 @@ def map_pairs(xs:[(a, b)]) -> [a]:
         case []:
             return []
         case [(left, right), ..rest]:
-            return [left] ++ map_pairs(rest)
+            return [left] + map_pairs(rest)
 def take(xs:[a], n:Int) -> [a]:
     answer: [a] = match xs:
         case []:
@@ -12,7 +12,7 @@ def take(xs:[a], n:Int) -> [a]:
             if n < 1:
                 []
             else:
-                [first] ++ take(rest, n - 1)
+                [first] + take(rest, n - 1)
     return answer
 def drop(xs:[a], n:Int) -> [a]:
     answer: [a] = match xs:
@@ -31,7 +31,7 @@ def join(parts:[String], sep:String) -> String:
         case [only]:
             only
         case [first, ..rest]:
-            first ++ sep ++ join(rest, sep)
+            first + sep + join(rest, sep)
     return answer
 def sum_all(xs:[Int]) -> Int:
     match xs:

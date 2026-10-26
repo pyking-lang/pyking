@@ -26,10 +26,10 @@ def describe(point):
         case (0, 0): "origin"
         case (0, y):
             side = if y > 0 then "up" else "down"
-            "on the y axis, " ++ side
+            "on the y axis, " + side
         case (x, 0): "on the x axis"
         case (x, y):
-            "at " ++ string(x) ++ "," ++ string(y)
+            "at " + string(x) + "," + string(y)
     return text
 
 
@@ -43,12 +43,12 @@ print(describe((3, 4)))
 def summarize(items):
     text = match items:
         case []: "empty"
-        case [only]: "just " ++ string(only)
+        case [only]: "just " + string(only)
         case [first, ..rest]:
             if first > 10:
-                "starts big, " ++ string(len(rest)) ++ " more"
+                "starts big, " + string(len(rest)) + " more"
             else:
-                "starts small, " ++ string(len(rest)) ++ " more"
+                "starts small, " + string(len(rest)) + " more"
     return text
 
 

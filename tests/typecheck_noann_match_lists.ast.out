@@ -15,7 +15,7 @@ def reverse(xs:[a]) -> [a]:
         case []:
             return []
         case [x, ..rest]:
-            return reverse(rest) ++ [x]
+            return reverse(rest) + [x]
 def ends(xs:[a]) -> String:
     answer: String = match xs:
         case []:

@@ -3,7 +3,7 @@
 env PYKING_TINYWEB_LOG /dev/null
 env PYKING_TINYWEB_EVENTS page.events
 launch page.pyk
-break page.pyk 6
+break page.pyk 8
 configure
 wait stopped
 stack

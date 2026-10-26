@@ -83,6 +83,8 @@ print("Add your code here")
 ```
 
 ```pyking solution available = false
+use mutation
+
 import io
 var i = int(io.read_line())
 while i > 0:

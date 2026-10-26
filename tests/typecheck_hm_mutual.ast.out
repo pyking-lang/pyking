@@ -19,7 +19,7 @@ def take(lst:[a], n:Int) -> [a]:
     else:
         match lst:
             case [x, ..xs]:
-                [x] ++ drop_one(xs, n)
+                [x] + drop_one(xs, n)
             case []:
                 []
 def drop_one(lst:[a], n:Int) -> [a]:

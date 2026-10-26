@@ -1,4 +1,7 @@
 # Starts from (10, 10) before the first press.
+
+use mutation
+
 import tinyweb as tw
 import tinyweb.color as color
 

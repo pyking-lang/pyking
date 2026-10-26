@@ -2,6 +2,6 @@ import io
 import text
 numbers = [int(line) for line in text.lines(io.read())]
 total = loop acc = 0 for n in numbers:
-    debug("read " ++ string(n) ++ " total so far " ++ string(acc + n) ++ "   ")
+    debug("read " + string(n) + " total so far " + string(acc + n) + "   ")
     acc + n
-print("total: " ++ string(total))
+print("total: " + string(total))

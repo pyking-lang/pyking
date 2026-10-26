@@ -33,7 +33,7 @@ def repeat(word:String, times:Int) -> String:
     if times < 1:
         ""
     else:
-        word ++ repeat(word, times - 1)
+        word + repeat(word, times - 1)
 
 
 print(factorial(0), factorial(1), factorial(5), factorial(10))

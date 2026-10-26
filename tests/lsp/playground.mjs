@@ -187,7 +187,7 @@ const REPL = `(async () => { ${HELPERS}
   check("and the environment is up to date after each entry",
     rows().includes("double <function> (Int) -> Int") || rows().includes("double <function> (?) -> ?"),
     rows());
-  await enter('print("hi " ++ string(double(x)))');
+  await enter('print("hi " + string(double(x)))');
   check("what an entry prints appears", log().includes("hi 42\\n"), log());
   await enter("y = nope");
   check("a refusal is shown in red", $$("[data-r=replLog] .err").some((e) =>
@@ -371,7 +371,7 @@ const DEBUG = `(async () => { ${HELPERS}
   const stoppedAt = (row, depth) => until(() => dbg.state === "stopped" && dbg.frames.length > 0
     && dbg.frames[0].span.row1 === row && (depth === undefined || dbg.frames.length === depth), 20000);
   const consoleText = () => d("console").textContent;
-  await source("def fact(n: Int) -> Int:\\n    if n <= 1:\\n        return 1\\n    return n * fact(n - 1)\\n\\nvar total = 0\\nxs = [1, 2, 3]\\nfor x in xs:\\n    total := total + fact(x)\\nprint(\\"total\\", total)\\n");
+  await source("use mutation\\ndef fact(n: Int) -> Int:\\n    if n <= 1:\\n        return 1\\n    return n * fact(n - 1)\\n\\nvar total = 0\\nxs = [1, 2, 3]\\nfor x in xs:\\n    total := total + fact(x)\\nprint(\\"total\\", total)\\n");
   $("[data-tab=debug]").click();
   check("the Debug tab shows its controls", d("start") && !d("start").classList.contains("pyk-hidden")
     && d("environment") && d("watch") && d("stack") && d("breakpointList") && d("console"));
@@ -380,14 +380,14 @@ const DEBUG = `(async () => { ${HELPERS}
     /\\((Alt|Option)\\+D or F8 or (Alt|Option)\\+C\\)/.test(d("start").title), d("start").title);
   check("the names pane is called Environment",
     d("environment").closest("details").querySelector("summary").textContent.trim() === "Environment");
-  dbg.toggleBreakpoint(3);
+  dbg.toggleBreakpoint(4);
   check("a breakpoint shows in the margin",
     await until(() => $$("[data-r=leftEditor] .pyk-bp-glyph.pyk-bp").length === 1));
-  check("and in the Breakpoints pane", d("breakpointList").textContent.includes("line 3"),
+  check("and in the Breakpoints pane", d("breakpointList").textContent.includes("line 4"),
     d("breakpointList").textContent);
   dbg.watches = ["n * 100"];
   d("start").click();
-  check("Debug stops at the breakpoint", await stoppedAt(3, 2), JSON.stringify(dbg.frames));
+  check("Debug stops at the breakpoint", await stoppedAt(4, 2), JSON.stringify(dbg.frames));
   check("the status says why", /breakpoint/.test(d("status").textContent), d("status").textContent);
   check("the line is marked in the editor",
     await until(() => $$("[data-r=leftEditor] .pyk-debug-line").length > 0));
@@ -402,7 +402,7 @@ const DEBUG = `(async () => { ${HELPERS}
   check("the console evaluates an expression where it stopped",
     await until(() => consoleText().includes("120 : Int")), consoleText());
   d("continue").click();
-  check("Continue stops at the breakpoint again, one call deeper", await stoppedAt(3, 3), stack());
+  check("Continue stops at the breakpoint again, one call deeper", await stoppedAt(4, 3), stack());
   $$(".pyk-debug-frame")[2].click();
   check("choosing a frame shows its names",
     await until(() => /total\\s*1\\s*Int/.test(d("environment").textContent)
@@ -410,21 +410,21 @@ const DEBUG = `(async () => { ${HELPERS}
   check("and marks its line as a caller's",
     await until(() => $$("[data-r=leftEditor] .pyk-debug-line-caller").length > 0));
   check("a var is offered to be set", $$(".pyk-debug-node .value[title]").length > 0);
-  dbg.toggleBreakpoint(3);
+  dbg.toggleBreakpoint(4);
   d("out").click();
-  check("Step out stops in the caller, at the call", await stoppedAt(4, 2), stack());
+  check("Step out stops in the caller, at the call", await stoppedAt(5, 2), stack());
   const press = (target, key, code, more = {}) => {
     const event = new KeyboardEvent("keydown", { key, code, bubbles: true, cancelable: true, ...more });
     target.dispatchEvent(event);
     return event.defaultPrevented;
   };
   press($("[data-r=leftEditor] textarea"), "F10", "F10");
-  check("the step-over key steps over the rest of the call, to its caller", await stoppedAt(9, 1), stack());
+  check("the step-over key steps over the rest of the call, to its caller", await stoppedAt(10, 1), stack());
   d("next").click();
-  check("Step over goes to the next turn of the loop", await stoppedAt(9, 1), stack());
+  check("Step over goes to the next turn of the loop", await stoppedAt(10, 1), stack());
   $("[data-tab=repl]").click();
   press($("[data-r=replInput]"), "i", "KeyI", { altKey: true });
-  check("Alt+I in another tab steps into the call", await stoppedAt(2, 2), stack());
+  check("Alt+I in another tab steps into the call", await stoppedAt(3, 2), stack());
   check("and leaves the tab being looked at", app.tab === "repl", app.tab);
   d("continue").click();
   check("the program runs to its end",
@@ -454,15 +454,15 @@ const DEBUG = `(async () => { ${HELPERS}
   d("stop").click();
   check("Stop ends debugging", await until(() => dbg.state === "off"), dbg.state);
 
-  await source("import tinyweb as tw\\ntw.web_init(0)\\nvar count = 0\\ndef pressed():\\n    count := count + 1\\n    print(\\"pressed\\", count)\\ntw.button(\\"Count\\", on_click = pressed)\\n");
-  dbg.toggleBreakpoint(6);
+  await source("use mutation\\nimport tinyweb as tw\\ntw.web_init(0)\\nvar count = 0\\ndef pressed():\\n    count := count + 1\\n    print(\\"pressed\\", count)\\ntw.button(\\"Count\\", on_click = pressed)\\n");
+  dbg.toggleBreakpoint(7);
   d("start").click();
   check("a tinyweb program's top level ends, and the page's events are awaited",
     await until(() => dbg.state === "idle", 20000), dbg.state + " " + d("status").textContent);
   const button = await until(() => $$("[data-r=page] button").find((b) => b.textContent === "Count"));
   $("[data-tab=web]").click();
   button?.click();
-  check("a breakpoint in a callback stops when its button is pressed", await stoppedAt(6, 1), stack());
+  check("a breakpoint in a callback stops when its button is pressed", await stoppedAt(7, 1), stack());
   check("and the Debug tab is shown again", app.tab === "debug", app.tab);
   check("in the callback", stack() === "pressed", stack());
   d("continue").click();
@@ -470,7 +470,7 @@ const DEBUG = `(async () => { ${HELPERS}
   check("and the page's events are awaited again", await until(() => dbg.state === "idle"), dbg.state);
   d("stop").click();
   check("Stop ends debugging a page", await until(() => dbg.state === "off"), dbg.state);
-  dbg.toggleBreakpoint(6);
+  dbg.toggleBreakpoint(7);
 
   const chips = (action) => $$(".pyk-key-row[data-action=" + action + "] .pyk-key-chip")
     .map((c) => c.firstChild.textContent);

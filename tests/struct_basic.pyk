@@ -34,7 +34,7 @@ def norm1(p: Point) -> Int:
 
 def describe(s: Size) -> String:
     match s:
-        case Size(width = w, unit = "px"): "pixels, " ++ string(w) ++ " wide"
+        case Size(width = w, unit = "px"): "pixels, " + string(w) + " wide"
         case Size(_, _, u): u
 
 

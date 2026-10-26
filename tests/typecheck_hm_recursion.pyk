@@ -26,7 +26,7 @@ def sum_to(n):
 
 def depth(lst):
     match lst:
-        case [x] ++ xs: 1 + depth(xs)
+        case [x] + xs: 1 + depth(xs)
         case []: 0
 
 def spell(n):

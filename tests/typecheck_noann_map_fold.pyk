@@ -15,7 +15,7 @@ def map(f, xs):
         case []:
             return []
         case [head, ..rest]:
-            return [f(head)] ++ map(f, rest)
+            return [f(head)] + map(f, rest)
 
 
 def fold_left(step, start, xs):
@@ -33,7 +33,7 @@ def filter(keep, xs):
         case [head, ..rest]:
             rest_kept = filter(keep, rest)
             if keep(head):
-                return [head] ++ rest_kept
+                return [head] + rest_kept
             else:
                 return rest_kept
 
@@ -55,7 +55,7 @@ def bigger(best, n):
 
 
 def join(text, piece):
-    return text ++ piece
+    return text + piece
 
 
 def positive(n):

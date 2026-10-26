@@ -18,7 +18,7 @@ def lookup(pairs:[(String, String)], name:String) -> String:
     match pairs:
         case []:
             return ""
-        case [first] ++ rest:
+        case [first] + rest:
             (key, value) = first
             if key == name:
                 return value
@@ -30,7 +30,7 @@ def holds(pairs:[(String, String)], name:String) -> Bool:
     match pairs:
         case []:
             return false
-        case [first] ++ rest:
+        case [first] + rest:
             (key, _) = first
             if key == name:
                 return true

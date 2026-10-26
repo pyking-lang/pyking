@@ -1,5 +1,8 @@
 # The same update from inside a `for` loop, which the JavaScript subset
 # does not cover yet.
+
+use mutation
+
 var seen = 0
 for i in range(1):
     seen := seen + 1

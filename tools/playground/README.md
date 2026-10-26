@@ -500,6 +500,8 @@ is just what a run that quick looks like. To watch it actually do its job,
 paste a program that does not terminate and press Run:
 
 ```pyking
+use mutation
+
 var i = 0
 while i < 1:
     i := 0

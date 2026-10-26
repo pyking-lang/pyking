@@ -33,7 +33,7 @@ print(box(7, 8, depth = 9))
 
 # Naming every parameter of a function that has no defaults at all.
 def join(left: String, right: String) -> String:
-    return left ++ "-" ++ right
+    return left + "-" + right
 
 
 print(join("a", "b"))

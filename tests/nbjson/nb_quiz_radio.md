@@ -5,6 +5,8 @@ scope. To change a value later, declare it with `var` and update it
 with `:=`.
 
 ```pyking
+use mutation
+
 x = 3
 var y = 4
 y := y + x
@@ -14,6 +16,8 @@ print(x, y)
 What does the program below print?
 
 ```pyking norun
+use mutation
+
 var n = 1
 n := n * 10
 n := n + 2

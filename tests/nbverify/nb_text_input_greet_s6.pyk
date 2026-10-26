@@ -1,4 +1,7 @@
 # Only the first name is greeted.
+
+use mutation
+
 import tinyweb as tw
 
 shown = tw.label("Who are you?")
@@ -6,8 +9,8 @@ var greeted = false
 
 def greet(name: String):
     if greeted == false:
-        tw.set_text(shown, "Hello, " ++ name ++ "!")
-        print("Hello, " ++ name ++ "!")
+        tw.set_text(shown, "Hello, " + name + "!")
+        print("Hello, " + name + "!")
         greeted := true
 
 tw.text_input("your name", on_enter = greet)

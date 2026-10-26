@@ -16,7 +16,10 @@
 
     Functions:
       parse tokens -- parses a full token stream into a list of
-        statements. *)
+        statements.
+      parse_with enabled tokens -- the same, with features already on.
+      uses tokens -- the features a module's `use` lines turn on.
+      features -- every feature `use` may name. *)
 
 (** A syntax failure, with the source position. *)
 exception Parse_error of Lexer.info * string
@@ -27,3 +30,20 @@ exception Parse_error of Lexer.info * string
     out, which is what a prompt reads to know an entry is unfinished
     (see repl.ml's `incomplete_reasons`). [token] -> [stmt] *)
 val parse : Lexer.token list -> Syntax.stmt list
+
+(** Parses a module whose session already has features on -- a REPL's,
+    turned on by an earlier entry's `use` -- answering the features this
+    text's own `use` lines turn on beside its statements. `parse` is this
+    with none on. [string] -> [token] -> ([string], [stmt]) *)
+val parse_with : string list -> Lexer.token list -> string list * Syntax.stmt list
+
+(** The features a module's leading `use` lines name, read from its
+    tokens alone; [] where they do not parse. [token] -> [string] *)
+val uses : Lexer.token list -> string list
+
+(** The `use` lines those features are written back as, one a line,
+    for a printed program. [token] -> string *)
+val use_lines : Lexer.token list -> string
+
+(** Every feature a `use` line may name. [string] *)
+val features : string list

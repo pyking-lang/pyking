@@ -2,6 +2,8 @@
 # timer once, the beat and the sound's level and bands as the page last
 # reported them, and a text field's value.
 
+use mutation
+
 import tinyweb as tw
 import tinyweb.sound as sound
 

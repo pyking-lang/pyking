@@ -63,7 +63,7 @@ size = area(3, 4)
 chosen = pick(true)
 said = pick_directly(false)
 described = describe(size)
-both = kind ++ said
+both = kind + said
 
 
 print(kind, bounded, size, chosen)

@@ -21,5 +21,5 @@ print(c::my2(true, 1))
 
 # A default on an overloaded definition nothing else shares a name with
 # behaves exactly as it always has.
-def only::greet(who: String, mark: String = "!") -> String: who ++ mark
+def only::greet(who: String, mark: String = "!") -> String: who + mark
 print(only::greet("hi"), only::greet("hi", "?"))

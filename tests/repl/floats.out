@@ -9,9 +9,9 @@ Pyking REPL.  :help for commands, :quit to leave.
 > 3.0 : Float
 > 2 : Int
 > '<repl>' 1:0-1:7 Type error: `+` cannot be applied to Int and Float;
-  it accepts Int + Int or Float + Float. Pyking mixes no numbers on
-  its own: `float(n)` makes an Int a Float, and `int(x)` truncates a
-  Float to an Int
+  it accepts Int + Int or Float + Float or String + String or two
+  lists of one type. Pyking mixes no numbers on its own: `float(n)`
+  makes an Int a Float, and `int(x)` truncates a Float to an Int
 > > 3 : Int
 > (Int, Int) -> Int
 > > (Float, Float) -> Float

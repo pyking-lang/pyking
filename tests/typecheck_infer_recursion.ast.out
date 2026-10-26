@@ -11,7 +11,7 @@ def repeat(word:String, times:Int) -> String:
     if times < 1:
         ''
     else:
-        word ++ repeat(word, times - 1)
+        word + repeat(word, times - 1)
 def countdown(n:Int) -> String:
     loop n: Int = n:
         if n < 1:

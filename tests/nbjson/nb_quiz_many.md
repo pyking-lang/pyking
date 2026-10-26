@@ -1,10 +1,10 @@
 # Operators
 
 Pyking has two numeric types, `Int` and `Float`, and mixes neither on
-its own. Strings are joined with `++`, not `+`.
+its own. Strings are joined with `+`, which converts nothing either.
 
 ```pyking
-print(7 / 2, 7.0 / 2.0, "ab" ++ "c")
+print(7 / 2, 7.0 / 2.0, "ab" + "c")
 ```
 
 What does `7 / 2` give?
@@ -26,9 +26,9 @@ What does `7 / 2` give?
 Which expressions does the checker accept?
 
 ```quiz name = "accepted" attempts = 2 points = 3 available = true
-[] `"ab" ++ "c"`
-
 [] `"ab" + "c"`
+
+[] `"ab" + 1`
 
 [] `1.5 + 2`, an addition
    of a `Float` and an `Int`.
@@ -37,8 +37,8 @@ Which expressions does the checker accept?
 ```
 
 ```answer
--> `++` joins two strings.
-- `+` adds numbers only.
+-> `+` joins two strings.
+- `+` converts nothing: `string(1)` makes the `Int` a `String`.
 - An `Int` has to be made a `Float` first.
 -> `float(2)` is a `Float`.
 ```
@@ -76,7 +76,7 @@ Which of these are comparisons?
 -> An ordering.
 ```
 
-Practice, worth no points: what is `string(3) ++ "x"`?
+Practice, worth no points: what is `string(3) + "x"`?
 
 ```quiz name = "practice" attempts = 5
 * `"3x"`

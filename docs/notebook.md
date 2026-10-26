@@ -30,7 +30,10 @@ conversion flags take no `--mode` or `--port`, and only `pyk --help`
 lists them.
 
 Every cell is a whole program, run with the interpreter in the page.
-Nothing runs on the server.
+Nothing runs on the server. Being a program of its own, a cell that
+writes `var` or `:=` starts with its own `use mutation` line (PYKING.md,
+"Features turned on with `use`"), and so does a task's solution or an
+answer that does; test mode reports a cell that forgets it.
 
 ## Prose
 

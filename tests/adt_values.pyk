@@ -26,9 +26,9 @@ def suit_name(s: Suit) -> String:
 
 def describe(c: Card) -> String:
     match c:
-        case Card(1, s): "ace of " ++ suit_name(s)
+        case Card(1, s): "ace of " + suit_name(s)
         case Card(rank = r, suit = Hearts) if r > 10: "a high heart"
-        case Card(r, Hearts | Spades) as whole: string(r) ++ " (" ++ string(whole) ++ ")"
+        case Card(r, Hearts | Spades) as whole: string(r) + " (" + string(whole) + ")"
         case Joker: "joker"
 
 

@@ -1,3 +1,5 @@
+use mutation
+
 pairs = [(1, 2), (3, 4), (5, 6)]
 
 var total = 0
@@ -10,7 +12,7 @@ print(total)
 def first_elements(ps) -> [Int]:
     return loop out = [] for p in ps:
         (first, _) = p
-        out ++ [first]
+        out + [first]
 
 
 print(first_elements(pairs))

@@ -22,7 +22,7 @@ sum = 12 + 20
 # `+` on strings is String -- the same operator, a different type. This
 # overloading is the whole reason `+` needs a table of signatures rather
 # than one rule.
-greeting = "hi" ++ "there"
+greeting = "hi" + "there"
 
 # `-` and `*` are Int-only.
 difference = 100 - 58
@@ -33,8 +33,8 @@ product = 6 * 7
 # literals.
 doubled = sum * 2
 shifted = doubled - i
-label = greeting ++ "!"
-louder = label ++ "!" ++ "!"
+label = greeting + "!"
+louder = label + "!" + "!"
 
 # Precedence and nesting do not change the types, only the grouping.
 mixed = 1 + 2 * 3 - 4
@@ -44,19 +44,19 @@ deep = ((1 + 2) * 3 - 4) * 5
 # Long chains of each operator, to check the checker walks both operands
 # all the way down rather than stopping at the first pair.
 chain = 1 + 2 + 3 + 4 + 5
-words = "a" ++ "b" ++ "c" ++ "d"
+words = "a" + "b" + "c" + "d"
 
 # A binding may be rebound to a different type: `=` is a fresh binding,
 # not an update (see PYKING.md), so the second `value` is a String even
 # though the first was an Int.
 value = 1
 value = "now a string"
-after = value ++ " still a string"
+after = value + " still a string"
 
 # An expression statement is checked too, and has no name to record its
 # type on -- the statement itself is unit.
 i + 1
-greeting ++ "?"
+greeting + "?"
 2 * 3 - 4
 
 # An annotation already written in the source is checked and kept.

@@ -3,11 +3,11 @@
 hidden = "not exported"
 
 public def greet(who:String) -> String:
-    return "hello, " ++ who
+    return "hello, " + who
 
 
 public def shout(what:String) -> String:
-    return what ++ "!"
+    return what + "!"
 
 
 public banner: String = "pyking"

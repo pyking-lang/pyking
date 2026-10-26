@@ -41,6 +41,8 @@ wrong
 ```
 
 ```pyking practice
+use mutation
+
 x := 1
 ```
 
@@ -207,4 +209,19 @@ print("one")
 ```pyking solution
 print("one")
 print("two")
+```
+
+A cell is a program of its own, so one that writes `var` needs its own
+`use mutation`:
+
+```pyking
+var count = 0
+count := count + 1
+print(count)
+```
+
+And one written with Pyking's old spellings:
+
+```pyking
+print("a" ++ "b")
 ```

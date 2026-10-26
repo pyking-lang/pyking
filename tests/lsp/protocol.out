@@ -1,4 +1,4 @@
-> hover main.pyk 1:1
+> hover main.pyk 3:1
 {"error": {"code": -32002, "message": "the server is not initialized"}}
 > notify textDocument/didOpen {}
 > initialize
@@ -20,7 +20,7 @@ null
 null
 > shutdown
 null
-> hover main.pyk 1:1
+> hover main.pyk 3:1
 {"error": {"code": -32600, "message": "the server has been shut down"}}
 > exit
 > exit status 0

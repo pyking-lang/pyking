@@ -9,7 +9,7 @@
 
 def int::twice(x: Int) -> Int: x * 2
 def float::twice(x: Float) -> Float: x * 2.0
-def string::twice(x: String) -> String: x ++ x
+def string::twice(x: String) -> String: x + x
 
 print(twice(21))
 print(twice(1.5))
@@ -24,5 +24,5 @@ print(twice(true))
 
 # Two arguments, and a set whose members differ in their second.
 def a::join(x: Int, y: Int) -> Int: x + y
-def b::join(x: String, y: String) -> String: x ++ y
+def b::join(x: String, y: String) -> String: x + y
 print(join(2, 3), join("hi", "!"))

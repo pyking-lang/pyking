@@ -1,4 +1,4 @@
 import sys
 names = sys.args()
-print("Hello, " ++ names[0] ++ "!")
+print("Hello, " + names[0] + "!")
 print(len(names), "names")

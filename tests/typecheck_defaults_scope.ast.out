@@ -1,3 +1,4 @@
+use mutation
 size: Int = 10
 def scaled__default__x() -> Int:
     size

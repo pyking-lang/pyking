@@ -3,6 +3,8 @@
 # has to outlive the call, which is all C -- with no garbage collector --
 # can give a function value.
 
+use mutation
+
 def apply_twice(f: (Int) -> Int, x: Int) -> Int:
     f(f(x))
 
@@ -29,7 +31,7 @@ def counting(limit: Int) -> Int:
 
 
 def shifted(offset: Int, x: Int) -> Int:
-    compose_with((n) => n + offset, (n) => n * 2, x)
+    compose_with(lam n. n + offset, lam n. n * 2, x)
 
 
 def even_or_odd(n: Int) -> String:
@@ -52,4 +54,4 @@ print(counting(5))
 print(shifted(10, 1))
 print(even_or_odd(7), even_or_odd(10))
 print(apply_twice(add_base, 1))
-print(apply_twice((n) => n - 1, 0))
+print(apply_twice(lam n. n - 1, 0))

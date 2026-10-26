@@ -3,7 +3,7 @@ def add(a:Int, b:Int) -> Int:
 
 
 def greet(name:String) -> String:
-    return "hello, " ++ name
+    return "hello, " + name
 
 
 def negate(flag:Bool) -> Bool:

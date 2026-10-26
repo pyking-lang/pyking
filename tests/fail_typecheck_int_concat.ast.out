@@ -1,3 +1,2 @@
-'tests/fail_typecheck_int_concat.pyk' 11:8-11:18 Type error: `++`
-  cannot be applied to Int and Int; it accepts String ++ String or two
-  lists of one type. Did you mean `+`?
+'tests/fail_typecheck_int_concat.pyk' 8:14-8:16 Parsing error: '++' is
+  now written '+': 'a + b' joins two strings or two lists

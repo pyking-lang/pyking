@@ -117,12 +117,12 @@ def digit(n:Int) -> String:
 
 # Two digits, zero-padded: 0..99.
 def pad2(n:Int) -> String:
-    return digit(n / 10) ++ digit(n - n / 10 * 10)
+    return digit(n / 10) + digit(n - n / 10 * 10)
 
 
 # Four digits, zero-padded: 0..9999.
 def pad4(n:Int) -> String:
-    return pad2(n / 100) ++ pad2(n - n / 100 * 100)
+    return pad2(n / 100) + pad2(n - n / 100 * 100)
 
 
 ## Splits an instant into a date and a time of day, in UTC.
@@ -178,34 +178,34 @@ public def format(t:(Int, Int, Int, Int, Int, Int), fmt:String) -> String:
     (year, month, day, hour, minute, second) = t
     (_, rendered) = loop rest, out = fmt, "":
         match rest:
-            case "yyyy" ++ tail:
-                (tail, out ++ pad4(year))
-            case "MM" ++ tail:
-                (tail, out ++ pad2(month))
-            case "dd" ++ tail:
-                (tail, out ++ pad2(day))
-            case "HH" ++ tail:
-                (tail, out ++ pad2(hour))
-            case "mm" ++ tail:
-                (tail, out ++ pad2(minute))
-            case "ss" ++ tail:
-                (tail, out ++ pad2(second))
-            case "-" ++ tail:
-                (tail, out ++ "-")
-            case ":" ++ tail:
-                (tail, out ++ ":")
-            case "/" ++ tail:
-                (tail, out ++ "/")
-            case "." ++ tail:
-                (tail, out ++ ".")
-            case "," ++ tail:
-                (tail, out ++ ",")
-            case " " ++ tail:
-                (tail, out ++ " ")
-            case "T" ++ tail:
-                (tail, out ++ "T")
-            case "Z" ++ tail:
-                (tail, out ++ "Z")
+            case "yyyy" + tail:
+                (tail, out + pad4(year))
+            case "MM" + tail:
+                (tail, out + pad2(month))
+            case "dd" + tail:
+                (tail, out + pad2(day))
+            case "HH" + tail:
+                (tail, out + pad2(hour))
+            case "mm" + tail:
+                (tail, out + pad2(minute))
+            case "ss" + tail:
+                (tail, out + pad2(second))
+            case "-" + tail:
+                (tail, out + "-")
+            case ":" + tail:
+                (tail, out + ":")
+            case "/" + tail:
+                (tail, out + "/")
+            case "." + tail:
+                (tail, out + ".")
+            case "," + tail:
+                (tail, out + ",")
+            case " " + tail:
+                (tail, out + " ")
+            case "T" + tail:
+                (tail, out + "T")
+            case "Z" + tail:
+                (tail, out + "Z")
             case _:
                 break
     return rendered

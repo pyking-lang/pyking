@@ -15,6 +15,6 @@ lengths = [text.length(w) for w in words]
 total = loop acc = 0 for n in lengths:
     acc + n
 average = float(math.round(float(total) * 1000.0 / float(len(words)))) / 1000.0
-print("words: " ++ string(len(words)))
-print("average length: " ++ string(average))
-print("longest: " ++ longest(words) ++ "  ")
+print("words: " + string(len(words)))
+print("average length: " + string(average))
+print("longest: " + longest(words) + "  ")

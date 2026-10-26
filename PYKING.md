@@ -7,8 +7,16 @@ core expression/statement forms are borrowed directly from Python
 deliberate departures are around binding and scope: plain `=` only
 introduces an *immutable* binding for a name, never a mutation; a
 variable that changes over time must be introduced with `var` and updated
-with `:=`; and every block is a scope, so a name bound inside one is gone
-after it.
+with `:=`, which a module turns on with `use mutation`; and every block is
+a scope, so a name bound inside one is gone after it.
+
+A module is **functional and immutable** unless it says otherwise. Parts
+of the language beyond that core are turned on per module by a `use`
+line at its top -- `use mutation` today, `use objects` reserved for
+later -- and every module is read by the same parser: a construct of a
+feature the module has not turned on is parsed as usual and refused as a
+syntax error naming the `use` line that would allow it. See "Features
+turned on with `use`".
 
 This document is the language reference: what Pyking programs mean, and
 what the bootstrap implementation in `src/` currently accepts. It says
@@ -42,7 +50,27 @@ restriction of it, but these are genuinely new.
   always a fresh binding. A name must first be declared with `var`
   before it can be updated, and only then with `:=`: `var n = 0` then
   `n := n + 1` (a plain `n = n + 1` would just re-bind `n`, not update it
-  in place).
+  in place). Both belong to `use mutation`.
+- **Features turned on with `use`**: `use mutation` at the top of a
+  module turns on `var` and `:=` for that module and no other; without
+  it they are a syntax error. Importing a module that uses mutation does
+  not turn it on in the importer. See "Features turned on with `use`".
+- **`+` joins as well as adds**: `"con" + "cat"` and `[1] + [2]` join,
+  `1 + 2` adds, and every operand of a `+` is of one type -- all
+  strings, all lists of one element type, or all numbers of one type.
+  Nothing converts: `"n = " + 5` is a type error, where Python raises
+  and JavaScript writes `"n = 5"`.
+- **Boolean operators in two spellings**: `and`, `or` and `not`, as in
+  Python, or `&&`, `||` and `!`, as in C, Java and JavaScript. They take
+  Bools only -- there is no truthiness -- and on two Ints the words
+  `and`, `or` and `not` are the bitwise operators instead. See "Boolean
+  operators".
+- **`^` is power, and `xor` exclusive or**: `2 ^ 10` is 1024, as in
+  mathematics; Python's `**` is refused, and its `^` is spelled `xor`.
+  See "Remainder and power" and "Bitwise operators".
+- **`lam x. e` lambdas**: a lambda is written as in the lambda calculus,
+  `lam x. x + 1` or `lam (x, y). x + y`, rather than Python's
+  `lambda x: x + 1`. See "Lambdas".
 - **A block on its header's own line**: any header ending in `:` may
   carry its block on that same line instead of indenting it, as long as
   what it carries is one **expression** — `def add(a, b): a + b`,
@@ -165,16 +193,23 @@ Expressions:
 - Boolean literals (`true`, `false`) — Pyking extension; spelled
   lowercase, unlike Python's `True`/`False`
 - Variables (identifier references)
-- Arithmetic operators (`+`, `-`, `*`, `/`), overloaded over `Int` and
-  `Float`, unary minus (`-x`, and negative literals like `-5`), and
-  parenthesized expressions. Nothing is converted implicitly: `float(n)`
-  and `int(x)` are how the two numeric types meet
+- Arithmetic operators (`+`, `-`, `*`, `/`, the remainder `%` and the
+  power `^`), overloaded over `Int` and `Float`, unary minus (`-x`, and
+  negative literals like `-5`), and parenthesized expressions. Nothing
+  is converted implicitly: `float(n)` and `int(x)` are how the two
+  numeric types meet
 - Conversions `string(x)`, `int(x)`, `float(x)` and `bool(x)` between
   `Int`, `Float`, `String` and `Bool`, each answering a default (0, NaN,
   false) where there is no right answer (see "Conversions")
-- Concatenation (`++`) for strings and lists — Pyking extension; a
-  separate operator from `+`, which only ever adds
-- Comparison operators (`<`, `<=`, `>`, `>=`, `==`)
+- Concatenation with `+` of two strings or two lists of one type, every
+  operand of a `+` being of one type (see "Concatenation")
+- Comparison operators (`<`, `<=`, `>`, `>=`, `==`, `!=`), which do not
+  chain
+- Boolean operators `and`, `or` and `not`, also spelled `&&`, `||` and
+  `!`, short-circuiting and on Bools only (see "Boolean operators")
+- Bitwise operators on Ints: `&`, `|`, `xor`, `~`, `<<` and `>>`, and
+  the words `and`, `or` and `not` on two Ints (see "Bitwise operators")
+- List indexing (`xs[i]`), counting from 0 (see "Indexing")
 - Type variables (`def id(x:a) -> a`) and `all` quantifiers, including
   first-class polymorphism — Pyking extension; a `def`'s type may also
   be written on a line of its own (`def id : (a) -> a`)
@@ -195,8 +230,8 @@ Expressions:
   (`e1, e2, ...` — Python-like implicit tuples)
 - If expressions (`if cond then e1 else e2`) — Pyking extension; note the
   keyword order differs from Python's `e1 if cond else e2`
-- **Lambdas** (`x => x + 1`, `(x, y) => x + y`) — Pyking extension; an
-  expression that is a function, whose body is one expression. A lambda
+- **Lambdas** (`lam x. x + 1`, `lam (x, y). x + y`) — Pyking extension;
+  an expression that is a function, whose body is one expression. A lambda
   is monomorphic; `def` is how a polymorphic function is written (see
   "Lambdas")
 - **Let expressions** (`let x = 78 in x + 1`, `let (a, b) = pair in a + b`)
@@ -214,7 +249,10 @@ Statements:
   several names at once (e.g. `a, b = 1, 2` or `(a, (b, c)) = pair`),
   and whose right-hand side may be an `if`/`match` *statement* in value
   form (`x = if cond:` / `x = match e:`) — Pyking extension
-- Mutable variables (`var` and `:=`) — Pyking extension
+- Mutable variables (`var` and `:=`), turned on with `use mutation` —
+  Pyking extension
+- Features turned on per module with `use` (`use mutation`) — Pyking
+  extension (see "Features turned on with `use`")
 - **Default parameters** (`def greet(who: String = "world"):`), used
   when a call leaves that argument out; the default is an expression
   evaluated in the scope the `def` is written in, at each call that
@@ -244,7 +282,7 @@ Statements:
   keywords; Pyking has no `elif`
 - `match`/`case` pattern matching, including tuple patterns
   (`case (a, b):`), list patterns (`case [a, ..rest]:`, or the same
-  written `[a] ++ rest`; `"get " ++ rest` splits a string) and
+  written `[a] + rest`; `"get " + rest` splits a string) and
   constructor patterns (`case Leaf(v, age = n):`) that destructure a
   tuple, a list or a datatype's value
 - **Datatypes** (`datatype Shape: Circle(radius: Float) / Square(Float)`),
@@ -305,8 +343,11 @@ below). Comments are stripped by the lexer and don't appear here.
 
 ```ebnf
 (* An import and a `public` belong to a module's top level, so they are
-   here rather than in `statement`, which is what a block holds. *)
-program     = { top_statement } ;
+   here rather than in `statement`, which is what a block holds. The
+   `use` lines come before everything else. *)
+program     = { use_stmt } , { top_statement } ;
+use_stmt    = "use" , feature , { "," , feature } ;
+feature     = "mutation" | "objects" ;
 top_statement = import_stmt
             | from_stmt
             | public_stmt
@@ -441,7 +482,7 @@ case_clause = "case" , pattern , [ "if" , expr ] , ":" , block ;
 pattern     = pattern_as , { "," , pattern_as } ;
 pattern_as  = pattern_or , [ "as" , ident ] ;
 pattern_or  = pattern_join , { "|" , pattern_join } ;
-pattern_join = pattern_atom , { "++" , pattern_atom } ;
+pattern_join = pattern_atom , { "+" , pattern_atom } ;
 pattern_atom = int | "-" , int | string | bool | "_" | ident
              | constructor_pattern
              | "(" , ")"
@@ -485,12 +526,13 @@ expr_stmt   = tuple_or_expr ;
 
 tuple_or_expr = expr , { "," , expr } ;
 
-expr        = lambda | if_expr | let_expr | comparison ;
+expr        = lambda | if_expr | let_expr | disjunction ;
 
 (* A lambda takes everything to its right that one expression can hold,
-   so `=>` associates to the right and binds looser than every
-   operator; a comma ends it, since `x => a, b` is a pair. *)
-lambda      = lambda_params , "=>" , expr ;
+   so it associates to the right and binds looser than every operator;
+   a comma ends it, since `lam x. a, b` is a pair. A parameter with a
+   type, and more than one, are written in parentheses. *)
+lambda      = "lam" , lambda_params , "." , expr ;
 lambda_params = ident
             | "(" , [ param , { "," , param } ] , ")" ;
 
@@ -500,17 +542,32 @@ if_expr     = "if" , expr , "then" , expr , "else" , expr ;
    expression can hold. *)
 let_expr    = "let" , target , [ ":" , type ] , "=" , expr , "in" , expr ;
 
-comparison  = additive , [ comp_op , additive ] ;
-comp_op     = "<" | "<=" | ">" | ">=" | "==" ;
+(* `and`/`or`/`not` and their symbol spellings bind looser than a
+   comparison; the bitwise operators bind tighter, as Python's do. *)
+disjunction = conjunction , { ( "or" | "||" ) , conjunction } ;
+conjunction = negation , { ( "and" | "&&" ) , negation } ;
+negation    = "not" , negation | comparison ;
 
-additive    = multiplicative , { ( "+" | "++" | "-" ) , multiplicative } ;
-multiplicative = unary , { ( "*" | "/" ) , unary } ;
-unary       = "-" , unary | atom ;
+comparison  = bit_or , [ comp_op , bit_or ] ;
+comp_op     = "<" | "<=" | ">" | ">=" | "==" | "!=" ;
+
+bit_or      = bit_xor , { "|" , bit_xor } ;
+bit_xor     = bit_and , { "xor" , bit_and } ;
+bit_and     = shift , { "&" , shift } ;
+shift       = additive , { ( "<<" | ">>" ) , additive } ;
+additive    = multiplicative , { ( "+" | "-" ) , multiplicative } ;
+multiplicative = unary , { ( "*" | "/" | "%" ) , unary } ;
+unary       = ( "-" | "!" | "~" ) , unary | power ;
+(* `^` associates to the right, and its right operand may be negated:
+   `2 ^ -1`. It binds tighter than unary minus: `-2 ^ 2` is `-(2 ^ 2)`. *)
+power       = atom , [ "^" , unary ] ;
 
 atom        = ( float | int | string | bool | ident | list_lit | list_comp
               | tuple_lit | construct
               | "(" , expr , ")" ) ,
-              { call_tail | field_tail } ;
+              { call_tail | field_tail | index_tail } ;
+(* `xs[i]`: the `[` on the row the indexed expression ends on. *)
+index_tail  = "[" , expr , "]" ;
 (* A constructor applied to its fields, with a call's arguments; one with
    no fields is written bare. *)
 construct   = [ sub_path , "." ] , upper_ident , [ call_tail ] ;
@@ -615,8 +672,21 @@ Notes that don't fall out of the grammar alone:
   needs none of the rules those two obey -- every loop has an
   accumulator (unit where none was written), so there is no way through
   one that produces nothing.
-- `comp_op` does not repeat — `1 < 2 < 3` is not a valid `expr` (comparisons
-  don't chain).
+- `comp_op` does not repeat — `1 < 2 < 3` is not a valid `expr`
+  (comparisons don't chain), and the parser says what to write instead:
+  `'prog.pyk' 1:12-1:13 Parsing error: comparisons do not chain: write
+  'a < b and b < c' rather than 'a < b < c'`.
+- Three spellings Pyking no longer has are refused where they stand,
+  each with the one it has instead: `++` (`'++' is now written '+'`),
+  `=>` (`a lambda is now written 'lam x. x + 1'`) and `**` (`a power is
+  written with '^'`).
+- A `use` line is written before anything else in a module, comments
+  aside; one written later is refused (`'use' turns on a feature for
+  the whole module, so it is written before anything else`), and so is
+  a feature `use` does not know, or one named twice. What a feature
+  turns on is parsed in every module and refused, as a `Parsing error`,
+  in one that has not turned it on: see "Features turned on with
+  `use`".
 - `while_stmt` has no `else` clause (unlike Python's `while`/`else`).
 - An `if_stmt`'s chain is written `else if`, two ordinary keywords —
   there is no `elif` keyword to reserve. The chained header must be the
@@ -726,7 +796,9 @@ Notes that don't fall out of the grammar alone:
   else c]` is a syntax error in Python too. Pyking's parser is in fact
   lenient enough to recover in some of these cases, but both
   pretty-printers always emit the parentheses.
-- `additive` and `multiplicative` are left-associative.
+- `additive`, `multiplicative`, `shift`, `bit_and`, `bit_xor`, `bit_or`,
+  `conjunction` and `disjunction` are left-associative; `power` is
+  right-associative.
 - `call_tail` can repeat after any atom, so `f(1)(2)` parses (a call
   result can itself be called), even though no example in this document
   uses that. This chaining only applies to a `(` on the *same source row*
@@ -737,10 +809,14 @@ Notes that don't fall out of the grammar alone:
   so without this row check, a statement immediately followed by one
   starting with `(`, e.g. a parenthesized tuple destructuring assignment,
   would be misparsed as one giant chained call.)
-- `unary` is the only prefix operator: `-expr` negates, and nests
-  (`- -x`). It sits between `multiplicative` and `atom`, so it binds
-  tighter than `*`/`/` and looser than a `call_tail` — `-x * y` is
-  `(-x) * y`, and `-f(x)` negates the call's *result*, not `f`. It
+- `unary` is where the prefix operators are: `-expr` negates, `!expr`
+  is `not` and `~expr` is a bitwise not, and each nests (`- -x`). It
+  sits between `multiplicative` and `power`, so it binds tighter than
+  `*`/`/` and looser than `^` and a `call_tail` — `-x * y` is
+  `(-x) * y`, `-2 ^ 2` is `-(2 ^ 2)`, and `-f(x)` negates the call's
+  *result*, not `f`. `not`, the word, binds as loosely as Python's
+  instead: `not a == b` is `not (a == b)`, where `!a == b` is
+  `(!a) == b`. It
   applies to the operand it precedes and no further, so parentheses are
   what extend it over a sum: `-x + 1` is `(-x) + 1`, not `-(x + 1)`.
 - The same `-` token serves both operators and they never compete: a
@@ -766,7 +842,12 @@ Notes that don't fall out of the grammar alone:
   not this spelling of one — a Pyking program cannot use `true`, `false`,
   `True`, or `False` as an identifier (the first two because they're
   keywords, the last two because they're simply unbound: Pyking has no
-  binding for Python's capitalised spelling).
+  binding for Python's capitalised spelling). `use`, `lam`, `and`, `or`,
+  `not` and `xor` are keywords too, and `class`, `interface`, `extends`,
+  `self` and `super` are reserved for a later part of the language:
+  nothing uses them yet, and no program may bind one (`'class' is
+  reserved for a later part of the language, so it cannot be used as a
+  name`).
 - `assignment`'s `[ ":" , type ]` annotates the *binding*, e.g.
   `x: Int = 1`. Like every other annotation it is optional and nothing
   verifies it (see "Type annotations"), but it is the one the type
@@ -840,7 +921,7 @@ Notes that don't fall out of the grammar alone:
   `case (a, [b, ..c]):`). An identifier starting with an uppercase
   letter is a constructor wherever a pattern holds it, so `case Red:`
   matches the constructor `Red` rather than binding a name.
-- `|` binds looser than `++` and tighter than `as`, which binds looser
+- `|` binds looser than `+` and tighter than `as`, which binds looser
   than everything but the comma: `case 1 | 2, x as y:` is
   `case (1 | 2), (x as y):`. Every alternative of a `|` binds the same
   names, refused at parse time otherwise:
@@ -926,11 +1007,17 @@ Notes that don't fall out of the grammar alone:
   written wherever it stands. Writing one is refused (`the lambda
   parameter 'x' may not have a default value; only a 'def' parameter
   may`).
-- A lambda's parenthesized parameter list is told from a parenthesized
-  expression by what follows the `)`: `(x)` is a lambda's parameter list
-  only when `=>` comes next, and is the expression `x` otherwise. The
-  EBNF cannot say this, so `src/parser.ml` decides it by trying the
-  parameter list and falling back.
+- A lambda starts with `lam`, so nothing has to be tried to tell one
+  from a parenthesized expression: `(x)` after `lam` is a parameter
+  list, and anywhere else the expression `x`. The `.` ending the
+  parameters is the first one after them, which is why a parameter with
+  a type is parenthesized: `lam x: geo.Point. x` would end its type at
+  the wrong `.`.
+- In a pattern, `+` joins pieces (`[x] + xs`) and `|` separates
+  alternatives; `||` there is refused as the slip it is (`alternatives
+  in a pattern are separated by '|', not '||'`). A pattern holds no
+  expressions, so its `|` and an expression's bitwise `|` never meet --
+  a guard is an expression, and its `|` is bitwise or.
 - **A line may be continued while a bracket is open.** The lexer
   synthesizes `INDENT`/`DEDENT` from each physical line's leading
   whitespace (see "Indentation-based blocks" below), and suspends that
@@ -1129,6 +1216,8 @@ declared with `var` and updated with `:=`, passed as arguments, returned,
 compared with `==`, and so on.
 
 ```pyking
+use mutation
+
 done = false
 var flag = true
 
@@ -1238,46 +1327,193 @@ the relation a reader of a `match` expects — a NaN matches no case, its
 own spelling included. A program that wants that comparison writes `==`
 and says so.
 
-### Concatenation (`++`) — Pyking extension
+### Concatenation (`+`)
 
-`++` joins two strings, or two lists, into one. It is left-associative
-and sits at the same precedence as `+` and `-`, so a chain of them needs
-no parentheses and `*`/`/` still bind tighter.
+`+` joins two strings, or two lists, into one, as it adds two numbers.
+It is left-associative and sits at the same precedence as `-`, so a
+chain of them needs no parentheses and `*`/`/` still bind tighter.
 
 ```python
-print("con" ++ "cat")
-print("a" ++ "b" ++ "c" ++ "d")
-print([1, 2] ++ [3, 4])
+print("con" + "cat")
+print("a" + "b" + "c" + "d")
+print([1, 2] + [3, 4])
 ```
 
-Concatenation has an operator of its own because `+` does not do it.
-Where Python writes `+` for both, Pyking keeps them apart: `+` adds two
-numbers and nothing else, `++` joins and never adds. Nothing is both, so
-the two never meet in one expression, and neither one has to be read as
-the other.
+**Every operand of a `+` is of one type**: all numbers of one type, all
+strings, or all lists of one element type. Which of the three a `+` is
+the type checker decides from its operands, and nothing is converted on
+the way -- unlike JavaScript, where `"n = " + 5` is `"n = 5"`, and like
+Python, which raises:
+
+```pyking error
+print("n = " + 5)
+# Type error: `+` cannot be applied to String and Int; it accepts Int +
+#   Int or Float + Float or String + String or two lists of one type.
+#   `+` joins two Strings and converts nothing: write string(n)
+```
+
+So `"2" + "3"` is `"23"` and `2 + 3` is `5`, and the two never meet in
+one `+`. A chain is the same rule applied at each step, so `a + b + c`
+is all strings or all lists or all numbers, never a mixture.
 
 ```python
 print(2 + 3)        # 5
-print("2" ++ "3")   # 23
+print("2" + "3")    # 23
+print([1] + [] + [2, 3])
+```
+
+Where nothing has decided the operands' type yet -- two parameters with
+no annotation, say -- a `+` waits for the use that decides it, as the
+`++` Pyking used to have did: `def join(a, b): a + b` called with two
+Strings joins them. One that nothing decides by the end of the module
+adds two Ints, which is the arithmetic operators' default (see "Numbers,
+and what the checker defaults to").
+
+`++`, Pyking's old spelling of a join, is refused where it stands:
+
+```
+'prog.pyk' 1:10-1:12 Parsing error: '++' is now written '+': 'a + b'
+  joins two strings or two lists
 ```
 
 ### Comparison operators
 
-`<`, `<=`, `>`, `>=`, and `==` compare two arithmetic expressions and
-produce a single comparison expression (comparisons do not chain).
+`<`, `<=`, `>`, `>=`, `==` and `!=` compare two expressions and produce
+a single comparison expression. Comparisons do not chain: `1 < 2 < 3`
+is refused, and the message says to write `1 < 2 and 2 < 3`.
 
 ```python
-print(1 < 2, 2 <= 2, 3 > 4, 3 >= 3, 2 == 2)
+print(1 < 2, 2 <= 2, 3 > 4, 3 >= 3, 2 == 2, 2 != 3)
 ```
 
-All five take two operands of one type, as the arithmetic operators do:
-two `Int`s or two `Float`s, and `==` additionally two `String`s or two
-`Bool`s. On Floats the comparison is IEEE's, which is where NaN's
-behaviour comes from (see "Float literals" above).
+All six take two operands of one type, as the arithmetic operators do:
+two `Int`s or two `Float`s, and `==` and `!=` additionally two
+`String`s or two `Bool`s. On Floats the comparison is IEEE's, which is
+where NaN's behaviour comes from (see "Float literals" above): `nan ==
+nan` is false and `nan != nan` true.
 
 ```pyking
-print(1.5 < 2.5, 1.5 == 1.5)
+print(1.5 < 2.5, 1.5 == 1.5, "a" != "b")
 ```
+
+### Remainder and power
+
+`%` is the remainder and `^` the power, both over `Int` and `Float`
+with two operands of one type, as the other arithmetic operators are.
+
+```pyking
+print(7 % 3, -7 % 2, 7.5 % 2.0)     # 1 -1 1.5
+print(2 ^ 10, 2 ^ 3 ^ 2, -2 ^ 2)    # 1024 512 -4
+print(2.0 ^ 0.5)                     # 1.4142135623730951
+```
+
+- **`%` truncates toward zero**, as `/` does, so `a == (a / b) * b + a % b`
+  for any two Ints and the remainder takes the sign of `a`: `-7 % 2` is
+  `-1`, where Python's is `1`. `math.int::mod` is the remainder that is
+  never negative. On two Floats `%` is IEEE's `fmod`. An Int `%` by zero
+  is what `/` by zero is (see `docs/targets.md`).
+- **`^` is the power**, as in mathematics -- Python's `**` is refused
+  with a message saying so. It associates to the right, so `2 ^ 3 ^ 2`
+  is `2 ^ 9`, and binds tighter than unary minus, so `-2 ^ 2` is
+  `-(2 ^ 2)`, as `-2²` is. Its right operand may be negated:
+  `2.0 ^ -1.0` is `0.5`. An Int raised to an Int is an Int, so the
+  exponent is at least 0; a negative one is a runtime error in the
+  interpreter and undefined elsewhere. A Float power is IEEE's `pow`.
+- `%` binds as `*` and `/` do; `^` binds tighter than every other
+  operator, and looser than a call.
+
+### Boolean operators
+
+`and`, `or` and `not` combine Bools, as in Python, and may also be
+written `&&`, `||` and `!`, as in C, Java and JavaScript. The two
+spellings are one operator: the same types, the same short-circuit.
+
+```pyking
+x = 5
+done = false
+if x > 0 and not done: print("words")
+if x > 0 && !done: print("symbols")
+print(true or false, false || true, not true, !false)
+```
+
+- **Short-circuit**: `a and b` evaluates `b` only when `a` is true, and
+  `a or b` only when `a` is false, on every target.
+- **No truthiness**: both operands are Bools. `if xs:` and `1 and 2` as
+  a condition are refused rather than read as "not empty" or "not zero"
+  -- there is no conversion to Bool but `bool(x)`.
+- **Precedence**: both spellings of `or` bind looser than both of
+  `and`, which bind looser than `not`, which binds looser than a
+  comparison -- Python's order, so `x > 0 and not done` needs no
+  parentheses. `!` is the exception: it binds as tightly as unary minus,
+  as in C, so `!a == b` is `(!a) == b` while `not a == b` is
+  `not (a == b)`.
+- The spelling written is kept: `pyk compile -t pyking` prints a program
+  back with `&&` where `&&` was written.
+
+On two Ints the words `and`, `or` and `not` are the bitwise operators
+instead (see "Bitwise operators"); the symbols `&&`, `||` and `!` are
+Bool's alone, because in C and JavaScript `5 && 2` is `1` and `!5` is
+`0`, and a different answer with no error would be a trap:
+
+```
+'prog.pyk' 1:6-1:12 Type error: `&&` cannot be applied to Int and Int;
+  it accepts Bool && Bool. On Ints, write 'and' or '&'
+```
+
+### Bitwise operators
+
+On two Ints, `&` is bitwise and, `|` bitwise or, `xor` exclusive or,
+`~` bitwise not, and `<<` and `>>` shift left and right. The words
+`and`, `or` and `not` are bitwise on Ints too, as they are logic on
+Bools.
+
+```pyking
+flags = 0b0101
+print(flags & 0b0100, flags | 0b0010, flags xor 0b1111, ~flags)   # 4 7 10 -6
+print(12 and 10, 12 or 10, not 0)                                  # 8 14 -1
+print(1 << 4, 256 >> 2, -8 >> 1)                                   # 16 64 -4
+```
+
+- **Ints only**: `&` and `|` on two Bools are refused with "On Bools,
+  write 'and' (or '&&')", and `xor` on two Bools with a pointer to `!=`,
+  which is true where exactly one of them is. The words on Ints have no
+  short-circuit: `0 and f()` still calls `f()`.
+- **Precedence is Python's**: tighter than a comparison, so
+  `flags & 4 == 4` is `(flags & 4) == 4`; among themselves `|` is
+  loosest, then `xor`, then `&`, then the shifts, all looser than `+`.
+  The words `and` and `or` keep their own, looser, level on Ints as
+  well, so a mask test with them is parenthesized:
+  `(flags and 4) == 4`.
+- **`>>` keeps the sign** on every target: `-8 >> 1` is `-4`. `~n` is
+  `-n - 1`.
+- A shift by a negative count, or by 32 or more, is undefined, as Int
+  overflow is (see "Integer and string literals"); every target agrees
+  inside the signed 32-bit range.
+- `^` is the power, not exclusive or as in Python and C: exclusive or is
+  the word `xor`.
+
+### Indexing
+
+`xs[i]` is element `i` of the list `xs`, counting from 0. The index is
+an `Int`, and an expression of any list type may be indexed -- a name,
+a call's result, another index:
+
+```pyking
+xs = [10, 20, 30]
+rows = [[1, 2], [3, 4]]
+print(xs[0], xs[2], xs[len(xs) - 1], rows[1][0])   # 10 30 30 3
+```
+
+- An index binds as tightly as a call and a field, and the `[` is on
+  the row the list ends on: a `[` starting the next line starts a list
+  literal there, as a `(` there starts a new statement.
+- A list is never changed: there is no `xs[i] := v`.
+- An index outside the list -- negative included -- is a runtime error
+  in the interpreter (`the index 5 is outside a list of 2 elements`) and
+  whatever the host does with it in compiled code.
+- Only a list is indexed. A String's character is
+  `text.char_at(s, i)`, and a tuple is taken apart by a pattern or a
+  `let`; the checker says both.
 
 ### Function calls
 
@@ -1331,7 +1567,9 @@ all, and its own pieces then run left to right.
 `[e1, e2, ...]` builds a list from a comma-separated list of expressions,
 using the same syntax as call arguments.
 
-```python
+```pyking
+use mutation
+
 values = [1, 2, 3]
 var total = 0
 for v in values:
@@ -1460,12 +1698,74 @@ a, b = 1, 2
 print(a, b, c, d, e, f, g, h)
 ```
 
+### Features turned on with `use` — Pyking extension
+
+A module is functional and immutable unless it turns more of the
+language on, with `use` lines at its top -- before any import or
+statement, though comments may come first:
+
+```pyking
+# A counter, kept in a mutable variable.
+use mutation
+
+var count = 0
+count := count + 1
+print(count)
+```
+
+| Feature | Turns on |
+|---|---|
+| `mutation` | `var` and `:=` (see "Mutable variables") |
+| `objects` | nothing yet: the name is reserved for classes and methods |
+
+Several are written on one line, `use mutation, objects`, or on lines
+of their own.
+
+**One parser reads every module.** A `use` changes nothing about how
+the module is read: `var` is parsed in every module, and refused in one
+that has not turned mutation on, as a syntax error that names the line
+that would allow it:
+
+```
+'prog.pyk' 1:0-1:3 Parsing error: 'var' declares a mutable variable,
+  which needs 'use mutation' at the top of this module
+'prog.pyk' 2:0-2:6 Parsing error: ':=' changes the mutable variable
+  'count', which needs 'use mutation' at the top of this module
+```
+
+**A feature belongs to its module.** Importing a module that uses
+mutation does not turn mutation on in the importer, and nothing turns
+it on for a module but its own `use` line. A library may use mutation
+inside itself, and a module implemented in a target's own language
+(tinyweb's host half, for one) does whatever its host does: neither
+makes the program that imports it mutable. Submodules share their
+file's `use` lines.
+
+Without `use mutation`, `for` and `while` still work -- a `for` prints
+each element, and `while not io.is_eof():` reads to the end of the input
+-- and a `loop`'s accumulator is a fresh binding each turn, not a
+mutation. That is how a functional module adds something up:
+
+```pyking
+total = loop sum = 0 for x in [1, 2, 3]:
+    sum + x
+print(total)
+```
+
+In the REPL, a `use` line typed at the prompt holds for the rest of the
+session, and `pyk repl --use mutation` starts one with it on. In a
+notebook, every cell is a program of its own and writes its own `use`.
+
 ### Mutable variables (`var` and `:=`) — Pyking extension
 
 `var name = expr` declares a new mutable variable, initialized to the
-value of `expr`. Once declared, it is updated with `name := expr`, not `=`.
+value of `expr`. Once declared, it is updated with `name := expr`, not
+`=`. Both need `use mutation` at the top of the module (see "Features
+turned on with `use`").
 
-```python
+```pyking
+use mutation
+
 var total = 0
 total := total + 1
 print(total)
@@ -1477,9 +1777,11 @@ is which value the name holds; a list held by a `var` is still never
 changed in place, so updating one builds the new list and stores it:
 
 ```pyking
+use mutation
+
 var balls = [(10, 20), (30, 40)]
 balls := [(x + 1, y) for (x, y) in balls]
-balls := balls ++ [(0, 0)]
+balls := balls + [(0, 0)]
 print(balls)
 ```
 
@@ -1535,7 +1837,7 @@ n = "outer"
 
 
 def describe(n):
-    "param " ++ string(n)
+    "param " + string(n)
 
 
 print(describe(1), n)
@@ -1562,7 +1864,7 @@ either — is `use()` below returning the number or the function?
 ```pyking error
 f = 1
 
-def use(): f          # rejected: which `f`?
+def apply(): f          # rejected: which `f`?
 
 def f(n): n * 2
 ```
@@ -1575,12 +1877,12 @@ doubt:
 f = 1
 
 
-def use():
+def apply():
     def f(): 5        # a different block: this shadows the binding
     return f()
 
 
-print(use())           # 5
+print(apply())           # 5
 ```
 
 **The other restriction:** a `var` may not be shadowed. While a mutable
@@ -1589,6 +1891,8 @@ variable is in scope, no binding of any kind may reuse its name — not an
 another `var`:
 
 ```pyking
+use mutation
+
 var count = 0
 
 # Each of these is a compile-time error while `count` is in scope:
@@ -1611,6 +1915,8 @@ may each declare their own `var` of one name, since neither is in scope
 where the other is:
 
 ```pyking
+use mutation
+
 count = 100
 
 
@@ -1715,6 +2021,8 @@ rather than making a new one, so a function reading a `var` sees the
 updates. That is what a `var` is for.
 
 ```pyking
+use mutation
+
 var counter = 0
 
 
@@ -1735,7 +2043,7 @@ written:
 fns =
 loop made = [] for i in range(3):
     def show(): i
-    made ++ [show]
+    made + [show]
 
 for f in fns:
     print(f())          # 0, then 1, then 2
@@ -1843,7 +2151,7 @@ leaves that argument out.
 
 ```pyking
 def greet(who: String = "world", times: Int = 1) -> Int:
-    print("hello, " ++ who)
+    print("hello, " + who)
     return times
 
 
@@ -1881,6 +2189,8 @@ and a default that has an effect has it once per call that omits it,
 not once when the `def` is reached:
 
 ```pyking
+use mutation
+
 var counter = 0
 
 
@@ -1926,8 +2236,8 @@ An **exported** function's defaulted parameter must carry a type
 annotation:
 
 ```pyking error
-public def greet(who: String = "world") -> String: "hi " ++ who
-public def greet(who = "world") -> String: "hi " ++ who     # refused
+public def greet(who: String = "world") -> String: "hi " + who
+public def greet(who = "world") -> String: "hi " + who     # refused
 ```
 
 An exported function carries its complete type in the source, and a
@@ -1966,7 +2276,7 @@ A name may be given to a parameter that has no default — it is a way of
 saying at the call site what an argument is for:
 
 ```pyking
-def join(left: String, right: String) -> String: left ++ "-" ++ right
+def join(left: String, right: String) -> String: left + "-" + right
 
 print(join("a", right = "c"))
 ```
@@ -2022,7 +2332,9 @@ a tuple. Annotations are entirely optional and independent per
 parameter/return value — a function can mix annotated and unannotated
 parameters freely.
 
-```python
+```pyking
+use mutation
+
 def add(a:Int, b:Int) -> Int:
     return a + b
 
@@ -2119,7 +2431,9 @@ for i in range(3):
 `while cond:` runs its indented body repeatedly for as long as `cond`
 holds.
 
-```python
+```pyking
+use mutation
+
 var i = 0
 while i < 3:
     print(i)
@@ -2402,31 +2716,40 @@ print([x for x in [1, 2, 3, 4] if (if x < 3 then true else false)])
 
 ### Lambdas — Pyking extension
 
-`x => x + 1` is an expression that is a function. One parameter needs no
-parentheses, so `x => x + 1` and `(x) => x + 1` are the same thing;
-several need them, and a parameter may be annotated. The body is **one
-expression** — there is no block form.
+`lam x. x + 1` is an expression that is a function, written as in the
+lambda calculus (`λx. x + 1`): the keyword `lam`, the parameters, a `.`
+and the body. One parameter with no type needs no parentheses, so
+`lam x. x + 1` and `lam (x). x + 1` are the same thing; several need
+them, and so does a parameter with a type -- `lam (n: Int). n - 1` --
+since a type may hold a `.` of its own (`geo.Point`, `all a. a`), and in
+parentheses it ends at the `)`. No parameters is `lam (). e`. The body
+is **one expression** — there is no block form.
 
-`=>` binds looser than every operator and associates to the right, so a
-lambda takes everything to its right that one expression can hold. A
-comma ends it, since `x => a, b` is a pair whose first element is the
-lambda.
+The body takes everything to its right that one expression can hold, so
+a lambda binds looser than every operator and associates to the right:
+`lam x. lam y. x + y` is curried. A comma ends it, since `lam x. a, b`
+is a pair whose first element is the lambda.
+
+`x => x + 1`, the spelling Pyking had before `lam`, is refused with
+`a lambda is now written 'lam x. x + 1'`; `lam x, y. e` and
+`lam x: Int. e` are refused too, each with the parenthesized form to
+write.
 
 ```pyking
-double = x => x * 2
-add = (x, y) => x + y
-typed = (n: Int) => n - 1
-nothing = () => 7
+double = lam x. x * 2
+add = lam (x, y). x + y
+typed = lam (n: Int). n - 1
+nothing = lam (). 7
 
 print(double(21), add(3, 4), typed(10), nothing())
 
-# A lambda answering with a lambda; `=>` associates to the right, so no
-# parentheses are needed.
-adder = x => y => x + y
+# A lambda answering with a lambda; a lambda associates to the right, so
+# no parentheses are needed.
+adder = lam x. lam y. x + y
 print(adder(6)(7))
 
 # An `if` expression is one expression, so it is a body like any other.
-sign = n => if n < 0 then 0 - 1 else 1
+sign = lam n. if n < 0 then 0 - 1 else 1
 print(sign(-5), sign(5))
 ```
 
@@ -2437,7 +2760,7 @@ it (see "Names and scoping").
 
 ```pyking
 base = 100
-shift = n => n + base
+shift = lam n. n + base
 base = 200
 print(shift(1))     # 101: the binding `shift` captured
 ```
@@ -2452,7 +2775,7 @@ lambda-bound one, and it is the whole of the difference here:
 def named(x): x
 print(named(1), named("a"))     # fine: `named` is polymorphic
 
-id = x => x
+id = lam x. x
 print(id(1))
 # print(id("a"))                -- error: `id` is Int -> Int by now
 ```
@@ -2494,7 +2817,7 @@ apart:
 
 ```pyking
 def int::twice(x: Int) -> Int: x * 2
-def string::twice(x: String) -> String: x ++ x
+def string::twice(x: String) -> String: x + x
 
 print(twice(21), twice("ab"))       # 42 abab
 print(int::twice(3))                # 6
@@ -2511,7 +2834,7 @@ result type, and not what the call is used for.
 
 ```pyking
 def a::join(x: Int, y: Int) -> Int: x + y
-def b::join(x: String, y: String) -> String: x ++ y
+def b::join(x: String, y: String) -> String: x + y
 
 print(join(2, 3), join("hi", "!"))  # 5 hi!
 ```
@@ -2571,11 +2894,11 @@ def foo(x: a, implicit bar: (a) -> b) -> (b, b):
     (bar(x), bar(x))
 
 def my1() -> ():
-    implicit def bar(z: Int) -> String: string(z) ++ "!"
+    implicit def bar(z: Int) -> String: string(z) + "!"
     print(foo(78))                  # ('78!', '78!')
 
 def my2() -> ():
-    implicit def bar(z: String) -> String: z ++ "!"
+    implicit def bar(z: String) -> String: z + "!"
     print(foo("hi"))                # ('hi!', 'hi!')
 ```
 
@@ -2611,7 +2934,7 @@ implicit width = 4
 
 def pad(text: String, implicit width: Int) -> String:
     loop out = text while len(out) < width:
-        out ++ "."
+        out + "."
 
 print(pad("a"))         # a...
 print(pad("a", 8))      # a....... -- written out, which always works
@@ -2678,7 +3001,7 @@ That is the whole of what the annotation decides, and it is why an
 implicit parameter is part of a function's type.
 
 The adaptation goes both ways, so the annotated `f` above still accepts
-a function that asks for nothing — `bar(2, x => x + 1)` works, and the
+a function that asks for nothing — `bar(2, lam x. x + 1)` works, and the
 lambda simply never sees the implicit. A function that needs less
 stands wherever one that needs more is wanted.
 
@@ -2692,7 +3015,7 @@ implicit def float::leq(x: Float, y: Float) -> Bool: x <= y
 implicit def list::leq(xs: [a], ys: [a],
                        implicit leq: (a, a) -> Bool) -> Bool:
     match (xs, ys):
-        case ([x] ++ xrest, [y] ++ yrest):
+        case ([x] + xrest, [y] + yrest):
             if leq(x, y):
                 list::leq(xrest, yrest)
             else:
@@ -2726,7 +3049,7 @@ def describe(n):
         case 1:
             return "one"
         case value:
-            return "many: " ++ string(value)
+            return "many: " + string(value)
 
 
 for i in [0, 1, 5]:
@@ -2780,11 +3103,11 @@ def describe(xs):
         case []:
             return "empty"
         case [x]:
-            return "exactly one: " ++ string(x)
+            return "exactly one: " + string(x)
         case [a, b, c]:
             return "exactly three"
         case [first, ..rest]:
-            return "prefix + rest, first=" ++ string(first)
+            return "prefix + rest, first=" + string(first)
 
 
 print(describe([]))
@@ -2799,15 +3122,15 @@ other forms, `[..init, last]`, `[p, q, ..mid, r]`, `[u, v, ..]` and
 `[_, ..w]`, are each shown in a function of their own in
 `tests/list_pattern_match.pyk`.
 
-**Splitting with `++`.** A pattern may be written as pieces joined with
-`++`, the concatenation operator read backwards: a pattern says how the
+**Splitting with `+`.** A pattern may be written as pieces joined with
+`+`, the concatenation operator read backwards: a pattern says how the
 value was put together. Every piece but one has a fixed length, and the
 one name in the middle takes whatever is left:
 
 ```pyking norun
-[x] ++ xs                is  [x, ..xs]
-first ++ [x, y, z]       is  [..first, x, y, z]
-[x, y] ++ m ++ [k1, k2]  is  [x, y, ..m, k1, k2]
+[x] + xs               is  [x, ..xs]
+first + [x, y, z]      is  [..first, x, y, z]
+[x, y] + m + [k1, k2]  is  [x, y, ..m, k1, k2]
 ```
 
 For a list the two spellings are the same pattern, and the printed
@@ -2817,17 +3140,17 @@ spelling, and the only way to match a string by anything but equality:
 ```pyking
 def command(line:String) -> String:
     match line:
-        case "get " ++ rest:
-            return "GET(" ++ rest ++ ")"
-        case "<" ++ body ++ ">":
+        case "get " + rest:
+            return "GET(" + rest + ")"
+        case "<" + body + ">":
             return body
         case other:
-            return "?" ++ other
+            return "?" + other
 ```
 
-Only *literal* text can be stripped this way. `_ ++ rest` leaves two
+Only *literal* text can be stripped this way. `_ + rest` leaves two
 parts open and is refused, and so is a chain mixing a list with a
-string, or one whose pieces are not all of fixed length (`[x, ..r] ++ ys`
+string, or one whose pieces are not all of fixed length (`[x, ..r] + ys`
 would need two rest markers).
 
 A `case` clause opens a block like any other header, so an arm whose
@@ -2860,7 +3183,7 @@ of bindings whichever matched:
 def on_axis(p: (Int, Int)) -> String:
     match p:
         case (0, 0): "origin"
-        case (x, 0) | (0, x): "on an axis at " ++ string(x)
+        case (x, 0) | (0, x): "on an axis at " + string(x)
         case _: "elsewhere"
 
 
@@ -3013,7 +3336,7 @@ datatype Person:
 def role(p: Person) -> String:
     match p:
         case Person(admin = true): "admin"
-        case Person(n, age = a) if a < 18: n ++ " is young"
+        case Person(n, age = a) if a < 18: n + " is young"
         case Person(name = n): n
 
 
@@ -3174,8 +3497,8 @@ def describe(point):
         case (0, 0): "origin"
         case (0, y):
             side = if y > 0 then "up" else "down"
-            "on the y axis, " ++ side
-        case (x, y): "at " ++ string(x) ++ "," ++ string(y)
+            "on the y axis, " + side
+        case (x, y): "at " + string(x) + "," + string(y)
     return text
 
 
@@ -3287,6 +3610,8 @@ after it is an ordinary statement run for its effect, and the trailing
 expression is the value:
 
 ```pyking
+use mutation
+
 def not_last(n):
     var acc = 0
     if n > 0:
@@ -3701,18 +4026,26 @@ under Pyking's ordinary lexical scoping.
 
 | operator | accepts | gives |
 |---|---|---|
-| `+` | `Int + Int` | `Int` |
-| `++` | `String ++ String` | `String` |
-| `-`, `*`, `/` | `Int`, `Int` | `Int` |
-| `-` (unary) | `Int` | `Int` |
-| `++` | two lists of one type | that list type |
-| `<`, `<=`, `>`, `>=` | `Int`, `Int` | `Bool` |
-| `==` | two `Int`s, two `String`s or two `Bool`s | `Bool` |
+| `+` | two `Int`s, two `Float`s, two `String`s, or two lists of one type | what the operands are |
+| `-`, `*`, `/`, `%`, `^` | two `Int`s or two `Float`s | what the operands are |
+| `-` (unary) | an `Int` or a `Float` | what the operand is |
+| `<`, `<=`, `>`, `>=` | two `Int`s or two `Float`s | `Bool` |
+| `==`, `!=` | two `Int`s, `Float`s, `String`s or `Bool`s | `Bool` |
+| `and`, `or` | two `Bool`s (logic), or two `Int`s (bitwise) | what the operands are |
+| `not` | a `Bool`, or an `Int` | what the operand is |
+| `&&`, `!` and or-or | `Bool`s | `Bool` |
+| `&`, `xor`, `<<`, `>>`, bitwise or | two `Int`s | `Int` |
+| `~` | an `Int` | `Int` |
+| `xs[i]` | a list `[a]` and an `Int` | `a` |
 
-So `1 + 'a'` is an error, and so is `'a' + 'b'` — `+` adds and only
-adds, and joining two strings is `++`'s job. And so is `1 == 'a'` — a
-comparison of two different types is refused rather than answered
-`false`.
+(Bitwise or is `|` and the Bool or is `||`; a `|` cannot be written
+inside a Markdown table cell.)
+
+So `1 + 'a'` is an error -- `+` converts nothing -- and so is
+`1 == 'a'`: a comparison of two different types is refused rather than
+answered `false`. Where nothing has decided its operands, `and`, `or`
+and `not` are Bool logic, and `+` waits for a use to decide it and adds
+two Ints if nothing does.
 
 **Bindings and expression statements.** An `=` binding takes the type of
 its right-hand side, and that is what its name means to the statements
@@ -3780,7 +4113,7 @@ def fact(n): if n <= 1 then 1 else fact(n - 1) * n
 
 
 picked = if 3 < 4 then 10 else 20
-print(fact(7), picked, 'grade ' ++ (if picked > 5 then 'a' else 'b'))
+print(fact(7), picked, 'grade ' + (if picked > 5 then 'a' else 'b'))
 ```
 
 An `if` with no `else` supplies unit, whatever its one branch ends in:
@@ -3904,7 +4237,7 @@ def spell(n:Int) -> String:
     if n < 1:
         ''
     else:
-        'x' ++ spell(n - 1)          # checked against (Int) -> String
+        'x' + spell(n - 1)          # checked against (Int) -> String
 
 
 def is_even(n:Int) -> Bool:
@@ -3944,7 +4277,7 @@ called and nothing else.
 
 ```pyking
 count = len("hello")          # Int
-label = "n = " ++ string(count)   # String
+label = "n = " + string(count)   # String
 numbers = range(4)            # [Int]
 ratio = float(count) / 2.0    # Float
 
@@ -3976,7 +4309,7 @@ Each accepts its own type too, and answers it unchanged.
 print(int("42"), int("4 2"), int(-2.9), int(true))   # 42 0 -2 1
 print(float("1e3"), float("one"), float(false))       # 1000.0 nan 0.0
 print(bool("true"), bool("yes"), bool(1), bool(2.0))  # true false true false
-print(string(1.5) ++ "!", string([1, 2]))             # 1.5! [1, 2]
+print(string(1.5) + "!", string([1, 2]))             # 1.5! [1, 2]
 ```
 
 The defaults stand in for an answer Pyking cannot yet give. Once it has
@@ -4042,7 +4375,7 @@ def sign(n:Int) -> String:
         return 'large'
 
 
-def shout(word:String) -> String: word ++ '!'
+def shout(word:String) -> String: word + '!'
 
 
 kind = sign(4)
@@ -4124,7 +4457,7 @@ polymorphic, rather than one at whatever single type the caller picked.
 ```pyking
 def both_ways : (all x. (x) -> x) -> String
 def both_ways(f):
-    return f('a') ++ string(f(1))       # f used at two types, in one body
+    return f('a') + string(f(1))       # f used at two types, in one body
 ```
 
 Without the inner `all` the variable would be bound at the top, and `f`
@@ -4185,7 +4518,7 @@ def reverse(xs:[Int]) -> [Int]:
         case []:
             return []                    # [a], and so [Int] here
         case [x, ..rest]:
-            return reverse(rest) ++ [x]
+            return reverse(rest) + [x]
 ```
 
 A constructor pattern is checked the same way: it demands that the
@@ -4235,7 +4568,7 @@ values, every length of a list (`[]` and `[x, ..rest]` between them take
 them all), and a tuple position by position, so `(true, true)`,
 `(true, false)` and `(false, _)` cover a `(Bool, Bool)`. An `Int` or a
 `String` has too many values to name, so only a case that takes any of
-them -- `_`, a name, or a `++` split with a name for all of the string
+them -- `_`, a name, or a `+` split with a name for all of the string
 -- covers one.
 
 **A case with a guard does not count towards covering**, since its
@@ -4351,7 +4684,7 @@ and is fixed instead to what the first call passed:
 
 ```pyking
 def announce(value):
-    'got ' ++ string(value)     # `string` asks what it was given
+    'got ' + string(value)     # `string` asks what it was given
 
 
 print(announce(1))           # announce : (Int) -> String
@@ -4367,7 +4700,7 @@ inside one body would have to be polymorphic itself, and inference does
 not invent that — a `def` gets a type variable, a parameter gets a type:
 
 ```pyking
-def use(f):
+def apply(f):
     print(f(1), f(true))     # error: argument 1 has type Bool, but Int
                              #        was expected
 ```
@@ -4376,8 +4709,8 @@ Writing the type down is how that program is expressed, and the checker
 then enforces it (see "Type variables" above for the `all`):
 
 ```pyking
-def use : (all a. (a) -> a) -> ()
-def use(f):
+def apply : (all a. (a) -> a) -> ()
+def apply(f):
     print(f(1), f(true))     # fine: `f` is polymorphic because it says so
 ```
 

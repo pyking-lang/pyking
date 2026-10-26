@@ -31,11 +31,13 @@ print("Add your code here")
 ```
 
 ```pyking solution available = true
+use mutation
+
 import io
 var count = 0
 while io.is_eof() == false:
     name = io.read_line()
-    print("Hello, " ++ name ++ "!")
+    print("Hello, " + name + "!")
     count := count + 1
 print("Greeted", count, "people")
 ```

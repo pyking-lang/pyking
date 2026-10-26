@@ -1,4 +1,7 @@
 # Mutates a name bound with =, which is refused.
+
+use mutation
+
 import tinyweb as tw
 
 count = 0
@@ -7,7 +10,7 @@ shown = tw.label("0 clicks")
 def clicked():
     count := count + 1
     print("clicked", count)
-    tw.set_text(shown, string(count) ++ " clicks")
+    tw.set_text(shown, string(count) + " clicks")
 
 tw.button("Click me", on_click = clicked)
 print("ready")

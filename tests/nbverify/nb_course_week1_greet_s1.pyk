@@ -1,5 +1,5 @@
 import sys
 names = sys.args()
 for name in names:
-    print("Hello, " ++ name ++ "!")
+    print("Hello, " + name + "!")
 print(len(names), "names")

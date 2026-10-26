@@ -1,3 +1,4 @@
+use mutation
 size = 10
 def scaled(x:Int = size) -> Int:
     return x * 2

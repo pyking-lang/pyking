@@ -2,11 +2,11 @@
 import tinyweb as tw
 
 def hello(who: String) -> String:
-    "Hello, " ++ who ++ "!"
+    "Hello, " + who + "!"
 
 status = tw.label("Who are you?")
-field = tw.text_input("your name", on_enter = (n: String) => greet(n))
+field = tw.text_input("your name", on_enter = lam (n: String). greet(n))
 
 def greet(n: String):
-    print(hello(n) ++ "   ")
+    print(hello(n) + "   ")
     tw.set_text(status, hello(n))

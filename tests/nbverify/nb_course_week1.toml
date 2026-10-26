@@ -50,7 +50,7 @@ reason = "The output is not what it should be.\nargs: Ada\nexpected:\nHello, Ada
 [[solution]]
 file = "nb_course_week1_greet_s5.pyk"
 accepted = false
-reason = "Your program did not run:\n'solution.pyk' 3:24-3:25 Parsing error: expected ',' or ')' in call\n  arguments"
+reason = "The output is not what it should be.\nargs: Ada Grace\nexpected:\nHello, Ada!\nHello, Grace!\n2 names\ngot:\nHello, Ada!\n2 names"
 
 [[solution]]
 file = "nb_course_week1_reader_s1.pyk"
@@ -125,7 +125,7 @@ reason = "The output is not what it should be.\nstdin:\n3\n4\n9\n2\nexpected:\n1
 [[solution]]
 file = "nb_course_week1_sum_max_s5.pyk"
 accepted = false
-reason = "Your program did not run:\n'solution.pyk' 5:13-5:35 Type error: `+` cannot be applied to Int and\n  String; it accepts Int + Int or Float + Float"
+reason = "Your program did not run:\n'solution.pyk' 7:13-7:35 Type error: `+` cannot be applied to Int and\n  String; it accepts Int + Int or Float + Float or String + String or\n  two lists of one type. `+` joins two Strings and converts nothing:\n  write string(n)"
 
 [[solution]]
 file = "nb_course_week1_sum_max_s6.pyk"

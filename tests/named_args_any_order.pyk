@@ -2,14 +2,15 @@
 # evaluated in the order written, before the defaults of the parameters
 # left out; `note` prints as each one is evaluated.
 
+use mutation
 
 def note(label: String, n: Int) -> Int:
-    print("  " ++ label)
+    print("  " + label)
     n
 
 
 def box(width: Int, height: Int = note("height default", 1), depth: Int = 2) -> String:
-    string(width) ++ "x" ++ string(height) ++ "x" ++ string(depth)
+    string(width) + "x" + string(height) + "x" + string(depth)
 
 
 print("written out of order:")
@@ -22,7 +23,7 @@ print(box(note("width", 1), depth = note("depth", 7), height = note("height", 8)
 
 # A function answering nothing.
 def show(count: Int, label: String) -> ():
-    print(label ++ " " ++ string(count))
+    print(label + " " + string(count))
 
 
 show(label = "shown", count = note("count", 2))
@@ -47,7 +48,7 @@ print(box(depth = note("outer depth", box_depth(b = note("inner b", 2), a = note
 # A var read beside them, in a loop.
 var total = 0
 for i in range(3):
-    total := total + box_depth(b = note("b" ++ string(i), i), a = note("a", total))
+    total := total + box_depth(b = note("b" + string(i), i), a = note("a", total))
 print(total)
 
 
@@ -56,7 +57,7 @@ print(total)
 def summed(n: Int) -> Int:
     var acc = 0
     for i in range(n):
-        acc := acc + box_depth(b = note("b" ++ string(i), i), a = note("acc", acc))
+        acc := acc + box_depth(b = note("b" + string(i), i), a = note("acc", acc))
     acc
 
 

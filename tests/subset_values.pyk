@@ -3,6 +3,8 @@
 # of comparisons -- which every backend must print Pyking-style, `true`
 # and `false`, whatever its host language calls them.
 
+use mutation
+
 print(7, -7, - -7, 0)
 print(2 + 3 * 4, (2 + 3) * 4, 10 - 4 - 3, -(2 + 3))
 
@@ -25,7 +27,7 @@ print(flag)
 greeting = "hello"
 name = 'pyking'
 
-print(greeting ++ ", " ++ name ++ "!")
+print(greeting + ", " + name + "!")
 print("tab:\tpipe|", "newline next")
 print("quote: \" and \\ backslash")
 
@@ -42,7 +44,7 @@ print(label(-4), label(0), label(9))
 # and with the body on the following line.
 def twice(n): n * 2
 
-def shout(text: String) -> String: text ++ "!"
+def shout(text: String) -> String: text + "!"
 
 def half_of_sum(a, b):
     (a + b) * 5
@@ -63,8 +65,8 @@ print(value)
 outer = 100
 
 
-def use(outer):
+def use_it(outer):
     return outer + 1
 
 
-print(use(1), outer)
+print(use_it(1), outer)

@@ -12,7 +12,7 @@ print(string(()))
 # A string built at run time rather than written as a literal, so
 # nothing can decide its spelling from the source form alone.
 def apostrophe(word: String) -> String:
-    return word ++ "'s"
+    return word + "'s"
 
 
 print([apostrophe("cat")])

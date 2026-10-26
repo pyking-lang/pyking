@@ -69,7 +69,7 @@ print(total([1, 2, 3, 4, 5], 0))
 def evens(xs: [Int], acc: [Int]) -> [Int]:
     match xs:
         case []: acc
-        case [x, ..rest]: odds(rest, acc ++ [x])
+        case [x, ..rest]: odds(rest, acc + [x])
 
 
 def odds(xs: [Int], acc: [Int]) -> [Int]:

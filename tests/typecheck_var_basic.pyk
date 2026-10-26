@@ -9,6 +9,8 @@
 # and is worth nothing. Whether a name may be written to at all is not a
 # type question -- src/analyses.py answers that one.
 
+use mutation
+
 var total = 0
 total := total + 1
 total := total * 21

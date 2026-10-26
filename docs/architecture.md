@@ -110,7 +110,7 @@ repl`) rather than a `--target`.
 | module | role |
 |---|---|
 | `src/lexer.ml` | Characters → tokens. `Info` (file, row/column span) is attached to every token and rides along on every later node, so any stage can report an error against the source. |
-| `src/parser.ml` | Recursive descent, tokens → the AST in `syntax.ml`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value", one statement per line, what a block written on its header's own line may hold, and where a `break`/`continue` may stand). |
+| `src/parser.ml` | Recursive descent, tokens → the AST in `syntax.ml`. Also enforces the few rules the grammar cannot state (duplicate pattern bindings, "every branch of a bound `if` yields a value", one statement per line, what a block written on its header's own line may hold, and where a `break`/`continue` may stand), reads a module's `use` lines, and refuses what a feature the module did not turn on would allow (`var` and `:=` without `use mutation`). |
 | `src/syntax.ml` | The AST itself — one variant type per node group — plus a pretty printer that prints Pyking back out. |
 | `src/module.ml` | The module system: which modules a program is made of, in what order, what each exports, and what each import means. Runs first — it is what reads the files at all — and again between checks, since a module is checked against the signature `make_sigmap` took from the last one. Also owns *external* modules: a `<name>_external.pyk` declares what a module implemented in the target's own language offers, and this is where that is resolved, checked and named. |
 | `src/submodules.ml` | Submodules: a dotted definition name (`mymod.foo`) is made the plain name it compiles to (`mymod__foo`) everywhere it is used, and an import naming a submodule the `from` line taking its members. Tokens in, a module out, inside `module.load` before the sugar, so nothing after it knows submodules exist. See [modules.md](modules.md), "Submodules". |
@@ -135,7 +135,7 @@ repl`) rather than a `--target`.
 | `src/plugin_host.ml` | How the interpreter reaches a module implemented in a target language: its OCaml implementation, compiled to a plugin (`.cmxs`) and loaded with Dynlink, with each value crossing by its declared type. In the executable, since it starts a process and loads code. See [libraries.md](libraries.md), "How the interpreter reaches an OCaml implementation". |
 | `src/plugin/pyk_plugin.ml` | The registry a loaded plugin fills in: the one module of `pyk` a plugin names, a library of its own linked only into the executable. |
 | `src/repl.ml` | `pyk repl`'s terminal half: the multi-line editor, the readers, `:load` and the loop, over `repl_session.ml`. |
-| `src/repl_session.ml` | A REPL session: a program written one entry at a time — each entry checked as one group against what the entries before it left, and run there. An entry's imports are loaded, checked and run into the session. In the library, so `pyk repl` and the playground's REPL tab share it. |
+| `src/repl_session.ml` | A REPL session: a program written one entry at a time — each entry checked as one group against what the entries before it left, and run there. An entry's imports are loaded, checked and run into the session, and the features its `use` lines turn on hold for every entry after it. In the library, so `pyk repl` and the playground's REPL tab share it. |
 | `src/builtin.ml` | The builtins: each one's name, arity, and whether it crosses the host/IO boundary. Backend-agnostic. |
 | `src/install.ml` | Where this installation keeps `lib/`, `build/` and `tools/`: the executable's directory, with symbolic links resolved, so a package manager's link to `pyk` works. |
 | `src/version.ml` | The version, generated from the root's `VERSION` file by `src/dune`; `pyk --version` prints it. |
@@ -366,7 +366,7 @@ nothing to run.
 It currently covers immutable bindings, expression statements, `if`
 statements (in both the ordinary and the value form), and fully
 annotated function definitions, over `Int`, `String` and `Bool`: `+`,
-`-` and `*` on `Int`, `++` on `String`, `<`/`<=`/`>`/`>=` on `Int`
+`-` and `*` on `Int`, `+` on two `String`s, `<`/`<=`/`>`/`>=` on `Int`
 giving `Bool`, `==` on two values of one type giving `Bool`, calls of a
 function-typed name, calls of the four builtins, unary minus, list
 literals, list comprehensions and `match` with the full pattern
@@ -629,6 +629,8 @@ Two of the three commands *run* a program, and both run it the same way:
   semantics: 32-bit integers, and Pyking runtime errors with spans and a
   stack trace.
 - **`pyk repl`** is the same interpreter with a prompt in front of it.
+  `pyk repl --use mutation` starts it with a feature on, as a `use`
+  line typed first would (docs/repl.md).
 
 The third way to run one is `pyk compile --run`, which builds what was
 compiled and runs it with that target's own commands — generated Python

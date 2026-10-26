@@ -243,7 +243,8 @@ heap and refuses, with a source position and the reason, what does:
 
 | feature | python | javascript | java | ocaml | c |
 |---|---|---|---|---|---|
-| scalars, strings, `++`, every operator | ✅ | ✅ | ✅ | ✅ | ✅ (a string `++` allocates and is never freed) |
+| scalars, strings, a `+` joining strings, every operator (`and`/`or`/`not` short-circuiting, `%`, `^`, `!=`, the bitwise ones) | ✅ | ✅ | ✅ | ✅ | ✅ (a string join allocates and is never freed) |
+| `xs[i]` on a list | ✅ | ✅ | ✅ (`get`) | ✅ (`List.nth`) | ❌ lists need a heap |
 | `def`, recursion, mutual recursion, nested `def` | ✅ | ✅ | ✅ (a nested `def` is a static method taking what it captures) | ✅ | ✅ (a nested `def` is a function taking what it captures) |
 | `loop`, `while`, `break`, `continue`, value forms | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `for x in range(...)` | ✅ | ✅ | ✅ | ✅ | ✅ (a counting loop: no list is built) |
@@ -306,7 +307,21 @@ followed by a third difference, which is about the values themselves:
   `Division_by_zero` on OCaml, `Infinity` on JavaScript, and undefined
   behaviour in C. The interpreter is the exception, and has to be: its
   `step` is total, so it reports a Pyking runtime error with a stack
-  trace like any other. Nothing guards the compiled output.
+  trace like any other. Nothing guards the compiled output. An Int `%`
+  by zero is the same case.
+- **An index outside a list**, negative included. `xs[5]` on a list of
+  two is an `IndexError` on Python, an `IndexOutOfBoundsException` on
+  Java, `Failure "nth"` or `Invalid_argument` on OCaml and `undefined` on
+  JavaScript; a negative index is the element counted from the end on
+  Python. The interpreter reports a Pyking runtime error (`the index 5
+  is outside a list of 2 elements`). C has no lists.
+- **A power with a negative Int exponent, and a shift by a negative
+  count or by 32 or more.** The language leaves both undefined (PYKING.md,
+  "Remainder and power", "Bitwise operators"); the interpreter reports a
+  runtime error for a negative exponent and a negative count, and
+  shifts every bit out past its own width, and each host does its own
+  arithmetic: Python answers a Float for `2 ^ -1` and raises for a
+  negative shift, and JavaScript shifts by the count modulo 32.
 
 ### Standard error, `--release` and the exit status
 

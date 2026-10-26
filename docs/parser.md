@@ -36,32 +36,34 @@ Pyking's expression grammar is parsed by **precedence climbing** written
 out as a chain of functions, each one level tighter than the last:
 
 ```
-parse_atom → parse_call_tail → parse_unary → parse_multiplicative
-  → parse_additive → parse_comparison → parse_expr → parse_tuple_or_expr
+parse_atom → parse_call_tail → parse_power → parse_unary
+  → parse_multiplicative → parse_additive → parse_shift → parse_bit_and
+  → parse_xor → parse_bit_or → parse_comparison → parse_not → parse_and
+  → parse_or → parse_expr → parse_tuple_or_expr
 ```
 
 Each function calls the next-tighter one for its operands and handles
-exactly one precedence level itself. `parse_additive` is a representative
-one to read closely:
+exactly one precedence level itself. Every left-associative level is one
+call to `parse_chain`, given the level below and which tokens are its
+operators:
 
 ```ocaml
 and parse_additive eof tokens =
-  let left, rest = parse_multiplicative eof tokens in
-  let rec more left rest =
-    match rest with
-    | TokAdd _ :: rest2 ->
-        let right, rest2 = parse_multiplicative eof rest2 in
-        more (EAdd (combine_info (expr_info left) (expr_info right),
-                    left, right, 0)) rest2
-    | TokConcat _ :: rest2 -> ...
-    | TokSub _ :: rest2 -> ...
-    | _ -> (left, rest)
-  in
-  more left rest
+  parse_chain parse_multiplicative
+    (function
+      | TokAdd _ -> Some (fun l r i -> EAdd (i, l, r, 0))
+      | TokSub _ -> Some (fun l r i -> ESub (i, l, r, 0))
+      | TokConcat i -> raise (Parse_error (i, concat_message))
+      | _ -> None)
+    eof tokens
 ```
 
+A spelling Pyking no longer has is caught at the level it would have
+been at -- `++` here, `**` in `parse_power`, `=>` after an expression
+in `parse_expr` -- and refused with the one to write instead.
+
 `parse_pattern` has a level of its own for the same reason:
-`parse_pattern_concat` reads patterns joined with `++` and folds the
+`parse_pattern_concat` reads patterns joined with `+` and folds the
 chain into one ordinary pattern (`joined_pattern`). For a list that is
 the existing `PList` with its rest marker, so no stage after the parser
 knows the form exists; only the string case needs a node of its own.
@@ -79,7 +81,7 @@ written alike -- a type is spelled like the value it describes, and
 makes no tuple, there being a parameter list there instead, so
 `(Int,) -> Int` and `(Int) -> Int` are one type.
 
-The `while True` loop, not recursion, is what makes `+`/`++`/`-`
+The loop in `parse_chain`, not recursion, is what makes `+`/`-`
 **left-associative**: `1 + 2 + 3` parses as `parse_multiplicative` reads
 `1`, then the loop sees `+`, reads `2` with another call to
 `parse_multiplicative`, builds `EAdd(1, 2)`, loops again, sees `+`,
@@ -90,18 +92,20 @@ side instead (`parse_additive(rest2)` in place of
 `+` the wrong associativity; every level in this chain that *is*
 left-associative is careful to recurse into the next-tighter function
 for its operand, not into itself. `parse_comparison`, by contrast,
-does **not** loop — a second comparison operator after the first simply
-isn't matched, which is what "comparisons do not chain" means at the
-parser level: `1 < 2 < 3` parses `1 < 2` and then stops, leaving `< 3`
-for the caller (`parse_statement`'s catch-all) to reject as leftover
-input rather than nonsense sitting inside one expression.
+does **not** loop — a second comparison operator after the first is
+refused where it stands, which is what "comparisons do not chain" means
+at the parser level: `1 < 2 < 3` is told to write `1 < 2 and 2 < 3`.
 
 `parse_unary` is unusual in the chain: it recurses into *itself*
 (`operand, rest = parse_unary(rest)`) rather than the next level down,
-because unary minus is prefix and can stack (`- -x`, though the printer
-always parenthesizes a re-negation — see `syntax.md`). It falls through
-to `parse_atom` the moment the next token isn't another `-`, which is
-the base case.
+because `-`, `!` and `~` are prefix and can stack (`- -x`, though the
+printer always parenthesizes a re-negation — see `syntax.md`). It falls
+through to `parse_power` the moment the next token isn't one of them.
+`parse_power` reads `atom ^ unary`, so `^` binds tighter than a minus
+on its left (`-2 ^ 2` is `-(2 ^ 2)`) and takes one on its right
+(`2 ^ -1`), and associates to the right. `parse_not` is the other
+prefix level: the word `not` binds as loosely as Python's, below a
+comparison, where `!` binds with `-`.
 
 `parse_expr` sits at the *loosest* level, not the tightest — it is
 where `if`-expressions are recognized, since `if c then a else b` has to
@@ -221,21 +225,24 @@ reason to fall through, since a target followed by `:` cannot mean
 anything else. That's the comment on the `TokColon` match inside
 `try_parse_assignment_target` making that distinction explicit.
 
-**A lambda's parameter list vs. a parenthesized expression.** `(x)` is
-the expression `x`, and `(x) => x` is a lambda: the two are told apart
-only by what follows the `)`, and what is inside can be arbitrarily
-long. `parse_lambda` speculates exactly as `try_parse_assignment_target`
-does — it calls `parse_params`, catches `Parse_error`, and answers
-`None` unless the token after the `)` is `=>`. On `None`, `parse_expr`
-falls through to `parse_comparison` and re-parses the same tokens as an
-expression, having touched nothing. The single-parameter form needs no
-speculation at all: `TokIdent` followed by `TokFatArrow` is two tokens
-of lookahead and decides it outright.
+**A lambda starts with `lam`.** `parse_expr` sees `TokLam` and hands
+the rest to `parse_lambda`, so nothing is tried and undone: one name and
+a `.`, or a parenthesized parameter list (`parse_params`) and a `.`.
+A name followed by `:` or `,` is refused with the parenthesized form to
+write, because a type may hold a `.` of its own and only a `)` can say
+where it ends.
 
-The body is `parse_expr`, which is what makes `=>` associate to the
+The body is `parse_expr`, which is what makes a lambda associate to the
 right and bind looser than every operator; `parse_tuple_or_expr` is
-deliberately *not* used there, so `x => a, b` is a pair whose first
+deliberately *not* used there, so `lam x. a, b` is a pair whose first
 element is the lambda rather than a lambda answering with a pair.
+
+**`use` lines** are read by `parse_uses` before the first statement,
+and `check_features` then walks the statements for anything of a
+feature the module did not turn on -- `var` and `:=` without
+`use mutation` -- and refuses it as a parse error. `parse_with` takes
+features already on, which is how a REPL session keeps a `use` an
+earlier entry typed.
 
 ## Value-form `if`/`match`: one AST shape, two positions
 

@@ -1,7 +1,7 @@
 # A condition, a hit count, and a logpoint, which prints rather than
 # stops. A breakpoint on a blank line stops at the statement after it.
 launch basics.pyk
-breakpoints basics.pyk [{"line": 12, "condition": "x == 2"}, {"line": 5, "hitCondition": "4"}, {"line": 14, "logMessage": "total is {total}, pairs {pairs}"}, {"line": 3}]
+breakpoints basics.pyk [{"line": 14, "condition": "x == 2"}, {"line": 7, "hitCondition": "4"}, {"line": 16, "logMessage": "total is {total}, pairs {pairs}"}, {"line": 3}]
 configure
 wait stopped
 stack

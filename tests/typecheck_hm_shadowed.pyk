@@ -14,7 +14,7 @@ def singleton(x): [x]
 
 def head(lst, fallback):
     match lst:
-        case [x] ++ _: x
+        case [x] + _: x
         case []: fallback
 
 print(singleton(1))

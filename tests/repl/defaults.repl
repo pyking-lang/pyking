@@ -1,10 +1,10 @@
-def greet(who:String = "world") -> String: "hi " ++ who
+def greet(who:String = "world") -> String: "hi " + who
 greet()
 greet("you")
 greet(who = "pyk")
 :ls
 :type greet
-def greet(who:String = "again") -> String: "yo " ++ who
+def greet(who:String = "again") -> String: "yo " + who
 greet()
 :edit greet
 greet(nope = 1)

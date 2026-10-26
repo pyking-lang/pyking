@@ -33,12 +33,14 @@ print(line)
 ```
 
 ```pyking solution available = true
+use mutation
+
 import io
 import text
 line = io.read_line()
 var out = ""
 for k in range(text.length(line)):
-    out := text.char_at(line, k) ++ out
+    out := text.char_at(line, k) + out
 print(out)
 ```
 
@@ -175,6 +177,8 @@ print("Add your code here")
 ```
 
 ```pyking solution
+use mutation
+
 import io
 import text
 var total = 0
@@ -265,7 +269,7 @@ Which of these programs are refused by the type checker?
 
 [] `print(1 + 2.0)`
 
-[] `print("a" ++ "b")`
+[] `print("a" + "b")`
 
 [] `x: Int = "five"`
 
@@ -274,7 +278,7 @@ Which of these programs are refused by the type checker?
 
 ```answer
 -> `+` takes two numbers of one type.
-- Two strings join with `++`.
+- Two strings join with `+`.
 -> The annotation says `Int`, the value is a `String`.
 - `len` takes a list.
 ```

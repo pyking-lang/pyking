@@ -7,7 +7,7 @@
 print(string(1.0))
 print(string(0.1))
 print(string(1e300))
-print("value: " ++ string(-2.5))
+print("value: " + string(-2.5))
 
 zero: Float = 0.0
 one: Float = 1.0

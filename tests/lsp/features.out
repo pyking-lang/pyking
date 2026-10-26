@@ -3,44 +3,44 @@
 > open features.pyk
 > idle
 diagnostics $CASES/features.pyk v1 []
-> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 24, "character": 17}}
+> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 27, "character": 17}}
 {"activeParameter": 0, "activeSignature": 0, "signatures": [{"documentation": {"kind": "markdown", "value": "Adds two numbers."}, "label": "add(a: Int, b: Int) -> Int", "parameters": [{"documentation": "the first.", "label": [4, 10]}, {"documentation": "the second.", "label": [12, 18]}]}]}
-> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 24, "character": 24}}
+> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 27, "character": 24}}
 {"activeParameter": 1, "activeSignature": 0, "signatures": [{"documentation": {"kind": "markdown", "value": "Adds two numbers."}, "label": "add(a: Int, b: Int) -> Int", "parameters": [{"documentation": "the first.", "label": [4, 10]}, {"documentation": "the second.", "label": [12, 18]}]}]}
-> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 27, "character": 51}}
+> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 30, "character": 51}}
 {"activeParameter": 0, "activeSignature": 0, "signatures": [{"documentation": {"kind": "markdown", "value": "A greeting for a name."}, "label": "helper.greet(name: String) -> String", "parameters": [{"label": [13, 25]}]}]}
-> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 27, "character": 6}}
+> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 30, "character": 6}}
 {"activeParameter": 0, "activeSignature": 0, "signatures": [{"documentation": {"kind": "markdown", "value": "Write the arguments, space-separated, as one line of output. Produces no value: it yields unit, `()`, so it is meaningful as a statement and not as something to bind or return. A function whose tail is a `print` therefore returns unit -- `void` in the C and Java backends, an implicit `None`/`undefined` in the Python and JavaScript ones."}, "label": "print(values...) -> ()", "parameters": [{"label": [6, 15]}]}]}
-> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 27, "character": 34}}
+> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 30, "character": 34}}
 {"activeParameter": 0, "activeSignature": 0, "signatures": [{"documentation": {"kind": "markdown", "value": "Twice a number."}, "label": "double(n: Int) -> Int", "parameters": [{"label": [7, 13]}]}]}
-> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 25, "character": 24}}
+> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 28, "character": 24}}
 {"activeParameter": 0, "activeSignature": 0, "signatures": [{"label": "Circle(radius: Int, filled: Bool)", "parameters": [{"label": [7, 18]}, {"label": [20, 32]}]}]}
-> request textDocument/references {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 22, "character": 5}, "context": {"includeDeclaration": true}}
-[{"range": {"end": {"character": 9, "line": 22}, "start": {"character": 4, "line": 22}}, "uri": "$CASES/features.pyk"}, {"range": {"end": {"character": 9, "line": 24}, "start": {"character": 4, "line": 24}}, "uri": "$CASES/features.pyk"}, {"range": {"end": {"character": 22, "line": 24}, "start": {"character": 17, "line": 24}}, "uri": "$CASES/features.pyk"}, {"range": {"end": {"character": 24, "line": 27}, "start": {"character": 19, "line": 27}}, "uri": "$CASES/features.pyk"}]
-> request textDocument/references {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 24, "character": 14}, "context": {"includeDeclaration": false}}
-[{"range": {"end": {"character": 16, "line": 24}, "start": {"character": 13, "line": 24}}, "uri": "$CASES/features.pyk"}]
-> request textDocument/references {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 27, "character": 30}, "context": {"includeDeclaration": true}}
-[{"range": {"end": {"character": 17, "line": 3}, "start": {"character": 11, "line": 3}}, "uri": "$CASES/helper.pyk"}, {"range": {"end": {"character": 25, "line": 3}, "start": {"character": 19, "line": 3}}, "uri": "$CASES/features.pyk"}, {"range": {"end": {"character": 33, "line": 27}, "start": {"character": 27, "line": 27}}, "uri": "$CASES/features.pyk"}]
-> request textDocument/documentHighlight {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 23, "character": 4}}
-[{"kind": 3, "range": {"end": {"character": 5, "line": 23}, "start": {"character": 4, "line": 23}}}, {"kind": 2, "range": {"end": {"character": 25, "line": 24}, "start": {"character": 24, "line": 24}}}]
-> request textDocument/prepareRename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 26, "character": 2}}
-{"placeholder": "label", "range": {"end": {"character": 5, "line": 26}, "start": {"character": 0, "line": 26}}}
-> request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 26, "character": 2}, "newName": "title"}
-{"changes": {"$CASES/features.pyk": [{"newText": "title", "range": {"end": {"character": 5, "line": 26}, "start": {"character": 0, "line": 26}}}, {"newText": "title", "range": {"end": {"character": 11, "line": 27}, "start": {"character": 6, "line": 27}}}, {"newText": "title", "range": {"end": {"character": 56, "line": 27}, "start": {"character": 51, "line": 27}}}]}}
-> request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 26, "character": 2}, "newName": "total"}
-{"error": {"code": -32602, "message": "'total' is already a name in scope at features.pyk 27:1, so the rename would change what it means"}}
-> request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 26, "character": 2}, "newName": "Title"}
+> request textDocument/references {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 25, "character": 5}, "context": {"includeDeclaration": true}}
+[{"range": {"end": {"character": 9, "line": 25}, "start": {"character": 4, "line": 25}}, "uri": "$CASES/features.pyk"}, {"range": {"end": {"character": 9, "line": 27}, "start": {"character": 4, "line": 27}}, "uri": "$CASES/features.pyk"}, {"range": {"end": {"character": 22, "line": 27}, "start": {"character": 17, "line": 27}}, "uri": "$CASES/features.pyk"}, {"range": {"end": {"character": 24, "line": 30}, "start": {"character": 19, "line": 30}}, "uri": "$CASES/features.pyk"}]
+> request textDocument/references {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 27, "character": 14}, "context": {"includeDeclaration": false}}
+[{"range": {"end": {"character": 16, "line": 27}, "start": {"character": 13, "line": 27}}, "uri": "$CASES/features.pyk"}]
+> request textDocument/references {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 30, "character": 30}, "context": {"includeDeclaration": true}}
+[{"range": {"end": {"character": 17, "line": 3}, "start": {"character": 11, "line": 3}}, "uri": "$CASES/helper.pyk"}, {"range": {"end": {"character": 25, "line": 6}, "start": {"character": 19, "line": 6}}, "uri": "$CASES/features.pyk"}, {"range": {"end": {"character": 33, "line": 30}, "start": {"character": 27, "line": 30}}, "uri": "$CASES/features.pyk"}]
+> request textDocument/documentHighlight {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 26, "character": 4}}
+[{"kind": 3, "range": {"end": {"character": 5, "line": 26}, "start": {"character": 4, "line": 26}}}, {"kind": 2, "range": {"end": {"character": 25, "line": 27}, "start": {"character": 24, "line": 27}}}]
+> request textDocument/prepareRename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 29, "character": 2}}
+{"placeholder": "label", "range": {"end": {"character": 5, "line": 29}, "start": {"character": 0, "line": 29}}}
+> request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 29, "character": 2}, "newName": "title"}
+{"changes": {"$CASES/features.pyk": [{"newText": "title", "range": {"end": {"character": 5, "line": 29}, "start": {"character": 0, "line": 29}}}, {"newText": "title", "range": {"end": {"character": 11, "line": 30}, "start": {"character": 6, "line": 30}}}, {"newText": "title", "range": {"end": {"character": 56, "line": 30}, "start": {"character": 51, "line": 30}}}]}}
+> request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 29, "character": 2}, "newName": "total"}
+{"error": {"code": -32602, "message": "'total' is already a name in scope at features.pyk 30:1, so the rename would change what it means"}}
+> request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 29, "character": 2}, "newName": "Title"}
 {"error": {"code": -32602, "message": "'Title' is not a name a program can bind"}}
-> request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 27, "character": 0}, "newName": "show"}
+> request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 30, "character": 0}, "newName": "show"}
 {"error": {"code": -32602, "message": "there is no name here to rename"}}
-> request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 13, "character": 5}, "newName": "plus"}
-{"changes": {"$CASES/features.pyk": [{"newText": "plus", "range": {"end": {"character": 7, "line": 13}, "start": {"character": 4, "line": 13}}}, {"newText": "plus", "range": {"end": {"character": 16, "line": 24}, "start": {"character": 13, "line": 24}}}]}}
-> request textDocument/inlayHint {"textDocument": {"uri": "$URI(features.pyk)"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 28, "character": 0}}}
-[{"kind": 1, "label": ": Int", "position": {"character": 11, "line": 16}}, {"kind": 1, "label": ": Int", "position": {"character": 15, "line": 16}}, {"kind": 1, "label": "-> Int", "paddingLeft": true, "position": {"character": 20, "line": 16}}, {"kind": 1, "label": ": Int", "position": {"character": 9, "line": 22}}, {"kind": 1, "label": ": Shape", "position": {"character": 5, "line": 25}}, {"kind": 1, "label": ": String", "position": {"character": 5, "line": 26}}]
+> request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 16, "character": 5}, "newName": "plus"}
+{"changes": {"$CASES/features.pyk": [{"newText": "plus", "range": {"end": {"character": 7, "line": 16}, "start": {"character": 4, "line": 16}}}, {"newText": "plus", "range": {"end": {"character": 16, "line": 27}, "start": {"character": 13, "line": 27}}}]}}
+> request textDocument/inlayHint {"textDocument": {"uri": "$URI(features.pyk)"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 31, "character": 0}}}
+[{"kind": 1, "label": ": Int", "position": {"character": 11, "line": 19}}, {"kind": 1, "label": ": Int", "position": {"character": 15, "line": 19}}, {"kind": 1, "label": "-> Int", "paddingLeft": true, "position": {"character": 20, "line": 19}}, {"kind": 1, "label": ": Int", "position": {"character": 9, "line": 25}}, {"kind": 1, "label": ": Shape", "position": {"character": 5, "line": 28}}, {"kind": 1, "label": ": String", "position": {"character": 5, "line": 29}}]
 > request textDocument/foldingRange {"textDocument": {"uri": "$URI(features.pyk)"}}
-[{"endLine": 14, "startLine": 13}, {"endLine": 17, "startLine": 16}, {"endLine": 20, "startLine": 19}, {"endLine": 24, "startLine": 23}, {"endLine": 1, "kind": "comment", "startLine": 0}, {"endLine": 12, "kind": "comment", "startLine": 5}, {"endLine": 3, "kind": "imports", "startLine": 2}]
+[{"endLine": 17, "startLine": 16}, {"endLine": 20, "startLine": 19}, {"endLine": 23, "startLine": 22}, {"endLine": 27, "startLine": 26}, {"endLine": 1, "kind": "comment", "startLine": 0}, {"endLine": 15, "kind": "comment", "startLine": 8}, {"endLine": 6, "kind": "imports", "startLine": 5}]
 > request textDocument/semanticTokens/full {"textDocument": {"uri": "$URI(features.pyk)"}}
-{"data": [3, 19, 6, 3, 0, 10, 4, 3, 3, 1, 0, 4, 1, 4, 1, 0, 8, 1, 4, 1, 1, 11, 1, 4, 0, 0, 4, 1, 4, 0, 2, 4, 5, 3, 1, 0, 6, 1, 4, 1, 0, 3, 2, 4, 1, 1, 4, 1, 4, 0, 0, 4, 2, 4, 0, 2, 9, 5, 1, 1, 1, 4, 6, 2, 1, 2, 4, 5, 5, 1, 1, 4, 1, 5, 3, 1, 4, 5, 5, 0, 0, 9, 3, 3, 0, 0, 4, 5, 5, 0, 0, 7, 1, 5, 2, 1, 0, 5, 5, 3, 0, 8, 6, 2, 0, 1, 0, 5, 5, 3, 1, 0, 5, 3, 4, 0, 6, 5, 5, 2, 0, 7, 5, 3, 0, 0, 6, 5, 5, 0, 0, 8, 6, 3, 0, 0, 11, 6, 0, 0, 0, 7, 5, 3, 0, 0, 6, 5, 5, 2, 0, 8, 5, 5, 2, 0, 6, 6, 6, 0]}
+{"data": [6, 19, 6, 3, 0, 10, 4, 3, 3, 1, 0, 4, 1, 4, 1, 0, 8, 1, 4, 1, 1, 11, 1, 4, 0, 0, 4, 1, 4, 0, 2, 4, 5, 3, 1, 0, 6, 1, 4, 1, 0, 3, 2, 4, 1, 1, 4, 1, 4, 0, 0, 4, 2, 4, 0, 2, 9, 5, 1, 1, 1, 4, 6, 2, 1, 2, 4, 5, 5, 1, 1, 4, 1, 5, 3, 1, 4, 5, 5, 0, 0, 9, 3, 3, 0, 0, 4, 5, 5, 0, 0, 7, 1, 5, 2, 1, 0, 5, 5, 3, 0, 8, 6, 2, 0, 1, 0, 5, 5, 3, 1, 0, 5, 3, 4, 0, 6, 5, 5, 2, 0, 7, 5, 3, 0, 0, 6, 5, 5, 0, 0, 8, 6, 3, 0, 0, 11, 6, 0, 0, 0, 7, 5, 3, 0, 0, 6, 5, 5, 2, 0, 8, 5, 5, 2, 0, 6, 6, 6, 0]}
 > shutdown
 null
 > exit

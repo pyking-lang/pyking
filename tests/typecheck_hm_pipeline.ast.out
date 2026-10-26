@@ -3,7 +3,7 @@ def filter(p:(a) -> Bool, lst:[a]) -> [a]:
         match lst:
             case [x, ..xs]:
                 if p(x):
-                    return [x] ++ filter(p, xs)
+                    return [x] + filter(p, xs)
                 else:
                     (p, xs)
             case []:
@@ -11,7 +11,7 @@ def filter(p:(a) -> Bool, lst:[a]) -> [a]:
 def zip(one:[a], other:[b]) -> [(a, b)]:
     match (one, other):
         case ([x, ..xs], [y, ..ys]):
-            [(x, y)] ++ zip(xs, ys)
+            [(x, y)] + zip(xs, ys)
         case (_, _):
             []
 def fold(f:(a, b) -> a, acc:a, lst:[b]) -> a:
@@ -28,7 +28,7 @@ def short(word:String) -> Bool:
 def add(total:Int, n:Int) -> Int:
     total + n
 def join(text:String, word:String) -> String:
-    text ++ word
+    text + word
 def take_first(total:Int, pair:(Int, a)) -> Int:
     (n, s): (Int, a) = pair
     total + n

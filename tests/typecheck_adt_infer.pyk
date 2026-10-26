@@ -26,4 +26,4 @@ p = Pair(1, "one")
 q = swap(p)
 none = No
 print(q, get(Yes(2), 0), get(none, "empty"))
-print(p.first + 1, q.first ++ "!")
+print(p.first + 1, q.first + "!")

@@ -2,5 +2,5 @@
 import tinyweb as tw
 
 label = tw.label("volume 5")
-tw.slider(0, 10, 5, on_change = (n: Int) => tw.set_text(label, "volume " ++ string(n) ++ (if n > 7 then " (loud)" else "")))
+tw.slider(0, 10, 5, on_change = lam (n: Int). tw.set_text(label, "volume " + string(n) + (if n > 7 then " (loud)" else "")))
 print("")

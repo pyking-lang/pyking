@@ -77,6 +77,8 @@ type host = {
       machine.
     hosted -- the ones implemented in a target language, which the
       machine reaches through the host's `connect`.
+    features -- what the entries' `use` lines have turned on, for every
+      entry after them (design/steps.md, step 1).
     host -- where the session's lines go. *)
 type session = {
   seen : stmt list;
@@ -93,6 +95,7 @@ type session = {
   sigmaps : (string * Typesystem.sigmap) list;
   exports : (string * (string * Interpreter.value) list) list;
   hosted : Module.t list;
+  features : string list;
   host : host;
 }
 
@@ -123,6 +126,7 @@ let new_session ?(libs = []) host =
     sigmaps = [];
     exports = [];
     hosted = [];
+    features = [];
     host;
   }
 
@@ -131,10 +135,31 @@ let new_session ?(libs = []) host =
 (* A session is one module, written an entry at a time. *)
 let repl_module = "<repl>"
 
-(** source as a list of statements. Raises Lex_error/Parse_error.
-    string? -> string -> [stmt] *)
-let parse_source ?(name = "<repl>") source =
-  Parser.parse (Lexer.lexing name (Lexer.chars_of_string (source ^ "\n")))
+(** source as a list of statements, with `features` already on.
+    Raises Lex_error/Parse_error. string? -> [string]? -> string -> [stmt] *)
+let parse_source ?(name = "<repl>") ?(features = []) source =
+  snd
+    (Parser.parse_with features
+       (Lexer.lexing name (Lexer.chars_of_string (source ^ "\n"))))
+
+(** session with these features on, as a `use` line would turn them
+    on. session -> [string] -> session *)
+let with_features session features =
+  { session with
+    features = session.features @ List.filter (fun f -> not (List.mem f session.features)) features }
+
+(** One entry's statements, parsed with what the session's earlier
+    `use` lines turned on, and the session with what this entry's own
+    turn on added: a `use` typed at the prompt holds for the rest of the
+    session. Raises Lex_error/Parse_error.
+    string? -> session -> string -> (session, [stmt]) *)
+let parse_entry ?(name = "<repl>") session source =
+  let own, stmts =
+    Parser.parse_with session.features
+      (Lexer.lexing name (Lexer.chars_of_string (source ^ "\n")))
+  in
+  let added = List.filter (fun f -> not (List.mem f session.features)) own in
+  ({ session with features = session.features @ added }, stmts)
 
 (** Whether source is a whole entry, per the parser (anything wrong for
     another reason counts as complete). string -> bool *)
@@ -690,7 +715,7 @@ let meta_type session argument report =
     session.host.write "usage: :type <expression>";
     plain session)
   else
-    match parse_source argument with
+    match parse_source ~features:session.features argument with
     | exception (Lexer.Lex_error _ as e) ->
         report e;
         plain session
@@ -722,7 +747,7 @@ let meta_ast session argument report =
     session.host.write "usage: :ast <statement>";
     plain session)
   else
-    match parse_source argument with
+    match parse_source ~features:session.features argument with
     | stmts ->
         session.host.write (pprint_program stmts false None);
         plain session

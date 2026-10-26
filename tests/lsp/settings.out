@@ -16,7 +16,7 @@ diagnostics $CASES/broken.pyk v2 []
 > config {"pyking": {"diagnostics": "change"}}
 > change broken.pyk
 > idle
-diagnostics $CASES/broken.pyk v4 [{"code": "Type error", "message": "`+` cannot be applied to Int and String; it accepts Int + Int or Float + Float", "range": {"end": {"character": 15, "line": 0}, "start": {"character": 8, "line": 0}}, "severity": 1, "source": "pyking"}]
+diagnostics $CASES/broken.pyk v4 [{"code": "Type error", "message": "`+` cannot be applied to Int and String; it accepts Int + Int or Float + Float or String + String or two lists of one type. `+` joins two Strings and converts nothing: write string(n)", "range": {"end": {"character": 15, "line": 0}, "start": {"character": 8, "line": 0}}, "severity": 1, "source": "pyking"}]
 > shutdown
 null
 > exit

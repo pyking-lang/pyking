@@ -12,8 +12,8 @@
 {"body": {}, "command": "launch", "message": "missing.pyk: No such file or directory", "success": false, "type": "response"}
 > request launch {"program": "broken.pyk"}
 {"body": {}, "command": "launch", "message": "'broken.pyk' 1:3-1:6 Type error: this binding is annotated Int, but its value has type String", "success": false, "type": "response"}
-> break basics.pyk 6 7
-{"body": {"breakpoints": [{"id": 1, "line": 6, "verified": false}, {"id": 2, "line": 7, "verified": false}]}, "command": "setBreakpoints", "success": true, "type": "response"}
+> break basics.pyk 8 9
+{"body": {"breakpoints": [{"id": 1, "line": 8, "verified": false}, {"id": 2, "line": 9, "verified": false}]}, "command": "setBreakpoints", "success": true, "type": "response"}
 > request frobnicate {}
 {"body": {}, "command": "frobnicate", "message": "pyk dap does not handle 'frobnicate'", "success": false, "type": "response"}
 > disconnect

@@ -39,12 +39,23 @@ type token =
   | TokFloat of info * float
   | TokString of info * string
   | TokAdd of info (* '+' user defined *)
-  | TokConcat of info (* '++' (string and list concatenation) *)
+  | TokConcat of info (* '++' (no longer an operator: `+` joins) *)
   | TokSub of info (* '-' user defined *)
   | TokArrow of info (* '->' (single-expression `case` clause) *)
-  | TokFatArrow of info (* '=>' (lambda: `x => x + 1`) *)
+  | TokFatArrow of info (* '=>' (no longer a lambda: `lam x. e` is) *)
   | TokMul of info (* '*' user defined *)
   | TokDiv of info (* '/' user defined *)
+  | TokPercent of info (* '%' (remainder) *)
+  | TokCaret of info (* '^' (power) *)
+  | TokStarStar of info (* '**' (not an operator: `^` is power) *)
+  | TokNotEq of info (* '!=' *)
+  | TokBang of info (* '!' (another spelling of `not`) *)
+  | TokAmpAmp of info (* '&&' (another spelling of `and`) *)
+  | TokBarBar of info (* '||' (another spelling of `or`) *)
+  | TokAmp of info (* '&' (bitwise and) *)
+  | TokTilde of info (* '~' (bitwise not) *)
+  | TokShiftLeft of info (* '<<' *)
+  | TokShiftRight of info (* '>>' *)
   | TokLessThanEq of info (* '<=' *)
   | TokLessThan of info (* '<' *)
   | TokGreatThanEq of info (* '>=' *)
@@ -59,7 +70,7 @@ type token =
   | TokDot of info (* '.' *)
   | TokDotDot of info (* '..' (list-pattern "rest" marker: `..`/`..name`) *)
   | TokComma of info (* ',' *)
-  | TokBar of info (* '|' (or-pattern: `case 1 | 2:`) *)
+  | TokBar of info (* '|' (or-pattern: `case 1 | 2:`; bitwise or) *)
   | TokLBracket of info (* '[' *)
   | TokRBracket of info (* ']' *)
   | TokDef of info (* 'def' *)
@@ -91,6 +102,15 @@ type token =
   | TokTypeBool of info (* 'Bool' (type annotation) *)
   | TokTrue of info (* 'true' (boolean literal) *)
   | TokFalse of info (* 'false' (boolean literal) *)
+  | TokUse of info (* 'use' (turns on a feature: `use mutation`) *)
+  | TokLam of info (* 'lam' (lambda: `lam x. x + 1`) *)
+  | TokAnd of info (* 'and' *)
+  | TokOr of info (* 'or' *)
+  | TokNot of info (* 'not' *)
+  | TokXor of info (* 'xor' (bitwise exclusive or) *)
+  | TokReserved of info * string
+      (* a word kept for a later part of the language: 'class',
+         'interface', 'extends', 'self', 'super' *)
   | TokIdent of info * string
 
 (** The source span a token carries. token -> info *)
@@ -105,6 +125,10 @@ val pprint_info : info -> string
 
 (** Every word the lexer reserves. [string] *)
 val keywords : string list
+
+(** The reserved words nothing in the language uses yet, kept for a
+    later part of it. [string] *)
+val reserved_words : string list
 
 (** A string as the character list the lexer reads. string -> [char] *)
 val chars_of_string : string -> char list

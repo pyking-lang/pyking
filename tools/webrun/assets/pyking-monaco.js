@@ -42,9 +42,9 @@ export function registerPyking(monaco, words) {
         [/0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d+(?:\.\d+)?/, "number"],
         // `def name` -- the name being defined, not just the keyword.
         [/(def)(\s+)([A-Za-z_][A-Za-z_0-9]*)/, ["keyword", "white", "function"]],
-        // ':=' must not lex as ':' + '=', '=>' not as '=' + '>', '++' not
-        // as two '+'.
-        [/:=|->|=>|\.\.|==|!=|<=|>=|\+\+|[<>+\-*/=]/, "operator"],
+        // The two-character operators first: ':=' must not lex as ':' +
+        // '=', '<<' not as two '<', '&&' not as two '&'.
+        [/:=|->|\.\.|==|!=|<=|>=|<<|>>|&&|\|\||[<>+\-*/%^&|~!=]/, "operator"],
         [/[A-Za-z_][A-Za-z_0-9]*/, {
           cases: {
             "@keywords": "keyword",

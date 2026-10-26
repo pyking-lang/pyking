@@ -7,7 +7,7 @@
 # (docs/overloading.md).
 
 def int::twice(x: Int) -> Int: x * 2
-def string::twice(x: String) -> String: x ++ x
+def string::twice(x: String) -> String: x + x
 
 print(twice(4), twice("ab"), int::twice(5))
 
@@ -19,12 +19,12 @@ print(doubled(8))
 # candidate takes a list, and choosing it settles the element type.
 def list::first(xs: [a], fallback: a) -> a:
     match xs:
-        case [x] ++ _: x
+        case [x] + _: x
         case _: fallback
 
 def string::first(s: String, fallback: String) -> String:
     match s:
-        case "x" ++ rest: rest
+        case "x" + rest: rest
         case _: fallback
 
 print(first([9, 8], 0), first("xy", "?"), first("no", "?"))

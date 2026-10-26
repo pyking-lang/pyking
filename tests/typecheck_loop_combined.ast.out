@@ -6,7 +6,7 @@ def joined(words:[String], sep:String) -> String:
         if text == '':
             w
         else:
-            text ++ sep ++ w
+            text + sep + w
 def countdown(from_:Int) -> Int:
     return loop i: Int = from_ while i > 0:
         i - 1
@@ -18,7 +18,7 @@ def looked_at(xs:[Int], limit:Int) -> Int:
             seen + 1
 def indexed(xs:[String]) -> [(Int, String)]:
     (count, acc): (Int, [(Int, String)]) = loop (i, acc): (Int, [(Int, String)]) = (0, []) for x in xs:
-        (i + 1, [(i, x)] ++ acc)
+        (i + 1, [(i, x)] + acc)
     return acc
 print(total([1, 2, 3, 4]), total([]))
 print(joined(['a', 'b', 'c'], '-'), joined([], '-'))

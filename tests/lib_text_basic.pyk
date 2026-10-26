@@ -8,10 +8,10 @@ crown = "åäö 👑"
 
 print(text.length("hello"), text.length(crown), text.length(""), text.length("👑👑"))
 
-print("[" ++ text.slice(crown, 0, 3) ++ "]", "[" ++ text.slice(crown, 4, 5) ++ "]")
-print("[" ++ text.slice(crown, -5, 2) ++ "]", "[" ++ text.slice(crown, 3, 99) ++ "]")
-print("[" ++ text.slice(crown, 3, 3) ++ "]", "[" ++ text.slice(crown, 4, 1) ++ "]")
-print("[" ++ text.slice("", 0, 1) ++ "]", "[" ++ text.slice("abc", 99, 100) ++ "]")
+print("[" + text.slice(crown, 0, 3) + "]", "[" + text.slice(crown, 4, 5) + "]")
+print("[" + text.slice(crown, -5, 2) + "]", "[" + text.slice(crown, 3, 99) + "]")
+print("[" + text.slice(crown, 3, 3) + "]", "[" + text.slice(crown, 4, 1) + "]")
+print("[" + text.slice("", 0, 1) + "]", "[" + text.slice("abc", 99, 100) + "]")
 
 print(text.char_at(crown, 0), text.char_at(crown, 4), text.char_at("abc", 2))
 print(text.char_at(crown, 5) == "", text.char_at(crown, -1) == "", text.char_at("", 0) == "")
@@ -42,9 +42,9 @@ print(text.ends_with(crown, "👑"), text.ends_with("", "a"), text.ends_with("a"
 print(text.upper("Hello, World! 123"), text.lower("Hello, World! 123"))
 print(text.upper(crown), text.lower("ÅÄÖ ABC"), text.upper("") == "")
 
-print("[" ++ text.trim("  two words \n") ++ "]", "[" ++ text.trim("\t\r\n ") ++ "]")
-print("[" ++ text.trim("") ++ "]", "[" ++ text.trim(" " ++ crown ++ "  ") ++ "]")
-print("[" ++ text.trim("no-space") ++ "]", "[" ++ text.trim(" a b ") ++ "]")
+print("[" + text.trim("  two words \n") + "]", "[" + text.trim("\t\r\n ") + "]")
+print("[" + text.trim("") + "]", "[" + text.trim(" " + crown + "  ") + "]")
+print("[" + text.trim("no-space") + "]", "[" + text.trim(" a b ") + "]")
 
 print(text.replace("one two one", "one", "1"), text.replace("aaa", "aa", "b"))
 print(text.replace("abc", "", "x"), text.replace("", "a", "b") == "", text.replace(crown, "ä", "ae"))

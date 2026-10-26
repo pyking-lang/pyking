@@ -4,9 +4,9 @@ def greet(names: [String], count: Int) -> Int:
     match names:
         case []: count
         case [name, ..rest]:
-            print("Hello,", name ++ "!")
+            print("Hello,", name + "!")
             greet(rest, count + 1)
 
 n = greet(sys.args(), 0)
-print(string(n) ++ " names   ")
+print(string(n) + " names   ")
 print("")

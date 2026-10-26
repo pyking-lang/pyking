@@ -91,7 +91,7 @@ demand is unification against a type the construct already knows:
    n * 2            `*` takes two Ints        →  unify(?n, Int)
    if c: ...        a condition is Bool       →  unify(?c, Bool)
    for x in xs:     a `for` walks a list      →  unify(?xs, [?e])
-   case [h] ++ t:   this pattern matches a list  →  unify(?s, [?e])
+   case [h] + t:    this pattern matches a list  →  unify(?s, [?e])
    f(x)             `f` is a function          →  unify(?f, (?a) -> ?b)
    n, s = pair      `pair` is a 2-tuple        →  unify(?p, (?a, ?b))
    return e         every path gives one type  →  unify(?r, typeof(e))
@@ -176,8 +176,8 @@ quantifier (§12a) — which is what lets a written `all` mention a
 variable from outside it:
 
 ```pyking
-def use : (all a. (a) -> a) -> ()
-def use(f):
+def apply : (all a. (a) -> a) -> ()
+def apply(f):
     print(f(1), f(true))            # `f` is polymorphic because it says so
 ```
 
@@ -253,7 +253,7 @@ names it is checked, and each use gets its own instance. That is
 `let`-polymorphism.
 
 ```pyking
-def use(f):
+def apply(f):
     print(f(1), f(true))             # error: argument 1 has type Bool,
                                      #        but Int was expected
 ```
@@ -269,7 +269,7 @@ however it is bound:
 def named(x): x
 print(named(1), named("a"))          # fine: a definition, generalised
 
-id = x => x
+id = lam x. x
 print(id(1))
 print(id("a"))                       # error: argument 1 has type
                                      #        String, but Int was
@@ -281,8 +281,8 @@ the body in the environment the lambda stands in, and answers a
 `TFunction` — nothing generalises it, so what the first use settles is
 what every later use is held to. A type variable *written* in a lambda
 parameter's annotation is a metavariable too, shared by every parameter
-that names it: a lambda has nothing to quantify one over, so `(x: a) =>
-x` means "some type, to be settled" rather than "every type".
+that names it: a lambda has nothing to quantify one over, so
+`lam (x: a). x` means "some type, to be settled" rather than "every type".
 
 That is Hindley-Milner's rule rather than a shortcut. Generalising at a
 lambda is what a higher-rank system does, and every guarantee in
@@ -365,7 +365,7 @@ things:
 ## 9. What is left of ad-hoc polymorphism
 
 Hindley-Milner has no overloading. Pyking has several overloaded things —
-`string`, `len`, the conversions `int`, `float` and `bool`, `==` and `++`
+`string`, `len`, the conversions `int`, `float` and `bool`, `==` and `+`
 — each accepting several unrelated types and no single type. A body that uses one on a parameter has made a demand
 unification cannot express.
 
@@ -389,7 +389,7 @@ The rule:
 
 ```pyking
 def announce(value):
-    'got ' ++ string(value)     # `string` asks what it was given
+    'got ' + string(value)     # `string` asks what it was given
 
 print(announce(1))           # announce : (Int) -> String
 # print(announce(true))      # error: argument 1 has type Bool, but Int

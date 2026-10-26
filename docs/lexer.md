@@ -132,13 +132,21 @@ grouped:
 - **Two-character operators are matched before their one-character
   prefix.** `'-' :: '>' :: xs` (the `->` of a return annotation and of
   a function type) comes before `'-' :: xs`; `'<' :: '=' :: xs`
-  before `'<' :: xs`; and so on for `>=`, `==`, `:=`, `=>`. `match`
+  before `'<' :: xs`; and so on for `>=`, `==`, `!=`, `:=`, `<<`, `>>`,
+  `&&`, `||`, `**`, `++` and `=>`. `match`
   tries arms in order, so this is the whole of "maximal munch" here —
   get the longer alternative in front of the shorter one it would
   otherwise shadow. There is no separate longest-match algorithm.
-  `=>` (a lambda) and `==` both come before `'=' :: xs`; they differ in
-  their second character, so their order relative to each other does not
+  `=>` and `==` both come before `'=' :: xs`; they differ in their
+  second character, so their order relative to each other does not
   matter, and neither is reachable from `>=`, which starts elsewhere.
+  `++`, `=>` and `**` are no longer operators, and are still read as one
+  token each so that the parser can refuse them by name (`'++' is now
+  written '+'`) rather than as two `+`.
+- **`use`, `lam`, `and`, `or`, `not` and `xor` are keywords**, and
+  `class`, `interface`, `extends`, `self` and `super` are reserved:
+  `keyword_token` makes each of those a `TokReserved`, which no rule of
+  the parser accepts where a name would stand (`reserved_words`).
 - **`string_until pred chars`** is the one general-purpose scanner,
   used for runs of spaces, digits, and identifier characters alike: the
   longest prefix satisfying a predicate, returned with what's left, so

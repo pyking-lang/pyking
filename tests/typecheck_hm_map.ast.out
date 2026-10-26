@@ -3,11 +3,11 @@ def identity(x:a) -> a:
 def double(n:Int) -> Int:
     n * 2
 def show(n:Int) -> String:
-    'n=' ++ string(n)
+    'n=' + string(n)
 def map(f:(a) -> b, lst:[a]) -> [b]:
     match lst:
         case [x, ..xs]:
-            [f(x)] ++ map(f, xs)
+            [f(x)] + map(f, xs)
         case []:
             []
 print(identity(4), identity('hi'))

@@ -40,6 +40,8 @@ print("Add your code here")
 ```
 
 ```pyking solution
+use mutation
+
 import io
 import text
 import tinyweb as tw

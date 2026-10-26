@@ -220,6 +220,8 @@ let synopsis =
   \                        target's own commands\n\
   \  --release             compile in release mode: every call to debug()\n\
   \                        is removed, and print() is kept\n\
+  \  --use <feature>       with the REPL, turn a feature on from the start,\n\
+  \                        as a 'use' line would: mutation or objects\n\
   \  --tinyweb-log         with the interpreter or the REPL, print what a\n\
   \                        program sends its tinyweb page, and what the page\n\
   \                        answers, on stderr as the page runs\n\
@@ -446,6 +448,7 @@ type options = {
   mode : string option;
   convert : string option;
   log : string option;
+  uses : string list;  (* `--use`: the REPL's features from the start *)
 }
 
 let default_options command =
@@ -471,6 +474,7 @@ let default_options command =
     mode = None;
     convert = None;
     log = None;
+    uses = [];
   }
 
 (* --- the library search path ---
@@ -560,6 +564,15 @@ let parse_args argv =
     | "--run" :: rest -> go { options with run = true } positional rest
     | "--release" :: rest -> go { options with release = true } positional rest
     | "--tinyweb-log" :: rest -> go { options with tinyweb_log = true } positional rest
+    | "--use" :: rest -> (
+        match rest with
+        | [] -> usage_error "--use requires a <feature> argument"
+        | feature :: rest ->
+            if not (List.mem feature Parser.features) then
+              usage_error
+                (Printf.sprintf "there is no feature '%s'; the features are %s" feature
+                   (String.concat " and " Parser.features));
+            go { options with uses = options.uses @ [ feature ] } positional rest)
     | "--symbols" :: rest -> go { options with symbols = true } positional rest
     | "--no-tail-call-opt" :: rest ->
         go { options with tail_calls = false } positional rest
@@ -684,6 +697,10 @@ let parse_args argv =
     usage_error
       "--tinyweb-log shows what an interpreted program sends its page, so it only \
        applies to 'pyk <file>' and 'pyk repl'";
+  if options.uses <> [] && command <> "repl" then
+    usage_error
+      "--use turns a feature on for a REPL session; a file turns its own on \
+       with a 'use' line";
   if options.release && not options.typecheck then
     usage_error
       "--release needs the types the checker works out, so it cannot be used \
@@ -1117,7 +1134,9 @@ let compile_unit ?c_program (unit : Module.t) tmap target path options checked =
        is printed *before* `apply_signatures`, so a `def name : type`
        line stays the line the source wrote rather than being folded
        onto its header. *)
-    (Syntax.pprint_program unit.stmts options.symbols tmap ^ "\n", [])
+    (* The `use` lines are not statements, so they are read back off the
+       module's tokens and written above it. *)
+    (Parser.use_lines unit.tokens ^ Syntax.pprint_program unit.stmts options.symbols tmap ^ "\n", [])
   else
     let program = Analyses.apply_signatures unit.stmts in
     if Targets.family_of target = Targets.Python then
@@ -2173,7 +2192,8 @@ let main argv =
   (* tinyweb's implementation reads this when its plugin is loaded, and
      prints its log on stderr as well (lib/tinyweb/tinyweb_external.ml). *)
   if options.tinyweb_log then Unix.putenv "PYKING_TINYWEB_TRACE" "1";
-  if options.command = "repl" then Repl.start ~libs:(library_path options) format_error
+  if options.command = "repl" then
+    Repl.start ~libs:(library_path options) ~features:options.uses format_error
   else if options.command = "plugins" then command_plugins options
   else if options.command = "notebook" && options.convert <> None then command_notebook_convert options
   else if options.command = "notebook" then command_web Web_tools.Notebook options

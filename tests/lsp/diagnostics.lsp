@@ -27,11 +27,17 @@ import nowhere
 .
 idle
 change broken.pyk
+use mutation
 var n = 1
 n := "two"
 .
 idle
 change broken.pyk
+var n = 1
+.
+idle
+change broken.pyk
+use mutation
 value = 1
 value := 2
 .

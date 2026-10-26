@@ -44,6 +44,8 @@
 # `# submodule NAME` describes a submodule, and `# topic: NAME` starts
 # the topic the exports after it are listed under.
 
+use mutation
+
 import math
 import text as strings
 
@@ -72,19 +74,19 @@ def ignore_float(value: Float):
 
 # A shape's numbers, as the words the page reads.
 def numbers2(a: Int, b: Int) -> String:
-    string(a) ++ " " ++ string(b)
+    string(a) + " " + string(b)
 
 
 def numbers3(a: Int, b: Int, c: Int) -> String:
-    numbers2(a, b) ++ " " ++ string(c)
+    numbers2(a, b) + " " + string(c)
 
 
 def numbers4(a: Int, b: Int, c: Int, d: Int) -> String:
-    numbers2(a, b) ++ " " ++ numbers2(c, d)
+    numbers2(a, b) + " " + numbers2(c, d)
 
 
 # Words joined by `between`. A chunk of words is joined before it is
-# added to the whole, so no one `++` copies much: the time it takes grows
+# added to the whole, so no one `+` copies much: the time it takes grows
 # with the number of words, not with its square.
 def joined_by(words: [String], between: String) -> String:
     var whole = ""
@@ -92,14 +94,14 @@ def joined_by(words: [String], between: String) -> String:
     var count = 0
     var chunks = 0
     for word in words:
-        chunk := if count == 0 then word else chunk ++ between ++ word
+        chunk := if count == 0 then word else chunk + between + word
         count := count + 1
         if count == 128:
-            whole := if chunks == 0 then chunk else whole ++ between ++ chunk
+            whole := if chunks == 0 then chunk else whole + between + chunk
             chunks := chunks + 1
             chunk := ""
             count := 0
-    if count == 0 then whole else if chunks == 0 then chunk else whole ++ between ++ chunk
+    if count == 0 then whole else if chunks == 0 then chunk else whole + between + chunk
 
 
 def joined(words: [String]) -> String:
@@ -118,15 +120,15 @@ def segments_text(segments: [(Point, Point)]) -> String:
 
 # The same for numbers with a fraction, which `tinyweb.smooth` draws with.
 def floats2(a: Float, b: Float) -> String:
-    string(a) ++ " " ++ string(b)
+    string(a) + " " + string(b)
 
 
 def floats3(a: Float, b: Float, c: Float) -> String:
-    floats2(a, b) ++ " " ++ string(c)
+    floats2(a, b) + " " + string(c)
 
 
 def floats4(a: Float, b: Float, c: Float, d: Float) -> String:
-    floats2(a, b) ++ " " ++ floats2(c, d)
+    floats2(a, b) + " " + floats2(c, d)
 
 
 def float_points_text(points: [smooth.Point]) -> String:
@@ -429,7 +431,7 @@ def color.between(a: Int, b: Int, t: Float) -> Float:
 # A number from 0 to 255 as two hexadecimal digits.
 def color.hex2(n: Int) -> String:
     clamped = color.part(n)
-    color.hex_digit(clamped / 16) ++ color.hex_digit(clamped - clamped / 16 * 16)
+    color.hex_digit(clamped / 16) + color.hex_digit(clamped - clamped / 16 * 16)
 
 
 def color.hex_digit(d: Int) -> String:
@@ -456,9 +458,9 @@ def color.hex_digit(d: Int) -> String:
 # `rgba(r, g, b, a)` where it is not.
 def color.css(c: color.Color) -> String:
     if c.a >= 1.0:
-        "#" ++ color.hex2(c.r) ++ color.hex2(c.g) ++ color.hex2(c.b)
+        "#" + color.hex2(c.r) + color.hex2(c.g) + color.hex2(c.b)
     else:
-        "rgba(" ++ string(color.part(c.r)) ++ ", " ++ string(color.part(c.g)) ++ ", " ++ string(color.part(c.b)) ++ ", " ++ string(color.unit(c.a)) ++ ")"
+        "rgba(" + string(color.part(c.r)) + ", " + string(color.part(c.g)) + ", " + string(color.part(c.b)) + ", " + string(color.unit(c.a)) + ")"
 
 
 # A colour a shape is drawn with: "" where there is none to draw.
@@ -471,11 +473,11 @@ def color.paint_text(p: color.Paint) -> String:
     match p:
         case color.Plain(c): color.drawn(c)
         case color.Linear(x1, y1, x2, y2, start, end, stops):
-            "linear-gradient(" ++ floats4(x1, y1, x2, y2) ++ "); 0.0 " ++ color.css(start) ++ "; 1.0 " ++ color.css(end) ++ stops
+            "linear-gradient(" + floats4(x1, y1, x2, y2) + "); 0.0 " + color.css(start) + "; 1.0 " + color.css(end) + stops
         case color.Radial(x1, y1, r1, x2, y2, r2, start, end, stops):
-            "radial-gradient(" ++ floats3(x1, y1, r1) ++ " " ++ floats3(x2, y2, r2) ++ "); 0.0 " ++ color.css(start) ++ "; 1.0 " ++ color.css(end) ++ stops
+            "radial-gradient(" + floats3(x1, y1, r1) + " " + floats3(x2, y2, r2) + "); 0.0 " + color.css(start) + "; 1.0 " + color.css(end) + stops
         case color.Conic(x, y, angle, start, end, stops):
-            "conic-gradient(" ++ floats3(x, y, angle) ++ "); 0.0 " ++ color.css(start) ++ "; 1.0 " ++ color.css(end) ++ stops
+            "conic-gradient(" + floats3(x, y, angle) + "); 0.0 " + color.css(start) + "; 1.0 " + color.css(end) + stops
 
 
 # Whether a paint was given: anything but the plain transparent colour
@@ -709,7 +711,7 @@ public def color.palette(name: String) -> [color.Color]:
         case "neon":
             [color.hex(0xff00ff), color.hex(0x00ffff), color.hex(0x39ff14), color.hex(0xffff00), color.hex(0xff3131)]
         case _:
-            debug("tinyweb: there is no palette called \"" ++ name ++ "\"; the palettes are ocean, candy, forest, sunset and neon")
+            debug("tinyweb: there is no palette called \"" + name + "\"; the palettes are ocean, candy, forest, sunset and neon")
             []
 
 
@@ -761,15 +763,15 @@ public datatype color.Paint:
 ## ```stdout
 ## ```
 public def color.stop(paint: color.Paint, at: Float, c: color.Color) -> color.Paint:
-    more = "; " ++ string(at) ++ " " ++ color.css(c)
+    more = "; " + string(at) + " " + color.css(c)
     match paint:
         case color.Plain(_): paint
         case color.Linear(x1, y1, x2, y2, start, end, stops):
-            color.Linear(x1, y1, x2, y2, start, end, stops = stops ++ more)
+            color.Linear(x1, y1, x2, y2, start, end, stops = stops + more)
         case color.Radial(x1, y1, r1, x2, y2, r2, start, end, stops):
-            color.Radial(x1, y1, r1, x2, y2, r2, start, end, stops = stops ++ more)
+            color.Radial(x1, y1, r1, x2, y2, r2, start, end, stops = stops + more)
         case color.Conic(x, y, angle, start, end, stops):
-            color.Conic(x, y, angle, start, end, stops = stops ++ more)
+            color.Conic(x, y, angle, start, end, stops = stops + more)
 
 
 # --- tinyweb: the page, canvases and drawing ---
@@ -988,7 +990,7 @@ public def circle(c: String, x: Int, y: Int, radius: Int, fill: color.Color = co
 ## ```stdout
 ## ```
 public def rect(c: String, x: Int, y: Int, w: Int, h: Int, fill: color.Color = color.black, stroke: color.Color = color.none, width: Int = 1, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style(), radius: Int = 0) -> ():
-    shape(c, "rect", numbers4(x, y, w, h) ++ " " ++ string(radius), fill, stroke, width, alpha, paint, style)
+    shape(c, "rect", numbers4(x, y, w, h) + " " + string(radius), fill, stroke, width, alpha, paint, style)
 
 
 ## Draws an ellipse on the canvas `c`: a circle stretched to `rx` across
@@ -1047,7 +1049,7 @@ public def ellipse(c: String, x: Int, y: Int, rx: Int, ry: Int, fill: color.Colo
 ## ```stdout
 ## ```
 public def arc(c: String, x: Int, y: Int, radius: Int, start: Float, end: Float, fill: color.Color = color.black, stroke: color.Color = color.none, width: Int = 1, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style()) -> ():
-    shape(c, "arc", numbers3(x, y, radius) ++ " " ++ floats2(start, end), fill, stroke, width, alpha, paint, style)
+    shape(c, "arc", numbers3(x, y, radius) + " " + floats2(start, end), fill, stroke, width, alpha, paint, style)
 
 
 ## Draws a closed shape through the points, in order, back to the first:
@@ -1149,7 +1151,7 @@ public def path(c: String, points: [Point], stroke: color.Color = color.black, w
 ## ```stdout
 ## ```
 public def curve(c: String, x1: Int, y1: Int, cx: Int, cy: Int, x2: Int, y2: Int, stroke: color.Color = color.black, width: Int = 1, alpha: Float = 1.0, style: Style = Style()) -> ():
-    stroked(c, "curve", numbers2(x1, y1) ++ " " ++ numbers4(cx, cy, x2, y2), stroke, width, alpha, style)
+    stroked(c, "curve", numbers2(x1, y1) + " " + numbers4(cx, cy, x2, y2), stroke, width, alpha, style)
 
 
 ## Draws many separate straight lines in one go, all of one colour and
@@ -1201,7 +1203,7 @@ public def lines(c: String, segments: [(Point, Point)], stroke: color.Color = co
 ## ```stdout
 ## ```
 public def bezier(c: String, x1: Int, y1: Int, ax: Int, ay: Int, bx: Int, by: Int, x2: Int, y2: Int, stroke: color.Color = color.black, width: Int = 1, alpha: Float = 1.0, style: Style = Style()) -> ():
-    stroked(c, "bezier", numbers4(x1, y1, ax, ay) ++ " " ++ numbers4(bx, by, x2, y2), stroke, width, alpha, style)
+    stroked(c, "bezier", numbers4(x1, y1, ax, ay) + " " + numbers4(bx, by, x2, y2), stroke, width, alpha, style)
 
 
 ## Erases a rectangle of the canvas `c`: what was drawn there goes, and
@@ -1251,9 +1253,9 @@ public def erase(c: String, x: Int, y: Int, w: Int, h: Int) -> ():
 ## ```stdout
 ## ```
 public def line_style(c: String, cap: String = "round", join: String = "round", dash: Float = 0.0, gap: Float = 0.0, offset: Float = 0.0, dash2: Float = 0.0, gap2: Float = 0.0) -> ():
-    first = if dash <= 0.0 then "" else if gap <= 0.0 then " " ++ floats2(dash, dash) else " " ++ floats2(dash, gap)
-    second = if dash <= 0.0 then "" else if dash2 <= 0.0 then "" else if gap2 <= 0.0 then " " ++ floats2(dash2, dash2) else " " ++ floats2(dash2, gap2)
-    set_state(c, "line_style", cap ++ " " ++ join, string(offset) ++ first ++ second)
+    first = if dash <= 0.0 then "" else if gap <= 0.0 then " " + floats2(dash, dash) else " " + floats2(dash, gap)
+    second = if dash <= 0.0 then "" else if dash2 <= 0.0 then "" else if gap2 <= 0.0 then " " + floats2(dash2, dash2) else " " + floats2(dash2, gap2)
+    set_state(c, "line_style", cap + " " + join, string(offset) + first + second)
 
 
 ## Keeps everything drawn on the canvas `c` after it inside a rectangle:
@@ -1277,7 +1279,7 @@ public def line_style(c: String, cap: String = "round", join: String = "round", 
 ## ```stdout
 ## ```
 public def clip_rect(c: String, x: Int, y: Int, w: Int, h: Int) -> ():
-    set_state(c, "clip", "rect", numbers4(x, y, w, h) ++ " 0")
+    set_state(c, "clip", "rect", numbers4(x, y, w, h) + " 0")
 
 
 ## Keeps everything drawn on the canvas `c` after it inside a circle,
@@ -1569,7 +1571,7 @@ public def blend(c: String, mode: String) -> ():
         case "normal" | "add":
             set_state(c, "blend", mode, "")
         case _:
-            debug("tinyweb: there is no blending called \"" ++ mode ++ "\"; the modes are normal and add")
+            debug("tinyweb: there is no blending called \"" + mode + "\"; the modes are normal and add")
 
 
 # topic: Images
@@ -1925,7 +1927,7 @@ public def remove(id: String) -> ():
 ## ```stdout
 ## ```
 public def value_of(id: String) -> String:
-    report_text("value." ++ id)
+    report_text("value." + id)
 
 
 # topic: Styles
@@ -1949,16 +1951,16 @@ def style_color(id: String, kind: String, property: String, c: color.Color):
 # A border: its colour, and how wide it is; either left out keeps it.
 def style_border(id: String, kind: String, border: color.Color, width: Int):
     if color.is_theme(border):
-        if width >= 0 then apply_style(id, kind, "border", string(width) ++ "px solid currentColor") else ()
+        if width >= 0 then apply_style(id, kind, "border", string(width) + "px solid currentColor") else ()
     else if border.a <= 0.0:
         apply_style(id, kind, "border", "none")
     else:
-        apply_style(id, kind, "border", string(if width >= 0 then width else 1) ++ "px solid " ++ color.css(border))
+        apply_style(id, kind, "border", string(if width >= 0 then width else 1) + "px solid " + color.css(border))
 
 
 # A length in pixels; a negative one leaves it as it is.
 def style_pixels(id: String, kind: String, property: String, value: Int):
-    if value < 0 then () else apply_style(id, kind, property, string(value) ++ "px")
+    if value < 0 then () else apply_style(id, kind, property, string(value) + "px")
 
 
 ## Gives the page one of tinyweb's looks, forgetting what was changed
@@ -1981,7 +1983,7 @@ public def theme(name: String) -> ():
     if known_theme(name):
         apply_style("", "theme", "name", name)
     else:
-        debug("tinyweb: there is no theme called \"" ++ name ++ "\"; the themes are light, dark, plain, paper and retro")
+        debug("tinyweb: there is no theme called \"" + name + "\"; the themes are light, dark, plain, paper and retro")
 
 
 ## Changes the page's look: its colours, its text, and the space round
@@ -2374,6 +2376,7 @@ public def after(seconds: Float, f: () -> ()) -> String:
 ##
 ## # Examples
 ## ```pyking
+## use mutation
 ## import tinyweb as tw
 ## tw.web_init(0)
 ## clock = tw.label("0")
@@ -2420,7 +2423,7 @@ def sound.settings(at: Float, volume: Float, rate: Float, pan: Float, voice: sou
     v = if volume == 1.0 then voice.volume else volume
     r = if rate == 1.0 then voice.rate else rate
     p = if pan == 0.0 then voice.pan else pan
-    floats4(at, v, r, p) ++ " " ++ string(voice.channel) ++ " " ++ bit(voice.reverse)
+    floats4(at, v, r, p) + " " + string(voice.channel) + " " + bit(voice.reverse)
 
 
 ## Plays a sample `load_sample` loaded, once, to its end: a drum hit, a
@@ -2562,7 +2565,7 @@ public struct sound.Voice(volume = 1.0, rate = 1.0, pan = 0.0, channel = 0, loop
 public def sound.start(sample: String, at: Float = 0.0, volume: Float = 1.0, rate: Float = 1.0, pan: Float = 0.0, looping: Bool = false, voice: sound.Voice = sound.Voice()) -> String:
     id = fresh_id("voice")
     looped = if looping then true else voice.looping
-    command("start", id, sample, sound.settings(at, volume, rate, pan, voice) ++ " " ++ bit(looped), 2)
+    command("start", id, sample, sound.settings(at, volume, rate, pan, voice) + " " + bit(looped), 2)
     id
 
 
@@ -2672,7 +2675,7 @@ public def sound.master_volume(volume: Float) -> ():
 ## ```stdout
 ## ```
 public def sound.tone(frequency: Float, at: Float = 0.0, duration: Float = 0.5, wave: String = "sine", volume: Float = 0.5, pan: Float = 0.0, channel: Int = 0) -> ():
-    command("tone", "", wave, floats4(frequency, at, duration, volume) ++ " " ++ string(pan) ++ " " ++ string(channel), 2)
+    command("tone", "", wave, floats4(frequency, at, duration, volume) + " " + string(pan) + " " + string(channel), 2)
 
 
 ## The frequency of a note named the usual way: a letter from A to G, a
@@ -2925,7 +2928,7 @@ public def sound.resume() -> ():
 ## ```stdout
 ## ```
 public def sound.channel_style(channel: Int, volume: Float = 1.0, pan: Float = 0.0, echo: Float = 0.0, echo_time: Float = 0.3, feedback: Float = 0.35, reverb: Float = 0.0, low_pass: Float = 0.0) -> ():
-    command("channel", string(channel), "", floats4(volume, pan, echo, echo_time) ++ " " ++ floats3(feedback, reverb, low_pass), 1)
+    command("channel", string(channel), "", floats4(volume, pan, echo, echo_time) + " " + floats3(feedback, reverb, low_pass), 1)
 
 
 # topic: Listening
@@ -2949,7 +2952,7 @@ public def sound.channel_style(channel: Int, volume: Float = 1.0, pan: Float = 0
 ## ```stdout
 ## ```
 public def sound.listen(bins: Int = 32, smoothing: Float = 0.8) -> ():
-    command("listen", "", "", string(bins) ++ " " ++ string(smoothing), 1)
+    command("listen", "", "", string(bins) + " " + string(smoothing), 1)
 
 
 ## How loud what plays is, as of the last frame, once `listen` has
@@ -3372,7 +3375,7 @@ public def layout.outside() -> ():
 ## ```
 public def layout.text_area(words: String = "", rows: Int = 4, columns: Int = 40, on_change: (String) -> () = ignore_text) -> String:
     id = fresh_id("text")
-    watch_text(id, "change", "value." ++ id, on_change)
+    watch_text(id, "change", "value." + id, on_change)
     command("text_area", id, words, numbers2(rows, columns), 0)
     id
 
@@ -3453,6 +3456,7 @@ public def net.download(name: String, words: String) -> ():
 ##
 ## # Examples
 ## ```pyking
+## use mutation
 ## import tinyweb as tw
 ## import tinyweb.net as net
 ## tw.web_init(0)
@@ -3657,7 +3661,7 @@ public def smooth.circles(c: String, circles: [(Float, Float, Float)], fill: col
 ## ```stdout
 ## ```
 public def smooth.rect(c: String, x: Float, y: Float, w: Float, h: Float, fill: color.Color = color.black, stroke: color.Color = color.none, width: Float = 1.0, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style(), radius: Float = 0.0) -> ():
-    smooth.shape(c, "rect", floats4(x, y, w, h) ++ " " ++ string(radius), fill, stroke, width, alpha, paint, style)
+    smooth.shape(c, "rect", floats4(x, y, w, h) + " " + string(radius), fill, stroke, width, alpha, paint, style)
 
 
 ## `tw.ellipse`, with a position and size that need not be whole.
@@ -3713,7 +3717,7 @@ public def smooth.ellipse(c: String, x: Float, y: Float, rx: Float, ry: Float, f
 ## ```stdout
 ## ```
 public def smooth.arc(c: String, x: Float, y: Float, radius: Float, start: Float, end: Float, fill: color.Color = color.black, stroke: color.Color = color.none, width: Float = 1.0, alpha: Float = 1.0, paint: color.Paint = color.Plain(color.none), style: Style = Style()) -> ():
-    smooth.shape(c, "arc", floats3(x, y, radius) ++ " " ++ floats2(start, end), fill, stroke, width, alpha, paint, style)
+    smooth.shape(c, "arc", floats3(x, y, radius) + " " + floats2(start, end), fill, stroke, width, alpha, paint, style)
 
 
 ## `tw.polygon`, through points that need not be whole.
@@ -3837,7 +3841,7 @@ public def smooth.path(c: String, points: [smooth.Point], stroke: color.Color = 
 ## ```stdout
 ## ```
 public def smooth.curve(c: String, x1: Float, y1: Float, cx: Float, cy: Float, x2: Float, y2: Float, stroke: color.Color = color.black, width: Float = 1.0, alpha: Float = 1.0, style: Style = Style()) -> ():
-    smooth.stroked(c, "curve", floats2(x1, y1) ++ " " ++ floats4(cx, cy, x2, y2), stroke, width, alpha, style)
+    smooth.stroked(c, "curve", floats2(x1, y1) + " " + floats4(cx, cy, x2, y2), stroke, width, alpha, style)
 
 
 ## `tw.bezier`, through points that need not be whole.
@@ -3864,7 +3868,7 @@ public def smooth.curve(c: String, x1: Float, y1: Float, cx: Float, cy: Float, x
 ## ```stdout
 ## ```
 public def smooth.bezier(c: String, x1: Float, y1: Float, ax: Float, ay: Float, bx: Float, by: Float, x2: Float, y2: Float, stroke: color.Color = color.black, width: Float = 1.0, alpha: Float = 1.0, style: Style = Style()) -> ():
-    smooth.stroked(c, "bezier", floats4(x1, y1, ax, ay) ++ " " ++ floats4(bx, by, x2, y2), stroke, width, alpha, style)
+    smooth.stroked(c, "bezier", floats4(x1, y1, ax, ay) + " " + floats4(bx, by, x2, y2), stroke, width, alpha, style)
 
 
 ## `tw.text`, at a position that need not be whole.

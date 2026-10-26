@@ -4,7 +4,7 @@ def divides(b: Int, a: Int) -> Bool:
 def word(k: Int) -> String:
     three = if divides(3, k) then "Fizz" else ""
     five = if divides(5, k) then "Buzz" else ""
-    if three ++ five == "" then string(k) else three ++ five
+    if three + five == "" then string(k) else three + five
 n = int(io.read_line())
 for k in range(n):
     print(word(k + 1))

@@ -75,6 +75,8 @@ tw.web_init(0)
 ```
 
 ```pyking solution
+use mutation
+
 import tinyweb as tw
 import tinyweb.color as color
 tw.web_init(0)

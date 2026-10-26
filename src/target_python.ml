@@ -62,6 +62,12 @@ type pyexpr =
   | PyEq of info * pyexpr * pyexpr
   | PyAttr of info * pyexpr * string (* target.name *)
   | PyAnd of info * pyexpr * pyexpr (* left and right *)
+  | PyBinOp of info * string * int * int * int * pyexpr * pyexpr
+      (* left op right: the spelling, then the precedence it prints at
+         and the ones its left and right operands need *)
+  | PyUnOp of info * string * int * int * pyexpr
+      (* op operand: the spelling (with its space, for `not `), the
+         precedence it prints at and the one its operand needs *)
   | PySlice of info * pyexpr * pyexpr option * pyexpr option
       (* target[start:stop]; either end may be absent *)
   | PyIndex of info * pyexpr * pyexpr (* target[index] *)
@@ -214,6 +220,10 @@ let rec pprint_py_expr ?(min_prec = 0) e =
      lowest level and its operands are parenthesized where they need to
      be by the rule above. *)
   | PyAnd (_, l, r) -> binary and_prec and_prec (and_prec + 1) l "and" r
+  | PyBinOp (_, spelling, prec, left_prec, right_prec, l, r) ->
+      binary prec left_prec right_prec l spelling r
+  | PyUnOp (_, spelling, prec, operand_prec, operand) ->
+      parens prec min_prec (spelling ^ at operand_prec operand)
   | PyAdd (_, l, r) -> binary 2 2 3 l "+" r
   | PySub (_, l, r) -> binary 2 2 3 l "-" r
   | PyMul (_, l, r) -> binary 3 3 4 l "*" r
@@ -492,6 +502,14 @@ let float_divide_helper name =
   "__pyk_fdiv" ^ String.sub name (String.length "__pyk_float")
                    (String.length name - String.length "__pyk_float")
 
+(** The Float remainder and power helpers that go with it, named the
+    same way. string -> string *)
+let float_mod_helper name = "__pyk_fmod" ^ String.sub (float_divide_helper name) 10
+    (String.length (float_divide_helper name) - 10)
+
+let float_pow_helper name = "__pyk_fpow" ^ String.sub (float_divide_helper name) 10
+    (String.length (float_divide_helper name) - 10)
+
 (** builtin.ml's rule, in Python, and the division that goes with it.
     Python's own `repr` follows the same thresholds but writes the
     exponent with a sign and a leading zero, so the digits are found
@@ -508,6 +526,29 @@ let float_helper_def name =
       "        below = (a < 0.0) != (repr(b)[0] == '-')";
       "        return float('-inf') if below else float('inf')";
       "    return a / b";
+      "";
+      "";
+      Printf.sprintf "def %s(a, b):" (float_mod_helper name);
+      "    # Python's fmod raises on a zero divisor or an infinite";
+      "    # dividend, where IEEE answers NaN.";
+      "    if b == 0.0 or a != a or b != b or a in (float('inf'), float('-inf')):";
+      "        return float('nan')";
+      "    return __import__('math').fmod(a, b)";
+      "";
+      "";
+      Printf.sprintf "def %s(a, b):" (float_pow_helper name);
+      "    # Python's pow raises on an overflow, a zero to a negative";
+      "    # power and a negative number to a fraction, where IEEE";
+      "    # answers an infinity or a NaN.";
+      "    odd = b == b and abs(b) != float('inf') and b == int(b) and int(b) % 2 == 1";
+      "    try:";
+      "        return __import__('math').pow(a, b)";
+      "    except OverflowError:";
+      "        return float('-inf') if a < 0.0 and odd else float('inf')";
+      "    except ValueError:";
+      "        if a == 0.0:";
+      "            return float('-inf') if repr(a)[0] == '-' and odd else float('inf')";
+      "        return float('nan')";
       "";
       "";
       Printf.sprintf "def %s(x):" name;
@@ -552,13 +593,22 @@ let float_helper_def name =
    default (builtin.ml, "what a conversion reads"). *)
 
 let int_helper = "__pyk_int"
+let mod_helper = "__pyk_mod"
 let truncate_helper = "__pyk_trunc"
 let float_parse_helper = "__pyk_float_of"
 
 (** The text of one conversion helper. string -> string *)
 let conversion_def name =
   String.concat "\n"
-    (if name = int_helper then
+    (if name = mod_helper then
+       [
+         Printf.sprintf "def %s(a, b):" name;
+         "    # Pyking's remainder takes the dividend's sign, as its `/`";
+         "    # truncates toward zero; Python's `%` takes the divisor's.";
+         "    r = abs(a) % abs(b)";
+         "    return -r if a < 0 else r";
+       ]
+     else if name = int_helper then
        [
          Printf.sprintf "def %s(s):" name;
          "    digits = s[1:] if s[:1] in ('-', '+') else s";
@@ -2281,6 +2331,51 @@ let rec translate_expr e scope gen =
   | EGreatThanEq (info, l, r, _) ->
       binary (fun i a b -> PyGreatThanEq (i, a, b)) info l r
   | EEq (info, l, r, _) -> binary (fun i a b -> PyEq (i, a, b)) info l r
+  | EBinary (info, op, l, r, _) -> (
+      (* Python's levels, at this printer's scale: `and`/`or` 0, a
+         comparison 1, `+` 2, `*` 3, unary 4, an atom 5. Python's own
+         bitwise operators sit between a comparison and `+`, which the
+         scale has no room for, so they print at a comparison's level
+         with their operands one up: a nested one is parenthesized, which
+         reads the same. *)
+      let node spelling prec left_prec right_prec =
+        binary
+          (fun i a b -> PyBinOp (i, spelling, prec, left_prec, right_prec, a, b))
+          info l r
+      in
+      let helper name gen =
+        let py_l, gen = translate_expr l scope gen in
+        let py_r, gen = translate_expr r scope gen in
+        (PyCall (info, PyVar (info, name), [ py_l; py_r ]), gen)
+      in
+      match op with
+      | BAnd _ -> node "and" 0 1 1
+      | BOr _ -> node "or" 0 1 1
+      | BNeq -> node "!=" 1 2 2
+      | BBitAnd _ -> node "&" 1 2 2
+      | BBitOr _ -> node "|" 1 2 2
+      | BXor -> node "^" 1 2 2
+      | BShiftLeft -> node "<<" 1 2 2
+      | BShiftRight -> node ">>" 1 2 2
+      | BPow when is_float_expr l gen -> helper (float_pow_helper gen.float_name) gen
+      (* `**` binds tighter than a unary minus on its left and takes one
+         on its right, as Pyking's `^` does. *)
+      | BPow -> node "**" 4 5 4
+      | BMod when is_float_expr l gen -> helper (float_mod_helper gen.float_name) gen
+      | BMod ->
+          let gen =
+            if List.mem mod_helper gen.conversions then gen
+            else { gen with conversions = gen.conversions @ [ mod_helper ] }
+          in
+          helper mod_helper gen)
+  | EUnary (info, op, operand, _) ->
+      let py_operand, gen = translate_expr operand scope gen in
+      ( (match op with
+        | UNot _ -> PyUnOp (info, "not ", 0, 1, py_operand)
+        | UBitNot _ -> PyUnOp (info, "~", 4, 5, py_operand)),
+        gen )
+  | EIndex (info, l, index, _) ->
+      binary (fun i a b -> PyIndex (i, a, b)) info l index
   | ECall (info, EVar (_, name, _), args, _)
     when Builtin.crosses_host name && not (is_bound name scope) ->
       (* Python's own `print` answers None, and Pyking's answers unit --

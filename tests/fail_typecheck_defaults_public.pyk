@@ -4,4 +4,4 @@
 
 
 public def greet(who = "world") -> String:
-    return "hi " ++ who
+    return "hi " + who

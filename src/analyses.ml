@@ -457,6 +457,20 @@ let rec sym_expr counter e =
       let r, counter = sym_expr counter r in
       let s, counter = assign s counter in
       (EDiv (i, l, r, s), counter)
+  | EBinary (i, op, l, r, s) ->
+      let l, counter = sym_expr counter l in
+      let r, counter = sym_expr counter r in
+      let s, counter = assign s counter in
+      (EBinary (i, op, l, r, s), counter)
+  | EIndex (i, l, r, s) ->
+      let l, counter = sym_expr counter l in
+      let r, counter = sym_expr counter r in
+      let s, counter = assign s counter in
+      (EIndex (i, l, r, s), counter)
+  | EUnary (i, op, o, s) ->
+      let o, counter = sym_expr counter o in
+      let s, counter = assign s counter in
+      (EUnary (i, op, o, s), counter)
   | ENeg (i, o, s) ->
       let o, counter = sym_expr counter o in
       let s, counter = assign s counter in
@@ -818,9 +832,11 @@ let rec high_expr e =
     | ELessThanEq (_, l, r, _)
     | EGreatThan (_, l, r, _)
     | EGreatThanEq (_, l, r, _)
-    | EEq (_, l, r, _) ->
+    | EEq (_, l, r, _)
+    | EBinary (_, _, l, r, _)
+    | EIndex (_, l, r, _) ->
         max (high_expr l) (high_expr r)
-    | ENeg (_, o, _) -> high_expr o
+    | ENeg (_, o, _) | EUnary (_, _, o, _) -> high_expr o
     | ECall (_, f, args, _) ->
         max (high_expr f) (high_list high_expr (arg_exprs args))
     | EList (_, es, _) | ETuple (_, es, _) -> high_list high_expr es

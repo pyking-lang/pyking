@@ -3,7 +3,7 @@ def map(f:(a) -> b, xs:[a]) -> [b]:
         case []:
             return []
         case [head, ..rest]:
-            return [f(head)] ++ map(f, rest)
+            return [f(head)] + map(f, rest)
 def fold_left(step:(a, b) -> a, start:a, xs:[b]) -> a:
     loop (step, start, xs): ((a, b) -> a, a, [b]) = (step, start, xs):
         match xs:
@@ -18,7 +18,7 @@ def filter(keep:(a) -> Bool, xs:[a]) -> [a]:
         case [head, ..rest]:
             rest_kept: [a] = filter(keep, rest)
             if keep(head):
-                return [head] ++ rest_kept
+                return [head] + rest_kept
             else:
                 return rest_kept
 def double(n:Int) -> Int:
@@ -30,7 +30,7 @@ def add(total:Int, n:Int) -> Int:
 def bigger(best:Int, n:Int) -> Int:
     return if n > best then n else best
 def join(text:String, piece:String) -> String:
-    return text ++ piece
+    return text + piece
 def positive(n:Int) -> Bool:
     return n > 0
 numbers: [Int] = [1, 4, 2, 5]

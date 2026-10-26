@@ -1,26 +1,33 @@
-# `++` concatenates; `+` adds. The two are separate operators so that
-# neither has to be read as the other, and so that a backend never has
-# to ask a type in order to know which one was meant.
+# `+` joins two Strings or two lists, and adds two numbers. Which one a
+# `+` does is decided by its operands' type, and the two are never
+# mixed: every operand is a String, or every one a list, or every one a
+# number of one type.
 
 def shout(word: String) -> String:
-    word ++ "!"
+    word + "!"
 
 
 def join(a: String, b: String) -> String:
-    a ++ " " ++ b
+    a + " " + b
 
 
 # Strings, at the same precedence as `+` and associating to the left
 # (typecheck_int_string.pyk pins that in a printed AST).
-print("con" ++ "cat")
-print("a" ++ "b" ++ "c" ++ "d")
+print("con" + "cat")
+print("a" + "b" + "c" + "d")
 print(shout(join("hello", "there")))
 
-# The two never meet: `+` takes two Ints, `++` takes two Strings, and
-# nothing is both.
+# The two never meet: two Ints add, two Strings join, and nothing
+# converts one into the other.
 print(2 + 3)
-print("2" ++ "3")
+print("2" + "3")
+
+# Lists join the same way, whatever they hold, as long as both hold one
+# type.
+print([1, 2] + [3])
+print([] + ["only"])
+print([[1], [2]] + [[3, 4]])
 
 # `*` still binds tighter than either of them.
 print(1 + 2 * 3)
-print("<" ++ shout("x") ++ ">")
+print("<" + shout("x") + ">")

@@ -4,8 +4,8 @@ shown = tw.label("volume 5")
 
 def moved(n: Int):
     if n < 8:
-        tw.set_text(shown, "volume " ++ string(n))
+        tw.set_text(shown, "volume " + string(n))
     else:
-        tw.set_text(shown, "volume " ++ string(n) ++ " (loud)")
+        tw.set_text(shown, "volume " + string(n) + " (loud)")
 
 tw.slider(0, 10, 5, on_change = moved)

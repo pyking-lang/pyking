@@ -15,7 +15,7 @@ def joined(words:[String], sep:String) -> String:
         if text == "":
             w
         else:
-            text ++ sep ++ w
+            text + sep + w
 
 
 def countdown(from_:Int) -> Int:
@@ -41,7 +41,7 @@ def indexed(xs:[String]) -> [(Int, String)]:
     # of them; the binding takes it apart and keeps the half that was
     # wanted.
     (count, acc) = loop i, acc = 0, [] for x in xs:
-        (i + 1, [(i, x)] ++ acc)
+        (i + 1, [(i, x)] + acc)
     return acc
 
 

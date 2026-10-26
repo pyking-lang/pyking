@@ -46,12 +46,23 @@ type token =
   | TokFloat of info * float
   | TokString of info * string
   | TokAdd of info (* '+' user defined *)
-  | TokConcat of info (* '++' (string and list concatenation) *)
+  | TokConcat of info (* '++' (no longer an operator: `+` joins) *)
   | TokSub of info (* '-' user defined *)
   | TokArrow of info (* '->' (single-expression `case` clause) *)
-  | TokFatArrow of info (* '=>' (lambda: `x => x + 1`) *)
+  | TokFatArrow of info (* '=>' (no longer a lambda: `lam x. e` is) *)
   | TokMul of info (* '*' user defined *)
   | TokDiv of info (* '/' user defined *)
+  | TokPercent of info (* '%' (remainder) *)
+  | TokCaret of info (* '^' (power) *)
+  | TokStarStar of info (* '**' (not an operator: `^` is power) *)
+  | TokNotEq of info (* '!=' *)
+  | TokBang of info (* '!' (another spelling of `not`) *)
+  | TokAmpAmp of info (* '&&' (another spelling of `and`) *)
+  | TokBarBar of info (* '||' (another spelling of `or`) *)
+  | TokAmp of info (* '&' (bitwise and) *)
+  | TokTilde of info (* '~' (bitwise not) *)
+  | TokShiftLeft of info (* '<<' *)
+  | TokShiftRight of info (* '>>' *)
   | TokLessThanEq of info (* '<=' *)
   | TokLessThan of info (* '<' *)
   | TokGreatThanEq of info (* '>=' *)
@@ -66,7 +77,7 @@ type token =
   | TokDot of info (* '.' *)
   | TokDotDot of info (* '..' (list-pattern "rest" marker: `..`/`..name`) *)
   | TokComma of info (* ',' *)
-  | TokBar of info (* '|' (or-pattern: `case 1 | 2:`) *)
+  | TokBar of info (* '|' (or-pattern: `case 1 | 2:`; bitwise or) *)
   | TokLBracket of info (* '[' *)
   | TokRBracket of info (* ']' *)
   | TokDef of info (* 'def' *)
@@ -98,6 +109,15 @@ type token =
   | TokTypeBool of info (* 'Bool' (type annotation) *)
   | TokTrue of info (* 'true' (boolean literal) *)
   | TokFalse of info (* 'false' (boolean literal) *)
+  | TokUse of info (* 'use' (turns on a feature: `use mutation`) *)
+  | TokLam of info (* 'lam' (lambda: `lam x. x + 1`) *)
+  | TokAnd of info (* 'and' *)
+  | TokOr of info (* 'or' *)
+  | TokNot of info (* 'not' *)
+  | TokXor of info (* 'xor' (bitwise exclusive or) *)
+  | TokReserved of info * string
+      (* a word kept for a later part of the language: 'class',
+         'interface', 'extends', 'self', 'super' *)
   | TokIdent of info * string
 
 (** The source span a token carries. token -> info *)
@@ -113,6 +133,17 @@ let token_info tok =
   | TokFatArrow i -> i
   | TokMul i -> i
   | TokDiv i -> i
+  | TokPercent i -> i
+  | TokCaret i -> i
+  | TokStarStar i -> i
+  | TokNotEq i -> i
+  | TokBang i -> i
+  | TokAmpAmp i -> i
+  | TokBarBar i -> i
+  | TokAmp i -> i
+  | TokTilde i -> i
+  | TokShiftLeft i -> i
+  | TokShiftRight i -> i
   | TokLessThanEq i -> i
   | TokLessThan i -> i
   | TokGreatThanEq i -> i
@@ -159,6 +190,13 @@ let token_info tok =
   | TokTypeBool i -> i
   | TokTrue i -> i
   | TokFalse i -> i
+  | TokUse i -> i
+  | TokLam i -> i
+  | TokAnd i -> i
+  | TokOr i -> i
+  | TokNot i -> i
+  | TokXor i -> i
+  | TokReserved (i, _) -> i
   | TokIdent (i, _) -> i
 
 (** Formats one token for display. token -> string *)
@@ -174,6 +212,17 @@ let pprint_token tok =
   | TokFatArrow _ -> "TokFatArrow"
   | TokMul _ -> "TokMul"
   | TokDiv _ -> "TokDiv"
+  | TokPercent _ -> "TokPercent"
+  | TokCaret _ -> "TokCaret"
+  | TokStarStar _ -> "TokStarStar"
+  | TokNotEq _ -> "TokNotEq"
+  | TokBang _ -> "TokBang"
+  | TokAmpAmp _ -> "TokAmpAmp"
+  | TokBarBar _ -> "TokBarBar"
+  | TokAmp _ -> "TokAmp"
+  | TokTilde _ -> "TokTilde"
+  | TokShiftLeft _ -> "TokShiftLeft"
+  | TokShiftRight _ -> "TokShiftRight"
   | TokLessThanEq _ -> "TokLessThanEq"
   | TokLessThan _ -> "TokLessThan"
   | TokGreatThanEq _ -> "TokGreatThanEq"
@@ -220,6 +269,13 @@ let pprint_token tok =
   | TokTypeBool _ -> "TokTypeBool"
   | TokTrue _ -> "TokTrue"
   | TokFalse _ -> "TokFalse"
+  | TokUse _ -> "TokUse"
+  | TokLam _ -> "TokLam"
+  | TokAnd _ -> "TokAnd"
+  | TokOr _ -> "TokOr"
+  | TokNot _ -> "TokNot"
+  | TokXor _ -> "TokXor"
+  | TokReserved (_, s) -> Printf.sprintf "TokReserved('%s')" s
   | TokIdent (_, s) -> Printf.sprintf "TokIdent('%s')" s
 
 (* --- lexer --- *)
@@ -240,13 +296,20 @@ let is_digit_letter x = is_digit x || is_letter x
    refuses, and PYKING.md says so. *)
 let max_int_literal = 2147483647
 
+(* Words no program may bind, though nothing in the language uses them
+   yet: they are kept for objects (design/steps.md, step 12), so that
+   adding them breaks no program. *)
+let reserved_words = [ "class"; "interface"; "extends"; "self"; "super" ]
+
 let keywords =
   [
     "for"; "in"; "if"; "while"; "loop"; "break"; "continue"; "then"; "let";
     "else"; "var"; "def"; "return"; "match"; "case"; "public"; "implicit";
     "import";
     "from"; "as"; "datatype"; "struct"; "Int"; "Float"; "String"; "Bool"; "true"; "false";
+    "use"; "lam"; "and"; "or"; "not"; "xor";
   ]
+    @ reserved_words
 
 (** The keyword token `name` denotes, or None where it names no keyword.
     string -> info -> token option *)
@@ -280,6 +343,13 @@ let keyword_token name i =
   | "Bool" -> Some (TokTypeBool i)
   | "true" -> Some (TokTrue i)
   | "false" -> Some (TokFalse i)
+  | "use" -> Some (TokUse i)
+  | "lam" -> Some (TokLam i)
+  | "and" -> Some (TokAnd i)
+  | "or" -> Some (TokOr i)
+  | "not" -> Some (TokNot i)
+  | "xor" -> Some (TokXor i)
+  | word when List.mem word reserved_words -> Some (TokReserved (i, word))
   | _ -> None
 
 (** A character list as a string. [char] -> string *)
@@ -489,7 +559,8 @@ let lexing file chars =
         let length = 1 + body_length in
         lex ys r (c + length) stack depth line_start
           (TokString (fi r c length, text) :: tokens)
-    (* Operators that are user defined in real pyking *)
+    (* Operators that are user defined in real pyking. `++` is read as one
+       token so that the parser can say `+` joins now. *)
     | '+' :: '+' :: xs ->
         lex xs r (c + 2) stack depth line_start (TokConcat (fi r c 2) :: tokens)
     | '+' :: xs ->
@@ -499,10 +570,30 @@ let lexing file chars =
         lex xs r (c + 2) stack depth line_start (TokArrow (fi r c 2) :: tokens)
     | '-' :: xs ->
         lex xs r (c + 1) stack depth line_start (TokSub (fi r c 1) :: tokens)
+    | '*' :: '*' :: xs ->
+        lex xs r (c + 2) stack depth line_start (TokStarStar (fi r c 2) :: tokens)
     | '*' :: xs ->
         lex xs r (c + 1) stack depth line_start (TokMul (fi r c 1) :: tokens)
     | '/' :: xs ->
         lex xs r (c + 1) stack depth line_start (TokDiv (fi r c 1) :: tokens)
+    | '%' :: xs ->
+        lex xs r (c + 1) stack depth line_start (TokPercent (fi r c 1) :: tokens)
+    | '^' :: xs ->
+        lex xs r (c + 1) stack depth line_start (TokCaret (fi r c 1) :: tokens)
+    | '!' :: '=' :: xs ->
+        lex xs r (c + 2) stack depth line_start (TokNotEq (fi r c 2) :: tokens)
+    | '!' :: xs ->
+        lex xs r (c + 1) stack depth line_start (TokBang (fi r c 1) :: tokens)
+    | '&' :: '&' :: xs ->
+        lex xs r (c + 2) stack depth line_start (TokAmpAmp (fi r c 2) :: tokens)
+    | '&' :: xs ->
+        lex xs r (c + 1) stack depth line_start (TokAmp (fi r c 1) :: tokens)
+    | '~' :: xs ->
+        lex xs r (c + 1) stack depth line_start (TokTilde (fi r c 1) :: tokens)
+    | '<' :: '<' :: xs ->
+        lex xs r (c + 2) stack depth line_start (TokShiftLeft (fi r c 2) :: tokens)
+    | '>' :: '>' :: xs ->
+        lex xs r (c + 2) stack depth line_start (TokShiftRight (fi r c 2) :: tokens)
     | '<' :: '=' :: xs ->
         lex xs r (c + 2) stack depth line_start (TokLessThanEq (fi r c 2) :: tokens)
     | '<' :: xs ->
@@ -514,7 +605,8 @@ let lexing file chars =
     | '=' :: '=' :: xs ->
         lex xs r (c + 2) stack depth line_start (TokEqEq (fi r c 2) :: tokens)
     | '=' :: '>' :: xs ->
-        (* Pyking extension: a lambda, `x => x + 1` *)
+        (* Not an operator: read so that the parser can say a lambda is
+           now written `lam x. x + 1`. *)
         lex xs r (c + 2) stack depth line_start
           (TokFatArrow (fi r c 2) :: tokens)
     (* Language lex items *)
@@ -543,6 +635,8 @@ let lexing file chars =
         lex xs r (c + 1) stack depth line_start (TokDot (fi r c 1) :: tokens)
     | ',' :: xs ->
         lex xs r (c + 1) stack depth line_start (TokComma (fi r c 1) :: tokens)
+    | '|' :: '|' :: xs ->
+        lex xs r (c + 2) stack depth line_start (TokBarBar (fi r c 2) :: tokens)
     | '|' :: xs ->
         lex xs r (c + 1) stack depth line_start (TokBar (fi r c 1) :: tokens)
     | ' ' :: xs -> lex xs r (c + 1) stack depth line_start tokens

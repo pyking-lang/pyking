@@ -6,7 +6,7 @@ print(step(3, 4))
 def repeat(text:String, times:Int) -> String:
     if times <= 0:
         return ''
-    return text ++ repeat(text, times - 1)
+    return text + repeat(text, times - 1)
 print(repeat('ab', 3))
 print(repeat('ab', 1))
 def describe(flag:Bool, name:String, size:Int, ratio:Float) -> Float:

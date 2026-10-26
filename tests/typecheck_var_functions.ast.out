@@ -1,3 +1,4 @@
+use mutation
 var x = 8
 print(x)
 def foo(y:Int) -> ():

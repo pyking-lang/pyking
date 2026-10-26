@@ -4,7 +4,7 @@ import tinyweb as tw
 shown = tw.label("Who are you?")
 
 def greet(name: String):
-    tw.set_text(shown, "Hello, " ++ name ++ "!")
-    print("Hello, " ++ name ++ "!")
+    tw.set_text(shown, "Hello, " + name + "!")
+    print("Hello, " + name + "!")
 
 tw.text_input("name", on_enter = greet)

@@ -678,7 +678,11 @@ let completion state document pos =
           scope_names []
       in
       let names = if names = [] then List.map (fun n -> item n 3 (Some "builtin")) Builtin.names else names in
-      let keywords = List.map (fun k -> item k 14 None) Lexer.keywords in
+      (* A reserved word nothing uses yet is no keyword to offer. *)
+      let keywords =
+        List.map (fun k -> item k 14 None)
+          (List.filter (fun k -> not (List.mem k Lexer.reserved_words)) Lexer.keywords)
+      in
       (state, Json.Object [ ("isIncomplete", Json.Bool false); ("items", Json.List (List.rev names @ keywords)) ])
 
 (* --- signature help --- *)
@@ -1461,8 +1465,10 @@ let distance a b =
   List.nth last m
 
 (** The fixes the error a document has offers, where the request's range
-    meets it: `+` for `++` and the other way round, a name in scope for
-    one that is not, and an annotation for the type the value has.
+    meets it: the spelling Pyking has for one it no longer has (`+` for
+    `++`, `^` for `**`) or for an operator's look-alike, the `use` line a
+    construct needs, a name in scope for one that is not, and an
+    annotation for the type the value has.
     state -> document -> Json.t -> (state, Json.t) *)
 let code_actions state document range_ =
   let state, analysis = analysis_of state document in
@@ -1507,16 +1513,45 @@ let code_actions state document range_ =
         in
         found
       in
+      (* A spelling Pyking no longer has, or an operator written where
+         its look-alike belongs: the token the error is about, swapped
+         for the one the message names. *)
+      let swap wanted title text =
+        match operator wanted with Some i -> [ action title [ edit i text ] ] | None -> []
+      in
       let swaps =
-        if contains_text "Did you mean `++`" then
-          match operator (function Lexer.TokAdd _ -> true | _ -> false) with
-          | Some i -> [ action "Change `+` to `++`, which joins strings" [ edit i "++" ] ]
-          | None -> []
-        else if contains_text "Did you mean `+`" then
-          match operator (function Lexer.TokConcat _ -> true | _ -> false) with
-          | Some i -> [ action "Change `++` to `+`, which adds numbers" [ edit i "+" ] ]
-          | None -> []
+        if contains_text "'++' is now written '+'" then
+          swap (function Lexer.TokConcat _ -> true | _ -> false) "Change `++` to `+`" "+"
+        else if contains_text "a power is written with '^'" then
+          swap (function Lexer.TokStarStar _ -> true | _ -> false) "Change `**` to `^`" "^"
+        else if contains_text "On Bools, write 'and'" then
+          swap (function Lexer.TokAmp _ -> true | _ -> false) "Change `&` to `and`" "and"
+        else if contains_text "On Bools, write 'or'" then
+          swap (function Lexer.TokBar _ -> true | _ -> false) "Change `|` to `or`" "or"
+        else if contains_text "On Bools, write '!='" then
+          swap (function Lexer.TokXor _ -> true | _ -> false) "Change `xor` to `!=`" "!="
+        else if contains_text "On Ints, write 'and'" then
+          swap (function Lexer.TokAmpAmp _ -> true | _ -> false) "Change `&&` to `&`" "&"
+        else if contains_text "On Ints, write 'or'" then
+          swap (function Lexer.TokBarBar _ -> true | _ -> false) "Change `||` to `|`" "|"
+        else if contains_text "On an Int, write 'not' or '~'" then
+          swap (function Lexer.TokBang _ -> true | _ -> false) "Change `!` to `~`" "~"
+        else if contains_text "On a Bool, write 'not' or '!'" then
+          swap (function Lexer.TokTilde _ -> true | _ -> false) "Change `~` to `!`" "!"
         else []
+      in
+      (* A construct of a feature the module has not turned on: the `use`
+         line that turns it on, above everything else. *)
+      let features =
+        List.concat_map
+          (fun feature ->
+            if contains_text (Printf.sprintf "needs 'use %s' at the top of this module" feature)
+            then
+              let top = Lexer.{ file = document.path; row1 = 1; col1 = 0; row2 = 1; col2 = 0 } in
+              [ action (Printf.sprintf "Add 'use %s' at the top of the module" feature)
+                  [ edit top (Printf.sprintf "use %s\n" feature) ] ]
+            else [])
+          Parser.features
       in
       let names =
         match String.index_opt p.message '\'' with
@@ -1565,7 +1600,7 @@ let code_actions state document range_ =
           | _ -> []
         else []
       in
-      (state, Json.List (swaps @ names @ annotation))
+      (state, Json.List (swaps @ features @ names @ annotation))
   | _ -> (state, Json.List [])
 
 (* --- diagnostics --- *)

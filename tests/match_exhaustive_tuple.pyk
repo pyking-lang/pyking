@@ -37,8 +37,8 @@ print(head_plus((1, [])), head_plus((1, [2, 3])))
 # The refutable column *first*, so the search is not just "the last one".
 def described(v: (Bool, String)) -> String:
     match v:
-        case (true, s): "yes " ++ s
-        case (false, s): "no " ++ s
+        case (true, s): "yes " + s
+        case (false, s): "no " + s
 
 
 print(described((true, "x")), described((false, "y")))

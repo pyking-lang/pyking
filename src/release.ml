@@ -64,6 +64,9 @@ let rec expression tmap e =
     | EGreatThan (i, l, r, s) -> EGreatThan (i, go l, go r, s)
     | EGreatThanEq (i, l, r, s) -> EGreatThanEq (i, go l, go r, s)
     | EEq (i, l, r, s) -> EEq (i, go l, go r, s)
+    | EBinary (i, op, l, r, s) -> EBinary (i, op, go l, go r, s)
+    | EUnary (i, op, operand, s) -> EUnary (i, op, go operand, s)
+    | EIndex (i, l, index, s) -> EIndex (i, go l, go index, s)
     | ECall (i, callee, args, s) ->
         ECall (i, go callee, List.map (fun (name, a) -> (name, go a)) args, s)
     | EList (i, elements, s) -> EList (i, List.map go elements, s)

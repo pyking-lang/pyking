@@ -4,7 +4,7 @@
 f = 1
 
 
-def use() -> Int:
+def use_it() -> Int:
     # A nested block, so this `def f` is allowed to shadow the binding
     # `f` above: there is no question which one `f()` means here.
     def f() -> Int:
@@ -12,7 +12,7 @@ def use() -> Int:
     return f()
 
 
-print(f, use())
+print(f, use_it())
 
 
 # A branch is a block too. The `def` inside it shadows the outer
@@ -47,7 +47,7 @@ def generations(start:Int) -> String:
     def second() -> String:
         return level
 
-    return first() ++ " " ++ second() ++ " " ++ level
+    return first() + " " + second() + " " + level
 
 
 print(generations(0))
@@ -71,7 +71,7 @@ def alternate(n:Int) -> String:
         else:
             return flip(m - 1)
 
-    return flip(n) ++ flop(n) ++ up ++ down
+    return flip(n) + flop(n) + up + down
 
 
 print(alternate(0), alternate(1), alternate(4))

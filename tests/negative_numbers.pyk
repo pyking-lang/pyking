@@ -2,6 +2,8 @@
 # `-` before an expression binds tighter than `*` and `/` but looser than
 # a call, so `-x * y` is `(-x) * y` and `-f(x)` negates the call's result.
 
+use mutation
+
 x = 5
 low = -12
 

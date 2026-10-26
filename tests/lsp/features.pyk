@@ -1,5 +1,8 @@
 # Signature help, references, renaming, inlay hints, folding, semantic
 # tokens: a program that uses each.
+
+use mutation
+
 import helper
 from helper import double
 

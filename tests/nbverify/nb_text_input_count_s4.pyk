@@ -2,7 +2,7 @@
 import tinyweb as tw
 
 def entered(words: String):
-    print("[" ++ words ++ "]", len(words))
+    print("[" + words + "]", len(words))
 
 print("Type something:")
 tw.text_input(on_enter = entered)

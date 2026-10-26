@@ -11,13 +11,13 @@ def trails(on: Bool):
     tw.set_text(shown, if on then "trails on" else "trails off")
 
 def mode(title: String):
-    tw.set_text(shown, "mode: " ++ title)
+    tw.set_text(shown, "mode: " + title)
 
 def entered(name: String):
-    tw.set_text(shown, "hello, " ++ name)
+    tw.set_text(shown, "hello, " + name)
 
 def balls(n: Int):
-    tw.set_text(shown, string(n) ++ " balls")
+    tw.set_text(shown, string(n) + " balls")
 
 box = tw.checkbox("Trails", on_change = trails)
 tw.checkbox("Slow frames", checked = true)

@@ -17,7 +17,7 @@
 # the error message, not a program's output.
 
 def announce(value):
-    'got ' ++ string(value)
+    'got ' + string(value)
 
 print(announce(1))
 print(announce(true))

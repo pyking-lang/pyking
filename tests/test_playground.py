@@ -269,6 +269,26 @@ replCheck("an imported module's JavaScript is reached",
 answer = submit(":reset");
 replCheck(":reset empties the environment", answer.bindings.length === 0,
           JSON.stringify(answer));
+answer = submit("var c = 1");
+replCheck("a var needs use mutation, in the CLI's words",
+          answer.errors.length === 1 && answer.errors[0].includes("needs 'use mutation'"),
+          JSON.stringify(answer));
+answer = submit("use mutation");
+answer = submit("var c = 1");
+answer = submit("c := c + 41");
+answer = submit("c");
+replCheck("a use line holds for the entries after it", shown.join("|") === "42 : Int"
+          && answer.errors.length === 0, JSON.stringify([shown, answer.errors]));
+answer = submit("[10, 20, 30][1] + (7 % 4) + (2 ^ 3) + (12 and 10)");
+replCheck("the new operators answer as in a file", shown.join("|") === "39 : Int",
+          JSON.stringify([shown, answer.errors]));
+answer = submit("(lam (a, b). a + b)(\"con\", \"cat\")");
+replCheck("a lam lambda joining two Strings", shown.join("|") === "'concat' : String",
+          JSON.stringify([shown, answer.errors]));
+answer = submit("x => x");
+replCheck("the old lambda is refused by name",
+          answer.errors.length === 1 && answer.errors[0].includes("lam x. x + 1"),
+          JSON.stringify(answer));
 console.log(JSON.stringify({ pairs, failures, repl }));
 """
 

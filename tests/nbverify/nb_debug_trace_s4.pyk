@@ -1,3 +1,5 @@
+use mutation
+
 import io
 var total = 0
 while io.is_eof() == false:

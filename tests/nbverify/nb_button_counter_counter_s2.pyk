@@ -1,4 +1,7 @@
 # The label is set before printing, and the text is built differently.
+
+use mutation
+
 import tinyweb as tw
 
 print("ready")
@@ -7,7 +10,7 @@ var clicks = 0
 
 def more():
     clicks := clicks + 1
-    tw.set_text(shown, string(clicks) ++ " " ++ "clicks")
-    print("clicked " ++ string(clicks))
+    tw.set_text(shown, string(clicks) + " " + "clicks")
+    print("clicked " + string(clicks))
 
 button = tw.button("Click me", on_click = more)

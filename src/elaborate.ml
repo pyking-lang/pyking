@@ -272,10 +272,15 @@ and expression_body e qmap work =
   | EVar (i, name, s) -> (EVar (i, plain name, s), work)
   | EQualified (i, module_, name, s) ->
       (EQualified (i, module_, plain name, s), work)
-  | EAdd (i, l, r, s) ->
+  | EAdd (i, l, r, s) -> (
       let l, work = go l work in
       let r, work = go r work in
-      (EAdd (i, l, r, s), work)
+      (* `+` on two strings or two lists joins them: the checker said
+         which, and every backend has always compiled a join as its own
+         node. *)
+      match IntMap.find_opt s work.tmap with
+      | Some (TString _ | TList _) -> (EConcat (i, l, r, s), work)
+      | _ -> (EAdd (i, l, r, s), work))
   | ESub (i, l, r, s) ->
       let l, work = go l work in
       let r, work = go r work in
@@ -315,6 +320,30 @@ and expression_body e qmap work =
   | ENeg (i, operand, s) ->
       let operand, work = go operand work in
       (ENeg (i, operand, s), work)
+  | EBinary (i, op, l, r, s) ->
+      let l, work = go l work in
+      let r, work = go r work in
+      (* `and` and `or` on two Ints are bitwise; the spelling stays, so
+         the program still prints as it was written. *)
+      let op =
+        match (op, IntMap.find_opt s work.tmap) with
+        | BAnd Word, Some (TInt _) -> BBitAnd Word
+        | BOr Word, Some (TInt _) -> BBitOr Word
+        | _ -> op
+      in
+      (EBinary (i, op, l, r, s), work)
+  | EUnary (i, op, operand, s) ->
+      let operand, work = go operand work in
+      let op =
+        match (op, IntMap.find_opt s work.tmap) with
+        | UNot Word, Some (TInt _) -> UBitNot Word
+        | _ -> op
+      in
+      (EUnary (i, op, operand, s), work)
+  | EIndex (i, l, index, s) ->
+      let l, work = go l work in
+      let index, work = go index work in
+      (EIndex (i, l, index, s), work)
   | EList (i, elements, s) ->
       let elements, work = each elements work in
       (EList (i, elements, s), work)

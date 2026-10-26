@@ -3,6 +3,8 @@
 # `=` binding inside the body would instead bind a fresh name local to
 # that body, leaving the outer one untouched.
 
+use mutation
+
 var x = 0
 var y = 0
 z = 0

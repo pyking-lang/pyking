@@ -13,13 +13,13 @@ def all_marked(n:Int, marks:String) -> Bool:
         if n == 0:
             return marks == ''
         else:
-            (n - 1, marks ++ '*')
+            (n - 1, marks + '*')
 print(all_marked(0, ''))
 print(all_marked(3, ''))
 def counts_down(n:Int, seen:String) -> Bool:
     loop (n, seen): (Int, String) = (n, seen):
         if n == 0:
             return seen == ''
-        (n - 1, seen ++ '*')
+        (n - 1, seen + '*')
 print(counts_down(0, ''))
 print(counts_down(4, ''))

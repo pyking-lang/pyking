@@ -1,4 +1,5 @@
 'tests/fail_typecheck_float_mixed.pyk' 10:6-10:13 Type error: `+`
   cannot be applied to Int and Float; it accepts Int + Int or Float +
-  Float. Pyking mixes no numbers on its own: `float(n)` makes an Int a
-  Float, and `int(x)` truncates a Float to an Int
+  Float or String + String or two lists of one type. Pyking mixes no
+  numbers on its own: `float(n)` makes an Int a Float, and `int(x)`
+  truncates a Float to an Int

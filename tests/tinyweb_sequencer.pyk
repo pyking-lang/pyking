@@ -2,6 +2,8 @@
 # grid to turn it on or off, and the beat playing every cell that is on.
 # Each row is kept as one number, a bit per step, so no list is needed.
 
+use mutation
+
 import tinyweb as tw
 import tinyweb.color as color
 import tinyweb.sound as sound

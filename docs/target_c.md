@@ -21,7 +21,7 @@
   on the stack.
 - Output is one `.c` file per module with no dependencies beyond the C
   standard library, and only the headers it uses.
-- Least optimal at: strings, which every `++` and conversion allocates
+- Least optimal at: strings, which every join (`+` on two strings) and conversion allocates
   and nothing frees.
 
 Verified with `gcc -pedantic` under all three standards.

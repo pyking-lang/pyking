@@ -9,7 +9,7 @@
 public def shout(text: String = "hi", marks: Int = 2) -> String:
     if marks <= 0:
         return text
-    return shout(text ++ "!", marks - 1)
+    return shout(text + "!", marks - 1)
 
 
 public def add(left: Int, right: Int = 100) -> Int:

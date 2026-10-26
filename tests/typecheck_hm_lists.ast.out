@@ -1,7 +1,7 @@
 def append(one:[a], other:[a]) -> [a]:
     match one:
         case [x, ..xs]:
-            [x] ++ append(xs, other)
+            [x] + append(xs, other)
         case []:
             other
 def reverse(lst:[a]) -> [a]:

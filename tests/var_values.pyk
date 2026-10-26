@@ -2,6 +2,8 @@
 # and a function here, at the top level, inside a function, and read and
 # written by functions that capture it.
 
+use mutation
+
 datatype Shape:
     Circle(radius: Int)
     Square(side: Int)
@@ -12,7 +14,7 @@ def area(s: Shape) -> Int:
         case Square(a): a * a
 
 var greeting = "start"
-greeting := greeting ++ " and more"
+greeting := greeting + " and more"
 print(greeting)
 
 var point = (1, 2)
@@ -42,7 +44,7 @@ print(step(7))
 def counter_text(n: Int) -> String:
     var text = ""
     for i in range(n):
-        text := text ++ string(i)
+        text := text + string(i)
     text
 
 print(counter_text(5))
@@ -50,7 +52,7 @@ print(counter_text(5))
 def tagged(words: String) -> String:
     var label = "<"
     def add(more: String):
-        label := label ++ more
+        label := label + more
     add(words)
     add(">")
     label

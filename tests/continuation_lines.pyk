@@ -31,7 +31,7 @@ def padded(
         right: Int = 2) -> String:
     if left + right <= 0:
         return text
-    return "." ++ padded(
+    return "." + padded(
         text,
         left - 1,
         right = right - 1)

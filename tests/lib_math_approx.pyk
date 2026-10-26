@@ -2,6 +2,8 @@
 # may differ from another in the last bit, so each is printed to six
 # decimals, which is what every host agrees on.
 
+use mutation
+
 import math
 
 def six(x: Float) -> Float:

@@ -1,4 +1,7 @@
 # Forgets to update the label.
+
+use mutation
+
 import tinyweb as tw
 
 var count = 0

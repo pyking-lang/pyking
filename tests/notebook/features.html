@@ -11,7 +11,9 @@ like this.</p>
 <p>A runnable cell:</p>
 <div class="pkn-cell" id="cell-1" data-cell="0" data-part="0"><pre class="pkn-cell-fallback"><code>print(&quot;Hello&quot;, &quot;world&quot;, 2026)</code></pre></div>
 <p>A cell that is meant to be refused:</p>
-<div class="pkn-cell" id="cell-2" data-cell="1" data-part="1"><pre class="pkn-cell-fallback"><code>x = 1
+<div class="pkn-cell" id="cell-2" data-cell="1" data-part="1"><pre class="pkn-cell-fallback"><code>use mutation
+
+x = 1
 x := 2</code></pre></div>
 <p>A read-only cell:</p>
 <div class="pkn-cell" id="cell-3" data-cell="2" data-part="2"><pre class="pkn-cell-fallback"><code>def sq(x: Int) -&gt; Int: x * x
@@ -30,7 +32,9 @@ print(&quot;hello&quot;, io.read_line(), sys.args())</code></pre></div>
 <p>So can a read-only cell's, an error cell's and a fragment's:</p>
 <div class="pkn-cell" id="cell-5" data-cell="4" data-part="6"><pre class="pkn-cell-fallback"><code>import io
 print(int(io.read_line()) * 2)</code></pre></div>
-<div class="pkn-cell" id="cell-6" data-cell="5" data-part="7"><pre class="pkn-cell-fallback"><code>x = 1
+<div class="pkn-cell" id="cell-6" data-cell="5" data-part="7"><pre class="pkn-cell-fallback"><code>use mutation
+
+x = 1
 x := 2</code></pre></div>
 <pre class="pkn-code" data-lang="pyking" data-part="8"><code>def f(x): ...</code></pre>
 <p>The older way still works, a <code>```stdin</code> block right before the
@@ -73,7 +77,9 @@ failed try:</p>
 top level has ended:</p>
 <div class="pkn-cell" id="cell-15" data-cell="14" data-part="27"><pre class="pkn-cell-fallback"><code>import tinyweb as tw
 tw.web_init(0)</code></pre></div>
-<div class="pkn-cell" id="cell-16" data-cell="15" data-part="28"><pre class="pkn-cell-fallback"><code>import tinyweb as tw
+<div class="pkn-cell" id="cell-16" data-cell="15" data-part="28"><pre class="pkn-cell-fallback"><code>use mutation
+
+import tinyweb as tw
 var count = 0
 tw.web_init(0)
 shown = tw.label(&quot;0&quot;)

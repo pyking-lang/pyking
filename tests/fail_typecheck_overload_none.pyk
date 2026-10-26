@@ -8,6 +8,6 @@
 # the error message, not a program's output.
 
 def int::twice(x: Int) -> Int: x * 2
-def string::twice(x: String) -> String: x ++ x
+def string::twice(x: String) -> String: x + x
 
 print(twice(true))

@@ -181,9 +181,10 @@ let rec resolve_expr ctx env e found =
   | EVar (i, n, _) -> { found with uses = { use_at = i; use_name = n; use_meaning = lookup env n } :: found.uses }
   | EAdd (_, a, b, _) | ESub (_, a, b, _) | EMul (_, a, b, _) | EDiv (_, a, b, _)
   | EConcat (_, a, b, _) | ELessThan (_, a, b, _) | ELessThanEq (_, a, b, _)
-  | EGreatThan (_, a, b, _) | EGreatThanEq (_, a, b, _) | EEq (_, a, b, _) ->
+  | EGreatThan (_, a, b, _) | EGreatThanEq (_, a, b, _) | EEq (_, a, b, _)
+  | EBinary (_, _, a, b, _) | EIndex (_, a, b, _) ->
       go b (go a found)
-  | ENeg (_, a, _) -> go a found
+  | ENeg (_, a, _) | EUnary (_, _, a, _) -> go a found
   | ECall (_, f, args, _) -> List.fold_left (fun found a -> go a found) (go f found) (arg_exprs args)
   | EList (_, es, _) | ETuple (_, es, _) -> List.fold_left (fun found a -> go a found) found es
   | EIf (_, c, a, b, _) -> go b (go a (go c found))

@@ -24,7 +24,7 @@ def eval(e: Expr, env: [(String, Int)]) -> Int:
         case Add(a, b): eval(a, env) + eval(b, env)
         case Mul(a, b): eval(a, env) * eval(b, env)
         case Neg(a): 0 - eval(a, env)
-        case Let(x, b, body): eval(body, [(x, eval(b, env))] ++ env)
+        case Let(x, b, body): eval(body, [(x, eval(b, env))] + env)
 
 
 def simplify(e: Expr) -> Expr:
@@ -45,13 +45,13 @@ def simplify(e: Expr) -> Expr:
 
 def show(e: Expr) -> String:
     match e:
-        case Num(n) if n < 0: "(" ++ string(n) ++ ")"
+        case Num(n) if n < 0: "(" + string(n) + ")"
         case Num(n): string(n)
         case Var(x): x
-        case Add(a, b): "(" ++ show(a) ++ " + " ++ show(b) ++ ")"
-        case Mul(a, b): show(a) ++ " * " ++ show(b)
-        case Neg(a): "-" ++ show(a)
-        case Let(x, b, body): "let " ++ x ++ " = " ++ show(b) ++ " in " ++ show(body)
+        case Add(a, b): "(" + show(a) + " + " + show(b) + ")"
+        case Mul(a, b): show(a) + " * " + show(b)
+        case Neg(a): "-" + show(a)
+        case Let(x, b, body): "let " + x + " = " + show(b) + " in " + show(body)
 
 
 e1 = Add(Mul(Num(1), Var("x")), Num(0))

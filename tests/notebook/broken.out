@@ -12,33 +12,37 @@ tests/notebook/broken.md:39: the program prints
 and this stdout block says
     wrong
 tests/notebook/broken.md:43: the practice's starting code does not run:
-  'cell-6.pyk' 1:0-1:6 Name error: unbound name 'x'
-tests/notebook/broken.md:51: a quiz's alternatives are all * (choose one) or all [] (choose any)
-tests/notebook/broken.md:57: the quiz has 2 alternatives and its answer 3 entries
-tests/notebook/broken.md:57: a quiz whose alternatives are * has one right answer (->), not 2
-tests/notebook/broken.md:68: with one_point_correct, points is the number of right answers (2), not 1
-tests/notebook/broken.md:73: one_point_correct is for a quiz whose alternatives are [] (choose any)
-tests/notebook/broken.md:83: a quiz needs an answer block right after it
-tests/notebook/broken.md:89: an answer block belongs right after its quiz
-tests/notebook/broken.md:93: a stdout block belongs under a cell or a task
-tests/notebook/broken.md:97: a pyking cell takes no attribute 'attempts'
-tests/notebook/broken.md:101: visible is true or false, not 'maybe'
-tests/notebook/broken.md:101: this stdin block fills in no cell: write it right before one, or under a cell or a task followed by its stdout
-tests/notebook/broken.md:107: this cell is marked error, but it runs
-tests/notebook/broken.md:115: the program prints
+  'cell-6.pyk' 3:0-3:6 Name error: unbound name 'x'
+tests/notebook/broken.md:53: a quiz's alternatives are all * (choose one) or all [] (choose any)
+tests/notebook/broken.md:59: the quiz has 2 alternatives and its answer 3 entries
+tests/notebook/broken.md:59: a quiz whose alternatives are * has one right answer (->), not 2
+tests/notebook/broken.md:70: with one_point_correct, points is the number of right answers (2), not 1
+tests/notebook/broken.md:75: one_point_correct is for a quiz whose alternatives are [] (choose any)
+tests/notebook/broken.md:85: a quiz needs an answer block right after it
+tests/notebook/broken.md:91: an answer block belongs right after its quiz
+tests/notebook/broken.md:95: a stdout block belongs under a cell or a task
+tests/notebook/broken.md:99: a pyking cell takes no attribute 'attempts'
+tests/notebook/broken.md:103: visible is true or false, not 'maybe'
+tests/notebook/broken.md:103: this stdin block fills in no cell: write it right before one, or under a cell or a task followed by its stdout
+tests/notebook/broken.md:109: this cell is marked error, but it runs
+tests/notebook/broken.md:117: the program prints
     prints this
 and this stdout block says
     prints something else
-tests/notebook/broken.md:122: method is inline or git, not 'svn'
-tests/notebook/broken.md:126: save_canvas = needs file = "….png", the file the canvas is saved as
-tests/notebook/broken.md:130: its 3 lines are not pieces of 2
-tests/notebook/broken.md:139: method code_box is now called inline
-tests/notebook/broken.md:139: a name is letters, digits, _ and -, starting with a letter or a digit, not 'two words'
-tests/notebook/broken.md:155: the name 'twice' is given to the item on line 147 too
-tests/notebook/broken.md:163: an events block belongs under a cell or a task
-tests/notebook/broken.md:171: pyking exercise is now called pyking task, or pyking practice where it gives no points
-tests/notebook/broken.md:179: a practice block takes no attribute 'points'
-tests/notebook/broken.md:187: a block is a task or a practice, not both
-tests/notebook/broken.md:195: max_calls is one or more (N,name), as (2,rect), not '(two,rect)'
-tests/notebook/broken.md:207: the solution uses print 2 times, and max_calls allows 1
-notebook test: tests/notebook/broken.md: 19 cells, 17 tasks and quizzes, 36 problems.
+tests/notebook/broken.md:124: method is inline or git, not 'svn'
+tests/notebook/broken.md:128: save_canvas = needs file = "….png", the file the canvas is saved as
+tests/notebook/broken.md:132: its 3 lines are not pieces of 2
+tests/notebook/broken.md:141: method code_box is now called inline
+tests/notebook/broken.md:141: a name is letters, digits, _ and -, starting with a letter or a digit, not 'two words'
+tests/notebook/broken.md:157: the name 'twice' is given to the item on line 149 too
+tests/notebook/broken.md:165: an events block belongs under a cell or a task
+tests/notebook/broken.md:173: pyking exercise is now called pyking task, or pyking practice where it gives no points
+tests/notebook/broken.md:181: a practice block takes no attribute 'points'
+tests/notebook/broken.md:189: a block is a task or a practice, not both
+tests/notebook/broken.md:197: max_calls is one or more (N,name), as (2,rect), not '(two,rect)'
+tests/notebook/broken.md:209: the solution uses print 2 times, and max_calls allows 1
+tests/notebook/broken.md:217: this cell does not run:
+  'cell-20.pyk' 1:0-1:3 Parsing error: 'var' declares a mutable variable, which needs 'use mutation' at the top of this module
+tests/notebook/broken.md:225: this cell does not run:
+  'cell-21.pyk' 1:10-1:12 Parsing error: '++' is now written '+': 'a + b' joins two strings or two lists
+notebook test: tests/notebook/broken.md: 21 cells, 17 tasks and quizzes, 38 problems.

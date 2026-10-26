@@ -67,8 +67,12 @@ let p_lambda = 1
 let p_cond = 3
 let p_or = 4
 let p_and = 5
+let p_bit_or = 6
+let p_xor = 7
+let p_bit_and = 8
 let p_eq = 9
 let p_rel = 10
+let p_shift = 11
 let p_add = 12
 let p_mul = 13
 let p_unary = 14
@@ -577,8 +581,10 @@ let rec type_of ctx scope e =
       | EFloat (i, _, _) -> TFloat (i, 0)
       | EString (i, _, _) -> TString (i, 0)
       | EBool (i, _, _) | EEq (i, _, _, _) | ELessThan (i, _, _, _)
-      | ELessThanEq (i, _, _, _) | EGreatThan (i, _, _, _) | EGreatThanEq (i, _, _, _) ->
+      | ELessThanEq (i, _, _, _) | EGreatThan (i, _, _, _) | EGreatThanEq (i, _, _, _)
+      | EBinary (i, (BNeq | BAnd _ | BOr _), _, _, _) | EUnary (i, UNot _, _, _) ->
           TBool (i, 0)
+      | EBinary (_, _, l, _, _) | EUnary (_, _, l, _) -> type_of ctx scope l
       | EVar (i, name, _) -> (
           match SMap.find_opt name scope.names with
           | Some b -> b.btype
@@ -1034,6 +1040,37 @@ let rec expr ctx st scope e =
       let a, st = expr ctx st scope l in
       let b, st = expr ctx st scope r in
       (equal ctx (type_of ctx scope l) a b, st)
+  | EBinary (_, op, l, r, _) -> (
+      let float = match type_of ctx scope l with TFloat _ -> true | _ -> false in
+      match op with
+      | BAnd _ -> arithmetic ctx st scope p_and "&&" l r
+      | BOr _ -> arithmetic ctx st scope p_or "||" l r
+      | BNeq ->
+          let a, st = expr ctx st scope l in
+          let b, st = expr ctx st scope r in
+          (mk p_unary ("!" ^ at p_unary (equal ctx (type_of ctx scope l) a b)), st)
+      (* Java's `%` truncates toward zero on an int and is fmod on a
+         double, which are Pyking's two remainders. *)
+      | BMod -> arithmetic ctx st scope p_mul "%" l r
+      | BPow ->
+          let a, st = expr ctx st scope l in
+          let b, st = expr ctx st scope r in
+          ( atom
+              (Printf.sprintf "%s(%s, %s)" (if float then "Math.pow" else rt "ipow") a.text b.text),
+            st )
+      | BBitAnd _ -> arithmetic ctx st scope p_bit_and "&" l r
+      | BBitOr _ -> arithmetic ctx st scope p_bit_or "|" l r
+      | BXor -> arithmetic ctx st scope p_xor "^" l r
+      | BShiftLeft -> arithmetic ctx st scope p_shift "<<" l r
+      | BShiftRight -> arithmetic ctx st scope p_shift ">>" l r)
+  | EUnary (_, op, operand, _) ->
+      let v, st = expr ctx st scope operand in
+      let spelling = match op with UNot _ -> "!" | UBitNot _ -> "~" in
+      (mk p_unary (spelling ^ at p_unary v), st)
+  | EIndex (_, l, index, _) ->
+      let a, st = expr ctx st scope l in
+      let i, st = expr ctx st scope index in
+      (atom ~boxed:true (Printf.sprintf "%s.get(%s)" (at p_atom a) i.text), st)
   | ELessThan (_, l, r, _) -> comparison ctx st scope "<" l r
   | ELessThanEq (_, l, r, _) -> comparison ctx st scope "<=" l r
   | EGreatThan (_, l, r, _) -> comparison ctx st scope ">" l r
@@ -2811,6 +2848,17 @@ let runtime_source programs version =
         "    // A condition javac cannot read as a constant.";
         "    public static boolean truth(boolean value) {";
         "        return value;";
+        "    }";
+        "";
+        "    // An int raised to an int at least 0, by repeated squaring.";
+        "    public static int ipow(int base, int exponent) {";
+        "        int result = 1;";
+        "        while (exponent > 0) {";
+        "            if (exponent % 2 == 1) result = result * base;";
+        "            base = base * base;";
+        "            exponent = exponent / 2;";
+        "        }";
+        "        return result;";
         "    }";
         "";
         "    public static <T> java.util.List<T> concat(java.util.List<T> a, java.util.List<T> b) {";

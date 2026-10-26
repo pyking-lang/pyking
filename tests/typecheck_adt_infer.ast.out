@@ -17,4 +17,4 @@ p: Pair(Int, String) = Pair(first = 1, second = 'one')
 q: Pair(String, Int) = swap(p)
 none: Maybe(String) = No
 print(q, get(Yes(2), 0), get(none, 'empty'))
-print(p.first + 1, q.first ++ '!')
+print(p.first + 1, q.first + '!')

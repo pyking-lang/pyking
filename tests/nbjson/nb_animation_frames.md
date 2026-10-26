@@ -9,7 +9,7 @@ it starts by clearing the canvas with `tw.clear`.
 import tinyweb as tw
 import tinyweb.color as color
 c = tw.canvas(200, 50)
-tw.on_frame((t: Float) => tw.clear(c, if t < 1.0 then color.white else color.gray))
+tw.on_frame(lam (t: Float). tw.clear(c, if t < 1.0 then color.white else color.gray))
 ```
 
 ## A moving ball
@@ -65,6 +65,8 @@ print("Add your code here")
 ```
 
 ```pyking solution
+use mutation
+
 import tinyweb as tw
 import tinyweb.color as color
 

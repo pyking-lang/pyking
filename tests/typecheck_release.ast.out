@@ -1,3 +1,4 @@
+use mutation
 def square(x:Int) -> Int:
     return x * x
 def report(x:Int) -> ():

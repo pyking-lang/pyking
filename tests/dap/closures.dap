@@ -1,7 +1,7 @@
 # A closure over a var: its own names, and what it sees from where it
 # was written.
 launch closures.pyk
-break closures.pyk 5
+break closures.pyk 7
 configure
 wait stopped
 stack

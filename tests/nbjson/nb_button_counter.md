@@ -7,7 +7,7 @@ function changes with `:=`.
 
 ```pyking
 import tinyweb as tw
-tw.button("Hello", on_click = () => print("hello!"))
+tw.button("Hello", on_click = lam (). print("hello!"))
 ```
 
 ## Task
@@ -22,6 +22,8 @@ print("Add your code here")
 ```
 
 ```pyking solution
+use mutation
+
 import tinyweb as tw
 
 var count = 0
@@ -30,7 +32,7 @@ shown = tw.label("0 clicks")
 def clicked():
     count := count + 1
     print("clicked", count)
-    tw.set_text(shown, string(count) ++ " clicks")
+    tw.set_text(shown, string(count) + " clicks")
 
 tw.button("Click me", on_click = clicked)
 print("ready")

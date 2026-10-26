@@ -11,7 +11,7 @@ def double(n):
     n * 2
 
 def greet(name):
-    'hello, ' ++ name
+    'hello, ' + name
 
 def is_big(n):
     n > 100
@@ -34,4 +34,4 @@ print(announce(4))
 # What a binding gets is the type of *that* call, not a summary of the
 # function: `announced` is a String because `announce` returns one.
 announced = announce(1)
-print(announced ++ '!')
+print(announced + '!')

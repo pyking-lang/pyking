@@ -233,6 +233,7 @@ type store = {
   datatypes : datatype SMap.t;
   constructors : string SMap.t;
   field_defaults : (typ * string) SMap.t;
+  pending_plus : (typ * info) list;
 }
 
 (** The store a program starts checking in, holding the signature of
@@ -255,6 +256,7 @@ let empty_store sigmaps =
     datatypes = SMap.empty;
     constructors = SMap.empty;
     field_defaults = SMap.empty;
+    pending_plus = [];
   }
 
 (* The names a generalised variable is given, in order: a, b, ... z,
@@ -983,6 +985,9 @@ let learned store inner =
        was being worked out is resolved once, and dropping it here would
        leave `elaborate.ml` with nothing to rewrite that call by. *)
     qmap = inner.qmap;
+    (* A `+` whose operands the inner check left open is still to be
+       decided, here or further out. *)
+    pending_plus = inner.pending_plus;
   }
 
 (** store with what this call denotes recorded under its symbol. Like
@@ -1053,12 +1058,34 @@ let arithmetic = [ (KInt, KInt); (KFloat, KFloat) ]
     already does. [(kind, kind)] *)
 let ordering = [ (KInt, KBool); (KFloat, KBool) ]
 
+(** The rows `==` and `!=` share. [(kind, kind)] *)
+let equality = [ (KInt, KBool); (KFloat, KBool); (KString, KBool); (KBool, KBool) ]
+
+(** The rows of `and` and `or`, spelled as words: logic on Bools and
+    bitwise on Ints. Bool comes first, so two operands nothing has
+    decided are Bools -- logic is what the words are written for most.
+    [(kind, kind)] *)
+let logic_words = [ (KBool, KBool); (KInt, KInt) ]
+
+(** The rows of the bitwise operators. [(kind, kind)] *)
+let bitwise = [ (KInt, KInt) ]
+
+(** The rows of a binary operator in the EBinary node.
+    binop -> [(kind, kind)] *)
+let binop_rows op =
+  match op with
+  | BMod | BPow -> arithmetic
+  | BNeq -> equality
+  | BAnd Word | BOr Word -> logic_words
+  | BAnd Symbol | BOr Symbol -> [ (KBool, KBool) ]
+  | BBitAnd _ | BBitOr _ | BXor | BShiftLeft | BShiftRight -> bitwise
+
 (** An operator's spelling and its rows, or None for an expression that
     is not one. expr -> (string, [(kind, kind)]) option *)
 let operator_of expr =
   match expr with
-  | EAdd _ -> Some ("+", arithmetic)
-  | EConcat _ -> Some ("++", [ (KString, KString) ])
+  | EAdd _ -> Some ("+", arithmetic @ [ (KString, KString) ])
+  | EConcat _ -> Some ("+", [ (KString, KString) ])
   | ESub _ -> Some ("-", arithmetic)
   | EMul _ -> Some ("*", arithmetic)
   | EDiv _ -> Some ("/", arithmetic)
@@ -1066,10 +1093,8 @@ let operator_of expr =
   | ELessThanEq _ -> Some ("<=", ordering)
   | EGreatThan _ -> Some (">", ordering)
   | EGreatThanEq _ -> Some (">=", ordering)
-  | EEq _ ->
-      Some
-        ( "==",
-          [ (KInt, KBool); (KFloat, KBool); (KString, KBool); (KBool, KBool) ] )
+  | EEq _ -> Some ("==", equality)
+  | EBinary (_, op, _, _, _) -> Some (binop_text op, binop_rows op)
   | _ -> None
 
 (** The two operands of a binary operator application.
@@ -1085,29 +1110,21 @@ let binary_operands expr =
   | ELessThanEq (_, left, right, _)
   | EGreatThan (_, left, right, _)
   | EGreatThanEq (_, left, right, _)
-  | EEq (_, left, right, _) ->
+  | EEq (_, left, right, _)
+  | EBinary (_, _, left, right, _) ->
       Some (left, right)
   | _ -> None
 
-(* The two operators that are easy to write for one another: `+` adds
-   and `++` joins, and neither accepts what the other does. Each names
-   the other when a mismatch is exactly the swap -- and only then, so
-   `1 + 'a'`, which no operator would take, is not offered a
+(* The operators that are easy to write for one another: `&` where
+   `and` was meant on Bools, `&&` where `and` or `&` was meant on Ints.
+   Each names the other when a mismatch is exactly the swap -- and only
+   then, so `1 & 'a'`, which no operator would take, is not offered a
    suggestion. *)
 
 (** The "did you mean" clause for an operator written where its
     look-alike belongs, or "" when there is nothing to suggest.
     expr -> typ -> typ -> string *)
 let alternative expr left_type right_type =
-  let suggest rows description =
-    if
-      List.exists
-        (fun (operand, _) ->
-          kind_matches operand left_type && kind_matches operand right_type)
-        rows
-    then Printf.sprintf ". Did you mean %s?" description
-    else ""
-  in
   let mixed_numbers =
     (kind_matches KInt left_type && kind_matches KFloat right_type)
     || (kind_matches KFloat left_type && kind_matches KInt right_type)
@@ -1116,10 +1133,29 @@ let alternative expr left_type right_type =
     ". Pyking mixes no numbers on its own: `float(n)` makes an Int a Float, \
      and `int(x)` truncates a Float to an Int"
   else
+    let on_bools text =
+      if kind_matches KBool left_type && kind_matches KBool right_type then
+        ". On Bools, write " ^ text
+      else ""
+    in
+    let on_ints text =
+      if kind_matches KInt left_type && kind_matches KInt right_type then
+        ". On Ints, write " ^ text
+      else ""
+    in
     match expr with
     | EAdd _ ->
-        suggest [ (KString, KString) ] "`++`, the concatenation operator"
-    | EConcat _ -> suggest [ (KInt, KInt) ] "`+`"
+        if
+          (kind_matches KString left_type && kind_matches KInt right_type)
+          || (kind_matches KInt left_type && kind_matches KString right_type)
+        then ". `+` joins two Strings and converts nothing: write string(n)"
+        else ""
+    | EBinary (_, BBitAnd Symbol, _, _, _) -> on_bools "'and' (or '&&')"
+    | EBinary (_, BBitOr Symbol, _, _, _) -> on_bools "'or' (or '||')"
+    | EBinary (_, BXor, _, _, _) ->
+        on_bools "'!=', which is true where exactly one of them is"
+    | EBinary (_, BAnd Symbol, _, _, _) -> on_ints "'and' or '&'"
+    | EBinary (_, BOr Symbol, _, _, _) -> on_ints "'or' or '|'"
     | _ -> ""
 
 (** The Type_error for an operator applied to what it does not accept,
@@ -1137,7 +1173,7 @@ let operator_error expr spelling rows left_type right_type store =
   in
   let accepted =
     match expr with
-    | EConcat _ -> accepted ^ " or two lists of one type"
+    | EAdd _ | EConcat _ -> accepted ^ " or two lists of one type"
     | _ -> accepted
   in
   let together =
@@ -2040,6 +2076,34 @@ let free_metas env store =
         found (metas_in binding.btype store))
     env fields
 
+(** The store with every `+` whose operands were left open decided
+    (`operator_result`): one now an Int, a Float, a String or a list
+    stays what it is; one still open becomes an Int, the table's first
+    row; and one that became anything else is refused here, where the
+    `+` is. Run when the module is done; until then a definition does not
+    generalise over such a type (`infer_definition`), since a type
+    variable would have to add and join at once. store -> store *)
+let settle_plus store =
+  List.fold_left
+    (fun store (operand, info) ->
+      match zonk operand store with
+      | TVar (_, _, _, false) as open_ -> (
+          match unify (t_int info) open_ store with
+          | Some store -> store
+          | None -> store)
+      | TInt _ | TFloat _ | TString _ | TList _ -> store
+      | other ->
+          let shown_ = printed (displayed other store) in
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf
+                   "`+` cannot be applied to %s and %s; it accepts Int + Int or \
+                    Float + Float or String + String or two lists of one type"
+                   shown_ shown_ )))
+    { store with pending_plus = [] }
+    (List.rev store.pending_plus)
+
 (** The scheme a definition has: its worked-out type, with every
     metavariable the body left unsolved bound by one `all` at the top.
 
@@ -2334,15 +2398,25 @@ let operator_result expr common rows store =
   let info = expr_info expr in
   match expr with
   | EConcat _ ->
-      (* `++` is the one whose result the table cannot state: String ++
-         String is String and [a] ++ [a] is [a], so either way it is what
-         both operands are -- which is also the answer while nothing has
-         decided which of the two this is. *)
+      (* A join elaborate.ml built from a `+`: String + String is String
+         and [a] + [a] is [a], so either way it is what both operands
+         are. *)
       if
         (match common with TString _ | TList _ -> true | _ -> false)
         || is_meta common
       then (Some (zonk common store), store)
       else (None, store)
+  | EAdd _ when (match common with TList _ -> true | _ -> false) ->
+      (* Two lists of one type join into that type, which the table,
+         holding only atoms, cannot state. *)
+      (Some (zonk common store), store)
+  | EAdd _ when is_meta common ->
+      (* Two operands nothing has decided yet: `+` is worth what they
+         are, whichever of its four rows that turns out to be, so the
+         type is left open for a later use to decide -- a call passing
+         Strings, most often. What is still open when the module is done
+         is an Int (`settle_plus`). *)
+      (Some common, { store with pending_plus = (common, info) :: store.pending_plus })
   | _ ->
       let results =
         List.fold_left
@@ -3078,8 +3152,71 @@ and expr_type e env store =
                    field (shown settled store) )))
   | ECall _ -> check_call e env store
   | EAdd _ | EConcat _ | ESub _ | EMul _ | EDiv _ | ELessThan _
-  | ELessThanEq _ | EGreatThan _ | EGreatThanEq _ | EEq _ ->
+  | ELessThanEq _ | EGreatThan _ | EGreatThanEq _ | EEq _ | EBinary _ ->
       check_binary e env store
+  | EUnary (info, op, operand, _) -> (
+      (* `not` is logic on a Bool and bitwise on an Int, and an operand
+         nothing has decided is a Bool; `!` is a Bool's alone and `~` an
+         Int's. *)
+      let operand_type, store = check_expr operand env store in
+      let settled = prune operand_type store in
+      let accepts, default =
+        match op with
+        | UNot Word -> ([ KBool; KInt ], KBool)
+        | UNot Symbol -> ([ KBool ], KBool)
+        | UBitNot _ -> ([ KInt ], KInt)
+      in
+      match
+        if is_meta settled then unify (kind_type default info) settled store
+        else if List.exists (fun kind -> kind_matches kind settled) accepts then Some store
+        else None
+      with
+      | Some answer -> (zonk (prune operand_type answer) answer, answer)
+      | None ->
+          let hint =
+            match op with
+            | UNot Symbol when kind_matches KInt settled -> ". On an Int, write 'not' or '~'"
+            | UBitNot _ when kind_matches KBool settled -> ". On a Bool, write 'not' or '!'"
+            | _ -> ""
+          in
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf "`%s` cannot be applied to %s; it takes %s%s"
+                   (unop_text op) (shown operand_type store)
+                   (String.concat " or "
+                      (List.map (fun kind -> printed (kind_type kind info)) accepts))
+                   hint )))
+  | EIndex (info, list, index, _) ->
+      (* `xs[i]` reads element i of a list, so the list is `[a]` for some
+         a, the index an Int, and the element is worth an `a`. *)
+      let list_type, store = check_expr list env store in
+      let element, store = fresh_meta info store in
+      let store =
+        match unify (t_list info element) list_type store with
+        | Some store -> store
+        | None ->
+            raise
+              (Type_error
+                 ( expr_info list,
+                   Printf.sprintf "only a list is indexed with '[...]', and this value is %s%s"
+                     (shown list_type store)
+                     (if kind_matches KString (prune list_type store) then
+                        "; a String's character is text.char_at(s, i)"
+                      else "") ))
+      in
+      let index_type, store = check_expr index env store in
+      let store =
+        match unify (t_int info) index_type store with
+        | Some store -> store
+        | None ->
+            raise
+              (Type_error
+                 ( expr_info index,
+                   Printf.sprintf "a list's index is an Int, and this one is %s"
+                     (shown index_type store) ))
+      in
+      (zonk element store, store)
 
 (** One lambda: the function type it is worth.
 
@@ -3766,6 +3903,19 @@ and infer_definition func_type store =
           inner group monotypes
       in
       let store = learned store inner in
+      (* A `+` the bodies left open is not generalised over: a type
+         variable would have to add and join at once. Its operands stay
+         one type, which the definition's first use decides -- a call
+         passing Strings -- and what nothing decides is an Int once the
+         module is done (`settle_plus`). *)
+      let undecided =
+        List.fold_left
+          (fun found (operand, _) ->
+            match zonk operand store with
+            | TVar (_, name, _, false) -> StringSet.add name found
+            | _ -> found)
+          StringSet.empty store.pending_plus
+      in
       (* Generalise the whole group and remember every scheme *before*
          verifying any of them: a body re-checked while a name it calls
          is still unworked would work that one out all over again, which
@@ -3774,11 +3924,12 @@ and infer_definition func_type store =
         List.fold_left2
           (fun (store, schemes) other mono ->
             let outer =
-              free_metas
-                (match environment_of store (stmt_sym other) with
-                | Some written -> written
-                | None -> body_env)
-                store
+              StringSet.union undecided
+                (free_metas
+                   (match environment_of store (stmt_sym other) with
+                   | Some written -> written
+                   | None -> body_env)
+                   store)
             in
             (* What this definition may not generalise, remembered so the
                printed output does not claim it did. *)
@@ -4276,6 +4427,7 @@ let type_check ?(declared = []) stmts sigmaps =
   let _, store =
     check_stmts stmts (import_env stmts start store) No_function None store
   in
+  let store = settle_plus store in
   check_exports stmts store;
   check_exported_datatypes stmts store;
   check_matches stmts store;
