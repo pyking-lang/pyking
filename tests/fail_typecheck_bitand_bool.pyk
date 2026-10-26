@@ -1,0 +1,7 @@
+# `&` on two Bools: the bitwise operators take Ints, and the message
+# names `and`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(true & false)

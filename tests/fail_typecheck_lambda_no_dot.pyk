@@ -1,0 +1,6 @@
+# A lambda's parameters end with a `.`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+double = lam x x * 2

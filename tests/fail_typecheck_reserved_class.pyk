@@ -1,0 +1,7 @@
+# `class` is reserved for objects (design/steps.md, step 12), so no
+# program may bind it yet.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+class = 3

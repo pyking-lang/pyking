@@ -1,0 +1,9 @@
+# A `+` decided by its use: two Bools are neither added nor joined.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def join(a, b): a + b
+
+
+print(join(true, false))

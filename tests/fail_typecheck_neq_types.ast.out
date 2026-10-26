@@ -1,0 +1,3 @@
+'tests/fail_typecheck_neq_types.pyk' 6:6-6:14 Type error: `!=` cannot
+  be applied to Int and String; it accepts Int != Int or Float !=
+  Float or String != String or Bool != Bool

@@ -1,0 +1,8 @@
+# Alternatives in a pattern are separated by `|`, not `||`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+match 1:
+    case 1 || 2: print(1)
+    case _: print(0)

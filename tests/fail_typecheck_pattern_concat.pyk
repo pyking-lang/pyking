@@ -1,0 +1,8 @@
+# `++` is refused in a pattern as it is in an expression.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+match "ab":
+    case "a" ++ rest: print(rest)
+    case _: print(0)

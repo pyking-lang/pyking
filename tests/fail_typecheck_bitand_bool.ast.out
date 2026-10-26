@@ -1,0 +1,3 @@
+'tests/fail_typecheck_bitand_bool.pyk' 7:6-7:18 Type error: `&` cannot
+  be applied to Bool and Bool; it accepts Int & Int. On Bools, write
+  'and' (or '&&')

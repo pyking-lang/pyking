@@ -1,0 +1,3 @@
+'tests/fail_typecheck_plus_typevar.pyk' 6:22-6:27 Type error: `+`
+  cannot be applied to a and a; it accepts Int + Int or Float + Float
+  or String + String or two lists of one type

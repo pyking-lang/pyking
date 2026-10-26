@@ -1,0 +1,2 @@
+'tests/fail_typecheck_not_string.pyk' 6:6-6:12 Type error: `not`
+  cannot be applied to String; it takes Bool or Int

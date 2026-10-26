@@ -1,0 +1,6 @@
+# An element is not a list: `[3]` joins, `3` does not.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print([1, 2] + 3)

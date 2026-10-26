@@ -1,0 +1,42 @@
+# Indexing a list with `xs[i]`, counting from 0 (design/steps.md, step 2).
+
+xs = [10, 20, 30]
+print(xs[0], xs[1], xs[2], xs[len(xs) - 1])
+
+# Any expression of a list type is indexed, and indexes chain.
+rows = [[1, 2], [3, 4], [5, 6]]
+print(rows[1], rows[1][0], rows[2][1])
+
+
+def evens(n: Int) -> [Int]: [2 * k for k in range(n)]
+
+
+print(evens(5)[3], [[7]][0][0])
+
+# The index is any Int expression, and the element is an ordinary value.
+i = 1
+print(xs[i + 1] - xs[i], xs[i] * 2, ["a", "b", "c"][i] + "!")
+names = ["ada", "alan", "grace"]
+print([names[k] for k in [2, 0]])
+
+# Elements of any type: tuples, lists of functions, datatypes.
+pairs = [(1, "one"), (2, "two")]
+print(pairs[1])
+fs = [lam x. x + 1, lam x. x * 10]
+print(fs[0](5), fs[1](5))
+
+
+struct Point(x: Int, y: Int)
+
+
+points = [Point(1, 2), Point(3, 4)]
+print(points[1].x, points[0].y)
+
+
+# A list built in a loop, read back by position.
+def total(values: [Int]) -> Int:
+    loop sum = 0 for k in range(len(values)):
+        sum + values[k]
+
+
+print(total([4, 5, 6]))

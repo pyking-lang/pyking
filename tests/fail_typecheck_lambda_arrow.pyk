@@ -1,0 +1,6 @@
+# `=>`, the lambda Pyking had before `lam`, is refused by name.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+double = x => x * 2

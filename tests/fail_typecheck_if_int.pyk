@@ -1,0 +1,7 @@
+# An Int as a condition, even an `and` of two: there is no truthiness.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+if 1 and 2:
+    print(1)

@@ -1,0 +1,50 @@
+# `and`, `or` and `not`, and their symbol spellings `&&`, `||` and `!`
+# (design/steps.md, step 2): the same operator in both spellings, on
+# Bools only, short-circuiting on every target.
+
+def loud(label: String, value: Bool) -> Bool:
+    print("evaluated", label)
+    value
+
+
+# Every combination, in both spellings.
+print(true and true, true and false, false and true, false and false)
+print(true && true, true && false, false && true, false && false)
+print(true or true, true or false, false or true, false or false)
+print(true || true, true || false, false || true, false || false)
+print(not true, not false, !true, !false)
+
+# The right operand runs only where it decides the answer.
+print(false and loud("and's right", true))
+print(true or loud("or's right", true))
+print(false && loud("&&'s right", true))
+print(true || loud("||'s right", true))
+print(true and loud("needed by and", false))
+print(false or loud("needed by or", true))
+
+# `or` is looser than `and`, which is looser than `not`, which is looser
+# than a comparison: Python's order.
+x = 5
+done = false
+print(x > 0 and not done)
+print(x > 10 or x > 3 and x < 7)
+print(not x == 5, not (x == 5))
+# `!` binds as tightly as unary minus, so it applies to `done` alone.
+print(!done == true)
+# The two spellings mix, at one level each.
+print(false and true || true, true || false and false)
+
+# In a condition, a comprehension filter and a guard.
+if x > 0 && x < 10:
+    print("in range")
+print([n for n in [1, 2, 3, 4, 5, 6] if n % 2 == 0 or n == 5])
+
+
+def describe(n: Int) -> String:
+    match n:
+        case m if m > 0 and m < 10: "digit"
+        case m if not (m > 0): "not positive"
+        case _: "big"
+
+
+print(describe(3), describe(-1), describe(42))

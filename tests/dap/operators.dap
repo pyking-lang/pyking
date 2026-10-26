@@ -1,0 +1,17 @@
+# The operators of design/steps.md, step 2, under the debugger: a
+# breakpoint in the right operand of an `and` is reached only where the
+# left one does not decide the answer, and the console evaluates the
+# new operators where the program stopped.
+launch operators.pyk
+break operators.pyk 2
+configure
+wait stopped
+stack
+scopes 1
+variables Environment
+evaluate 1 n > 2 and not (n == 0) || false
+evaluate 1 [n, n * 2][1] ^ 2
+evaluate 1 lam (x: Int). x + n
+continue
+wait terminated
+disconnect

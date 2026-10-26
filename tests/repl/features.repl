@@ -1,0 +1,18 @@
+var n = 1
+use mutation
+var n = 1
+n := n + 41
+n
+:type lam (a: Int). a ^ 2
+xs = [10, 20, 30]
+xs[1] + xs[2]
+"con" + "cat"
+true and not false || !true
+12 and 10
+1 << 4 | 1
+7 % 3
+def join(a, b): a + b
+join("a", "b")
+1 < 2 < 3
+x => x
+print(2 ** 3)

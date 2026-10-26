@@ -1,0 +1,8 @@
+# A `:=` in a module that has not turned mutation on, even with no
+# `var` written: the construct is what needs the feature.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+count = 0
+count := 1

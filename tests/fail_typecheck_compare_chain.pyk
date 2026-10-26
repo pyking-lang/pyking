@@ -1,0 +1,6 @@
+# Comparisons do not chain, and the message says what to write.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(1 < 2 < 3)

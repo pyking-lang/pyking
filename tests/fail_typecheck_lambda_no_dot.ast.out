@@ -1,0 +1,2 @@
+'tests/fail_typecheck_lambda_no_dot.pyk' 6:15-6:16 Parsing error:
+  expected '.' after the parameters of a lambda, as in 'lam x. x + 1'

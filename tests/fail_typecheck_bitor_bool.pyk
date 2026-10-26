@@ -1,0 +1,6 @@
+# `|` on two Bools, the same mistake with `or`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(true | false)

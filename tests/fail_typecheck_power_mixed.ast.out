@@ -1,0 +1,4 @@
+'tests/fail_typecheck_power_mixed.pyk' 6:6-6:13 Type error: `^` cannot
+  be applied to Int and Float; it accepts Int ^ Int or Float ^ Float.
+  Pyking mixes no numbers on its own: `float(n)` makes an Int a Float,
+  and `int(x)` truncates a Float to an Int

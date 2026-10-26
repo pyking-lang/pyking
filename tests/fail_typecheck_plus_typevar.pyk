@@ -1,0 +1,6 @@
+# A `+` on a type variable would have to add and join at once.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def twice(x: a) -> a: x + x

@@ -1,0 +1,6 @@
+# `~` on a Bool: `not` or `!` negates one.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(~true)

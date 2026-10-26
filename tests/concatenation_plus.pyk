@@ -1,0 +1,71 @@
+# `+` joins two Strings or two lists, as it adds two numbers
+# (design/steps.md, step 2). Which one a `+` is, the checker decides
+# from the operands -- and where nothing has decided them yet, it waits
+# for the use that does.
+
+# Strings and lists, in chains and nested.
+print("a" + "b" + "c")
+print([1] + [2, 3] + [] + [4])
+print([[1], [2]] + [[3]])
+print(["x"] + ["y"])
+print("" + "")
+print([] + [])
+
+# A `+` whose operands nothing has decided: the call decides.
+def join(a, b): a + b
+
+
+print(join("con", "cat"))
+
+
+def append(xs, ys): xs + ys
+
+
+print(append([1, 2], [3]))
+
+
+def add(a, b): a + b
+
+
+def add_floats(a, b): a + b
+
+
+print(add(40, 2), add_floats(0.5, 0.25))
+
+# Inferred from a literal on either side.
+def exclaim(s): s + "!"
+
+
+def wrap(s): "<" + s + ">"
+
+
+print(exclaim("hi"), wrap("b"))
+
+# A lambda waits the same way, and a fold joins.
+glue = lam (a, b). a + b
+print(glue("left", "right"))
+
+
+def fold(f, acc, xs):
+    match xs:
+        case []: acc
+        case [x] + rest: fold(f, f(acc, x), rest)
+
+
+print(fold(lam (a, b). a + b, "", ["p", "y", "k"]))
+print(fold(lam (a, b). a + [b * b], [], [1, 2, 3]))
+
+# Patterns split with `+` too.
+def first_two(xs: [Int]) -> Int:
+    match xs:
+        case [a, b] + _: a + b
+        case _: 0
+
+
+def command(line: String) -> String:
+    match line:
+        case "say " + rest: rest
+        case _: "?"
+
+
+print(first_two([3, 4, 5]), command("say hello"), command("shout"))

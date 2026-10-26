@@ -1,0 +1,6 @@
+# `^` mixes no numbers, as no arithmetic operator does.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(2 ^ 0.5)

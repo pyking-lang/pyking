@@ -1,0 +1,2 @@
+'tests/fail_typecheck_power_starstar.pyk' 6:8-6:10 Parsing error: a
+  power is written with '^', as in 'a ^ b'

@@ -1,0 +1,8 @@
+# A module that uses mutation, imported by one that does not: the
+# feature belongs to the module that turns it on, and importing it
+# turns nothing on here (design/steps.md, step 1).
+
+import use_mutation_module_mod1 as tally
+
+print(tally.count_to(4))
+print(tally.sum_of([5, 6, 7]))

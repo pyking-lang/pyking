@@ -1,0 +1,6 @@
+# Only a list is indexed; a String's character is text.char_at.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print("abc"[0])

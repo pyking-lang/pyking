@@ -1,0 +1,21 @@
+# `%`, `^` and `!=` (design/steps.md, step 2), on Ints and on Floats.
+
+# The remainder truncates toward zero, as `/` does, so
+# a == (a / b) * b + a % b, and it takes the sign of `a`.
+print(7 % 3, -7 % 3, 7 % -3, -7 % -3, 0 % 5)
+for a in [7, -7, 13, -13]:
+    for b in [2, -2, 5]:
+        print(a, b, a / b, a % b, (a / b) * b + a % b == a)
+print(7.5 % 2.0, -7.5 % 2.0, 1.0 % 0.5)
+
+# The power: right-associative, tighter than unary minus, and an Int
+# raised to an Int is an Int.
+print(2 ^ 10, 3 ^ 0, 0 ^ 0, (-2) ^ 3, -2 ^ 2)
+print(2 ^ 3 ^ 2, (2 ^ 3) ^ 2)
+print(2.0 ^ 0.5, 2.0 ^ -1.0, 10.0 ^ 3.0)
+print(2 * 3 ^ 2, 1 + 2 ^ 2)
+
+# `!=` is `not (a == b)`, on every type `==` takes; IEEE on Floats.
+print(1 != 2, 1 != 1, "a" != "b", "a" != "a", true != false, 1.5 != 1.5)
+nan = 0.0 / 0.0
+print(nan != nan, nan == nan)

@@ -1,0 +1,27 @@
+# `use mutation` turns `var` and `:=` on for this module
+# (design/steps.md, step 1). A `use` line comes before anything else;
+# comments may come first, as these do.
+
+use mutation, objects
+
+var count = 0
+for word in ["a", "b", "c"]:
+    count := count + 1
+print(count)
+
+def counter() -> () -> Int:
+    var n = 0
+    def tick() -> Int:
+        n := n + 1
+        n
+    tick
+
+
+tick = counter()
+tick()
+print(tick())
+
+# A loop without mutation still adds up, through its accumulator.
+total = loop sum = 0 for x in [1, 2, 3]:
+    sum + x
+print(total)

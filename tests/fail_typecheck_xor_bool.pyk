@@ -1,0 +1,6 @@
+# `xor` on two Bools: `!=` is true where exactly one of them is.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(true xor false)

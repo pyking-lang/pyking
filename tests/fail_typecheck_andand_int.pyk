@@ -1,0 +1,7 @@
+# `&&` on two Ints: the symbols are Bool's alone, since in C `5 && 2`
+# is 1, and the message names `and` and `&`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(5 && 2)

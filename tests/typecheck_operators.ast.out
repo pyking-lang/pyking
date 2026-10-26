@@ -1,0 +1,17 @@
+logic: Bool = true and not false || !true && false
+bits: Int = 12 and 10 or 3
+negated: Int = not 7
+mixed: Int = 1 << 2 | 3 & 4 xor 5
+masked: Bool = (6 and 4) == 4
+power: Int = 2 ^ 3 ^ 2 + (2 ^ 3) ^ 2 - -2 ^ 2
+remainder: Int = 7 % 3 * 2
+compared: Bool = 1 != 2 and 'a' != 'b'
+indexed: Int = [[1, 2], [3]][0][1]
+joined: String = 'a' + 'b'
+listed: [Int] = [1] + [2]
+inc: (Int) -> Int = lam (x:Int). x + 1
+pair: (Int, Int) -> Int = lam (a:Int, b:Int). a * b
+thunk: () -> Int = lam (). 0
+curried: (Int) -> (Int) -> Int = lam (a:Int). lam (b:Int). a - b
+print(logic, bits, negated, mixed, masked, power, remainder, compared)
+print(indexed, joined, listed, inc(1), pair(2, 3), thunk(), curried(5)(2))

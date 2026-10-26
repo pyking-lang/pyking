@@ -1,0 +1,8 @@
+def check(n: Int) -> Bool:
+    n > 2
+
+
+print(false and check(1))
+print(true and check(3))
+xs = [10, 20, 30]
+print(xs[1] + (7 % 4) + (2 ^ 3), not 0, "a" + "b")

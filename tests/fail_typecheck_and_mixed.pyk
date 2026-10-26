@@ -1,0 +1,7 @@
+# `and` on an Int and a Bool: one type on both sides, as for every
+# operator.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(1 and true)

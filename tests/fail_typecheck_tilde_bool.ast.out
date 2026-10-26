@@ -1,0 +1,2 @@
+'tests/fail_typecheck_tilde_bool.pyk' 6:6-6:11 Type error: `~` cannot
+  be applied to Bool; it takes Int. On a Bool, write 'not' or '!'

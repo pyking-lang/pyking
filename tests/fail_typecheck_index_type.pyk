@@ -1,0 +1,6 @@
+# A list's index is an Int.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print([1, 2][true])

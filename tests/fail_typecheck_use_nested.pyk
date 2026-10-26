@@ -1,0 +1,14 @@
+# A `var` inside a function needs `use mutation` as much as one at
+# the top level does.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def tally(xs: [Int]) -> Int:
+    var total = 0
+    for x in xs:
+        total := total + x
+    total
+
+
+print(tally([1, 2]))

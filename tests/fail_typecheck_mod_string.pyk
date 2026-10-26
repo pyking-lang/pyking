@@ -1,0 +1,6 @@
+# `%` is arithmetic, on numbers only.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print("a" % "b")

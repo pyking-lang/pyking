@@ -1,0 +1,15 @@
+# The imported half: mutation inside, a functional face outside.
+use mutation
+
+public def count_to(n: Int) -> Int:
+    var steps = 0
+    for _ in range(n):
+        steps := steps + 1
+    steps
+
+
+public def sum_of(xs: [Int]) -> Int:
+    var total = 0
+    for x in xs:
+        total := total + x
+    total

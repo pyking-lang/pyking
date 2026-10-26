@@ -1,0 +1,6 @@
+# `not` on a String: there is no truthiness.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(not "")

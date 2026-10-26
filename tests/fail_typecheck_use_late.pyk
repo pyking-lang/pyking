@@ -1,0 +1,8 @@
+# A `use` after a statement: it turns a feature on for the whole
+# module, so it is written before anything else.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(1)
+use mutation

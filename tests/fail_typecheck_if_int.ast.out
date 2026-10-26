@@ -1,0 +1,2 @@
+'tests/fail_typecheck_if_int.pyk' 6:3-6:10 Type error: the condition
+  of an 'if' must be Bool, not Int

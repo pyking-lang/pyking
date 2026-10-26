@@ -1,0 +1,43 @@
+# The operators of design/steps.md, step 2, on scalars alone, so that
+# every target runs them -- C included, which has no lists.
+
+use mutation
+
+def loud(label: String, value: Bool) -> Bool:
+    print("evaluated", label)
+    value
+
+
+print(true and false, true or false, not true, true && !false, false || true)
+print(false and loud("skipped", true), true or loud("skipped", true))
+print(true and loud("needed", true))
+print(12 and 10, 12 or 10, not 0, 12 & 10, 12 | 10, 12 xor 10, ~5)
+print(1 << 4, 256 >> 2, -8 >> 1, 6 & 4 == 4)
+print(7 % 3, -7 % 3, 7.5 % 2.0, 2 ^ 10, 2 ^ 3 ^ 2, -2 ^ 2, 2.0 ^ 0.5)
+print(1 != 2, "a" != "a", 1.5 != 2.5)
+print("con" + "cat" + "enated")
+
+# A mutable variable, and a loop that runs while two conditions hold.
+var n = 27
+var steps = 0
+while n != 1 && steps < 200:
+    n := if n % 2 == 0 then n / 2 else 3 * n + 1
+    steps := steps + 1
+print(steps, n)
+
+# Bit tricks: the lowest set bit, and counting the set bits.
+def lowest(x: Int) -> Int: x & -x
+
+
+def popcount(x: Int) -> Int:
+    var left = x
+    var count = 0
+    while left != 0:
+        count := count + (left & 1)
+        left := left >> 1
+    count
+
+
+print(lowest(12), lowest(40), popcount(255), popcount(0b1010), popcount(0))
+square = lam (x: Int). x * x
+print(square(9), (lam (a: Int, b: Int). a ^ b)(3, 3))

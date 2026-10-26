@@ -1,0 +1,2 @@
+'tests/fail_typecheck_index_type.pyk' 6:13-6:17 Type error: a list's
+  index is an Int, and this one is Bool

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_and_mixed.pyk' 7:6-7:16 Type error: `and` cannot
+  be applied to Int and Bool; it accepts Bool and Bool or Int and Int

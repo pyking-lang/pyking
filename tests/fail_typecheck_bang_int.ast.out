@@ -1,0 +1,2 @@
+'tests/fail_typecheck_bang_int.pyk' 6:6-6:8 Type error: `!` cannot be
+  applied to Int; it takes Bool. On an Int, write 'not' or '~'

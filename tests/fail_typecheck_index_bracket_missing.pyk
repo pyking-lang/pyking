@@ -1,0 +1,7 @@
+# An index is closed with `]`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+xs = [1, 2]
+print(xs[0)

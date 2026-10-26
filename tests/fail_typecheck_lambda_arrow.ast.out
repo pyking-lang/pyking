@@ -1,0 +1,2 @@
+'tests/fail_typecheck_lambda_arrow.pyk' 6:11-6:13 Parsing error: a
+  lambda is now written 'lam x. x + 1'

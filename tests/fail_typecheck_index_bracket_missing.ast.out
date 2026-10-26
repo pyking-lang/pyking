@@ -1,0 +1,2 @@
+'tests/fail_typecheck_index_bracket_missing.pyk' 7:10-7:11 Parsing
+  error: expected ']' after the index
