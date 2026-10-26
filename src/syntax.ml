@@ -85,7 +85,8 @@ type expr =
    `and`, `or` and `not` keep how they were written, so `-t pyking`
    prints a program back in its own spelling: the words, or `&&`, `||`
    and `!`. On two Ints the words are bitwise, and elaborate.ml turns
-   such a BAnd into the BBitAnd it computes, spelled Word. *)
+   such a BAnd into the BBitAnd it computes, spelled Word. `xor` on two
+   Bools becomes the BBoolXor it computes, still printed `xor`. *)
 and binop =
   | BMod (* % *)
   | BPow (* ^ *)
@@ -94,7 +95,8 @@ and binop =
   | BOr of spelling (* or / || on Bools: short-circuit *)
   | BBitAnd of spelling (* & ; `and` on Ints where Word *)
   | BBitOr of spelling (* | ; `or` on Ints where Word *)
-  | BXor (* xor *)
+  | BXor (* xor on Ints *)
+  | BBoolXor (* xor on Bools: true where exactly one is *)
   | BShiftLeft (* << *)
   | BShiftRight (* >> *)
 
@@ -656,7 +658,7 @@ let binop_text op =
   | BOr Symbol -> "||"
   | BBitAnd Symbol -> "&"
   | BBitOr Symbol -> "|"
-  | BXor -> "xor"
+  | BXor | BBoolXor -> "xor"
   | BShiftLeft -> "<<"
   | BShiftRight -> ">>"
 
@@ -676,7 +678,7 @@ let binop_prec op =
   | BAnd _ | BBitAnd Word -> prec_and
   | BNeq -> prec_compare
   | BBitOr Symbol -> prec_bit_or
-  | BXor -> prec_xor
+  | BXor | BBoolXor -> prec_xor
   | BBitAnd Symbol -> prec_bit_and
   | BShiftLeft | BShiftRight -> prec_shift
   | BMod -> prec_mul

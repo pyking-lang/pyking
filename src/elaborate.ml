@@ -323,12 +323,14 @@ and expression_body e qmap work =
   | EBinary (i, op, l, r, s) ->
       let l, work = go l work in
       let r, work = go r work in
-      (* `and` and `or` on two Ints are bitwise; the spelling stays, so
-         the program still prints as it was written. *)
+      (* `and` and `or` on two Ints are bitwise, and `xor` on two Bools
+         is logical; the spelling stays, so the program still prints as
+         it was written. *)
       let op =
         match (op, IntMap.find_opt s work.tmap) with
         | BAnd Word, Some (TInt _) -> BBitAnd Word
         | BOr Word, Some (TInt _) -> BBitOr Word
+        | BXor, Some (TBool _) -> BBoolXor
         | _ -> op
       in
       (EBinary (i, op, l, r, s), work)

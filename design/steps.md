@@ -490,7 +490,7 @@ print(rows[1][0])                        # 3
 | `a % b` | `Int` or `Float`, one type | remainder; Int truncates toward zero like `/`, so `a == (a / b) * b + a % b`. Float is C's `fmod` |
 | `a ^ b` | `Int ^ Int` → `Int`, `Float ^ Float` → `Float` | power, as in mathematics (and Lua, Haskell, Julia); right-associative, so `2 ^ 3 ^ 2` is `2 ^ 9`; binds tighter than unary minus, so `-2 ^ 2` is `-4`, as `-2²` is in mathematics |
 | `a & b` | `Int`, `Int` → `Int` | bitwise and |
-| `a xor b` | `Int`, `Int` → `Int` | bitwise exclusive or, an infix word, since `^` is power |
+| `a xor b` | `Int`, `Int` → `Int`, `Bool`, `Bool` → `Bool` | bitwise exclusive or, an infix word, since `^` is power; on Bools, true where exactly one is |
 | `~a` | `Int` → `Int` | bitwise not: `-a - 1`, the two's complement reading on every target |
 | `a << n` | `Int`, `Int` → `Int` | shift left: `a` times 2ⁿ, overflow undefined as for `*` |
 | `a >> n` | `Int`, `Int` → `Int` | arithmetic shift right: the sign is kept, so `-8 >> 1` is `-4` |
@@ -620,8 +620,10 @@ power       = atom , [ "^" , unary ] ;
   refused with a hint: "on Bools, write 'and' (or '&&')". Pyking keeps
   one way to combine conditions and that way short-circuits. The words
   `and`, `or` and `not` are the one bridge: they work on both, as
-  logic on Bools and bitwise on Ints. **Decided**: `xor` on two Bools
-  is refused too, suggesting `!=`.
+  logic on Bools and bitwise on Ints. **Decided**: `xor` works on two
+  Bools too, as `!=` does (first refused with a pointer to `!=`, then
+  allowed). Elaboration turns it into a Bool xor node that the
+  backends emit as `!=` (`<>` in OCaml), since JS `^` gives a number.
 - **Precedence is Python's**: the bitwise operators bind tighter than
   comparison, so `flags & mask == 0` is `(flags & mask) == 0`, as in
   Python. C, Java and JavaScript read it the other way, which is a

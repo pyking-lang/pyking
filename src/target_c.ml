@@ -935,7 +935,7 @@ let rec type_of ctx scope e =
         | EString (i, _, _) -> TString (i, 0)
         | EBool (i, _, _) | EEq (i, _, _, _) | ELessThan (i, _, _, _) | ELessThanEq (i, _, _, _)
         | EGreatThan (i, _, _, _) | EGreatThanEq (i, _, _, _)
-        | EBinary (i, (BNeq | BAnd _ | BOr _), _, _, _) | EUnary (i, UNot _, _, _) ->
+        | EBinary (i, (BNeq | BAnd _ | BOr _ | BBoolXor), _, _, _) | EUnary (i, UNot _, _, _) ->
             TBool (i, 0)
         | EBinary (_, _, l, _, _) | EUnary (_, _, l, _) -> (
             match IntMap.find_opt (expr_sym l) ctx.tmap with Some t -> t | None -> TInt (no_info, 0))
@@ -1291,6 +1291,7 @@ and expr ctx st scope e =
       | BBitAnd _ -> arithmetic ctx st scope p_bit_and "&" l r
       | BBitOr _ -> arithmetic ctx st scope p_bit_or "|" l r
       | BXor -> arithmetic ctx st scope p_xor "^" l r
+      | BBoolXor -> arithmetic ctx st scope p_eq "!=" l r
       | BShiftLeft -> arithmetic ctx st scope p_shift "<<" l r
       | BShiftRight -> call "pyk_shr" (need_helper st "pyk_shr" shift_right_helper))
   | EUnary (_, op, operand, _) ->

@@ -422,7 +422,7 @@ let rec translate_expr e scope =
         match op with
         | BAnd _ -> "&&"
         | BOr _ -> "||"
-        | BNeq -> "!=="
+        | BNeq | BBoolXor -> "!=="
         | BMod -> "%"
         | BPow -> "**"
         | BBitAnd _ -> "&"

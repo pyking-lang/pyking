@@ -189,7 +189,8 @@ The groups:
   operator as a `binop`/`unop` -- `%`, `^`, `!=`, `and`/`or`/`not` in
   either spelling, and the bitwise ones -- with the spelling `and`,
   `or` and `not` were written in, so `-t pyking` prints them back as
-  written. `EIndex` is `xs[i]`. The parser makes an `EAdd` of every
+  written; `xor` on two Bools becomes `BBoolXor`, printed `xor` and
+  compiled as `!=`. `EIndex` is `xs[i]`. The parser makes an `EAdd` of every
   `+`; `elaborate.ml` makes one the checker typed as a String or a list
   an `EConcat`, which is what every backend compiles as a join. `ELambda`
   holds a `Param` list and one *expression*: a lambda's body is never a
@@ -752,7 +753,8 @@ scheme specifically).
   rows, one per operand type it accepts. A *list* because operators are
   overloaded: `==` relates two `Int`s, `Float`s, `String`s or `Bool`s,
   `+` adds two numbers or joins two Strings (lists have a case of their
-  own), and the words `and`/`or` are logic on Bools and bitwise on Ints.
+  own), and the words `and`/`or`, and `xor`, are logic on Bools and
+  bitwise on Ints.
   Both operands must match the same row. A `+` whose operands nothing
   has decided is left open in `pending_plus` and settled by
   `settle_plus` (docs/typesystem.md).
@@ -2019,8 +2021,8 @@ holds the state between messages. See
   error as a `problem` (span, `pyk`'s label for the stage, message),
   and `typed`, the last check that reached the document's own module,
   which hover reads while the program does not check.
-- **`settings`** -- the library path, check on change or on save, and
-  whether inlay hints are shown.
+- **`settings`** -- the library path, and whether to check on change
+  or on save.
 
 ### Main functions
 
@@ -2035,9 +2037,13 @@ holds the state between messages. See
 - **`analyse state document previous`** -- the front end over the
   document, as `pyk.ml` runs it; an error in a module the document
   imports is reported at the import that reaches it.
+- **`untyped_hover analysis tmap document row`** -- what hover says
+  inside a top-level `def` with no type to show: that nothing calls
+  the function (its definition has no type in `tmap`), or that the
+  program has a type error. Anywhere else, nothing.
 - **`hover`, `definition`, `document_symbols`, `completion`,
   `signature_help`, `references`, `highlights`, `prepare_rename` /
-  `rename`, `inlay_hints`, `folding_ranges`, `semantic_tokens`,
+  `rename`, `folding_ranges`, `semantic_tokens`,
   `code_actions`** -- one request each. Names come from `scopes.ml`'s
   walk over the text as it is now, types from the last check that
   reached the document's own module. `open_call` reads the call a

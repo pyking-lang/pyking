@@ -2351,7 +2351,7 @@ let rec translate_expr e scope gen =
       match op with
       | BAnd _ -> node "and" 0 1 1
       | BOr _ -> node "or" 0 1 1
-      | BNeq -> node "!=" 1 2 2
+      | BNeq | BBoolXor -> node "!=" 1 2 2
       | BBitAnd _ -> node "&" 1 2 2
       | BBitOr _ -> node "|" 1 2 2
       | BXor -> node "^" 1 2 2

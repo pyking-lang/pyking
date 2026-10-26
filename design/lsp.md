@@ -85,7 +85,7 @@ the same with a timer. `"diagnostics": "save"` does not mark on change.
 | capability | answered by |
 |---|---|
 | `textDocument/publishDiagnostics` | the first error any stage of the front end raises: lexing, parsing, the module system, names, types, mutability. An error in an imported module is reported at the import that reaches it, saying where it is, and in that module's own document where it is open |
-| `textDocument/hover` | the type the checker recorded (`tmap`) for the smallest expression, binding, parameter or definition under the cursor, printed as Pyking; for a name, the `##` comment above its definition |
+| `textDocument/hover` | the type the checker recorded (`tmap`) for the smallest expression, binding, parameter or definition under the cursor, printed as Pyking; for a name, the `##` comment above its definition. Inside a top-level `def` with nothing to show, a note: nothing calls the function, so its types are not inferred, or the program has a type error |
 | `textDocument/definition` | where a name is bound: in the file, in a module it imports, in the standard library. Builtins have none |
 | `textDocument/documentSymbol` | the `def`s (with their nested ones), the top-level bindings and the imports |
 | `textDocument/completion` | keywords, builtins, the names in scope where the cursor is, and after `m.` the names module `m` exports, with their types, and its submodules; after `m.sub.` that submodule's |
@@ -115,8 +115,8 @@ front end stops there.
   comment, read from the text of the call, which seldom parses while it
   is typed; a named argument marks its parameter, and a constructor's
   fields are its parameters.
-- **Inlay hints** (built) for the inferred types of unannotated
-  bindings and parameters, and a `def`'s result -- `tmap` again.
+- **Inlay hints** (built, then removed): the inferred types written
+  into the text read as code that is not there. Hover shows them.
 - **Semantic tokens** (built), so a variable, a `var`, a parameter, a
   function, a module, a type, a constructor and a field are coloured
   apart.

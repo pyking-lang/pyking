@@ -18,7 +18,9 @@ The server gives:
   module is shown at the `import` that reaches it.
 - **Hover**: the type of the expression, binding, parameter or
   definition under the cursor, and for a name, the `##` comment above
-  its definition.
+  its definition. Types are inferred where a function is called, so
+  inside a function nothing calls, hover says so instead; while the
+  program has a type error, it says that.
 - **Go to definition**: where a name is bound, in the same file, in a
   module it imports, or in the standard library.
 - **Outline** (document symbols): the `def`s, the top-level bindings
@@ -70,7 +72,6 @@ An editor can send two settings, as `initializationOptions` or as the
 |---|---|---|
 | `libPath` | `[]` | more library directories, searched after `-L` |
 | `diagnostics` | `"change"` | `"change"`: check as you type, once typing pauses; `"save"`: check only when a file is opened or saved |
-| `inlayHints` | `true` | show the inferred types in the text |
 
 ## The debugger
 

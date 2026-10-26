@@ -1,0 +1,9 @@
+# Hover while the program has a type error: no types to show.
+def add(a, b):
+    a + b
+
+def bad(a):
+    a + true
+
+print(add(1, 2))
+print(bad(1))

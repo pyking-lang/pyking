@@ -21,12 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   spelled `&&`, `||` and `!`, on Bools and short-circuiting; `!=`; `%`,
   the remainder, truncating as `/` does; `^`, the power; the bitwise
   operators `&`, `|`, `xor`, `~`, `<<` and `>>`, with `and`, `or` and
-  `not` bitwise on two Ints. Python's precedence, and comparisons do not
+  `not` bitwise on two Ints; `xor` on two Bools is true where exactly
+  one of them is. Python's precedence, and comparisons do not
   chain.
 - List indexing, `xs[i]`.
 - The language server offers a quick fix for each new refusal: `+` for
   `++`, `^` for `**`, `and` for `&` on Bools and the like, and the
   `use mutation` line a `var` needs.
+- Hover in the language server, inside a function nothing calls, says
+  that its types are not inferred until it is called; while the program
+  has a type error, it says that instead of showing nothing.
 - `use`, `lam`, `and`, `or`, `not` and `xor` are keywords, and `class`,
   `interface`, `extends`, `self` and `super` are reserved.
 
@@ -49,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Lambdas are written `lam x. x + 1` and `lam (x, y). x + y`; `=>` is
   refused with a message saying so.
 - `**` is refused, with `^` named as the power.
+- The language server no longer writes inferred types into the text
+  (inlay hints), and the `inlayHints` setting is gone; hover shows the
+  types.
 
 - Notebooks: ```` ```pyking exercise ```` is now ```` ```pyking task ````
   (or `practice`), and the old word is refused; the page, test mode,

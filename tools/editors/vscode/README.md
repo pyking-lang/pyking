@@ -6,7 +6,7 @@ Support for the Pyking language in VS Code and Cursor:
   pairs and indentation after a line ending in `:`;
 - the Pyking language server, `pyk lsp`, which is part of `pyk`, gives
   diagnostics, hover, go to definition, the outline, completion,
-  signature help, references, rename, inlay hints, folding, semantic
+  signature help, references, rename, folding, semantic
   highlighting and quick fixes;
 - the Pyking debugger, `pyk dap`, also part of `pyk`: **Run > Start
   Debugging** on a `.pyk` file stops at its breakpoints, steps, and

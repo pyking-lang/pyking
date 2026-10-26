@@ -1401,7 +1401,7 @@ let rec expr ctx acc e =
           let b, acc = expr ctx acc right in
           (OBin ((match op with BAnd _ -> "&&" | _ -> "||"), a, b), acc)
       (* `<>` is structural, as `=` is, and IEEE's on two floats. *)
-      | BNeq -> binary ctx acc "<>" left right
+      | BNeq | BBoolXor -> binary ctx acc "<>" left right
       | BMod when float ->
           let pieces, sequence, acc = in_order ctx acc [ left; right ] in
           (sequence (OApp (OVar "Float.rem", pieces)), acc)

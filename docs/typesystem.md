@@ -550,9 +550,10 @@ that sound:
   -- is refused at the `+`.
 
 `elaborate.ml` then turns a `+` the checker typed as a String or a list
-into the `EConcat` node every backend compiles as a join, and `and`,
-`or` and `not` typed as Ints into the bitwise nodes, keeping their
-spelling for `-t pyking`.
+into the `EConcat` node every backend compiles as a join, `and`,
+`or` and `not` typed as Ints into the bitwise nodes, and `xor` typed as
+a Bool into `BBoolXor`, which every backend compiles as `!=`, keeping
+their spelling for `-t pyking`.
 
 ## Comparing types: never `==`
 

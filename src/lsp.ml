@@ -22,10 +22,9 @@
 open Syntax
 open Scopes
 
-(* What the editor configured: more library directories, whether to
-   check only on save, and whether to show the types it inferred in the
-   text. *)
-type settings = { lib_path : string list; on_save : bool; inlay_hints : bool }
+(* What the editor configured: more library directories and whether to
+   check only on save. *)
+type settings = { lib_path : string list; on_save : bool }
 
 (* One open file: its URI and path, its text and version as the editor
    last sent them, and whether it is due to be checked. *)
@@ -72,7 +71,7 @@ let create base libs server_version =
     base;
     libs;
     server_version;
-    settings = { lib_path = []; on_save = false; inlay_hints = true };
+    settings = { lib_path = []; on_save = false };
     documents = [];
     analyses = [];
     published = [];
@@ -437,6 +436,37 @@ let hover_contents code doc =
           ("```pyking\n" ^ code ^ "\n```" ^ match doc with Some d -> "\n\n" ^ d | None -> "") );
     ]
 
+(** What hover says inside a top-level definition that has no types to
+    show: the program has a type error, or nothing calls the function,
+    so the checker never inferred its types. Elsewhere, nothing.
+    analysis -> typ IntMap.t -> document -> int -> Json.t *)
+let untyped_hover analysis tmap document row =
+  let definition =
+    match own_unit analysis document with
+    | None -> None
+    | Some (unit, _) ->
+        List.find_map
+          (function
+            | SFunctionDef ((i : Lexer.info), _, _, _, _, s, _, _, _) when i.row1 <= row && row <= i.row2 -> Some s
+            | _ -> None)
+          unit.stmts
+  in
+  let message =
+    match (analysis.problem, definition) with
+    | _, None -> None
+    | Some { kind = "Type error"; _ }, Some _ ->
+        Some "Types are not shown while the program has a type error. Fix the error to see its type."
+    | Some _, Some _ -> None
+    | None, Some s when IntMap.mem s tmap -> None
+    | None, Some _ ->
+        Some
+          "Types are not inferred until the function is called. Please use the function (call it), or \
+           give type annotations for the parameters and the return value."
+  in
+  match message with
+  | Some m -> Json.Object [ ("contents", Json.Object [ ("kind", Json.String "markdown"); ("value", Json.String m) ]) ]
+  | None -> Json.Null
+
 (** The hover at a position of a document. state -> document -> Json.t ->
     (state, Json.t) *)
 let hover state document pos =
@@ -445,8 +475,12 @@ let hover state document pos =
   let typed_analysis =
     match analysis.typed with Some (units, tmaps) -> { analysis with units; tmaps } | None -> analysis
   in
+  let untyped =
+    let tmap = match own_unit typed_analysis document with Some (_, tmap) -> tmap | None -> IntMap.empty in
+    untyped_hover analysis tmap document row
+  in
   match own_unit typed_analysis document with
-  | None -> (state, Json.Null)
+  | None -> (state, untyped)
   | Some (unit, tmap) -> (
       let analysis = typed_analysis in
       let found = resolve analysis.units unit in
@@ -477,8 +511,8 @@ let hover state document pos =
               | Some u -> (
                   match meaning_type analysis u.use_meaning with
                   | Some t -> (state, Json.Object [ ("contents", hover_contents (u.use_name ^ ": " ^ t) doc) ])
-                  | None -> (state, Json.Null))
-              | None -> (state, Json.Null))))
+                  | None -> (state, untyped))
+              | None -> (state, untyped))))
 
 (** An LSP location for a place. state -> place -> Json.t *)
 let location state place =
@@ -1215,85 +1249,6 @@ let rename state document pos new_name =
                 (Json.Object
                    [ ("changes", Json.Object (List.map (fun (u, es) -> (u, Json.List es)) edits)) ]) )
 
-(* --- inlay hints --- *)
-
-(** The type the checker worked out for every binding a document did not
-    annotate, shown after its name, and for every definition that did
-    not say what it returns, after its parameters.
-    state -> document -> Json.t -> (state, Json.t) *)
-let inlay_hints state document range_ =
-  let state, analysis = analysis_of state document in
-  let analysis = match analysis.typed with Some (units, tmaps) -> { analysis with units; tmaps } | None -> analysis in
-  match own_unit analysis document with
-  | None -> (state, Json.List [])
-  | Some (unit, tmap) when state.settings.inlay_hints ->
-      let first, _ = row_col document.text (Json.member "start" range_) in
-      let last, _ = row_col document.text (Json.member "end" range_) in
-      let hint row col label left =
-        Json.Object
-          ([ ("position", position document.text row col); ("label", Json.String label); ("kind", Json.Number 1.) ]
-          @ if left then [ ("paddingLeft", Json.Bool true) ] else [])
-      in
-      let typed s = Option.map show_type (IntMap.find_opt s tmap) in
-      let after (i : Lexer.info) s =
-        match typed s with Some t -> [ (i.row2, i.col2, ": " ^ t, false) ] | None -> []
-      in
-      let rec target_hints target =
-        match target with
-        | TargetName (i, _, s) -> after i s
-        | TargetTuple (_, targets, _) -> List.concat_map target_hints targets
-      in
-      let param_hints params =
-        List.concat_map
-          (fun (Param (i, n, written, _, s)) ->
-            if written <> None then []
-            else after { i with row2 = i.row1; col2 = i.col1 + String.length n } s)
-          params
-      in
-      (* Where a definition's parameter list closes: the `)` matching the
-         first `(` after its name. *)
-      let closing (i : Lexer.info) =
-        let rec go tokens depth started =
-          match tokens with
-          | [] -> None
-          | Lexer.TokLParen t :: rest when compare (t.row1, t.col1) (i.row1, i.col1) >= 0 ->
-              go rest (depth + 1) true
-          | Lexer.TokRParen t :: rest when started ->
-              if depth = 1 then Some t else go rest (depth - 1) started
-          | _ :: rest -> go rest depth started
-        in
-        go unit.tokens 0 false
-      in
-      let hints =
-        Walk.fold_stmts
-          (fun out node ->
-            match node with
-            | Walk.NStmt (SLet (_, target, _, None, _, _, _)) | Walk.NStmt (SLetStmt (_, target, _, None, _, _)) ->
-                out @ target_hints target
-            | Walk.NStmt (SLoop (_, Some target, _, None, _, _, _)) -> out @ target_hints target
-            | Walk.NStmt (SVar (i, n, _, s)) ->
-                let span = name_span unit.tokens n i in
-                out @ after span s
-            | Walk.NStmt (SFunctionDef (i, _, params, _, ret, s, _, _, _)) ->
-                let returns =
-                  match (ret, IntMap.find_opt s tmap, closing i) with
-                  | None, Some (TFunction (_, _, r, _, _, _, _)), Some paren ->
-                      [ (paren.row2, paren.col2, "-> " ^ show_type r, true) ]
-                  | _ -> []
-                in
-                out @ param_hints params @ returns
-            | Walk.NExpr (ELambda (_, params, _, _)) -> out @ param_hints params
-            | _ -> out)
-          [] unit.stmts
-      in
-      ( state,
-        Json.List
-          (List.filter_map
-             (fun (row, col, label, left) ->
-               if row >= first && row <= last then Some (hint row col label left) else None)
-             hints) )
-  | Some _ -> (state, Json.List [])
-
 (* --- folding --- *)
 
 (** The parts of a document that fold: every block that spans lines, each
@@ -1528,8 +1483,6 @@ let code_actions state document range_ =
           swap (function Lexer.TokAmp _ -> true | _ -> false) "Change `&` to `and`" "and"
         else if contains_text "On Bools, write 'or'" then
           swap (function Lexer.TokBar _ -> true | _ -> false) "Change `|` to `or`" "or"
-        else if contains_text "On Bools, write '!='" then
-          swap (function Lexer.TokXor _ -> true | _ -> false) "Change `xor` to `!=`" "!="
         else if contains_text "On Ints, write 'and'" then
           swap (function Lexer.TokAmpAmp _ -> true | _ -> false) "Change `&&` to `&`" "&"
         else if contains_text "On Ints, write 'or'" then
@@ -1722,10 +1675,7 @@ let configure settings value =
     | Json.String "change" -> false
     | _ -> settings.on_save
   in
-  let inlay_hints =
-    match Json.member "inlayHints" value with Json.Bool b -> b | _ -> settings.inlay_hints
-  in
-  { lib_path; on_save; inlay_hints }
+  { lib_path; on_save }
 
 (** What the server can do, for `initialize`. state -> Json.t *)
 let capabilities state =
@@ -1752,7 +1702,6 @@ let capabilities state =
             ("referencesProvider", Json.Bool true);
             ("documentHighlightProvider", Json.Bool true);
             ("renameProvider", Json.Object [ ("prepareProvider", Json.Bool true) ]);
-            ("inlayHintProvider", Json.Bool true);
             ("foldingRangeProvider", Json.Bool true);
             ( "semanticTokensProvider",
               Json.Object
@@ -1859,7 +1808,6 @@ let request state method_ params =
           else
             rename state d (Json.member "position" params)
               (Option.value ~default:"" (Json.to_string_option (Json.member "newName" params))))
-  | "textDocument/inlayHint" -> on_document (fun s d -> inlay_hints s d (Json.member "range" params))
   | "textDocument/foldingRange" -> on_document folding_ranges
   | "textDocument/semanticTokens/full" -> on_document semantic_tokens
   | "textDocument/codeAction" -> on_document (fun s d -> code_actions s d (Json.member "range" params))

@@ -2024,6 +2024,9 @@ excluded = { c = "lists need a heap, and C has no garbage collector to free one"
 file = "operators_scalar.pyk"
 
 [[cases]]
+file = "operators_xor_bool.pyk"
+
+[[cases]]
 file = "use_mutation_module.pyk"
 modules = ["use_mutation_module_mod1.pyk"]
 excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
@@ -2137,4 +2140,4 @@ file = "fail_typecheck_use_unknown.pyk"
 file = "fail_typecheck_use_var.pyk"
 
 [[cases]]
-file = "fail_typecheck_xor_bool.pyk"
+file = "fail_typecheck_xor_mixed.pyk"

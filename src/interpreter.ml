@@ -722,7 +722,7 @@ let operator_rule e =
         match op with
         | BMod -> remainder
         | BPow -> power
-        | BNeq -> not_equals
+        | BNeq | BBoolXor -> not_equals
         | BBitAnd _ -> bitwise ( land )
         | BBitOr _ -> bitwise ( lor )
         | BXor -> bitwise ( lxor )

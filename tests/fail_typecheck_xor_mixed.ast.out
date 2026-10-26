@@ -1,0 +1,2 @@
+'tests/fail_typecheck_xor_mixed.pyk' 7:6-7:16 Type error: `xor` cannot
+  be applied to Bool and Int; it accepts Bool xor Bool or Int xor Int

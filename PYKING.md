@@ -208,7 +208,8 @@ Expressions:
 - Boolean operators `and`, `or` and `not`, also spelled `&&`, `||` and
   `!`, short-circuiting and on Bools only (see "Boolean operators")
 - Bitwise operators on Ints: `&`, `|`, `xor`, `~`, `<<` and `>>`, and
-  the words `and`, `or` and `not` on two Ints (see "Bitwise operators")
+  the words `and`, `or` and `not` on two Ints; `xor` on two Bools too
+  (see "Bitwise operators")
 - List indexing (`xs[i]`), counting from 0 (see "Indexing")
 - Type variables (`def id(x:a) -> a`) and `all` quantifiers, including
   first-class polymorphism — Pyking extension; a `def`'s type may also
@@ -1465,19 +1466,21 @@ Bool's alone, because in C and JavaScript `5 && 2` is `1` and `!5` is
 On two Ints, `&` is bitwise and, `|` bitwise or, `xor` exclusive or,
 `~` bitwise not, and `<<` and `>>` shift left and right. The words
 `and`, `or` and `not` are bitwise on Ints too, as they are logic on
-Bools.
+Bools, and so is `xor`: on two Bools it is true where exactly one of
+them is, as `!=` is.
 
 ```pyking
 flags = 0b0101
 print(flags & 0b0100, flags | 0b0010, flags xor 0b1111, ~flags)   # 4 7 10 -6
 print(12 and 10, 12 or 10, not 0)                                  # 8 14 -1
 print(1 << 4, 256 >> 2, -8 >> 1)                                   # 16 64 -4
+print(true xor false, true xor true)                               # true false
 ```
 
-- **Ints only**: `&` and `|` on two Bools are refused with "On Bools,
-  write 'and' (or '&&')", and `xor` on two Bools with a pointer to `!=`,
-  which is true where exactly one of them is. The words on Ints have no
-  short-circuit: `0 and f()` still calls `f()`.
+- **Ints only, but for `xor`**: `&` and `|` on two Bools are refused
+  with "On Bools, write 'and' (or '&&')". `xor` takes two Bools or two
+  Ints. The words on Ints have no short-circuit: `0 and f()` still calls
+  `f()`, and neither does `xor`, which needs both sides.
 - **Precedence is Python's**: tighter than a comparison, so
   `flags & 4 == 4` is `(flags & 4) == 4`; among themselves `|` is
   loosest, then `xor`, then `&`, then the shifts, all looser than `+`.
@@ -4031,10 +4034,10 @@ under Pyking's ordinary lexical scoping.
 | `-` (unary) | an `Int` or a `Float` | what the operand is |
 | `<`, `<=`, `>`, `>=` | two `Int`s or two `Float`s | `Bool` |
 | `==`, `!=` | two `Int`s, `Float`s, `String`s or `Bool`s | `Bool` |
-| `and`, `or` | two `Bool`s (logic), or two `Int`s (bitwise) | what the operands are |
+| `and`, `or`, `xor` | two `Bool`s (logic), or two `Int`s (bitwise) | what the operands are |
 | `not` | a `Bool`, or an `Int` | what the operand is |
 | `&&`, `!` and or-or | `Bool`s | `Bool` |
-| `&`, `xor`, `<<`, `>>`, bitwise or | two `Int`s | `Int` |
+| `&`, `<<`, `>>`, bitwise or | two `Int`s | `Int` |
 | `~` | an `Int` | `Int` |
 | `xs[i]` | a list `[a]` and an `Int` | `a` |
 

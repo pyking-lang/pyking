@@ -1,0 +1,25 @@
+# `xor` on two Bools: true where exactly one of them is, as `!=` is. On
+# scalars alone, so that every target runs it -- C included.
+
+print(false xor false, false xor true, true xor false, true xor true)
+
+# `xor` binds tighter than a comparison, so comparisons it joins are
+# parenthesized, and tighter than the words `and` and `or`.
+print((1 < 2) xor (3 < 4), (1 < 2) xor (3 > 4))
+print(true xor false and false, true xor (false and false))
+print(false xor true or false)
+
+# The same as `!=` on every pair.
+def same(a: Bool, b: Bool) -> Bool: (a xor b) == (a != b)
+print(same(false, false) and same(false, true) and same(true, false) and same(true, true))
+
+# Inferred: nothing annotates differ, and a call with Bools decides it.
+def differ(a, b): a xor b
+print(differ(true, false), differ(true, true))
+
+# Parity of three switches.
+def odd(a: Bool, b: Bool, c: Bool) -> Bool: a xor b xor c
+print(odd(true, true, true), odd(true, false, true))
+
+# Ints are still bitwise.
+print(12 xor 10)

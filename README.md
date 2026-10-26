@@ -199,8 +199,8 @@ and math libraries and caches them, which is why the cache only goes on
 
 `pyk lsp` is a language server: errors as you type, the inferred type
 on hover, go to definition, an outline, completion, signature help,
-references, rename, inlay hints, folding, semantic highlighting and
-quick fixes, in any editor that speaks the Language Server Protocol.
+references, rename, folding, semantic highlighting and quick fixes, in
+any editor that speaks the Language Server Protocol.
 `pyk dap` is a debugger for any editor that speaks the Debug Adapter
 Protocol: breakpoints, stepping, the calls in progress and their
 variables ([docs/debugging.md](docs/debugging.md)); the playground has

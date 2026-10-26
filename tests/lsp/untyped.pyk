@@ -1,0 +1,10 @@
+# Hover inside functions without types: twice is never called, so the
+# checker never inferred its types; add is called and has them.
+def twice(f, x):
+    f(f(x))
+
+def add(a, b):
+
+    a + b
+
+print(add(1, 2))

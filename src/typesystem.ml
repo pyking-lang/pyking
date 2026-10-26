@@ -1061,8 +1061,8 @@ let ordering = [ (KInt, KBool); (KFloat, KBool) ]
 (** The rows `==` and `!=` share. [(kind, kind)] *)
 let equality = [ (KInt, KBool); (KFloat, KBool); (KString, KBool); (KBool, KBool) ]
 
-(** The rows of `and` and `or`, spelled as words: logic on Bools and
-    bitwise on Ints. Bool comes first, so two operands nothing has
+(** The rows of `and` and `or`, spelled as words, and of `xor`: logic
+    on Bools and bitwise on Ints. Bool comes first, so two operands nothing has
     decided are Bools -- logic is what the words are written for most.
     [(kind, kind)] *)
 let logic_words = [ (KBool, KBool); (KInt, KInt) ]
@@ -1076,9 +1076,9 @@ let binop_rows op =
   match op with
   | BMod | BPow -> arithmetic
   | BNeq -> equality
-  | BAnd Word | BOr Word -> logic_words
-  | BAnd Symbol | BOr Symbol -> [ (KBool, KBool) ]
-  | BBitAnd _ | BBitOr _ | BXor | BShiftLeft | BShiftRight -> bitwise
+  | BAnd Word | BOr Word | BXor -> logic_words
+  | BAnd Symbol | BOr Symbol | BBoolXor -> [ (KBool, KBool) ]
+  | BBitAnd _ | BBitOr _ | BShiftLeft | BShiftRight -> bitwise
 
 (** An operator's spelling and its rows, or None for an expression that
     is not one. expr -> (string, [(kind, kind)]) option *)
@@ -1152,8 +1152,6 @@ let alternative expr left_type right_type =
         else ""
     | EBinary (_, BBitAnd Symbol, _, _, _) -> on_bools "'and' (or '&&')"
     | EBinary (_, BBitOr Symbol, _, _, _) -> on_bools "'or' (or '||')"
-    | EBinary (_, BXor, _, _, _) ->
-        on_bools "'!=', which is true where exactly one of them is"
     | EBinary (_, BAnd Symbol, _, _, _) -> on_ints "'and' or '&'"
     | EBinary (_, BOr Symbol, _, _, _) -> on_ints "'or' or '|'"
     | _ -> ""

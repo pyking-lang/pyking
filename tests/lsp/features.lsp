@@ -1,4 +1,4 @@
-# Signature help, references and highlights, renaming, inlay hints,
+# Signature help, references and highlights, renaming,
 # folding ranges and semantic tokens. Positions are line:column, both
 # from 1, as an editor shows them.
 initialize
@@ -25,8 +25,7 @@ request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "pos
 request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 29, "character": 2}, "newName": "Title"}
 request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 30, "character": 0}, "newName": "show"}
 request textDocument/rename {"textDocument": {"uri": "$URI(features.pyk)"}, "position": {"line": 16, "character": 5}, "newName": "plus"}
-# inlay hints, folding and semantic tokens
-request textDocument/inlayHint {"textDocument": {"uri": "$URI(features.pyk)"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 31, "character": 0}}}
+# folding and semantic tokens
 request textDocument/foldingRange {"textDocument": {"uri": "$URI(features.pyk)"}}
 request textDocument/semanticTokens/full {"textDocument": {"uri": "$URI(features.pyk)"}}
 shutdown

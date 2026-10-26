@@ -582,7 +582,7 @@ let rec type_of ctx scope e =
       | EString (i, _, _) -> TString (i, 0)
       | EBool (i, _, _) | EEq (i, _, _, _) | ELessThan (i, _, _, _)
       | ELessThanEq (i, _, _, _) | EGreatThan (i, _, _, _) | EGreatThanEq (i, _, _, _)
-      | EBinary (i, (BNeq | BAnd _ | BOr _), _, _, _) | EUnary (i, UNot _, _, _) ->
+      | EBinary (i, (BNeq | BAnd _ | BOr _ | BBoolXor), _, _, _) | EUnary (i, UNot _, _, _) ->
           TBool (i, 0)
       | EBinary (_, _, l, _, _) | EUnary (_, _, l, _) -> type_of ctx scope l
       | EVar (i, name, _) -> (
@@ -1060,7 +1060,7 @@ let rec expr ctx st scope e =
             st )
       | BBitAnd _ -> arithmetic ctx st scope p_bit_and "&" l r
       | BBitOr _ -> arithmetic ctx st scope p_bit_or "|" l r
-      | BXor -> arithmetic ctx st scope p_xor "^" l r
+      | BXor | BBoolXor -> arithmetic ctx st scope p_xor "^" l r
       | BShiftLeft -> arithmetic ctx st scope p_shift "<<" l r
       | BShiftRight -> arithmetic ctx st scope p_shift ">>" l r)
   | EUnary (_, op, operand, _) ->

@@ -1,0 +1,38 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open untyped.pyk
+> idle
+diagnostics $CASES/untyped.pyk v1 []
+> hover untyped.pyk 3:6
+{"contents": {"kind": "markdown", "value": "Types are not inferred until the function is called. Please use the function (call it), or give type annotations for the parameters and the return value."}}
+> hover untyped.pyk 3:14
+{"contents": {"kind": "markdown", "value": "Types are not inferred until the function is called. Please use the function (call it), or give type annotations for the parameters and the return value."}}
+> hover untyped.pyk 4:7
+{"contents": {"kind": "markdown", "value": "Types are not inferred until the function is called. Please use the function (call it), or give type annotations for the parameters and the return value."}}
+> hover untyped.pyk 6:6
+{"contents": {"kind": "markdown", "value": "```pyking\ndef add: (Int, Int) -> Int\n```"}, "range": {"end": {"character": 14, "line": 5}, "start": {"character": 0, "line": 5}}}
+> hover untyped.pyk 8:5
+{"contents": {"kind": "markdown", "value": "```pyking\na: Int\n```"}, "range": {"end": {"character": 5, "line": 7}, "start": {"character": 4, "line": 7}}}
+> hover untyped.pyk 7:1
+null
+> hover untyped.pyk 10:8
+{"contents": {"kind": "markdown", "value": "```pyking\nadd: (Int, Int) -> Int\n```"}, "range": {"end": {"character": 9, "line": 9}, "start": {"character": 6, "line": 9}}}
+> hover untyped.pyk 10:16
+{"contents": {"kind": "markdown", "value": "```pyking\nInt\n```"}, "range": {"end": {"character": 15, "line": 9}, "start": {"character": 6, "line": 9}}}
+> open untyped_error.pyk
+> idle
+diagnostics $CASES/untyped_error.pyk v1 [{"code": "Type error", "message": "`+` cannot be applied to a and Bool; it accepts Int + Int or Float + Float or String + String or two lists of one type", "range": {"end": {"character": 12, "line": 5}, "start": {"character": 4, "line": 5}}, "severity": 1, "source": "pyking"}]
+> hover untyped_error.pyk 2:6
+{"contents": {"kind": "markdown", "value": "Types are not shown while the program has a type error. Fix the error to see its type."}}
+> hover untyped_error.pyk 3:5
+{"contents": {"kind": "markdown", "value": "Types are not shown while the program has a type error. Fix the error to see its type."}}
+> hover untyped_error.pyk 5:6
+{"contents": {"kind": "markdown", "value": "Types are not shown while the program has a type error. Fix the error to see its type."}}
+> hover untyped_error.pyk 6:5
+{"contents": {"kind": "markdown", "value": "Types are not shown while the program has a type error. Fix the error to see its type."}}
+> hover untyped_error.pyk 8:16
+null
+> shutdown
+null
+> exit
+> exit status 0
