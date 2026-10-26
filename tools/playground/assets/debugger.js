@@ -564,6 +564,10 @@ export class Debugger {
     if (state === "running") {
       this.clearLine();
       this.setStatus("Running…");
+    } else if (state === "waiting") {
+      // tinyweb's `sdelay`: the program waits for the page's clock.
+      this.clearLine();
+      this.setStatus("Running… (waiting for the page's clock)");
     } else if (state === "idle") {
       this.clearLine();
       this.frames = [];

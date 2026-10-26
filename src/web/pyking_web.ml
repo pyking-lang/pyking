@@ -12,6 +12,7 @@
       pykRunProgram(main)               run a program of several modules
       pykAnalyze(main)                  what a program needs to be run
       pykCallback(id\nargs)             call a function handed to JavaScript
+      pykResume(id\nanswer)             go on with what waits for the page
       pykLsp(message) / pykLspIdle()    the language server (lsp.ml)
       pykDebugStart(request) / pykDebugRun(steps) / pykDebugCommand(c)
         / pykDebugBreakpoints / pykDebugFrames / pykDebugScopes
@@ -65,6 +66,10 @@ external file_read : string -> string = "pyk_file_read"
 (* A file of the standard library by its path under lib/, or "" where
    the page supplies none. *)
 external library_file : string -> string = "pyk_library_file"
+
+(* Puts `pykSettle` on the global object: how a page goes on with a run
+   that waits for it (see `resume`). *)
+external install_settle : unit -> unit = "pyk_install_settle"
 
 (** How a module implemented in JavaScript ends the program: `sys.exit`,
     with the status it was given. Raised from a call into the module and
@@ -266,6 +271,11 @@ let value_of_json text =
     else if literal i "\"pyk_exit\":" then
       match value (i + 11) with
       | Interpreter.VInt code, _ -> raise (Program_exit code)
+      | _ -> fail ()
+    else if literal i "\"pyk_wait\":" then
+      (* The external answered a promise: the call waits for it. *)
+      match value (i + 11) with
+      | Interpreter.VInt id, _ -> raise (Interpreter.Wait id)
       | _ -> fail ()
     else tuple_at i
   and float_at i =
@@ -620,12 +630,72 @@ let run_result state =
          ]
         @ span)
 
+(** What waits for a page's answer (see Interpreter.Wait), by the
+    number the page gave it: a program's top level, or a function the
+    page called back. `pykResume` hands one its answer. *)
+type waiter = Top of Interpreter.runner | Call of Interpreter.state
+
+let waiters : (int, waiter) Hashtbl.t = Hashtbl.create 4
+
+(** The answer a waiter gives once it has run as far as it can: still
+    waiting, which the page answers with `pykResume` once the promise of
+    that number settles; or the end of its run, as `run_result` says.
+    waiter -> string *)
+let rec settle waiter =
+  match waiter with
+  | Top r -> (
+      let rec go r =
+        if Interpreter.runner_done r || Interpreter.runner_waiting r <> None then r
+        else go (Interpreter.runner_step r)
+      in
+      match go r with
+      | exception Program_exit code -> json_object [ ("ok", json_bool true); ("exit", json_int code) ]
+      | r -> (
+          match Interpreter.runner_waiting r with
+          | Some id -> wait id (Top r)
+          | None -> run_result (Interpreter.runner_machine r)))
+  | Call machine -> (
+      match Interpreter.run machine with
+      | exception Program_exit code -> json_object [ ("ok", json_bool true); ("exit", json_int code) ]
+      | machine -> (
+          match Interpreter.waiting machine with
+          | Some id -> wait id (Call machine)
+          | None -> run_result machine))
+
+and wait id waiter =
+  Hashtbl.replace waiters id waiter;
+  json_object [ ("ok", json_bool true); ("waiting", json_int id) ]
+
+(** Hands what waits on id (see `waiters`) the answer the page's promise
+    settled with, as JSON, and runs it on: `settle`'s answer.
+    int -> string -> string *)
+let resume id answer =
+  match Hashtbl.find_opt waiters id with
+  | None ->
+      json_object
+        [
+          ("ok", json_bool false);
+          ("stage", json_string "Internal error");
+          ("text", json_string (Printf.sprintf "nothing waits on %d" id));
+        ]
+  | Some waiter -> (
+      Hashtbl.remove waiters id;
+      match value_of_json answer with
+      | exception Program_exit code -> json_object [ ("ok", json_bool true); ("exit", json_int code) ]
+      | value -> (
+          match waiter with
+          | Top r ->
+              settle (Top (Interpreter.with_machine r (Interpreter.resume (Interpreter.runner_machine r) value)))
+          | Call machine -> settle (Call (Interpreter.resume machine value))))
+
 (** Runs a whole program -- the file named, and every module it reaches
     -- with the interpreter, in a browser. The sources come from the
     page (`pykSources`, and `pykFetchSource` for a name it did not
     supply), and a module implemented in JavaScript is reached through
     `pykExternals`. `release` removes every call to `debug` first, as
-    `pyk compile --release` does. string -> bool -> string *)
+    `pyk compile --release` does. Where the program waits for the page
+    (`tinyweb.sdelay`), the answer says so, and `pykResume` goes on with
+    it. string -> bool -> string *)
 let run_program main release =
   match checked_program main release with
   | exception e -> refused e
@@ -636,7 +706,7 @@ let run_program main release =
           (fun line -> emit (line ^ "\n"))
       in
       match
-        Interpreter.run_modules
+        Interpreter.start_modules
           (List.map
              (fun (unit : Module.t) ->
                (* The two halves stay apart: `apply_signatures` folds a
@@ -650,7 +720,7 @@ let run_program main release =
       with
       | exception Program_exit code ->
           json_object [ ("ok", json_bool true); ("exit", json_int code) ]
-      | state -> run_result state)
+      | runner -> settle (Top runner))
 
 (** Calls the Pyking function that crossed to JavaScript as id, with
     the arguments as a JSON array: `{"ok":true}`, with the status where
@@ -687,6 +757,10 @@ let invoke id arguments =
           | Some s -> debugging := Some (Debug_session.push_call s machine)
           | None -> ());
           json_object [ ("ok", json_bool true); ("debugging", json_bool true) ]
+      | exception Interpreter.Suspended (id, machine) ->
+          (* The function waits for the page: the page goes on with it
+             through `pykResume`. *)
+          wait id (Call machine)
       | exception Interpreter.Runtime_error (info, message) ->
           failed "Runtime error" info message
       | exception Interpreter.Trap (info, message) ->
@@ -743,6 +817,15 @@ let compile_modules main target =
   let checked =
     if List.mem family [ Targets.C; Targets.Java ] then Prune.program checked else checked
   in
+  (* A function the target's implementation of a library cannot provide
+     -- tinyweb's `sdelay` on the web -- is refused where it is called. *)
+  if family = Targets.Web then
+    Module.check_available
+      (fun unit ->
+        match library_file (Printf.sprintf "%s/%s_external_browser.js" unit.name unit.name) with
+        | "" -> None
+        | text -> Some text)
+      (List.map fst checked) target;
   let main_unit = fst (List.nth checked (List.length checked - 1)) in
   let types tmap = Option.value tmap ~default:Syntax.IntMap.empty in
   let generated = List.filter (fun ((unit : Module.t), _) -> not unit.is_external) checked in
@@ -1387,7 +1470,8 @@ let debug_start request =
       Json.to_string (Json.Object [ ("ok", Json.Bool true); ("breakpoints", Json.List verified) ])
 
 (** Where the session is: "running", "stopped", "idle" (the top level
-    has ended and it waits for the page) or "ended". string *)
+    has ended and it waits for the page), "waiting" (a run waits for the
+    page's answer, `pykDebugAnswer`) or "ended". string *)
 let debug_status () =
   match !debugging with
   | None -> "ended"
@@ -1395,6 +1479,7 @@ let debug_status () =
       if Debug_session.ended s then "ended"
       else if Debug_session.stopped s <> None then "stopped"
       else if Debug_session.idle s then "idle"
+      else if Debug_session.waiting_on s <> None then "waiting"
       else "running"
 
 (** A run's failure as the page shows one, from `run_result`, or None
@@ -1448,7 +1533,29 @@ let debug_run request =
                       @ match failure_json m with Some f -> [ ("failure", f) ] | None -> []))
               events)
   in
-  Json.to_string (Json.Object [ ("state", Json.String (debug_status ())); ("events", Json.List events) ])
+  let waiting =
+    match !debugging with
+    | Some s -> (
+        match Debug_session.waiting_on s with Some id -> [ ("waiting", jint id) ] | None -> [])
+    | None -> []
+  in
+  Json.to_string
+    (Json.Object ([ ("state", Json.String (debug_status ())); ("events", Json.List events) ] @ waiting))
+
+(** Hands the run being debugged that waits on a number what the page's
+    promise of that number settled with: the request is the number, and
+    on a second line the answer as JSON. string -> string *)
+let debug_answer request =
+  match (!debugging, String.index_opt request '\n') with
+  | Some s, Some i -> (
+      let id = int_of_string_opt (String.sub request 0 i) in
+      match (id, value_of_json (String.sub request (i + 1) (String.length request - i - 1))) with
+      | exception Program_exit _ -> "{}"
+      | Some id, value ->
+          debugging := Some (Debug_session.answer s id value);
+          "{}"
+      | None, _ -> "{}")
+  | _ -> "{}"
 
 (** The session told to go on: "continue", "next", "in", "out" or
     "pause". Answers the state. string -> string *)
@@ -1611,8 +1718,19 @@ let () =
           invoke
             (int_of_string (String.sub request 0 i))
             (String.sub request (i + 1) (String.length request - i - 1)));
+  install_settle ();
+  register1 "pykResume" (fun request ->
+      (* The number the page answered for, and on a second line what its
+         promise settled with, as JSON. *)
+      match String.index_opt request '\n' with
+      | None -> resume (int_of_string request) "null"
+      | Some i ->
+          resume
+            (int_of_string (String.sub request 0 i))
+            (String.sub request (i + 1) (String.length request - i - 1)));
   register1 "pykDebugStart" debug_start;
   register1 "pykDebugRun" debug_run;
+  register1 "pykDebugAnswer" debug_answer;
   register1 "pykDebugCommand" debug_command;
   register1 "pykDebugBreakpoints" debug_breakpoints;
   register0 "pykDebugFrames" debug_frames;

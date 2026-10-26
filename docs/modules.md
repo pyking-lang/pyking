@@ -502,6 +502,26 @@ definition too. That costs output and never correctness. The same
 narrowed imports are how the browser bundle's `pykAnalyze` decides
 whether a program reads standard input or its arguments.
 
+### A function a target cannot provide
+
+An implementation may say that it cannot provide a function, and why,
+in a line of its own: `// unavailable NAME: WHY`. Only the `web`
+target reads it, from each module's `<module>_external_browser.js`:
+tinyweb's `sdelay` waits, and a program compiled for the web cannot.
+`Module.check_available` walks every module of the program for a use
+of such a function -- `alias.name` through a plain import, or `name`
+through a `from` one -- and refuses the first with a module error where
+it is written:
+
+```
+'waits.pyk' 12:0-12:9 Module error: 'tinyweb.sdelay' cannot be used on
+  target 'web2024': it waits for the page's audio clock, and a program
+  compiled for the web target cannot wait; ...
+```
+
+A program that imports the module and never calls the function compiles
+as before. `pyk compile` and the playground's Compile both check.
+
 ### What may cross the boundary
 
 The types a declaration may name are the ones the target can carry, and
@@ -622,7 +642,10 @@ an OCaml implementation"). A module with no `<module>_external.ml` is
 refused there, naming the file. A program importing one therefore lists
 `interpret` like any other, and the harness warns where it does not.
 The browser's interpreter reaches the JavaScript implementation
-instead, through `pykExternals`.
+instead, through `pykExternals`. A function there that answers a
+promise makes the program wait for it: the interpreter stops in a
+waiting state and goes on with what the promise settled with
+([interpreter.md](interpreter.md), "Waiting for the host").
 
 An external module has no Pyking top level either, so nothing runs
 before the program's own: it is not among the modules a backend starts,

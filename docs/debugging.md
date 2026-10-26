@@ -123,6 +123,11 @@ level has ended. Both transports debug them.
   promise of its end (`pykDebugAwait`), and tinyweb's event delivery
   waits for it before calling the next. Events that arrive while the
   program is stopped wait in the worker; frames are not queued twice.
+  A program waiting in tinyweb's `sdelay` puts the session in the state
+  `waiting`: the worker delivers the page's events meanwhile, and once
+  the promise settles hands the answer over with `pykDebugAnswer` and
+  runs the slices on. `pyk dap` needs nothing of the kind, since the
+  plugin's `sdelay` waits inside the call, serving the page.
 
 ## Testing
 

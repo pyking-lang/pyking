@@ -249,6 +249,11 @@ DESCRIPTIONS = {
             "`on_frame` callback, the time the frame is for. It is the audio clock "
             "once sound has started, so a time read here is a time `play_sample` "
             "can be given.",
+    "sdelay": "Waits until the page's audio clock is `time` seconds after the last "
+              "`sdelay` ended (after now, for the first), so a loop of them does not "
+              "drift; one that has fallen behind goes on at once. The page's events "
+              "are delivered while it waits, and a sound played next with no time of "
+              "its own starts exactly at the end.",
     "on_frame": "Calls `draw` before each frame the page shows, with the time the "
                 "frame is for.",
     "on_mouse": "Calls `click` with the position, in pixels from the top left corner, "

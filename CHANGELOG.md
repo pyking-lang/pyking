@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The language server offers a quick fix for each new refusal: `+` for
   `++`, `^` for `**`, `and` for `&` on Bools and the like, and the
   `use mutation` line a `var` needs.
+- `tinyweb.sdelay(time)`: the program waits until the page's audio
+  clock is `time` after the last `sdelay` ended (after now, for the
+  first), so a loop of them keeps in time with the sound and does not
+  drift; one that fell behind goes on at once and counts from then. A
+  sound started after it with no `at` starts exactly at its end, what is
+  drawn after it shows then, and the page's events -- a click, a frame
+  -- still arrive while the program waits. Works on every native
+  target, the interpreter, the REPL, iweb, the playground (the debugger
+  included) and notebooks; the compiler refuses it for `web`, which
+  cannot wait. A library's browser implementation can now mark a
+  function `// unavailable NAME: WHY`, which the web target refuses
+  where it is called.
 - Hover in the language server, inside a function nothing calls, says
   that its types are not inferred until it is called; while the program
   has a type error, it says that instead of showing nothing.
@@ -53,6 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Lambdas are written `lam x. x + 1` and `lam (x, y). x + y`; `=>` is
   refused with a message saying so.
 - `**` is refused, with `^` named as the power.
+- tinyweb on node serves its page from a worker thread, so the page is
+  answered while the program waits in `sdelay`; the address is printed
+  as `web_init` returns, before what the program prints after it.
 - The language server no longer writes inferred types into the text
   (inlay hints), and the `inlayHints` setting is gone; hover shows the
   types.

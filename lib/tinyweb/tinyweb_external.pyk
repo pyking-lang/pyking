@@ -306,6 +306,49 @@ public def set_splash(message: String) -> ()
 public def time() -> Float
 
 # topic: Time
+## Waits, keeping in time with the sound: the program goes on `time`
+## seconds after the last `sdelay` ended, on the page's audio clock. The
+## first waits `time` seconds from now. Since each counts from where the
+## last one ended rather than from when it was called, a loop of them
+## does not drift, however long what runs between them takes. A program
+## that has fallen behind -- where that end has passed already -- goes on
+## at once, and the next counts from then.
+##
+## A sound started after `sdelay`, with no `at` of its own, starts
+## exactly where it ends, and what is drawn after it is shown then.
+## While the program waits, the page's events still arrive: a button's
+## function runs, and so does `on_frame`'s. Since the program really
+## waits, `print` after it comes out then too.
+##
+## With no page open yet, the program waits for one. It cannot be used
+## in a program compiled for the web target, which cannot wait: run it
+## with the interpreter (`pyk`, `-t iweb`, the playground) or compile it
+## for another target.
+##
+## # Parameters
+## - `time`: how long after the last `sdelay` to go on, in seconds; a
+##   negative one is 0.
+##
+## # Examples
+## A drum that never stops: a kick every half second, and a word
+## printed with each.
+## ```pyking norun
+## import tinyweb as tw
+## tw.web_init(0)
+## kick = tw.load_sample("kick1.wav")
+## loop:
+##     tw.play(kick)
+##     print("kick")
+##     tw.sdelay(0.5)
+## ```
+## ```stdout
+## kick
+## kick
+## kick
+## ```
+public def sdelay(time: Float) -> ()
+
+# topic: Time
 ## Calls `draw` before each frame the page shows, about 60 times a second,
 ## with the time the frame is for. This is how a program animates.
 ##

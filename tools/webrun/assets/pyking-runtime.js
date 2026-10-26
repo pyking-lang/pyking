@@ -272,7 +272,8 @@ export class PykingRuntime {
    *  log?}]}] -- at its first statement where `stopOnEntry`, and on a
    *  runtime error. `onDebugger` is called with {state, events} whenever
    *  where it is changes: state "running", "stopped", "idle" (its top
-   *  level has ended and its page's events are awaited) or "ended".
+   *  level has ended and its page's events are awaited), "waiting" (it
+   *  waits for its page's clock, tinyweb's `sdelay`) or "ended".
    *  Resolves to {ok:true, breakpoints} once it has started, or to a
    *  refusal in `compile`'s shape. `debug(action, payload)` then asks
    *  it something, and `debugStop()` ends it. */

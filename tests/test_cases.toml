@@ -1639,6 +1639,11 @@ libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }
 
 [[cases]]
+file = "lib_tinyweb_sdelay.pyk"
+libs = ["math", "text", "tinyweb"]
+excluded = { web = "sdelay waits for the page, which a web program cannot: the compiler refuses it, which tests/test_tinyweb.py checks" }
+
+[[cases]]
 file = "lib_tinyweb_widgets.pyk"
 libs = ["math", "text", "tinyweb"]
 excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser" }

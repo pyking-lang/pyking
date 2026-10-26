@@ -510,7 +510,8 @@ copies the page's style block into `tinyweb_external_browser.js`.
 | `GET /<file>` | that file beside where the program runs, and a sample from `tinyweb_assets/` beside the library, else 404 |
 
 It listens on 127.0.0.1 only. The events are delivered once the top
-level has ended, in the order they came, each followed by an
+level has ended, or while `sdelay` waits (see "Waiting for the page"),
+in the order they came, each followed by an
 `event_done` command once what it caused has been sent -- which is how
 the test below knows an event is finished. A page that connects late,
 or is reloaded, is sent everything so far first, less what it no longer
@@ -522,7 +523,7 @@ top level has run. How each host serves:
 | implementation | server | where callbacks run |
 |---|---|---|
 | `tinyweb_external.py` | `http.server` on a thread | the main thread, from `atexit` |
-| `tinyweb_external_node.js` | node's `http` | node's event loop |
+| `tinyweb_external_node.js` | node's `http`, on a worker thread (this same file run there) | node's event loop |
 | `tinyweb_external.ml` (`ocaml`, the interpreter) | one `select` loop | from `at_exit`, or the interpreter after the top level; the REPL runs the loop while it waits for a key |
 | `tinyweb_external.c` | one `select` loop, POSIX sockets | from `atexit` |
 | `TinywebExternal.java` | the JDK's `com.sun.net.httpserver` | a thread that waits for `main` to return |
@@ -619,6 +620,67 @@ and holds the same way: each function's effect on the page goes through
 `act`, which runs it now or keeps it until the splash screen goes. The
 splash screen itself, `splashScreen`, is in the page script's style
 block, so the two draw the same one.
+
+### Waiting for the page: `sdelay`
+
+`sdelay(time)` pauses the program until the page's clock -- the audio
+clock once sound has started -- reaches where it ends: `time` after the
+last one ended, or after now for the first. Counting from the last end
+rather than from the call is what keeps a loop of them from drifting;
+where that end has passed already (the program fell behind), it ends
+now, and the next counts from then. A negative `time` is 0.
+
+**On the page.** The program sends `{op: "sdelay", id, seconds}` and
+waits. The page (`sdelay`, `pace` in `tinyweb_page.js`) works out the
+end when it reaches the command, in the program's order, and answers
+`{ev: "sdelay", id}` `SDELAY_LEAD` (0.05 s) before it, looking at the
+clock every 5 ms and on every frame. From the answer until the end,
+what arrives is paced: a `play`, `start` or `tone` with no `at` of its
+own is started at exactly the end (`timed`), and every other command
+is held until the end has come and then carried out in order. The
+clock goes on meanwhile; the splash screen and a picture loading still
+hold everything, the clock included, as they do anyway. Events -- a
+click, a frame -- are reported as ever; a frame's `frame_done` waits
+with the rest, so at most one frame's drawing is held. A page connecting
+late is sent an `sdelay` the program still waits on, and none it has
+answered; and the sound a program plays after its first `sdelay` is
+not sent to it, as a callback's is not, since a loop of them would
+otherwise be replayed whole.
+
+**In the program.** The native implementations block: each sends the
+command, then takes the page's events one at a time until the answer
+with its number, delivering every other one as it comes (each with its
+`event_done`), so a button's function, a frame or a key runs while the
+program waits. Python waits on its queue, Java on its `BlockingQueue`,
+OCaml and C run their `select` loop -- so a page can connect while a
+program waits, though their server answers only then and after the top
+level. Node cannot block while its own server runs on the same thread,
+so its server is on a worker thread: commands go to it with
+`postMessage`, events come back on a `MessageChannel` with a counter in
+a `SharedArrayBuffer` that the main thread waits on with `Atomics.wait`
+and reads with `receiveMessageOnPort`. With no page yet, a program
+waits for one. With a log (`PYKING_TINYWEB_LOG`) nothing waits: the
+command is logged as `sdelay <seconds>` and the clock moves to the end.
+
+Where the interpreter runs in a browser (iweb, the playground, a
+notebook), `sdelay` answers a promise, which the page's event settles.
+A promise from an external module is a wait: `src/web/stub.js` keeps it
+under a number in `pykWaits` and answers `{"pyk_wait": n}`, which
+`pyking_web.ml` raises as `Interpreter.Wait n`; the machine stops in a
+waiting state, the run answers `{"ok": true, "waiting": n}`, and
+`pykSettle` waits for the promise and hands what it settled with to
+`pykResume`, which runs the machine on (docs/interpreter.md, "Waiting
+for the host"). A function the page calls back that waits answers a
+promise of its end, which `pykDeliver` already waits for before the
+next. The worker's event loop runs while a program waits, so the page's
+events arrive. Under the debugger the session's state is `waiting`, and
+the worker hands the answer over with `pykDebugAnswer`.
+
+A program compiled for `web` cannot wait, so the compiler refuses
+`sdelay` there, where it is called: `tinyweb_external_browser.js` marks
+it with a line `// unavailable sdelay: <why>`, which
+`Module.check_available` reads (docs/modules.md, "A function a target
+cannot provide").
 
 ## What each library reaches
 

@@ -55,6 +55,9 @@ what to do:
   `step` on either of these is the identity, which is what makes `run`
   a bare loop with no special-casing of "are we finished yet" beyond
   checking `control`'s type.
+- **`CWaiting(n, info)`** — an external call is waiting for the host's
+  answer (see "Waiting for the host" below); `step` is the identity
+  here too, and `run` stops, until `resume` hands it the answer.
 
 Walking through a concrete case makes the shape click. Take `double(21)
 + 1`, where `double` is an ordinary `def double(n): return n * 2`. This
@@ -412,3 +415,26 @@ declares is asked of `externals.field` when the module is loaded.
 `sys.exit` never reaches the machine as a value: the OCaml
 implementation ends the process, and in a browser the call raises an
 exception the bundle catches where it started the run.
+
+### Waiting for the host
+
+A host whose answer is not ready yet -- a page, for tinyweb's `sdelay`
+-- raises `Wait n` from `externals.call`, naming the answer by a number
+of its own. The call does not fail: the machine keeps the call's
+continuation and environment and stops with `CWaiting (n, info)`, so
+`waiting state` is `Some n`, `run` stops there, and `finished` stays
+false. `resume state value` puts `value` in the control position as if
+the call had answered it, and `run` goes on from there. Nothing about
+the program is lost, since a state is a plain value -- the same
+property that lets a debugger pause.
+
+A function the host calls back runs on a machine of its own (`callback`).
+Where that one waits, `callback` raises `Suspended (n, machine)`, which a
+host calling it on its own -- the browser bundle's `pykCallback` -- keeps
+and resumes later. A function an external module calls back while that
+external's own call is under way cannot wait, since the external is
+waiting for its answer: the call that waits fails with a runtime error
+saying so. A runner's machine can wait too (`runner_waiting`); the
+bundle's `pykRunProgram` steps the runner itself rather than through
+`run_modules`, so it can stop there. The native hosts never raise
+`Wait`: their `sdelay` blocks inside the call instead.

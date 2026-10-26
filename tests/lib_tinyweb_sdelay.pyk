@@ -1,0 +1,22 @@
+# tinyweb's `sdelay` in a loop that does not end by itself: each round
+# plays a note, prints, draws and waits, a quarter of a second after the
+# last wait ended rather than after the call. The eighth round leaves
+# the loop. With no page, each `sdelay` moves the clock on at once.
+
+use mutation
+
+import tinyweb as tw
+import tinyweb.color as color
+
+tw.web_init(0)
+c = tw.canvas(200, 40)
+piano = tw.load_sample("piano_c1.wav")
+var round = 0
+loop:
+    tw.play(piano)
+    print("round", round, "at", tw.time())
+    tw.circle(c, 10 + 20 * round, 20, 8, color.orange)
+    round := round + 1
+    if round == 8:
+        break
+    tw.sdelay(if round == 4 then 0.5 else 0.25)

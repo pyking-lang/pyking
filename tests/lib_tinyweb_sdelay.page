@@ -1,0 +1,26 @@
+canvas "canvas" 200 40
+load "piano_c1.wav"
+play "piano_c1.wav" 0.0 1.0 1.0 0.0 0 0
+circle "canvas" 10 20 8 "#ffa500" "" 1.000 1.000
+sdelay 0.250
+play "piano_c1.wav" 0.0 1.0 1.0 0.0 0 0
+circle "canvas" 30 20 8 "#ffa500" "" 1.000 1.000
+sdelay 0.250
+play "piano_c1.wav" 0.0 1.0 1.0 0.0 0 0
+circle "canvas" 50 20 8 "#ffa500" "" 1.000 1.000
+sdelay 0.250
+play "piano_c1.wav" 0.0 1.0 1.0 0.0 0 0
+circle "canvas" 70 20 8 "#ffa500" "" 1.000 1.000
+sdelay 0.500
+play "piano_c1.wav" 0.0 1.0 1.0 0.0 0 0
+circle "canvas" 90 20 8 "#ffa500" "" 1.000 1.000
+sdelay 0.250
+play "piano_c1.wav" 0.0 1.0 1.0 0.0 0 0
+circle "canvas" 110 20 8 "#ffa500" "" 1.000 1.000
+sdelay 0.250
+play "piano_c1.wav" 0.0 1.0 1.0 0.0 0 0
+circle "canvas" 130 20 8 "#ffa500" "" 1.000 1.000
+sdelay 0.250
+play "piano_c1.wav" 0.0 1.0 1.0 0.0 0 0
+circle "canvas" 150 20 8 "#ffa500" "" 1.000 1.000
+splash

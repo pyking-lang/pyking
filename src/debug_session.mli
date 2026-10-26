@@ -172,3 +172,12 @@ val stop_on_errors : t -> bool -> t
 
 (** The session ended where it stands. t -> t *)
 val terminate : t -> t
+
+(** The number the running run waits on, where it waits for the page
+    (Interpreter.Wait): `advance` takes it no further until `answer`.
+    t -> int option *)
+val waiting_on : t -> int option
+
+(** The session with the run that waits on id handed value, going on
+    from there once it runs again. t -> int -> Interpreter.value -> t *)
+val answer : t -> int -> Interpreter.value -> t

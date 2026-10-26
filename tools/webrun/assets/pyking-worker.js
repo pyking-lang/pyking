@@ -251,8 +251,11 @@ function run(message) {
     live = imported;
     self.pykExternals = { ...imported, ...pick(mine, analysis.externals) };
     supply(message);
-    return JSON.parse(self.pykRunProgram(
-      message.name + (message.release ? "\nrelease" : "")));
+    // A program that waits for its page (tinyweb's `sdelay`) answers a
+    // promise of its end; the worker's event loop runs meanwhile, so the
+    // page's events still arrive.
+    return self.pykSettle(JSON.parse(self.pykRunProgram(
+      message.name + (message.release ? "\nrelease" : ""))));
   };
   if (needed.length === 0) return start({});
   return Promise.all(needed.map((name) => importExternal(name)))
@@ -278,7 +281,9 @@ function run(message) {
 // ("evaluate", "set") or replace a file's breakpoints ("breakpoints");
 // "stop" ends it. What changes arrives unsolicited as {type: "debugger",
 // state, events}: state "running", "stopped", "idle" (the top level has
-// ended and its page's events are awaited) or "ended".
+// ended and its page's events are awaited), "waiting" (it waits for its
+// page's clock, tinyweb's `sdelay`, whose answer `awaitAnswer` hands
+// over) or "ended".
 
 // The program being debugged: whether its slices are running, the state
 // the last slice left, the page events waiting their turn, whether one
@@ -401,10 +406,30 @@ function debugLoop() {
       setTimeout(slice, 0);
     } else {
       debug.looping = false;
-      if (state === "idle") deliverQueued();
+      if (state === "waiting") awaitAnswer(answer.waiting);
+      if (state === "idle" || state === "waiting") deliverQueued();
     }
   };
   setTimeout(slice, 0);
+}
+
+/** The program being debugged waits for its page (tinyweb's `sdelay`):
+ *  once the promise kept under `id` settles, the answer is handed to the
+ *  session and the slices go on. The page's events are delivered
+ *  meanwhile, as they are while the program runs. Number -> () */
+function awaitAnswer(id) {
+  if (debug === null || debug.answering === id) return;
+  debug.answering = id;
+  const waits = self.pykWaits;
+  const promise = waits?.get(id);
+  waits?.delete(id);
+  Promise.resolve(promise).then((value) => {
+    if (debug === null) return;
+    debug.answering = null;
+    self.pykDebugAnswer(`${id}\n${JSON.stringify(value ?? null)}`);
+    debug.state = "running";
+    debugLoop();
+  });
 }
 
 /** A callback the page made, now running in the debugger: a promise of
@@ -418,7 +443,8 @@ self.pykDebugAwait = () => new Promise((resolve) => {
 
 /** Delivers the next page event that waited, once nothing else runs. */
 function deliverQueued() {
-  if (debug === null || debug.delivering || debug.state !== "idle") return;
+  if (debug === null || debug.delivering
+      || (debug.state !== "idle" && debug.state !== "waiting")) return;
   const next = debug.queue.shift();
   if (next === undefined) return;
   debug.delivering = true;

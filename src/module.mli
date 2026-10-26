@@ -311,6 +311,18 @@ val implementation_name : string -> string -> string option
     string -> string -> string -> info -> string *)
 val implementation_path : string -> string -> string -> Lexer.info -> string
 
+(** The functions an implementation says it cannot provide, each with
+    why: its lines `// unavailable NAME: WHY`. string -> [(string,
+    string)] *)
+val unavailable_in : string -> (string * string) list
+
+(** Refuses a program that calls a function its target cannot provide:
+    one an external module's implementation for the target marks
+    unavailable (see `unavailable_in`). `read unit` is that
+    implementation's text, where there is one. Raises Module_error at
+    the first such call. (t -> string option) -> [t] -> string -> () *)
+val check_available : (t -> string option) -> t list -> string -> unit
+
 (** The implementation a module has for a target, found the way an
     import of it from `directory` would find the module: what a page
     ships for a library the program never imports. Raises Module_error

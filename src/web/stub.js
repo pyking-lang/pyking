@@ -145,6 +145,16 @@ function pyk_external_text(module_, field, argsJson) {
     }
     throw error;
   }
+  // A promise is an answer that is not ready: the call waits for it
+  // (tinyweb's `sdelay`). It is kept under a number, which crosses back
+  // as data; the interpreter stops there, and `pykSettle` goes on once
+  // the promise has settled.
+  if (result !== null && typeof result === "object" && typeof result.then === "function") {
+    var waits = globalThis.pykWaits || (globalThis.pykWaits = new Map());
+    var id = (globalThis.pykWaitCount = (globalThis.pykWaitCount || 0) + 1);
+    waits.set(id, result);
+    return '{"pyk_wait":' + id + "}";
+  }
   return pyk_encode(result);
 }
 
@@ -167,6 +177,13 @@ function pyk_revive(value) {
     }
     if (typeof value.pyk_callback === "number") {
       var id = value.pyk_callback;
+      var ended = function (answer) {
+        if (!answer.ok) {
+          (globalThis.pykOnError || function (text) { console.error(text); })(answer.text);
+        } else if (answer.exit !== undefined && globalThis.pykOnExit) {
+          globalThis.pykOnExit(answer.exit);
+        }
+      };
       return function () {
         var args = Array.prototype.slice.call(arguments);
         var answer = JSON.parse(
@@ -176,11 +193,12 @@ function pyk_revive(value) {
         if (answer.ok && answer.debugging && globalThis.pykDebugAwait) {
           return globalThis.pykDebugAwait();
         }
-        if (!answer.ok) {
-          (globalThis.pykOnError || function (text) { console.error(text); })(answer.text);
-        } else if (answer.exit !== undefined && globalThis.pykOnExit) {
-          globalThis.pykOnExit(answer.exit);
+        // A call that waits for the page answers a promise of its end,
+        // which whoever called it waits for before going on.
+        if (answer.ok && answer.waiting !== undefined) {
+          return globalThis.pykSettle(answer).then(ended);
         }
+        ended(answer);
       };
     }
   }
@@ -264,4 +282,27 @@ function pyk_source(name) {
 function pyk_library_file(path) {
   var text = globalThis.pykLibraryFile ? globalThis.pykLibraryFile(path) : null;
   return typeof text === "string" ? pyk_utf8_of_text(text) : "";
+}
+
+// What a page does with an answer from `pykRunProgram`, `pykCallback`
+// or `pykResume` that says the program waits (`{"waiting": id}`): waits
+// for the promise kept under that number, hands what it settled with to
+// `pykResume`, and does the same with what that answers. Answers the
+// final answer where nothing waits, and a promise of it otherwise.
+//Provides: pyk_install_settle
+function pyk_install_settle() {
+  globalThis.pykSettle = function settle(answer) {
+    if (!answer || answer.waiting === undefined) return answer;
+    var id = answer.waiting;
+    var waits = globalThis.pykWaits;
+    var promise = waits ? waits.get(id) : undefined;
+    if (waits) waits.delete(id);
+    return Promise.resolve(promise).then(function (value) {
+      // What a promise settles with crosses as plain JSON: `sdelay`'s is
+      // nothing.
+      return settle(JSON.parse(globalThis.pykResume(
+        id + "\n" + JSON.stringify(value === undefined ? null : value))));
+    });
+  };
+  return 0;
 }

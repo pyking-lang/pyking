@@ -783,7 +783,10 @@ let advance t steps =
         if n <= 0 then (t, events)
         else
           let m = machine_of run in
-          if run_done run then
+          (* A run waiting for the page goes no further until `answer`
+             hands it what it waits for. *)
+          if Interpreter.waiting m <> None then (t, events)
+          else if run_done run then
             match Interpreter.failure m with
             | Some (Interpreter.Runtime_error (_, message))
               when t.stop_on_error && not t.failed_seen ->
@@ -868,6 +871,26 @@ let push_call t machine =
 (** The session told whether to stop where a runtime error ends the
     program, before it ends. t -> bool -> t *)
 let stop_on_errors t on = { t with stop_on_error = on }
+
+(** The number the running run waits on, where it waits for the page
+    (Interpreter.Wait). t -> int option *)
+let waiting_on t =
+  match (t.mode, t.runs) with
+  | Running _, (run, _) :: _ -> Interpreter.waiting (machine_of run)
+  | _ -> None
+
+(** The session with the run that waits on id handed value, going on
+    from there once it runs again. t -> int -> Interpreter.value -> t *)
+let answer t id value =
+  let answered run =
+    let m = machine_of run in
+    if Interpreter.waiting m <> Some id then run
+    else
+      match run with
+      | Top r -> Top (Interpreter.with_machine r (Interpreter.resume m value))
+      | Call m -> Call (Interpreter.resume m value)
+  in
+  { t with runs = List.map (fun (run, last) -> (answered run, last)) t.runs }
 
 (** The session ended where it stands. t -> t *)
 let terminate t = { t with mode = Over_; runs = [] }

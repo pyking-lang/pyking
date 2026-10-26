@@ -1250,6 +1250,20 @@ let compile_program checked target output_path options =
         { Lexer.file = unit.path; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
     with Module.Module_error _ as e -> fail e
   in
+  (* A function the target's implementation of a module cannot provide
+     -- tinyweb's `sdelay` on the web -- is refused where it is called. *)
+  if Targets.family_of target = Targets.Web then (
+  try
+     Module.check_available
+       (fun unit ->
+         match
+           Module.implementation_path (dirname unit.path) unit.name target
+             { Lexer.file = unit.path; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
+         with
+         | path -> Some (Module.read_whole_file path)
+         | exception Module.Module_error _ -> None)
+       (List.map fst checked) target
+   with Module.Module_error _ as e -> fail e);
   (* The compiler as JavaScript, which the `iweb` target ships beside
      the program: `make` writes it to share/pyking.js, so it is looked
      for beside the executable that is asking for it. *)

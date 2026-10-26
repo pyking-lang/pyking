@@ -65,6 +65,10 @@ _watchers = {}
 _reports = {}
 _after = False
 _hub = None
+# tinyweb's `sdelay`: how many have been sent, and with no page, where
+# the last one ended on the clock the events give.
+_sdelays = 0
+_sdelay_end = None
 
 
 # --- commands ---
@@ -158,6 +162,8 @@ def _log_line(command):
         return f"style {q('id')} {c('kind')} {c('prop')} {q('value')}"
     if op == "splash_text":
         return f"splash_text {q('text')}"
+    if op == "sdelay":
+        return f"sdelay {_seconds(c('seconds'))}"
     return op
 
 
@@ -551,6 +557,49 @@ def time():
     return _clock
 
 
+def sdelay(time):
+    """Sends `sdelay` and waits for the page to answer it, delivering the
+    page's other events meanwhile. With no page, moves the clock on to
+    where it ends instead."""
+    global _sdelays, _sdelay_end, _clock, _delivered
+    _ready()
+    seconds = time if time > 0.0 else 0.0
+    _sdelays += 1
+    id = _sdelays
+    _send({"op": "sdelay", "id": id, "seconds": seconds})
+    if _LOG is not None:
+        _sdelay_end = _clock + seconds if _sdelay_end is None \
+            else max(_sdelay_end + seconds, _clock)
+        _clock = _sdelay_end
+        return
+    # Sound played after the first `sdelay` is live: a page connecting
+    # later is not sent it, as it is not sent a callback's.
+    _delivered = True
+    _sys.stdout.flush()
+    _hub.flush()
+    batching = _hub.batching
+    try:
+        while True:
+            try:
+                event = _hub.events.get(timeout=0.5)
+            except _queue.Empty:
+                continue
+            if event.get("ev") == "sdelay":
+                if event.get("id") == id:
+                    _deliver(event)
+                    _hub.answered(id)
+                    return
+                continue
+            _hub.batching = True
+            _deliver(event)
+            _send({"op": "event_done"})
+            _sys.stdout.flush()
+            _hub.flush()
+            _hub.batching = batching
+    finally:
+        _hub.batching = batching
+
+
 def on_frame(draw):
     _ready()
     _frames.append(draw)
@@ -838,6 +887,13 @@ class _Hub:
         if batch:
             for client in clients:
                 client.put(batch)
+
+    def answered(self, id):
+        """Forgets the `sdelay` the page has answered: a page connecting
+        later is sent only one still waiting."""
+        with self.lock:
+            self.history = [h for h in self.history
+                            if not (h["op"] == "sdelay" and h.get("id") == id)]
 
     def connect(self):
         client = _queue.Queue()
@@ -1732,6 +1788,12 @@ _PAGE_JS = "".join([
     "const LOOKAHEAD = 0.15;\n",
     "const TICK_MS = 25;\n",
     "\n",
+    "// How long before an `sdelay` ends the page answers it, so that what the\n",
+    "// program plays next reaches the page in time to start exactly there,\n",
+    "// and how often the clock is looked at while one waits.\n",
+    "const SDELAY_LEAD = 0.05;\n",
+    "const SDELAY_TICK_MS = 5;\n",
+    "\n",
     "// The numbers a command carries. String -> [Float]\n",
     "function engineNumbers(text) {\n",
     "  return text === \"\" || text === undefined ? [] : String(text).trim().split(/\\s+/).map(Number);\n",
@@ -2460,6 +2522,15 @@ _PAGE_JS = "".join([
     "  // caused while they waited for it.\n",
     "  let waitingFor = null;\n",
     "  let deferred = [];\n",
+    "  // tinyweb's `sdelay`: where the last one ends on the page's clock (null\n",
+    "  // before the first), the one to answer and when, and once it is\n",
+    "  // answered, what the program does next that is not a sound, held until\n",
+    "  // the end -- a sound is started at the end instead (`timed`). The\n",
+    "  // interval looks at the clock while one of them waits.\n",
+    "  let sdelayEnd = null;\n",
+    "  let answering = null;\n",
+    "  let paced = null;\n",
+    "  let pacer = 0;\n",
     "\n",
     "  let focusable = false;    // whether mounting made `element` focusable\n",
     "\n",
@@ -2561,11 +2632,66 @@ _PAGE_JS = "".join([
     "    for (const event of events) report(event);\n",
     "  }\n",
     "\n",
-    "  // Carries out a command, or holds it while something holds the page.\n",
-    "  // Command -> ()\n",
+    "  // Carries out a command, or holds it while something holds the page,\n",
+    "  // or until the `sdelay` before it has ended. Command -> ()\n",
     "  function take(command) {\n",
     "    if (held !== null) held.push(command);\n",
-    "    else carryOut(command);\n",
+    "    else if (paced !== null && !sound(command)) paced.push(command);\n",
+    "    else carryOut(paced !== null ? timed(command) : command);\n",
+    "  }\n",
+    "\n",
+    "  // `sdelay seconds`, reached in the program's order: it ends `seconds`\n",
+    "  // after the last one ended -- or after now, for the first, and where\n",
+    "  // that end has passed already, so a program that fell behind starts\n",
+    "  // again from now rather than catching up. The program waits until the\n",
+    "  // page answers it. Command -> ()\n",
+    "  function sdelay(command) {\n",
+    "    const t = clockNow();\n",
+    "    const seconds = Math.max(0, Number(command.seconds) || 0);\n",
+    "    sdelayEnd = sdelayEnd === null ? t + seconds : Math.max(sdelayEnd + seconds, t);\n",
+    "    answering = { id: command.id, at: sdelayEnd - SDELAY_LEAD };\n",
+    "    pace();\n",
+    "  }\n",
+    "\n",
+    "  // Looks at the clock for the `sdelay` waiting: answers it a little\n",
+    "  // before its end, and carries out what was held after it once the end\n",
+    "  // has come. ()\n",
+    "  function pace() {\n",
+    "    if (closed) return;\n",
+    "    const t = clockNow();\n",
+    "    if (answering !== null && t >= answering.at) {\n",
+    "      const { id } = answering;\n",
+    "      answering = null;\n",
+    "      if (paced === null) paced = [];\n",
+    "      report({ ev: \"sdelay\", id });\n",
+    "    }\n",
+    "    if (paced !== null && answering === null && t >= sdelayEnd) {\n",
+    "      const pending = paced;\n",
+    "      paced = null;\n",
+    "      for (const command of pending) take(command);\n",
+    "    }\n",
+    "    const needed = answering !== null || paced !== null;\n",
+    "    if (needed && pacer === 0) pacer = setInterval(pace, SDELAY_TICK_MS);\n",
+    "    else if (!needed && pacer !== 0) {\n",
+    "      clearInterval(pacer);\n",
+    "      pacer = 0;\n",
+    "    }\n",
+    "  }\n",
+    "\n",
+    "  // Whether a command starts a sound. Command -> Bool\n",
+    "  function sound(command) {\n",
+    "    return command.op === \"cmd\" && engine.sounds(command);\n",
+    "  }\n",
+    "\n",
+    "  // A sound the program starts after an `sdelay`, with no time of its\n",
+    "  // own, starts where the `sdelay` ends, exactly. Command -> Command\n",
+    "  function timed(command) {\n",
+    "    if (sdelayEnd === null || !sound(command)) return command;\n",
+    "    const n = String(command.numbers ?? \"\").trim().split(/\\s+/);\n",
+    "    const k = command.kind === \"tone\" ? 1 : 0;\n",
+    "    if (n.length <= k || Number(n[k]) !== 0) return command;\n",
+    "    n[k] = String(sdelayEnd);\n",
+    "    return { ...command, numbers: n.join(\" \") };\n",
     "  }\n",
     "\n",
     "  // Sound may start only after the reader did something, so every\n",
@@ -2659,6 +2785,7 @@ _PAGE_JS = "".join([
     "      frameWaiting = true;\n",
     "      report({ ev: \"frame\" });\n",
     "    }\n",
+    "    if (answering !== null || paced !== null) pace();\n",
     "    frameRequest = requestAnimationFrame(frame);\n",
     "  }\n",
     "\n",
@@ -2949,6 +3076,9 @@ _PAGE_JS = "".join([
     "      case \"frame_done\":\n",
     "        frameWaiting = false;\n",
     "        break;\n",
+    "      case \"sdelay\":\n",
+    "        sdelay(command);\n",
+    "        break;\n",
     "      case \"on_mouse\": {\n",
     "        const entry = canvases.get(command.c);\n",
     "        if (entry) entry.mouse = true;\n",
@@ -2978,6 +3108,7 @@ _PAGE_JS = "".join([
     "    if (closed) return;\n",
     "    closed = true;\n",
     "    cancelAnimationFrame(frameRequest);\n",
+    "    if (pacer !== 0) clearInterval(pacer);\n",
     "    if (splash !== null) {\n",
     "      window.removeEventListener(\"keydown\", dismissSplash, true);\n",
     "      splash.remove();\n",

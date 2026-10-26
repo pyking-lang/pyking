@@ -566,7 +566,9 @@ let interpreted_page ?(release = false) target main sources externals =
         "globalThis.pykOnPrint = (line) => pykExt_io.write(line);";
         "globalThis.pykOnDebug = (line) => console.error(line.replace(/\\n$/, ''));";
         "";
-        Printf.sprintf "const result = JSON.parse(pykRunProgram('%s%s'));" main
+        "// A program that waits for its page (tinyweb's `sdelay`) answers a";
+        "// promise of its end.";
+        Printf.sprintf "const result = await pykSettle(JSON.parse(pykRunProgram('%s%s')));" main
           (if release then "\\nrelease" else "");
         "pykExt_io.flush();";
         "if (!result.ok) console.error(result.text);";

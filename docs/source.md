@@ -1201,6 +1201,11 @@ three are design rather than accident:
 - **Errors are a machine state** (`CFailed`), not a host exception thrown
   through `step`, so a debugger can stop *at* an error with the frames
   intact.
+- **Waiting is a machine state too** (`CWaiting`): a host whose answer
+  is not ready raises `Wait n` from an external call, the machine stops
+  there, and `resume` goes on with the answer (`waiting`,
+  `runner_waiting`; a waiting callback raises `Suspended`). This is how
+  tinyweb's `sdelay` waits for a page in a browser.
 
 ### Data structures
 
@@ -2115,6 +2120,9 @@ events, so nothing waits. See [debugging.md](debugging.md).
 - **`resume`**, **`push_call`**, **`set_breakpoints`** -- go on, a
   callback to run, and a file's breakpoints, each verified at the first
   statement on its line or after it.
+- **`waiting_on`**, **`answer`** -- the number the running run waits on
+  for the page (tinyweb's `sdelay` in a browser), where `advance` goes
+  no further, and the session with that run handed its answer.
 - **`frames`**, **`scopes`**, **`variables`** -- the calls in progress
   where it stopped, each frame's environment, a value's parts.
 - **`evaluate`**, **`set_variable`** -- an expression checked against
@@ -2366,7 +2374,10 @@ page or fetched through its `pykFetchSource`, externals through
 a program's modules are implemented in JavaScript, and whether it reads
 standard input or its arguments), `pykTargets`, `pykFormatHelper`,
 `pykKeywords` and `pykBuiltins`, `pykCallback` (a Pyking function
-handed to JavaScript, called back by the id it crossed as), and the
+handed to JavaScript, called back by the id it crossed as), `pykResume`
+(a run or a callback that waits for the page -- an external that
+answered a promise, which crossed as `{"pyk_wait":n}` -- handed what the
+promise settled with; `pykSettle` in `stub.js` drives it), and the
 REPL tab's session (`repl_session.ml`): `pykReplStart`, `pykReplLine`
 (whether text is a whole entry, and the next line's indentation),
 `pykReplImports` (the modules implemented in JavaScript an entry would

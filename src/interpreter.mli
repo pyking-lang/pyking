@@ -72,6 +72,13 @@ exception Runtime_error of info * string
     implementing `externals` raises it for a value it cannot convert. *)
 exception Trap of info * string
 
+(** How a host's `externals.call` says that the answer is not ready: the
+    call waits, and the machine stops in a waiting state holding the
+    number the host gave (`waiting`), until `resume` hands it the
+    answer. Only a host that can come back later -- a page -- raises it;
+    tinyweb's `sdelay` is what does. *)
+exception Wait of int
+
 (** What a Pyking expression evaluates to. Values hold no host objects
     -- no OCaml closure, no array standing in for a Pyking list -- so
     the representation survives the rewrite into Pyking. *)
@@ -138,6 +145,14 @@ type state = {
   runtime : runtime;
   loops : loop option;
 }
+
+(** A function called back by a host waited (see Wait): what a host's
+    callback raises, with the number it waits on and the machine stopped
+    there, which the host resumes (`resume`, then `run`) once the answer
+    has come. A function an external module calls back while the program
+    waits for that external is refused instead, since the external is
+    waiting for its answer then. *)
+exception Suspended of int * state
 
 (* --- hosts --- *)
 
@@ -210,9 +225,18 @@ val step : state -> state
 (** Whether a machine has stopped, done or failed. state -> bool *)
 val finished : state -> bool
 
-(** Steps until the machine stops or `steps` steps have been taken,
-    whichever comes first. int? -> state -> state *)
+(** Steps until the machine stops, waits, or `steps` steps have been
+    taken, whichever comes first. int? -> state -> state *)
 val run : ?steps:int -> state -> state
+
+(** The number the machine waits on, where an external call is waiting
+    for the host's answer (see Wait). state -> int option *)
+val waiting : state -> int option
+
+(** A waiting machine with the answer its external call was waiting for,
+    going on from there (step it on with `run`); any other machine as it
+    is. state -> value -> state *)
+val resume : state -> value -> state
 
 (** Applies callee to args in finished machine's environment, as a
     machine of its own run to completion: how a host delivers an event
@@ -304,6 +328,10 @@ val runner_done : runner -> bool
 
 (** The machine a runner is running now. runner -> state *)
 val runner_machine : runner -> state
+
+(** The number a runner's machine waits on, where an external call is
+    waiting for the host's answer. runner -> int option *)
+val runner_waiting : runner -> int option
 
 (** A runner with its machine replaced. runner -> state -> runner *)
 val with_machine : runner -> state -> runner

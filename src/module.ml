@@ -747,6 +747,89 @@ let found_implementation ?(from = disk) ?(libs = []) directory name target info 
                 has no external half"
                target name name ))
 
+(** The functions an implementation says it cannot provide, each with
+    why: its lines `// unavailable NAME: WHY`. A JavaScript one for the
+    browser is where they are written -- tinyweb's `sdelay` waits, which
+    a program compiled for the web target cannot.
+    string -> [(string, string)] *)
+let unavailable_in text =
+  List.filter_map
+    (fun line ->
+      let line = String.trim line in
+      let mark = "// unavailable " in
+      let n = String.length mark in
+      if String.length line > n && String.sub line 0 n = mark then
+        let rest = String.sub line n (String.length line - n) in
+        match String.index_opt rest ':' with
+        | Some colon ->
+            Some
+              ( String.trim (String.sub rest 0 colon),
+                String.trim (String.sub rest (colon + 1) (String.length rest - colon - 1)) )
+        | None -> None
+      else None)
+    (String.split_on_char '\n' text)
+
+(** Refuses a program that calls a function its target cannot provide:
+    one an external module's implementation for the target marks
+    unavailable (see `unavailable_in`). `read unit` is that
+    implementation's text, where there is one. Raises Module_error at
+    the first such call. (t -> string option) -> [t] -> string -> () *)
+let check_available read units target =
+  let marks =
+    List.filter_map
+      (fun (unit : t) ->
+        if unit.declarations = [] then None
+        else
+          match read unit with
+          | Some text -> (
+              match unavailable_in text with [] -> None | found -> Some (unit.name, found))
+          | None -> None)
+      units
+  in
+  if marks <> [] then
+    List.iter
+      (fun (unit : t) ->
+        if not unit.is_external then (
+          (* What each name the module binds by importing means: an alias
+             for a module, or one of its fields. *)
+          let aliases, fields =
+            List.fold_left
+              (fun (aliases, fields) statement ->
+                match statement with
+                | SImport (_, module_, _, true, named, _) ->
+                    (aliases, List.map (fun (field, local) -> (local, (module_, field))) named @ fields)
+                | SImport (_, module_, local, false, _, _) -> ((local, module_) :: aliases, fields)
+                | _ -> (aliases, fields))
+              ([], []) unit.stmts
+          in
+          let refuse info module_ field =
+            match List.assoc_opt module_ marks with
+            | Some found -> (
+                match List.assoc_opt field found with
+                | Some why ->
+                    raise
+                      (Module_error
+                         ( info,
+                           Printf.sprintf "'%s.%s' cannot be used on target '%s': %s" module_ field
+                             target why ))
+                | None -> ())
+            | None -> ()
+          in
+          Walk.fold_stmts
+            (fun () node ->
+              match node with
+              | Walk.NExpr (EQualified (info, alias, field, _)) -> (
+                  match List.assoc_opt alias aliases with
+                  | Some module_ -> refuse info module_ field
+                  | None -> ())
+              | Walk.NExpr (EVar (info, name, _)) -> (
+                  match List.assoc_opt name fields with
+                  | Some (module_, field) -> refuse info module_ field
+                  | None -> ())
+              | _ -> ())
+            () unit.stmts))
+      units
+
 (* --- resolving what an import means --- *)
 
 (** Why a name a module has is still not one it exports, or "" for a

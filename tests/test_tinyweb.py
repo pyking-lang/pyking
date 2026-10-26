@@ -15,7 +15,12 @@ each target it lists, and compares the commands it logs with its
              /tinyweb_page.js answer the page, a sample is found, and
              the commands that arrive on /commands, with the events of
              its `.events` file posted to /events one at a time, are the
-             ones its `.page` file lists.
+             ones its `.page` file lists. Each `sdelay` is answered as a
+             page would, its clock at the end of it.
+  sdelay     the page's side of `sdelay` under node with its clock moved
+             by hand (tests/tinyweb/sdelay.mjs); a program calling it
+             refused for web; and on each native target, a click while
+             the program waits in it runs its function then.
   default    compiled for each target with no --output, into the
              directory the command runs in, a program brings the
              library's samples with it in tinyweb_assets/.
@@ -128,12 +133,21 @@ def drawn_cases(skipped, where):
     cases = []
     for case in page_cases():
         line = engine_event(case)
-        if line is None:
+        if waits(case):
+            skipped.append(f"{case[0].name}.pyk {where}: it waits in `sdelay`, which the web "
+                           f"target refuses (`refused` checks that)")
+        elif line is None:
             cases.append(case)
         else:
             skipped.append(f"{case[0].name}.pyk {where}: its events stand for the page's own "
                            f"engine ({line})")
     return cases
+
+
+def waits(case):
+    """Whether a case's program calls `sdelay`, which waits for its page:
+    a page answers that only as its clock goes on. (case) -> Bool"""
+    return "sdelay(" in case[0].with_suffix(".pyk").read_text()
 
 
 def excluded(stem, target):
@@ -231,6 +245,7 @@ def log_line(command):
         "on_mouse": lambda: f"on_mouse {q('c')}",
         "style": lambda: f"style {q('id')} {c('kind')} {c('prop')} {q('value')}",
         "splash_text": lambda: f"splash_text {q('text')}",
+        "sdelay": lambda: f"sdelay {seconds(c('seconds'))}",
     }
     return lines.get(op, lambda: op)()
 
@@ -424,9 +439,15 @@ class Served:
 
 
 class Stream:
-    """The page's end of /commands: every command as it arrives."""
+    """The page's end of /commands: every command as it arrives. Where
+    `answer` is true, it answers each `sdelay` as a page would, its clock
+    going on to where the `sdelay` ends: the first `seconds` from 0, each
+    later one `seconds` after the last ended."""
 
-    def __init__(self, port):
+    def __init__(self, port, answer=True):
+        self.port = port
+        self.answer = answer
+        self.clock = None
         self.connection = http.client.HTTPConnection("127.0.0.1", port, timeout=TIMEOUT)
         self.connection.request("GET", "/commands")
         self.response = self.connection.getresponse()
@@ -443,9 +464,17 @@ class Stream:
                 if text.startswith("data:"):
                     for command in json.loads(text[5:].strip()):
                         self.commands.put(command)
+                        if self.answer and command.get("op") == "sdelay":
+                            self.answer_sdelay(command)
         except (OSError, ValueError):
             pass
         self.commands.put(None)
+
+    def answer_sdelay(self, command):
+        """Answers an `sdelay` at the time it ends. {String: Value} -> ()"""
+        self.clock = (0.0 if self.clock is None else self.clock) + float(command["seconds"])
+        event = {"ev": "sdelay", "id": command["id"], "t": self.clock}
+        fetch(self.port, "POST", "/events", json.dumps(event).encode())
 
     def until_done(self):
         """Every command up to the next `event_done`, as log lines, less
@@ -463,6 +492,21 @@ class Stream:
                 return got
             if command.get("op") != "frame_done":
                 got.append(log_line(command))
+
+    def until(self, op):
+        """Every command up to and including the next with `op`, as log
+        lines; None if the stream ended first. String -> [String]?"""
+        got = []
+        while True:
+            try:
+                command = self.commands.get(timeout=TIMEOUT)
+            except queue.Empty:
+                return None
+            if command is None:
+                return None
+            got.append(command)
+            if command.get("op") == op:
+                return got
 
 
 def fetch(port, method, path, body=None):
@@ -571,6 +615,99 @@ def check_served(compiler, case, target):
             output = served.stop()
         if output != expected:
             return f"it printed\n{output}\nwhere the .out file says\n{expected}"
+    return None
+
+
+# --- sdelay ---
+
+SDELAY_PROGRAM = """import tinyweb as tw
+
+tw.web_init(0)
+
+
+def hit():
+    print("hit")
+
+
+b = tw.button("Hit", on_click = hit)
+print("waiting")
+tw.sdelay(0.5)
+print("after", tw.time())
+"""
+
+
+def check_sdelay_events(compiler, target):
+    """A program waiting in `sdelay`, run on one target with its page
+    served: a click posted while it waits runs the button's function then
+    and there, and the program goes on once the page answers, at the
+    clock the answer gave. -> String?"""
+    with tempfile.TemporaryDirectory(prefix="pyk-tinyweb-") as workdir:
+        stem = Path(workdir) / "waits"
+        stem.with_suffix(".pyk").write_text(SDELAY_PROGRAM)
+        served = Served(served_command(compiler, stem, target, workdir), workdir)
+        expected = "waiting\nhit\nafter 0.5\n"
+        try:
+            port = served.address()
+            if port is None:
+                served.stop()
+                return "it printed no address:\n" + "".join(served.errors)[-2000:]
+            stream = Stream(port, answer=False)
+            got = stream.until("sdelay")
+            if got is None:
+                return "the stream ended before the program sent `sdelay`"
+            waiting = got[-1]
+            if waiting.get("seconds") != 0.5:
+                return f"`sdelay` was sent as {waiting!r}"
+            fetch(port, "POST", "/events", json.dumps({"ev": "click", "id": "Hit"}).encode())
+            if stream.until_done() is None:
+                return ("the click posted while the program waited was not answered:\n"
+                        + "".join(served.errors)[-2000:])
+            answer = {"ev": "sdelay", "id": waiting["id"], "t": 0.5}
+            fetch(port, "POST", "/events", json.dumps(answer).encode())
+        finally:
+            served.settle(expected)
+            output = served.stop()
+        if output != expected:
+            return f"it printed\n{output}\nwhere it should have printed\n{expected}"
+    return None
+
+
+def check_sdelay_refused_on_web(compiler):
+    """A program calling `sdelay` is refused for the web target, where it
+    is called, saying why; for iweb it compiles. -> String?"""
+    with tempfile.TemporaryDirectory(prefix="pyk-tinyweb-") as workdir:
+        source = Path(workdir) / "waits.pyk"
+        source.write_text(SDELAY_PROGRAM)
+        ran = subprocess.run(compiler + ["compile", "-t", "web2024", str(source)], cwd=workdir,
+                             capture_output=True, text=True, timeout=TIMEOUT)
+        said = " ".join(ran.stderr.split())
+        wanted = ("waits.pyk' 12:0-12:9 Module error: 'tinyweb.sdelay' cannot be used on "
+                  "target 'web2024': it waits for the page's audio clock")
+        if ran.returncode == 0:
+            return "it compiled for web"
+        if wanted not in said:
+            return f"it did not say `{wanted}`:\n{ran.stderr[-1500:]}"
+        ran = subprocess.run(compiler + ["compile", "-t", "iweb", str(source)], cwd=workdir,
+                             capture_output=True, text=True, timeout=TIMEOUT)
+        if ran.returncode != 0:
+            return f"it did not compile for iweb:\n{ran.stderr[-1500:]}"
+    return None
+
+
+SDELAY_PAGE = HERE / "tinyweb" / "sdelay.mjs"
+
+
+def check_sdelay_page():
+    """The page's side of `sdelay`, under node with its clock moved by
+    hand (tests/tinyweb/sdelay.mjs). -> String?"""
+    with tempfile.TemporaryDirectory(prefix="pyk-tinyweb-") as workdir:
+        # A module wherever node is told .js files are not.
+        page = Path(workdir) / "tinyweb_page.mjs"
+        shutil.copyfile(LIB / "tinyweb_page.js", page)
+        ran = subprocess.run(NODE + [str(SDELAY_PAGE), str(page)], capture_output=True,
+                             text=True, timeout=TIMEOUT)
+    if ran.returncode != 0:
+        return (ran.stdout + ran.stderr)[-2000:]
     return None
 
 
@@ -909,6 +1046,17 @@ def main(argv):
             name = f"{case[0].name}.pyk served on {target}"
             try:
                 problem = check_served(compiler, case, target)
+            except Exception as error:  # noqa: BLE001 -- reported, not raised
+                problem = f"{type(error).__name__}: {error}"
+            record((name, problem))
+    if only in (None, "sdelay"):
+        record(("sdelay on the page, its clock moved by hand", check_sdelay_page()))
+        record(("sdelay refused where a program is compiled for web",
+                check_sdelay_refused_on_web(compiler)))
+        for target in sampled(SERVED_TARGETS, "sdelay"):
+            name = f"a click while sdelay waits, served on {target}"
+            try:
+                problem = check_sdelay_events(compiler, target)
             except Exception as error:  # noqa: BLE001 -- reported, not raised
                 problem = f"{type(error).__name__}: {error}"
             record((name, problem))

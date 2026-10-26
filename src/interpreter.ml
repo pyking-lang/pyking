@@ -57,6 +57,13 @@ exception Runtime_error of info * string
     into a CFailed state. *)
 exception Trap of info * string
 
+(** How a host's `externals.call` says that the answer is not ready: the
+    call waits, and the machine stops in a waiting state holding the
+    number the host gave, until `resume` hands it the answer. Only a host
+    that can come back later -- a page -- raises it. *)
+exception Wait of int
+
+
 module SMap = Map.Make (String)
 
 let unsupported_message = "Construct is not supported"
@@ -376,6 +383,7 @@ type control =
   | CApply of value (* hand a value to the continuation *)
   | CDone of value (* finished; nothing is pending *)
   | CFailed of info * string (* stopped on a runtime error *)
+  | CWaiting of int * info (* an external call waits for the host's answer *)
 
 (** What a comprehension is waiting for. *)
 type want = WSequence | WTest | WElement
@@ -499,6 +507,11 @@ and state = {
   runtime : runtime;
   loops : loop option;
 }
+
+(** A function called back by a host waited (see Wait): what a host's
+    callback raises, with the number it waits on and the machine stopped
+    there, which the host resumes once the answer has come. *)
+exception Suspended of int * state
 
 (** state with error in the control position; nothing else changed or
     unwound. state -> info -> string -> state *)
@@ -1256,16 +1269,29 @@ let rec call state call_node callee args env rest =
                module_ field)
       | Some externals -> (
           match
-            try Ok (externals.call (callback state info) module_ field args)
+            try Ok (Ok (externals.call (callback state info) module_ field args))
             with
+            (* The host answers later: the machine waits here. *)
+            | Wait id -> Ok (Error id)
             (* A refusal the host made itself is written nowhere in the
                program, so it is reported at the call. *)
             | Trap (where, message) when where.file = "<host>" -> Error (info, message)
             | Trap (info, message) | Runtime_error (info, message) ->
                 Error (info, message)
+            (* A function the external called back waited, which only a
+               callback the host makes on its own can do: here the
+               external is waiting for its answer now. *)
+            | Suspended _ ->
+                Error
+                  ( info,
+                    Printf.sprintf
+                      "a function '%s.%s' called back waited for the page, which only a \
+                       function the page calls on its own may do"
+                      module_ field )
           with
           | Error (info, message) -> failed state info message
-          | Ok value -> { state with control = CApply value; env; kont = rest }))
+          | Ok (Ok value) -> { state with control = CApply value; env; kont = rest }
+          | Ok (Error id) -> { state with control = CWaiting (id, info); env; kont = rest }))
   | VClosure (name, params, body, captured) ->
       if List.length args <> List.length params then
         failed state info
@@ -1323,7 +1349,7 @@ let rec call state call_node callee args env rest =
 and callback state info callee args =
   let rec drive state =
     match state.control with
-    | CDone _ | CFailed _ -> state
+    | CDone _ | CFailed _ | CWaiting _ -> state
     | _ -> drive (step state)
   in
   let start =
@@ -1337,6 +1363,7 @@ and callback state info callee args =
   match ended.control with
   | CDone value -> value
   | CFailed (info, message) -> raise (Runtime_error (info, message))
+  | CWaiting (id, _) -> raise (Suspended (id, ended))
   | _ -> raise (Runtime_error (info, "a callback was left unfinished"))
 
 (** Evaluates the next argument, or makes the call if todo is empty.
@@ -1864,7 +1891,7 @@ and step state =
   | CEval e -> step_eval state e
   | CStmt stmt -> step_stmt state stmt
   | CApply value -> step_apply state value
-  | CDone _ | CFailed _ -> state
+  | CDone _ | CFailed _ | CWaiting _ -> state
 
 (* --- driving the machine --- *)
 
@@ -1894,11 +1921,21 @@ let initial_state ?env ?(max_depth = max_call_depth) ?drive stmts host =
 let finished state =
   match state.control with CDone _ | CFailed _ -> true | _ -> false
 
-(** Steps until the machine stops or `steps` steps have been taken,
-    whichever comes first. state -> int option -> state *)
+(** The number the machine waits on, where an external call is waiting
+    for the host's answer (see Wait). state -> int option *)
+let waiting state = match state.control with CWaiting (id, _) -> Some id | _ -> None
+
+(** A waiting machine with the answer its external call was waiting for,
+    going on from there; any other machine as it is. state -> value ->
+    state *)
+let resume state value =
+  match state.control with CWaiting _ -> { state with control = CApply value } | _ -> state
+
+(** Steps until the machine stops, waits, or `steps` steps have been
+    taken, whichever comes first. state -> int option -> state *)
 let run ?steps state =
   let rec go state taken =
-    if finished state then state
+    if finished state || waiting state <> None then state
     else
       match steps with
       | Some limit when taken >= limit -> state
@@ -2171,7 +2208,7 @@ let rec runner_step r =
     state -> [(string, [stmt], [stmt])] -> [(string, [(string, value)])]
     -> (state, [(string, [(string, value)])]) *)
 let load_modules machine units exports =
-  let rec go r = if runner_done r then r else go (runner_step r) in
+  let rec go r = if runner_done r || waiting r.machine <> None then r else go (runner_step r) in
   let r = go (begin_loading machine units exports) in
   if failure r.machine <> None then (r.machine, r.exports)
   else ({ machine with runtime = r.machine.runtime }, r.exports)
@@ -2185,6 +2222,10 @@ let start_modules ?(max_depth = max_call_depth) ?drive units host =
 
 (** The machine a runner is running now. runner -> state *)
 let runner_machine r = r.machine
+
+(** The number a runner's machine waits on, where an external call is
+    waiting for the host's answer. runner -> int option *)
+let runner_waiting r = waiting r.machine
 
 (** A runner with its machine replaced: how a debugger hands back a
     machine it changed or stepped itself. runner -> state -> runner *)

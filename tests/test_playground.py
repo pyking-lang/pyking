@@ -289,7 +289,66 @@ answer = submit("x => x");
 replCheck("the old lambda is refused by name",
           answer.errors.length === 1 && answer.errors[0].includes("lam x. x + 1"),
           JSON.stringify(answer));
-console.log(JSON.stringify({ pairs, failures, repl }));
+
+// 6. A program that waits for its page, as tinyweb's `sdelay` does: an
+//    external answering a promise stops the interpreter, which goes on
+//    once the promise settles (pykSettle, pykResume) -- at the top
+//    level, in a function the page calls back, and under the debugger.
+progress("a program waiting for a promise");
+const waited = [];
+globalThis.pykOnPrint = (line) => waited.push(line);
+let kept = null;
+globalThis.pykExternals = { later: {
+  twice: (n) => new Promise((resolve) => setTimeout(() => resolve(n * 2), 5)),
+  keep: (f) => { kept = f; },
+} };
+globalThis.pykSources = {
+  "waits.pyk": "import later\n\ndef again():\n    print(\"again\", later.twice(5))\n\n"
+    + "later.keep(again)\nprint(\"before\")\nprint(\"after\", later.twice(21))\n",
+  "later_external.pyk": "public def twice(n: Int) -> Int\npublic def keep(f: () -> ()) -> ()\n",
+};
+const waitCheck = (label, ok, detail) => check("waiting: " + label, ok, detail);
+const started = JSON.parse(pykRunProgram("waits.pyk"));
+waitCheck("the run says it waits", started.ok && started.waiting !== undefined,
+          JSON.stringify(started));
+waitCheck("what came before the wait is printed", waited.join("") === "before\n",
+          JSON.stringify(waited));
+Promise.resolve(pykSettle(started))
+  .then((ended) => {
+    waitCheck("the run ends once the promise settles", ended.ok && ended.waiting === undefined,
+              JSON.stringify(ended));
+    waitCheck("the answer reaches the program", waited.join("") === "before\nafter 42\n",
+              JSON.stringify(waited));
+    const call = kept();
+    waitCheck("a callback that waits answers a promise", call && typeof call.then === "function",
+              String(call));
+    return call;
+  })
+  .then(() => {
+    waitCheck("the callback goes on once its promise settles",
+              waited.join("") === "before\nafter 42\nagain 10\n", JSON.stringify(waited));
+    // Under the debugger the session says "waiting", and goes on once
+    // pykDebugAnswer hands it the answer.
+    waited.length = 0;
+    const debugStarted = JSON.parse(pykDebugStart(JSON.stringify({
+      main: "waits.pyk", files: ["waits.pyk"], stopOnEntry: false, breakpoints: [] })));
+    waitCheck("the debugger starts", debugStarted.ok, JSON.stringify(debugStarted));
+    let answer = JSON.parse(pykDebugRun("100000"));
+    waitCheck("the debugger says the program waits", answer.state === "waiting"
+              && answer.waiting !== undefined, JSON.stringify(answer));
+    const promise = pykWaits.get(answer.waiting);
+    pykWaits.delete(answer.waiting);
+    return promise.then((value) => {
+      pykDebugAnswer(answer.waiting + "\n" + JSON.stringify(value));
+      answer = JSON.parse(pykDebugRun("100000"));
+      waitCheck("the debugged program goes on with the answer",
+                answer.state === "idle" && waited.join("") === "before\nafter 42\n",
+                JSON.stringify([answer, waited]));
+      pykDebugStop();
+    });
+  })
+  .catch((error) => waitCheck("no error", false, String(error && error.stack || error)))
+  .finally(() => console.log(JSON.stringify({ pairs, failures, repl })));
 """
 
 
