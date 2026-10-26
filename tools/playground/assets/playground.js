@@ -56,7 +56,7 @@ const PAGE_PLACEHOLDER =
 
 /** What the editor starts with when there are no examples to load. */
 const FALLBACK_SOURCE = `def greet(name: String) -> String:
-    return "Hello, " ++ name
+    return "Hello, " + name
 
 print(greet("world"))
 `;

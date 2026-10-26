@@ -1346,7 +1346,7 @@ class Linux:
         with tempfile.TemporaryDirectory(prefix="pyk-linux-") as directory:
             (Path(directory) / "hello.pyk").write_text('print("hello", 1 + 2)\n')
             (Path(directory) / "library.pyk").write_text(
-                'import io\nimport time\nio.write_line("io " ++ string(time.instant() > 0))\n')
+                'import io\nimport time\nio.write_line("io " + string(time.instant() > 0))\n')
             for image in self.RUN_IMAGES:
                 result = subprocess.run(
                     ["docker", "run", "--rm", "--platform", self.PLATFORM[arch],
@@ -1483,7 +1483,7 @@ class Docker:
             work = Path(directory)
             (work / "hello.pyk").write_text('print("hello", 1 + 2)\n')
             (work / "library.pyk").write_text(
-                'import io\nimport time\nio.write_line("io " ++ string(time.instant() > 0))\n')
+                'import io\nimport time\nio.write_line("io " + string(time.instant() > 0))\n')
             (work / "greet_external.pyk").write_text("public def hello(name: String) -> String\n")
             (work / "greet_external.ml").write_text('let hello name = "hi " ^ name\n')
             (work / "greeting.pyk").write_text('import greet\nprint(greet.hello("you"))\n')
@@ -1721,7 +1721,7 @@ class Nix:
         work.mkdir(exist_ok=True)
         (work / "hello.pyk").write_text('print("hello", 1 + 2)\n')
         (work / "library.pyk").write_text(
-            'import io\nimport time\nio.write_line("io " ++ string(time.instant() > 0))\n')
+            'import io\nimport time\nio.write_line("io " + string(time.instant() > 0))\n')
         (work / "greet_external.pyk").write_text("public def hello(name: String) -> String\n")
         (work / "greet_external.ml").write_text('let hello name = "hi " ^ name\n')
         (work / "greeting.pyk").write_text('import greet\nprint(greet.hello("you"))\n')
