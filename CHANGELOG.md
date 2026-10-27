@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Changed
+
+- In a notebook cell on a Mac, Control+Enter runs the cell and stays in
+  it, as Command+Enter does, the same as in the playground.
+
 ## [0.1.6] - 2026-10-26
 
 ### Added

@@ -975,7 +975,8 @@ class Cell {
       this.run();
       this.notebook.focusAfter(this);
     });
-    bind("pknRun", { win: "Ctrl-Enter", mac: "Command-Enter" }, () => this.run());
+    // On a Mac, Control as well as Command, as in the playground.
+    bind("pknRun", { win: "Ctrl-Enter", mac: "Command-Enter|Ctrl-Enter" }, () => this.run());
     bind("pknLeave", { win: "Esc", mac: "Esc" }, () => editor.blur());
     this.editor = editor;
     if (this.notebook.running === this) editor.setReadOnly(true);
