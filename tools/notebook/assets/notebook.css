@@ -472,6 +472,7 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
 .pkn-feedback-bad { color: var(--pkn-bad);
   border-color: color-mix(in srgb, var(--pkn-bad) 30%, transparent); background: var(--pkn-bad-soft); }
 .pkn-feedback-busy { color: var(--pkn-dim); }
+.pkn-feedback .pkn-feedback-diff { margin-top: .5rem; }
 .pkn-failure { display: grid; gap: .35rem; margin-top: .5rem; color: var(--pkn-text); }
 .pkn-failure .pkn-io { margin: 0; }
 .pkn-failure-what { white-space: pre-wrap; font-family: var(--pkn-mono); font-size: 13px; }

@@ -296,8 +296,13 @@ area = [+/-0.01]
 ```
 ````
 
-**Submit** runs the answer on every test, and the solution on the same
-input where there is one, with a limit of ten seconds a run. With a
+**Submit** first runs the answer in its cell, as Run does, so the
+reader sees and hears what it does; a Stop meanwhile calls the
+submission off and uses no attempt. Once that run has finished, it
+runs the answer quietly on every test, and the solution on the same
+input where there is one, with a limit of ten seconds a run. These
+runs show nothing and play nothing, and tinyweb's `sdelay` does not
+wait in them: its clock only moves on. With a
 solution the answer must print the same, draw the same (tinyweb's log),
 end with the same status, and, where the test has a stderr block, write
 the same with `debug`. Without one, the answer must print what the
@@ -305,19 +310,24 @@ stdout block says and write what the stderr block says. Output matches
 when it is the same apart from spaces at the end of a line and blank
 lines at the end. An answer that writes a name more often than
 `max_calls` allows is refused before it is run. A failed Submit uses an
-attempt, says why in one of these words:
+attempt. Where the answer ran but did something else, the red box says
+"Not completely correct. Please look at the result diff to see what was
+expected and what your program did.", with **See result diff** under
+it, which shows the first test that differed side by side, pictures
+included, and says why in one of these words:
 
-- Your program uses *name* *N* times, and may use it at most *M* times.
-- Your program did not run: *the error*
 - The output is not what it should be.
 - What it drew with tinyweb is not what it should be.
 - What debug printed is not what it should be.
 - Your program ended with status *N*, and should end with *M*.
 
-and, unless `attempts = 1`, shows the test, what was expected and what
-the answer printed. **See result diff** shows the first test that
-differed side by side, pictures included. Running a cell with **▶** is
-free.
+Otherwise there is no diff, and the box says why itself:
+
+- Your program uses *name* *N* times, and may use it at most *M* times.
+- Your program did not run: *the error* (with the test, unless
+  `attempts = 1`)
+
+Running a cell with **▶** is free.
 
 **A task with `method = git`** shows "Please submit via your git
 account" instead of a code box. Its tests and solution are still the

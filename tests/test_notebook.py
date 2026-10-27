@@ -490,6 +490,23 @@ check("with tinywebLog separate, tinyweb's log arrives on its own",
       drew.answer?.value?.ok && logged === 'canvas "canvas" 10 20\n' && drew.debugged === "mine\n",
       JSON.stringify([logged, drew.debugged]));
 
+// 4c. A check run's sdelay does not wait: no one sees its page, so the
+//     clock only moves on, the log says where, and the page is sent no
+//     sdelay that would hold back what is drawn after it.
+const delayed = await ask({ type: "run", name: "delayed.pyk", tinywebLog: "separate",
+  source: "import tinyweb as tw\nprint(\"a\", tw.time())\ntw.sdelay(5.0)\n"
+    + "print(\"b\", tw.time())\ntw.sdelay(2.5)\nc = tw.canvas(10, 20)\nprint(\"c\", tw.time())\n" });
+const delayLog = replies.filter((reply) => reply.type === "tinyweb").map((reply) => reply.text).join("");
+const sentDelays = replies.filter((reply) => reply.type === "page")
+  .flatMap((reply) => reply.data).filter((command) => command.op === "sdelay");
+check("a check run's sdelay answers at once, on a simulated clock",
+      delayed.answer?.value?.ok && delayed.printed === "a 0.0\nb 5.0\nc 7.5\n",
+      JSON.stringify([delayed.answer, delayed.printed]));
+check("a check run's sdelay is in its log",
+      delayLog === 'sdelay 5.000\nsdelay 2.500\ncanvas "canvas" 10 20\n', JSON.stringify(delayLog));
+check("a check run's sdelay is not sent to its page", sentDelays.length === 0,
+      JSON.stringify(sentDelays));
+
 report(JSON.stringify({ checks, cells, failures }));
 
 function firstDifference(a, b) {

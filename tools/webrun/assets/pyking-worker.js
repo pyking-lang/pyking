@@ -34,7 +34,11 @@
 // no reply -- turns it on or off while a run goes on: tinyweb's log, each
 // line as `debug`, which is what `pyk --tinyweb-log` prints on stderr --
 // or, with `tinywebLog` "separate", each line as {type: "tinyweb", text},
-// kept apart from what the program itself writes with `debug`. `run` may
+// kept apart from what the program itself writes with `debug`. A
+// "separate" run is a check -- a notebook comparing an answer with its
+// solution -- whose page is only collected, never shown, so nothing
+// answers tinyweb's `sdelay`: its clock moves on at once, as headless,
+// and the log is what it would be. `run` may
 // also carry `tinywebEvents`, the lines of an events file, delivered to
 // tinyweb once the program's top level has ended and before `run`
 // answers.
@@ -234,6 +238,7 @@ function analyze(message) {
  *  stderr (lib/tinyweb/tinyweb_external_interpreter.js), or as a
  *  `tinyweb` message where `on` is "separate". (Bool | "separate") -> () */
 function tinywebLog(on) {
+  self.pykTinywebSimulated = on === "separate";
   self.pykTinywebLog = on === "separate"
     ? (line) => self.postMessage({ type: "tinyweb", text: line + "\n" })
     : on ? (line) => debugOut(line + "\n") : null;

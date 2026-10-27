@@ -28,7 +28,7 @@ const HELPERS = `
   const quiz = (n) => $("#quiz-" + n);
   const settle = async (box) => {
     await new Promise((r) => setTimeout(r, 100));
-    for (let i = 0; i < 300 && $("[data-r=feedback]", box).textContent.includes("Checking"); i++) {
+    for (let i = 0; i < 300 && /Running|Checking/.test($("[data-r=feedback]", box).textContent); i++) {
       await new Promise((r) => setTimeout(r, 100));
     }
     return $("[data-r=feedback]", box).innerText;
@@ -76,8 +76,13 @@ const STUDENT = [`(async () => { ${HELPERS}
     && $$(".pkn-io-stderr").some((b) => b.innerText.includes("to stderr")));
 
   let said = await submit(1);
-  check("a wrong answer uses an attempt and shows a failed test",
-    said.includes("2 attempts left") && said.includes("expected") && said.includes("got"), said);
+  check("a wrong answer uses an attempt and points to the result diff",
+    said.includes("Not completely correct. Please look at the result diff to see what was "
+      + "expected and what your program did.") && said.includes("2 attempts left"), said);
+  check("with the result diff's button in the box, under what it says",
+    !hidden($("[data-r=feedback] [data-r=diff]", task(1)))
+    && $("[data-r=feedback] [data-r=diff]", task(1)).previousElementSibling !== null,
+    $("[data-r=feedback]", task(1)).innerHTML);
   said = await submit(1, ${SOLUTION});
   check("the right answer solves it, with full points",
     said.includes("Solved") && said.includes("5 of 5"), said);
@@ -96,8 +101,13 @@ const STUDENT = [`(async () => { ${HELPERS}
     && said.includes("No attempts"), said);
 
   said = await submit(4, ${SILENT});
+  $("[data-r=diff]", task(4))?.click();
+  await new Promise((r) => setTimeout(r, 300));
+  const eventsDiff = $(".pkn-diff")?.innerText ?? "";
   check("an answer is sent the test's events, and fails where its clicks print nothing",
-    said.includes("The output is not what it should be") && said.includes("click"), said);
+    said.includes("Not completely correct") && eventsDiff.includes("The output is not what it should be")
+    && eventsDiff.includes("click"), said + " | " + eventsDiff.slice(0, 300));
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   said = await submit(4, ${COUNTER});
   check("and is solved where they print what the solution's do", said.includes("Solved"), said);
 
@@ -188,15 +198,43 @@ const DRAWING = `(async () => { ${HELPERS}
 
   const diff = () => $("[data-r=diff]", task(1));
   check("no diff to see before a Submit", hidden(diff()));
-  let fb = await submit(1, ${SQUARE("#0000ff", " + 1")});
-  check("a drawing that is not the solution's fails", /Not quite/.test(fb)
-    && /drew with tinyweb is not what it should be/.test(fb), fb);
+  // The wrong answer also plays a tone and waits. Submit runs it in its
+  // cell first, as Run does, which waits; checking it then does not,
+  // and its picture in the diff makes no sound.
+  const squareCell = nb.cells.filter((c) => c.spec.attrs.task)[0];
+  squareCell.setSource(${SQUARE("#0000ff", " + 1\ntw.sound.tone(440.0)\ntw.sdelay(6.0)")});
+  const count = $("[data-r=count]", task(1)).textContent;
+  const feedback = () => $("[data-r=feedback]", task(1)).textContent;
+  const started = performance.now();
+  $("[data-r=submit]", task(1)).click();
+  const ranFirst = await until(() => /Running your program/.test(feedback()), 2000);
+  await until(() => /Checking/.test(feedback()), 30000);
+  const checking = performance.now();
+  let fb = await settle(task(1));
+  const checked = performance.now();
+  check("Submit runs the answer in its cell first", ranFirst
+    && $("[data-r=count]", task(1)).textContent !== count, count + " " + feedback());
+  check("and checks it only once that run has waited for its sdelay",
+    checking - started >= 6000, Math.round(checking - started) + " ms");
+  check("a drawing that is not the solution's fails", /Not completely correct/.test(fb), fb);
+  check("checking an answer does not wait for its sdelay",
+    checked - checking < 5000, Math.round(checked - checking) + " ms");
   check("and offers to see the diff", !hidden(diff()));
+  const RealAudio = window.AudioContext;
+  let sounding = 0;
+  window.AudioContext = class extends RealAudio {
+    constructor(...args) { super(...args); sounding += 1; }
+  };
   diff().click();
   check("the diff shows both pictures", await until(() => $$(".pkn-diff canvas[data-tinyweb-id]").length === 2),
     $$(".pkn-diff canvas").length);
+  await new Promise((r) => setTimeout(r, 300));
+  window.AudioContext = RealAudio;
+  check("the diff's pictures make no sound", sounding === 0, sounding + " audio contexts");
   const modal = $(".pkn-diff");
   const text = modal.innerText;
+  check("the diff says what differs", /drew with tinyweb is not what it should be/.test(text),
+    text.slice(0, 400));
   check("it names the two sides", /Your submission/.test(text) && /Possible solution/.test(text), text.slice(0, 200));
   check("it shows the test case's stdin and args",
     $$(".pkn-diff-case .pkn-io-text", modal).map((e) => e.innerText.trim()).join("|") === "10|(none)",
@@ -215,13 +253,13 @@ const DRAWING = `(async () => { ${HELPERS}
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   check("Escape closes it", !$(".pkn-diff"));
   fb = await submit(1, ${SQUARE("#ff0000", " + 3")});
-  check("a square three pixels too big fails", /Not quite/.test(fb), fb);
+  check("a square three pixels too big fails", /Not completely correct/.test(fb), fb);
   fb = await submit(1, ${SQUARE("#ff0000", " - 2")});
   check("one two pixels too small, which diff-allowed allows, solves it", /Solved/.test(fb), fb);
   check("and the diff is gone", hidden(diff()));
 
   fb = await submit(2, ${DOUBLING("if a == 3 then 0 else b * 2")});
-  check("an answer wrong on the second piece of input fails", /Not quite/.test(fb), fb);
+  check("an answer wrong on the second piece of input fails", /Not completely correct/.test(fb), fb);
   $("[data-r=diff]", task(2)).click();
   const second = await until(() => $(".pkn-diff")) && $(".pkn-diff");
   check("the diff is of that piece of input",

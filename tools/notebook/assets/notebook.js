@@ -459,11 +459,13 @@ class Cells {
   }
 
   /** Shows what a program sent its page in `element`, as a page of its
-   *  own that sends no events back: the pictures a submission and its
-   *  solution drew. Resolves once it has been drawn, to the PageHost.
+   *  own that sends no events back and plays no sound: the pictures a
+   *  submission and its solution drew. Resolves once it has been drawn,
+   *  to the PageHost.
    *  Element -> [[String, [Object]]] -> Promise<PageHost> */
   async drawPage(element, page) {
-    const host = new this.web.PageHost(element, { libURL: this.runtime.libURL, send: () => {} });
+    const host = new this.web.PageHost(element,
+      { libURL: this.runtime.libURL, send: () => {}, silent: true });
     for (const [module, data] of page) host.receive(module, data);
     await Promise.all([...host.pages.values()]);
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));

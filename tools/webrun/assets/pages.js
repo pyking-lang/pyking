@@ -9,9 +9,11 @@
 
 export class PageHost {
   /** element: where the pages go. libURL: the standard library's URL.
-   *  send(module, event): how a renderer's event reaches the program. */
-  constructor(element, { libURL, send }) {
+   *  send(module, event): how a renderer's event reaches the program.
+   *  silent: the pages are only pictures, and play no sound. */
+  constructor(element, { libURL, send, silent = false }) {
     this.element = element;
+    this.silent = silent;
     this.libURL = libURL.endsWith("/") ? libURL : libURL + "/";
     this.send = send;
     this.pages = new Map();
@@ -32,7 +34,8 @@ export class PageHost {
         // `activated`: the reader started the program with a click or
         // a key, so a page may play sound without asking for one.
         .then((library) => library.mountPage(
-          this.element, (event) => this.send(module, event), { activated: true }))
+          this.element, (event) => this.send(module, event),
+          { activated: true, silent: this.silent }))
         .catch((error) => {
           console.error(`cannot show ${module}'s page: ${error.message}`);
           return null;

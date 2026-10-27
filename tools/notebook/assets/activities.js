@@ -331,10 +331,10 @@ class TaskWidget {
       <div class="pkn-tests" data-r="tests"></div>
       <div class="pkn-activity-actions" data-r="actions">
         <button class="pkn-button pkn-primary" data-r="submit">Submit</button>
-        <button class="pkn-button pkn-hidden" data-r="diff">See result diff</button>
         <button class="pkn-button pkn-hidden" data-r="show">Show a solution</button>
       </div>
       <div class="pkn-feedback pkn-hidden" data-r="feedback"></div>
+      <button class="pkn-button pkn-feedback-diff pkn-hidden" data-r="diff">See result diff</button>
       <div class="pkn-solution pkn-hidden" data-r="solution">
         <div class="pkn-solution-label">Solution</div>
       </div>`;
@@ -442,16 +442,35 @@ class TaskWidget {
     if (!feedback) return;
     box.className = `pkn-feedback pkn-feedback-${feedback.kind}`;
     box.innerHTML = feedback.html;
+    // "See result diff" goes in the box, under what it says.
+    if (this.lastFailure && feedback.kind === "bad") box.append(this.ui.diff);
   }
 
-  /** Runs the answer on every test, and the solution beside it where
-   *  there is one; solved when every output matches. */
+  /** Runs the answer in its cell first, as Run does, so the reader sees
+   *  and hears it; once that has finished, runs it quietly on every
+   *  test, and the solution beside it where there is one; solved when
+   *  every output matches. A Stop while it runs in its cell calls the
+   *  submission off, and costs no attempt. */
   async submit() {
     const { item } = this;
     const s = this.a.states[item.id];
     if (s.state !== "open" || !this.cell || this.busy) return;
     this.busy = true;
     this.ui.submit.disabled = true;
+    this.feedback({ kind: "busy", html: "Running your program…" });
+    const { cells } = this.a;
+    const generation = cells.generation;
+    try {
+      await this.cell.run();
+    } catch {
+      // What went wrong is shown in the cell; the checks below say so too.
+    }
+    if (generation !== cells.generation) {
+      this.busy = false;
+      s.feedback = null;
+      this.render();
+      return;
+    }
     this.feedback({ kind: "busy", html: "Checking your answer…" });
     let failed = null;
     try {
@@ -494,12 +513,17 @@ class TaskWidget {
       s.used += 1;
       const out = item.attempts !== null && s.used >= item.attempts;
       if (out) s.state = "failed";
-      const detail = failed.limit ? `<div>${escapeHTML(failed.problem)}</div>`
-        : item.attempts === 1 ? "" : failureHTML(failed);
       const left = item.attempts === null ? "" : out ? " No attempts are left."
         : ` ${item.attempts - s.used} attempt${item.attempts - s.used === 1 ? "" : "s"} left.`;
-      s.feedback = { kind: "bad",
-        html: `<div>${out ? "Not solved." : "Not quite."}${left}</div>${detail}` };
+      // Where the answer ran but did something else, the diff shows how;
+      // where it did not run, or was refused, the reason is all there is.
+      const html = this.lastFailure
+        ? `<div>Not completely correct. Please look at the result diff to see what was `
+          + `expected and what your program did.${left}</div>`
+        : `<div>${out ? "Not solved." : "Not quite."}${left}</div>`
+          + (failed.limit ? `<div>${escapeHTML(failed.problem)}</div>`
+            : item.attempts === 1 ? "" : failureHTML(failed));
+      s.feedback = { kind: "bad", html };
     }
     this.render();
     this.a.changed();

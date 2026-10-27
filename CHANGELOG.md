@@ -12,6 +12,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - In a notebook cell on a Mac, Control+Enter runs the cell and stays in
   it, as Command+Enter does, the same as in the playground.
+- A notebook's Submit first runs the answer in its cell, as Run does,
+  and checks it once that run has finished; a Stop meanwhile calls the
+  submission off without using an attempt.
+- A notebook answer that runs but does something else now says "Not
+  completely correct. Please look at the result diff to see what was
+  expected and what your program did.", with **See result diff** in the
+  red box under it, instead of the expected and got output.
+
+### Fixed
+
+- A notebook answer or solution that calls `tinyweb.sdelay` no longer
+  times out when it is checked: the check run does not wait, and its
+  tinyweb log says where each `sdelay` would have ended.
+- A notebook's "See result diff" no longer plays the sounds of the
+  programs it compares: their pages there are silent pictures.
 
 ## [0.1.6] - 2026-10-26
 

@@ -233,7 +233,9 @@ export class PykingRuntime {
    *  `onInput` with each line the program read. `stdin` is what the
    *  program reads, and `args` what `sys.args()` answers. `tinywebLog`
    *  true sends tinyweb's log to `onDebug`, and "separate" to
-   *  `onTinyweb`, a line at a time. `tinywebEvents` is the lines of an
+   *  `onTinyweb`, a line at a time, for a check run whose page no one
+   *  sees: tinyweb's `sdelay` then waits for no page, and only moves its
+   *  clock on. `tinywebEvents` is the lines of an
    *  events file, delivered once the top level has ended.
    *
    *  Resolves to {ok:true, exit?} -- `exit` being the status `sys.exit`
