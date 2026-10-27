@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   completely correct. Please look at the result diff to see what was
   expected and what your program did.", with **See result diff** in the
   red box under it, instead of the expected and got output.
+- The result diff shows the pictures only where either program drew
+  something, tinyweb's commands only where either sent any, and
+  standard output only where either printed any.
 
 ### Fixed
 

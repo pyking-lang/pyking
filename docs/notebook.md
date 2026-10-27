@@ -313,8 +313,11 @@ lines at the end. An answer that writes a name more often than
 attempt. Where the answer ran but did something else, the red box says
 "Not completely correct. Please look at the result diff to see what was
 expected and what your program did.", with **See result diff** under
-it, which shows the first test that differed side by side, pictures
-included, and says why in one of these words:
+it, which shows the first test that differed side by side, and says
+why in one of these words. Of its sections, the pictures are shown only
+where either side drew something (an empty canvas, sound and timing are
+not drawing), tinyweb's commands only where either sent any, and
+standard output only where either printed any:
 
 - The output is not what it should be.
 - What it drew with tinyweb is not what it should be.

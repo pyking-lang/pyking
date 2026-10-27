@@ -270,8 +270,35 @@ const DRAWING = `(async () => { ${HELPERS}
     && $$(".pkn-diff-add", second).some((e) => e.innerText === "6 8"),
     $$(".pkn-diff-table", second).map((e) => e.innerText).join(" | "));
   check("with no tinyweb, no pictures", $$(".pkn-diff canvas", second).length === 0);
+  check("and no tinyweb sections, but the standard output",
+    !/tinyweb:/.test(second.innerText) && /Standard output/.test(second.innerText),
+    second.innerText.slice(0, 400));
   $("[data-r=close]", second.closest(".pkn-modal-backdrop")).click();
   check("its close button closes it", !$(".pkn-diff"));
+
+  // A diff of two programs that print nothing, one of which only made an
+  // empty canvas: its commands are shown, but no pictures and no output.
+  const widget = nb.activities.map((a) => a.widgets[task(1).id]).find(Boolean);
+  const quiet = (tinyweb, page) => ({ ok: true, stdout: "", stderr: "", exit: 0, tinyweb, page });
+  widget.lastFailure = { problem: "What it drew with tinyweb is not what it should be.",
+    stdin: "", args: "", test: {},
+    answer: quiet('canvas "canvas" 100 100\\n', [["tinyweb", [{ op: "canvas", id: "canvas", width: 100, height: 100 }]]]),
+    expected: quiet("", []) };
+  await widget.showDiff();
+  const empty = $(".pkn-diff").innerText;
+  check("a diff where nothing is drawn shows no pictures", !/what each drew/.test(empty), empty);
+  check("one where something was sent shows the commands", /the commands each sent/.test(empty), empty);
+  check("one where nothing is printed shows no standard output", !/Standard output/.test(empty), empty);
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  widget.lastFailure = { ...widget.lastFailure,
+    answer: quiet("", []), expected: quiet("", []), problem: "Your program ended with status 1, and should end with 0." };
+  widget.lastFailure.answer.exit = 1;
+  await widget.showDiff();
+  const bare = $(".pkn-diff").innerText;
+  check("and one where neither sent tinyweb anything shows no tinyweb sections",
+    !/tinyweb:/.test(bare) && /ended with status 1/.test(bare), bare);
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  widget.lastFailure = null;
   return checks;
 })()`;
 

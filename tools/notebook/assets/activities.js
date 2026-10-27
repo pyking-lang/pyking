@@ -549,7 +549,8 @@ class TaskWidget {
     const { answer, expected } = failed;
     const host = this.box.closest(".pkn-notebook") ?? document.body;
     const backdrop = element("div", "pkn-modal-backdrop");
-    const drawn = (answer.page?.length ?? 0) + (expected.page?.length ?? 0) > 0;
+    // Each section only where either side has something in it.
+    const drawn = drewSomething(answer.page) || drewSomething(expected.page);
     const sections = [];
     sections.push(`<div class="pkn-diff-case">
         <div class="pkn-diff-case-title">The test case</div>
@@ -570,8 +571,10 @@ class TaskWidget {
         </div>`);
     }
     const rules = this.item.allowed;
-    sections.push(diffSection("Standard output", answer.stdout, expected.stdout, rules));
-    if ((answer.tinyweb ?? "") !== "" || (expected.tinyweb ?? "") !== "") {
+    if (normalizeOutput(answer.stdout ?? "") !== "" || normalizeOutput(expected.stdout ?? "") !== "") {
+      sections.push(diffSection("Standard output", answer.stdout, expected.stdout, rules));
+    }
+    if ((answer.tinyweb ?? "").trim() !== "" || (expected.tinyweb ?? "").trim() !== "") {
       sections.push(diffSection("tinyweb: the commands each sent its page",
         answer.tinyweb ?? "", expected.tinyweb ?? "", rules));
     }
@@ -714,6 +717,17 @@ function compare(answer, expected, test, hasSolution, rules = []) {
       + `and should end with ${expected.exit ?? 0}.`;
   }
   return null;
+}
+
+/** What a page command shows on the page: drawing on a canvas, and the
+ *  page's own elements. An empty canvas, sound and timing show nothing. */
+const SHOWN = new Set(["clear", "shape", "text", "bitmap", "image", "button", "label",
+  "checkbox", "radio", "choice", "text_input", "number", "slider", "text_area", "file_button"]);
+
+/** Whether what a program sent its page shows anything there.
+ *  [[String, [Object]]]? -> Bool */
+function drewSomething(page) {
+  return (page ?? []).some(([, data]) => (data ?? []).some((command) => SHOWN.has(command.op)));
 }
 
 /** One failed test, as the student is shown it. {..} -> String */
