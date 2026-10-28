@@ -766,10 +766,11 @@ def check_changelog(check):
     with tempfile.TemporaryDirectory(prefix="pyk-packaging-") as directory:
         log = Path(directory) / "CHANGELOG.md"
         log.write_text("# Changelog\n\n## [2.0.0] - Unreleased\n\n- soon\n\n"
+                       "## [1.5.0] 2026-01-03\n\n- dashless\n\n"
                        "## [1.0.0] - 2026-01-02\n\n\n## [0.9.0] - 2025-12-01\n\n- old\n\n"
                        "[2.0.0]: https://example.com\n")
         for v, wanted in (("2.0.0", "not dated"), ("1.0.0", "says nothing"),
-                          ("3.0.0", "no section")):
+                          ("3.0.0", "no section"), ("1.5.0", "not in the release form")):
             try:
                 packaging.changelog_notes(v, log)
                 check(f"a changelog section that {wanted.replace('not', 'is not')} is refused",

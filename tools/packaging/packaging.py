@@ -266,6 +266,11 @@ def changelog_notes(v, path=CHANGELOG):
         raise Refusal(f"{shown(path)} has no section for {v}; add one, headed\n"
                       f"    ## [{v}] - {datetime.date.today().isoformat()}")
     if not re.fullmatch(r"\s*-\s*\d{4}-\d{2}-\d{2}\s*", found.group(2)):
+        if re.search(r"\d{4}-\d{2}-\d{2}", found.group(2)):
+            raise Refusal(f"{shown(path)}'s heading for {v} is not in the release form, which"
+                          f" has ' - ' between the version and the date:\n"
+                          f"    {found.group(0).strip()}    (what it says)\n"
+                          f"    ## [{v}] - {found.group(2).strip(' -')}    (what it should say)")
         raise Refusal(f"{shown(path)}'s section for {v} is not dated ({found.group(0).strip()!r});"
                       f" when releasing it, head it\n    ## [{v}] - "
                       f"{datetime.date.today().isoformat()}")
