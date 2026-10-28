@@ -1,3 +1,0 @@
-'tests/fail_typecheck_index_string.pyk' 6:6-6:11 Type error: only a
-  list is indexed with '[...]', and this value is String; a String's
-  character is text.char_at(s, i)

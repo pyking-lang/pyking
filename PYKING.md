@@ -99,6 +99,11 @@ restriction of it, but these are genuinely new.
   with `from hello import mymod` or `from hello.mymod import foo`; there
   are no package folders or `__init__` files. `import hello.mymod` binds
   `mymod` rather than `hello`. See "Submodules".
+- **A `Char` type, and Strings in double quotes only**: `'a'` is a
+  `Char` -- one Unicode code point -- and a String is always written
+  `"..."`; `'abc'` is refused. `s[i]` is a String's i-th character, and
+  `for c in s` walks them. Python has no character type: its `s[i]` is a
+  String of one, and either quote writes a String. See "Char literals".
 - **Lowercase `true`/`false` boolean literals**: Python spells its two
   boolean values `True`/`False`; Pyking spells them lowercase, `true` and
   `false`, matching most other languages' convention rather than
@@ -192,15 +197,19 @@ Expressions:
   with a digit required on each side of the point
 - Boolean literals (`true`, `false`) — Pyking extension; spelled
   lowercase, unlike Python's `True`/`False`
+- Char literals (`'a'`, `'\n'`, `'👑'`): one Unicode code point, of type
+  `Char`; a String is written in double quotes only — Pyking extension
+  (see "Char literals")
 - Variables (identifier references)
 - Arithmetic operators (`+`, `-`, `*`, `/`, the remainder `%` and the
   power `^`), overloaded over `Int` and `Float`, unary minus (`-x`, and
   negative literals like `-5`), and parenthesized expressions. Nothing
   is converted implicitly: `float(n)` and `int(x)` are how the two
   numeric types meet
-- Conversions `string(x)`, `int(x)`, `float(x)` and `bool(x)` between
-  `Int`, `Float`, `String` and `Bool`, each answering a default (0, NaN,
-  false) where there is no right answer (see "Conversions")
+- Conversions `string(x)`, `int(x)`, `float(x)`, `bool(x)` and
+  `char(x)` between `Int`, `Float`, `String`, `Char` and `Bool`, each
+  answering a default (0, NaN, false, `'\0'`) where there is no right
+  answer (see "Conversions")
 - Concatenation with `+` of two strings or two lists of one type, every
   operand of a `+` being of one type (see "Concatenation")
 - Comparison operators (`<`, `<=`, `>`, `>=`, `==`, `!=`), which do not
@@ -210,7 +219,8 @@ Expressions:
 - Bitwise operators on Ints: `&`, `|`, `xor`, `~`, `<<` and `>>`, and
   the words `and`, `or` and `not` on two Ints; `xor` on two Bools too
   (see "Bitwise operators")
-- List indexing (`xs[i]`), counting from 0 (see "Indexing")
+- List and String indexing (`xs[i]`, `s[i]`), counting from 0; a
+  String's element is a `Char` (see "Indexing")
 - Type variables (`def id(x:a) -> a`) and `all` quantifiers, including
   first-class polymorphism — Pyking extension; a `def`'s type may also
   be written on a line of its own (`def id : (a) -> a`)
@@ -263,7 +273,7 @@ Statements:
   leaves them out; `implicit` in front of a `def` or an `=` binding is
   what makes one findable — Pyking extension (see "Implicits")
 - Function definitions (`def`), with optional parameter and return type
-  annotations (`Int`, `Float`, `String`, `Bool`, list types `[T]`, tuple types
+  annotations (`Int`, `Float`, `String`, `Char`, `Bool`, list types `[T]`, tuple types
   `(T1, T2, ...)` including the singleton `(T,)` and the unit type `()`,
   function types
   `(T1, T2, ...) -> T`, and nesting of any of these) — annotations are
@@ -439,7 +449,7 @@ param        = ident , [ ":" , type ] , [ "=" , expr ] ;
 implicit_param = "implicit" , ident , ":" , type ;
 
 type         = type_atom , [ "->" , type ] ;
-type_atom    = "Int" | "Float" | "String" | "Bool"
+type_atom    = "Int" | "Float" | "String" | "Char" | "Bool"
              | type_var
              | [ sub_path , "." ] , upper_ident , [ "(" , type , { "," , type } , ")" ]
              | "all" , type_var , { type_var } , "." , type
@@ -484,7 +494,7 @@ pattern     = pattern_as , { "," , pattern_as } ;
 pattern_as  = pattern_or , [ "as" , ident ] ;
 pattern_or  = pattern_join , { "|" , pattern_join } ;
 pattern_join = pattern_atom , { "+" , pattern_atom } ;
-pattern_atom = int | "-" , int | string | bool | "_" | ident
+pattern_atom = int | "-" , int | string | char | bool | "_" | ident
              | constructor_pattern
              | "(" , ")"
              | "(" , pattern_as , ")"
@@ -563,7 +573,7 @@ unary       = ( "-" | "!" | "~" ) , unary | power ;
    `2 ^ -1`. It binds tighter than unary minus: `-2 ^ 2` is `-(2 ^ 2)`. *)
 power       = atom , [ "^" , unary ] ;
 
-atom        = ( float | int | string | bool | ident | list_lit | list_comp
+atom        = ( float | int | string | char | bool | ident | list_lit | list_comp
               | tuple_lit | construct
               | "(" , expr , ")" ) ,
               { call_tail | field_tail | index_tail } ;
@@ -608,11 +618,15 @@ float       = digits , "." , digits , [ exponent ]
 digits      = digit , { digit } ;
 exponent    = ( "e" | "E" ) , [ "+" | "-" ] , digits ;
 bool        = "true" | "false" ;
-string      = "'" , { string_char } , "'"
-            | '"' , { string_char } , '"' ;
-string_char = any_char_except_quote_or_backslash
+(* A String is in double quotes; a Char is exactly one character -- one
+   Unicode code point, or one escape -- in single quotes. *)
+string      = '"' , { string_char } , '"' ;
+char        = "'" , char_char , "'" ;
+string_char = any_char_except_double_quote_or_backslash
             | "\" , escape ;
-escape      = "n" | "t" | "r" | "\" | "'" | '"' ;
+char_char   = any_char_except_single_quote_or_backslash
+            | "\" , escape ;
+escape      = "n" | "t" | "r" | "0" | "\" | "'" | '"' ;
 ```
 
 Notes that don't fall out of the grammar alone:
@@ -1086,10 +1100,12 @@ orange = 0xff8800
 print(orange, 0b0001_0101, 0x7fff_ffff)
 ```
 
-Strings are delimited by either single or
-double quotes, and support backslash escapes: `\n`, `\t`, `\r`, `\\`, `\'`,
-and `\"` (so a string can contain its own delimiter, or the other quote
-character, once escaped).
+Strings are delimited by double quotes, and support backslash escapes:
+`\n`, `\t`, `\r`, `\0`, `\\`, `\'` and `\"` (so a string can contain
+a double quote, once escaped). Single quotes write a `Char` instead, one
+character: see "Char literals" below. A String is counted in
+characters -- Unicode code points -- so `len("åäö")` is 3 and
+`len("👑")` is 1 on every target.
 
 An `Int` holds **at least the signed 32-bit range**, −2 147 483 648 to
 2 147 483 647. Every implementation carries that much; several carry
@@ -1128,7 +1144,7 @@ nothing is inserted to hide the difference.
 ```python
 count = 42
 message = "hello, pyking"
-quoted = 'it\'s a test with a "quoted" word\nand a second line'
+quoted = "it's a test with a \"quoted\" word\nand a second line"
 print(count, message)
 print(quoted)
 ```
@@ -1238,6 +1254,39 @@ print(true == (1 == 1), false == (2 == 3))
 `true`/`false` may also appear as a `match`/`case` pattern, matching only
 that exact value — see ["`match`/`case` pattern
 matching"](#matchcase-pattern-matching) below.
+
+### Char literals
+
+A `Char` is one character -- one Unicode code point -- written between
+single quotes: `'a'`, `'å'`, `'👑'`, or one of the escapes a String has,
+`'\n'`, `'\t'`, `'\r'`, `'\0'`, `'\\'`, `'\''` and `'\"'`. `''` and
+`'ab'` are lexical errors, and the second says that a String is written
+in double quotes. A String's characters are Chars: `s[i]` is the one at
+position `i`, `for c in s` walks them, and `text.chars(s)` lists them.
+
+```pyking
+word = "Håll 👑"
+first = word[0]                     # 'H', a Char
+print(first, word[5], len(word))    # H 👑 6
+print(int('A'), char(66), 'a' < 'b', string('é') + "!")   # 65 B true é!
+print([c for c in "ok"], ("ab", 'c'))   # ['o', 'k'] ("ab", 'c')
+```
+
+- **Comparisons** `==`, `!=`, `<`, `<=`, `>` and `>=` compare two Chars by
+  code point; a Char is compared with nothing else.
+- **Conversions**: `string(c)` is the one-character String, `int(c)` and
+  `float(c)` its code point, and `bool(c)` is false for `'\0'` alone.
+  `char(x)` goes the other way: from an Int code point, from a String
+  (its first character), or from a Char; where there is none -- a
+  negative Int, a surrogate, past 1114111, an empty String -- it is
+  `'\0'` (see "Conversions").
+- **No joining**: `+` joins two Strings, and a Char is not one, so
+  `"a" + c` is a type error that says to write `"a" + string(c)`.
+- **Printing**: a Char on its own prints as its character. Inside a list,
+  a tuple or a datatype's value it prints in single quotes, as a String
+  there prints in double quotes, so the two are told apart.
+- **Patterns**: `case 'a':` matches that Char, and a `match` on a Char
+  needs a `case _`, since no list of literals covers every one.
 
 ### Variables (identifier references)
 
@@ -1514,9 +1563,12 @@ print(xs[0], xs[2], xs[len(xs) - 1], rows[1][0])   # 10 30 30 3
 - An index outside the list -- negative included -- is a runtime error
   in the interpreter (`the index 5 is outside a list of 2 elements`) and
   whatever the host does with it in compiled code.
-- Only a list is indexed. A String's character is
-  `text.char_at(s, i)`, and a tuple is taken apart by a pattern or a
-  `let`; the checker says both.
+- A String is indexed too: `s[i]` is its character at position `i`,
+  counting code points, and is a `Char` (see "Char literals"). An index
+  outside the String is a runtime error in the interpreter (`the index 9
+  is outside a String of 3 characters`).
+- Only a list and a String are indexed. A tuple is taken apart by a
+  pattern or a `let`; the checker says so.
 
 ### Function calls
 
@@ -2327,7 +2379,7 @@ total: Int = count + 1
 ```
 
 Parameters and the return value may optionally be annotated with a type:
-`Int`, `Float`, `String`, `Bool`, a list type `[T]`, a tuple type `(T1, T2, ...)`
+`Int`, `Float`, `String`, `Char`, `Bool`, a list type `[T]`, a tuple type `(T1, T2, ...)`
 or `(T,)`, or a function type `(T1, T2, ...) -> T` (all nesting freely,
 e.g. `[(Int, Bool)]` or `[(Int) -> Bool]`). `()`, the zero-element tuple
 type, is the Unit type, and `(T)` with no comma is grouping rather than
@@ -2422,11 +2474,15 @@ print(first(1, 2))
 ### `for`/`in` loops
 
 `for name in iterable:` binds `name` to each successive element produced
-by `iterable`, running the indented body once per element.
+by `iterable`, running the indented body once per element. The iterable
+is a list, or a String, whose elements are its characters, each a
+`Char`; a comprehension walks a String the same way.
 
 ```python
 for i in range(3):
     print(i)
+for c in "ok":
+    print(c)
 ```
 
 ### `while` loops
@@ -2898,11 +2954,11 @@ def foo(x: a, implicit bar: (a) -> b) -> (b, b):
 
 def my1() -> ():
     implicit def bar(z: Int) -> String: string(z) + "!"
-    print(foo(78))                  # ('78!', '78!')
+    print(foo(78))                  # ("78!", "78!")
 
 def my2() -> ():
     implicit def bar(z: String) -> String: z + "!"
-    print(foo("hi"))                # ('hi!', 'hi!')
+    print(foo("hi"))                # ("hi!", "hi!")
 ```
 
 `foo` is written once and means two things, because the implicit `bar`
@@ -2969,7 +3025,7 @@ def apply_twice(f: (Int, implicit bar: (Int) -> String) -> (String, String),
     implicit def bar(z: Int) -> String: string(z * 2)
     f(n)
 
-print(apply_twice(foo, 5))          # ('10', '10')
+print(apply_twice(foo, 5))          # ("10", "10")
 ```
 
 An implicit may be resolved to a definition that takes implicits of its
@@ -3917,7 +3973,7 @@ always be refused.
 ### Types
 
 The checker works in the types "Type annotations" lists, and no others:
-`Int`, `Float`, `String`, `Bool`, list types `[T]`, tuple types
+`Int`, `Float`, `String`, `Char`, `Bool`, list types `[T]`, tuple types
 `(T1, T2, ...)`
 — with `(T,)` the one-element one and `()`, the zero-element tuple, the
 unit type — function types `(T1, T2, ...) -> T`, datatypes (`Shape`,
@@ -4101,7 +4157,7 @@ else:
 if flag:             # both branches yield unit
     a = 1
 else:
-    b = 'two'
+    b = "two"
 ```
 
 The **expression** form is checked the same way, and always yields a
@@ -4116,7 +4172,7 @@ def fact(n): if n <= 1 then 1 else fact(n - 1) * n
 
 
 picked = if 3 < 4 then 10 else 20
-print(fact(7), picked, 'grade ' + (if picked > 5 then 'a' else 'b'))
+print(fact(7), picked, "grade " + (if picked > 5 then "a" else "b"))
 ```
 
 An `if` with no `else` supplies unit, whatever its one branch ends in:
@@ -4225,7 +4281,7 @@ x = 1
 def show() -> Int:
     x
 
-x = 'two'          # fine: `show` was checked against the Int above
+x = "two"          # fine: `show` was checked against the Int above
 ```
 
 **Recursion and forward references check like anything else.** Every
@@ -4238,9 +4294,9 @@ call, argument by argument:
 ```pyking
 def spell(n:Int) -> String:
     if n < 1:
-        ''
+        ""
     else:
-        'x' + spell(n - 1)          # checked against (Int) -> String
+        "x" + spell(n - 1)          # checked against (Int) -> String
 
 
 def is_even(n:Int) -> Bool:
@@ -4262,7 +4318,7 @@ Nothing is taken on faith: the declared type is what the body is checked
 applies to nested functions, per block.
 
 **Builtins.** `print`, `debug`, `range`, `string`, `len`, `int`,
-`float` and `bool` are checked at the call, each by its own rule,
+`float`, `bool` and `char` are checked at the call, each by its own rule,
 because none of them is a function *value*: a builtin is a host operation (see "Names
 and scoping"), it has no type that can be written down, and it may be
 called and nothing else.
@@ -4271,12 +4327,13 @@ called and nothing else.
 |---|---|---|
 | `print(…)` | any number of arguments, of any type | `()` |
 | `debug(…)` | any number of arguments, of any type | `()` |
-| `string(x)` | one `Int`, `Float`, `String`, `Bool`, list or tuple | `String` |
-| `len(x)` | one list or `String` | `Int` |
+| `string(x)` | one `Int`, `Float`, `String`, `Char`, `Bool`, list or tuple | `String` |
+| `len(x)` | one list or `String` (counted in characters) | `Int` |
 | `range(n)` | one to three `Int`s | `[Int]` |
-| `int(x)` | one `Int`, `Float`, `String` or `Bool` | `Int` |
-| `float(x)` | one `Int`, `Float`, `String` or `Bool` | `Float` |
-| `bool(x)` | one `Int`, `Float`, `String` or `Bool` | `Bool` |
+| `int(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Int` |
+| `float(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Float` |
+| `bool(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Bool` |
+| `char(x)` | one `Int`, `String` or `Char` | `Char` |
 
 ```pyking
 count = len("hello")          # Int
@@ -4287,11 +4344,14 @@ ratio = float(count) / 2.0    # Float
 print(label, numbers, count, ratio)  # anything, any number of them
 ```
 
-**Conversions.** `string`, `int`, `float` and `bool` are how a value of
-one type becomes another — Pyking converts nothing on its own. `string`
-writes a value exactly as `print` would. The other three answer every
-argument they accept, and where there is no right answer they answer a
-**default**: 0 for `int`, NaN for `float`, false for `bool`.
+**Conversions.** `string`, `int`, `float`, `bool` and `char` are how a
+value of one type becomes another — Pyking converts nothing on its own.
+`string` writes a value exactly as `print` would. The other four answer
+every argument they accept, and where there is no right answer they
+answer a **default**: 0 for `int`, NaN for `float`, false for `bool`,
+`'\0'` for `char`. A Char converts to and from its code point: `int(c)`,
+`float(c)`, `char(n)`; `bool(c)` is false for `'\0'` only, and
+`char(s)` is a String's first character.
 
 - `int` truncates a Float toward zero, takes true to 1 and false to 0,
   and reads a String written as an optional `+` or `-` and decimal digits,
@@ -4371,18 +4431,18 @@ are in scope only in its own body:
 ```pyking
 def sign(n:Int) -> String:
     if n < 1:
-        return 'small'
+        return "small"
     else if n == 1:
-        return 'one'
+        return "one"
     else:
-        return 'large'
+        return "large"
 
 
-def shout(word:String) -> String: word + '!'
+def shout(word:String) -> String: word + "!"
 
 
 kind = sign(4)
-loud = shout('hi')
+loud = shout("hi")
 ```
 
 ### Type variables
@@ -4397,7 +4457,7 @@ def id(x:a) -> a:
 
 
 print(id(1))          # 1
-print(id('two'))      # two
+print(id("two"))      # two
 print(id(true))       # true
 ```
 
@@ -4460,7 +4520,7 @@ polymorphic, rather than one at whatever single type the caller picked.
 ```pyking
 def both_ways : (all x. (x) -> x) -> String
 def both_ways(f):
-    return f('a') + string(f(1))       # f used at two types, in one body
+    return f("a") + string(f(1))       # f used at two types, in one body
 ```
 
 Without the inner `all` the variable would be bound at the top, and `f`
@@ -4647,7 +4707,7 @@ def scale(n:Int, factor):    # `n` is a claim; `factor` is a question
 
 
 print(scale(6, 7))
-# print(scale('six', 7))     # error: argument 1 has type String, but
+# print(scale("six", 7))     # error: argument 1 has type String, but
                              #        Int was expected
 ```
 
@@ -4676,7 +4736,7 @@ def echo(x):
 
 
 number = echo(1)             # number : Int
-word = echo('two')           # word   : String
+word = echo("two")           # word   : String
 same = echo                  # same : (a) -> a
 ```
 
@@ -4687,7 +4747,7 @@ and is fixed instead to what the first call passed:
 
 ```pyking
 def announce(value):
-    'got ' + string(value)     # `string` asks what it was given
+    "got " + string(value)     # `string` asks what it was given
 
 
 print(announce(1))           # announce : (Int) -> String
@@ -4739,7 +4799,7 @@ def apply(f, x):             # apply : ((a) -> b, a) -> b
 def bump(n): n + 1
 
 
-print(apply(id, 'hi'))       # hi
+print(apply(id, "hi"))       # hi
 print(apply(bump, 1))        # 2
 ```
 

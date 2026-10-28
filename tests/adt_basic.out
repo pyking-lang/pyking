@@ -8,8 +8,8 @@ Blue blue
 Red
 [Red, Blue]
 (Circle(2.5), Green)
-Account('ada', 0, 'SEK')
-Account('grace', 10, 'SEK')
-Account('don', 0, 'EUR')
-Account('linus', 3, 'USD')
-('one', 1)
+Account("ada", 0, "SEK")
+Account("grace", 10, "SEK")
+Account("don", 0, "EUR")
+Account("linus", 3, "USD")
+("one", 1)

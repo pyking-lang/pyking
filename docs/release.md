@@ -54,7 +54,7 @@ def report(x: Int):                    def report(x:Int) -> ():
     if x > 2:                              if x > 2:
         debug("large", x)        ->            ()
     else:                                  else:
-        print("small", x)                      print('small', x)
+        print("small", x)                      print("small", x)
 ```
 
 Every backend compiles the statement `()` to nothing: Python, JavaScript

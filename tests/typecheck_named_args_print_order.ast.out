@@ -1,9 +1,9 @@
 def f1() -> String:
-    print('f1')
-    'num1'
+    print("f1")
+    "num1"
 def f2() -> String:
-    print('f2')
-    'num2'
+    print("f2")
+    "num2"
 def foo(x:Int, my1:String, my2:String) -> String:
     return string(x) + my1 + my2
 k2: String = let my2__arg: String = f2() in let my1__arg: String = f1() in foo(78, my1__arg, my2__arg)

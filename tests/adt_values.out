@@ -4,7 +4,7 @@ a high heart
 joker
 Hand(Card(2, Hearts), Joker)
 Card(4, Hearts)
-Just('one') Nothing
+Just("one") Nothing
 one none
 3 9
 (Just(true), Card(7, Hearts))

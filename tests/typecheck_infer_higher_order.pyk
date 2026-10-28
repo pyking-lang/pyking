@@ -22,7 +22,7 @@ def repeat(word):
     word + word
 
 print(apply_twice(add_one, 5))
-print(apply_twice(repeat, 'ab'))
+print(apply_twice(repeat, "ab"))
 
 # A parameter whose function type *is* written down is a claim about
 # what may be passed, and an unannotated function may still satisfy it:

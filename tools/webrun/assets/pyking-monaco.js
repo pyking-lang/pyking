@@ -33,11 +33,14 @@ export function registerPyking(monaco, words) {
     tokenizer: {
       root: [
         [/#.*$/, "comment"],
-        // Strings: both quote forms, with the backslash escapes the lexer
-        // decodes. An unterminated literal is a string to the end of its
-        // line rather than swallowing the rest of the file.
-        [/'(?:[^'\\]|\\.)*'/, "string"],
+        // A String in double quotes and a Char -- one character, or one
+        // escape -- in single quotes, with the backslash escapes the lexer
+        // decodes. Anything else in single quotes is refused, and an
+        // unterminated literal is invalid to the end of its line rather
+        // than swallowing the rest of the file.
+        [/'(?:\\.|[\uD800-\uDBFF][\uDC00-\uDFFF]|[^'\\])'/, "string.char"],
         [/"(?:[^"\\]|\\.)*"/, "string"],
+        [/'(?:[^'\\]|\\.)*'/, "string.invalid"],
         [/['"].*$/, "string.invalid"],
         [/0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d+(?:\.\d+)?/, "number"],
         // `def name` -- the name being defined, not just the keyword.

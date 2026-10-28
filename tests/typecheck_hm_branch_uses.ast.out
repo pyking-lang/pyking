@@ -7,7 +7,7 @@ def pick(first:Bool, n:a, word:b) -> a:
         helper(n)
 def either(first:Bool, n:Int) -> Int:
     if first then helper(n) else helper(n) + 1
-print(pick(true, 1, 'a'))
-print(pick(false, 2, 'b'))
+print(pick(true, 1, "a"))
+print(pick(false, 2, "b"))
 print(either(true, 5))
-print(helper('after'))
+print(helper("after"))

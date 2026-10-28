@@ -37,7 +37,7 @@ print([1, 2, 3], (true, "yes"))
 | `2.5` | `2.5` |
 | `true` | `true` |
 | `"hi"` | `hi` |
-| `["hi"]` | `['hi']` |
+| `["hi"]` | `["hi"]` |
 
 ## Reading input
 
@@ -229,7 +229,7 @@ Which of these print exactly `hi`?
 
 ```answer
 -> A string is printed without its quotes.
-- A list shows its strings quoted: `['hi']`.
+- A list shows its strings quoted: `["hi"]`.
 -> `+` joins two strings.
 - Pyking strings are written in double quotes.
 ```

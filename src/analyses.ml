@@ -131,7 +131,7 @@ let rec pattern_bindings pattern =
   | POr (_, first :: _, _) -> pattern_bindings first
   | POr (_, [], _) -> []
   | PAs (info, inner, name, _) -> pattern_bindings inner @ [ (name, info) ]
-  | PInt _ | PString _ | PBool _ | PWildcard _ -> []
+  | PInt _ | PString _ | PChar _ | PBool _ | PWildcard _ -> []
 
 (** Extends env with everything pattern binds. env -> pattern -> env *)
 let bind_pattern env pattern =
@@ -431,6 +431,9 @@ let rec sym_expr counter e =
   | EString (i, v, s) ->
       let s, counter = assign s counter in
       (EString (i, v, s), counter)
+  | EChar (i, v, s) ->
+      let s, counter = assign s counter in
+      (EChar (i, v, s), counter)
   | EBool (i, v, s) ->
       let s, counter = assign s counter in
       (EBool (i, v, s), counter)
@@ -568,6 +571,9 @@ and sym_type counter t =
   | TString (i, s) ->
       let s, counter = assign s counter in
       (TString (i, s), counter)
+  | TChar (i, s) ->
+      let s, counter = assign s counter in
+      (TChar (i, s), counter)
   | TBool (i, s) ->
       let s, counter = assign s counter in
       (TBool (i, s), counter)
@@ -621,6 +627,9 @@ and sym_pattern counter p =
   | PString (i, v, s) ->
       let s, counter = assign s counter in
       (PString (i, v, s), counter)
+  | PChar (i, v, s) ->
+      let s, counter = assign s counter in
+      (PChar (i, v, s), counter)
   | PBool (i, v, s) ->
       let s, counter = assign s counter in
       (PBool (i, v, s), counter)
@@ -822,7 +831,7 @@ let high_option f item = match item with None -> 0 | Some x -> f x
 let rec high_expr e =
   let children =
     match e with
-    | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ -> 0
+    | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ | EVar _ | EQualified _ -> 0
     | EAdd (_, l, r, _)
     | ESub (_, l, r, _)
     | EMul (_, l, r, _)
@@ -858,7 +867,7 @@ let rec high_expr e =
 and high_type t =
   let children =
     match t with
-    | TInt _ | TFloat _ | TString _ | TBool _ | TUnknown _ | TBuiltin _
+    | TInt _ | TFloat _ | TString _ | TChar _ | TBool _ | TUnknown _ | TBuiltin _
     | TVar _ ->
         0
     | TList (_, element, _) -> high_type element
@@ -876,7 +885,7 @@ and high_type t =
 and high_pattern p =
   let children =
     match p with
-    | PInt _ | PString _ | PBool _ | PWildcard _ | PCapture _ | PText _ -> 0
+    | PInt _ | PString _ | PChar _ | PBool _ | PWildcard _ | PCapture _ | PText _ -> 0
     | PTuple (_, elements, _) -> high_list high_pattern elements
     | PList (_, prefix, rest, suffix, _) ->
         max

@@ -6,7 +6,7 @@
   "patterns": [
     { "include": "#comment" },
     { "include": "#string-double" },
-    { "include": "#string-single" },
+    { "include": "#char" },
     { "include": "#definition" },
     { "include": "#keyword" },
     { "include": "#type" },
@@ -26,17 +26,23 @@
       "end": "\"|$",
       "patterns": [{ "include": "#escape" }]
     },
-    "string-single": {
-      "name": "string.quoted.single.pyking",
-      "begin": "'",
-      "end": "'|$",
-      "patterns": [{ "include": "#escape" }]
+    "char": {
+      "patterns": [
+        {
+          "name": "constant.character.pyking",
+          "match": "'(?:\\\\[ntr0\\\\'\"]|[^'\\\\])'"
+        },
+        {
+          "name": "invalid.illegal.char.pyking",
+          "match": "'[^']*'?"
+        }
+      ]
     },
     "escape": {
       "patterns": [
         {
           "name": "constant.character.escape.pyking",
-          "match": "\\\\[ntr\\\\'\"]"
+          "match": "\\\\[ntr0\\\\'\"]"
         },
         {
           "name": "invalid.illegal.escape.pyking",
@@ -57,7 +63,7 @@
     },
     "type": {
       "name": "support.type.pyking",
-      "match": "\\b(Int|Float|String|Bool)\\b"
+      "match": "\\b(Int|Float|String|Char|Bool)\\b"
     },
     "constant": {
       "name": "constant.language.pyking",
@@ -65,7 +71,7 @@
     },
     "builtin": {
       "name": "support.function.builtin.pyking",
-      "match": "(?<![.:])\\b(print|debug|range|string|len|int|float|bool)\\b(?=\\s*\\()"
+      "match": "(?<![.:])\\b(print|debug|range|string|len|int|float|bool|char)\\b(?=\\s*\\()"
     },
     "number": {
       "name": "constant.numeric.pyking",

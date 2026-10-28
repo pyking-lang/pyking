@@ -22,8 +22,8 @@ def flatten(xss):
             return []
         case [first, ..rest]:
             return first + flatten(rest)
-print(head([1, 2], 0), head(['a'], 'z'), head([], true))
-print(swap_pair((1, 'one')))
-print(pairs_of([1, 2], ['a']))
+print(head([1, 2], 0), head(["a"], "z"), head([], true))
+print(swap_pair((1, "one")))
+print(pairs_of([1, 2], ["a"]))
 print(flatten([[1, 2], [], [3]]))
-print(flatten([['a'], ['b', 'c']]))
+print(flatten([["a"], ["b", "c"]]))

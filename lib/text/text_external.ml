@@ -48,11 +48,6 @@ let host_code s k =
   let d = Stdlib.String.get_utf_8_uchar s (bytes s 0 k) in
   Stdlib.Uchar.to_int (Stdlib.Uchar.utf_decode_uchar d)
 
-let host_from_code n =
-  let out = Stdlib.Buffer.create 4 in
-  Stdlib.Buffer.add_utf_8_uchar out (Stdlib.Uchar.of_int n);
-  Stdlib.Buffer.contents out
-
 let host_replace s old by =
   let out = Stdlib.Buffer.create (Stdlib.String.length s) in
   let m = Stdlib.String.length old in

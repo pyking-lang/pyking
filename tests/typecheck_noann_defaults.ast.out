@@ -5,16 +5,16 @@ print(step(3, 10))
 print(step(3, 4))
 def repeat(text:String, times:Int) -> String:
     if times <= 0:
-        return ''
+        return ""
     return text + repeat(text, times - 1)
-print(repeat('ab', 3))
-print(repeat('ab', 1))
+print(repeat("ab", 3))
+print(repeat("ab", 1))
 def describe(flag:Bool, name:a, size:b, ratio:Float) -> Float:
     if flag:
         print(name)
         print(size)
         return ratio * 2.0
     return ratio
-print(describe(true, 'pyk', 2, 0.5))
-print(describe(false, 'pyk', 2, 0.5))
-print(describe(true, 'x', 9, 1.5))
+print(describe(true, "pyk", 2, 0.5))
+print(describe(false, "pyk", 2, 0.5))
+print(describe(true, "x", 9, 1.5))

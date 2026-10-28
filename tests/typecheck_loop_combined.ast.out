@@ -2,8 +2,8 @@ def total(xs:[Int]) -> Int:
     return loop acc: Int = 0 for x in xs:
         acc + x
 def joined(words:[String], sep:String) -> String:
-    return loop text: String = '' for w in words:
-        if text == '':
+    return loop text: String = "" for w in words:
+        if text == "":
             w
         else:
             text + sep + w
@@ -21,7 +21,7 @@ def indexed(xs:[String]) -> [(Int, String)]:
         (i + 1, [(i, x)] + acc)
     return acc
 print(total([1, 2, 3, 4]), total([]))
-print(joined(['a', 'b', 'c'], '-'), joined([], '-'))
+print(joined(["a", "b", "c"], "-"), joined([], "-"))
 print(countdown(3))
 print(looked_at([1, 5, 9], 4), looked_at([1, 2], 4))
-print(indexed(['a', 'b', 'c']))
+print(indexed(["a", "b", "c"]))

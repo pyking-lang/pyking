@@ -132,7 +132,7 @@ are bound by one `all` at the top:
 ```pyking
 def hold(n):
     def wrap(other): (n, other)     # `other` generalises; `n`'s type does not
-    (wrap(1), wrap('two'))
+    (wrap(1), wrap("two"))
 ```
 
 `wrap` reads `n`, whose type belongs to `hold` — whoever calls `hold`
@@ -389,7 +389,7 @@ The rule:
 
 ```pyking
 def announce(value):
-    'got ' + string(value)     # `string` asks what it was given
+    "got " + string(value)     # `string` asks what it was given
 
 print(announce(1))           # announce : (Int) -> String
 # print(announce(true))      # error: argument 1 has type Bool, but Int

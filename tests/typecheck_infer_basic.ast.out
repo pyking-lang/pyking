@@ -1,15 +1,15 @@
 def double(n:Int) -> Int:
     n * 2
 def greet(name:String) -> String:
-    'hello, ' + name
+    "hello, " + name
 def is_big(n:Int) -> Bool:
     n > 100
 doubled: Int = double(21)
-greeting: String = greet('pyking')
+greeting: String = greet("pyking")
 big: Bool = is_big(5)
 print(doubled, greeting, big)
 def announce(n:Int) -> String:
     greet(string(double(n)))
 print(announce(4))
 announced: String = announce(1)
-print(announced + '!')
+print(announced + "!")

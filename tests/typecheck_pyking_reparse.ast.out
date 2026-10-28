@@ -45,13 +45,13 @@ def counted(xs:[a], acc:Int) -> Int:
                 return acc
             case [x, ..rest]:
                 (rest, acc + 1)
-print(counted([1, 2, 3], 0), counted(['a'], 0))
+print(counted([1, 2, 3], 0), counted(["a"], 0))
 def announce(n:Int) -> ():
     match n:
         case 0:
-            print('zero')
+            print("zero")
         case 1:
-            print('one')
+            print("one")
         case _:
             ()
 announce(0)

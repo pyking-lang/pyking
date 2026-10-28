@@ -560,6 +560,7 @@ let rec zero type_ info =
   match type_ with
   | TInt _ -> Some (e_int info 0)
   | TString _ -> Some (e_string info "")
+  | TChar _ -> Some (EChar (info, 0, 0))
   | TBool _ -> Some (e_bool info false)
   | TList _ -> Some (e_list info [])
   | TTuple (_, elements, _) ->

@@ -22,7 +22,7 @@ def m(x, i): (x, i, x)
 def keep(x, i): x
 
 print(foo(m, 7, 0))
-print(foo(m, 'hi', 0))
+print(foo(m, "hi", 0))
 print(foo(keep, true, 3))
 
 looping = foo

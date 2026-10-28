@@ -8,8 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A `Char` type: `'a'` is one character -- one Unicode code point --
+  with the escapes a String has, `'\0'` among them. `s[i]` is a
+  String's character at position `i`, `for c in s` and comprehensions
+  walk a String's characters, `==` and `<` compare Chars by code point,
+  and `case 'a':` matches one. `string`, `int`, `float` and `bool` take
+  a Char, and the new builtin `char(x)` makes one from an Int code
+  point, a String or a Char. On every target, the REPL, the debugger,
+  the language server and the editor grammars.
+- `text.chars(s)` and `text.from_chars(cs)`.
+
+### Removed
+
+- The tutorial notebook, and with it `make notebook`; packages no
+  longer ship it.
+
 ### Changed
 
+- **A String is written in double quotes only.** `'hello'` is now an
+  error saying so; every program, notebook and document in the
+  repository was rewritten.
+- A String inside a list, a tuple or a datatype's value prints in double
+  quotes (`["hi"]`), and a Char there in single quotes (`['a']`).
+- `len` of a String counts characters (code points) on every target;
+  JavaScript, Java, OCaml, C and the interpreter counted UTF-8 bytes.
+- `text.char_at` answers a Char (`'\0'` outside the string),
+  `text.code` takes a Char, and `text.from_code` answers one.
 - In a notebook cell on a Mac, Control+Enter runs the cell and stays in
   it, as Command+Enter does, the same as in the playground.
 - A notebook's Submit first runs the answer in its cell, as Run does,
@@ -25,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A string pattern with a non-ASCII prefix or suffix (`case "å" + rest:`)
+  cut the wrong number of characters off on Python, JavaScript and Java.
 - A notebook answer or solution that calls `tinyweb.sdelay` no longer
   times out when it is checked: the check run does not wait, and its
   tinyweb log says where each `sdelay` would have ended.

@@ -11,6 +11,6 @@
 
 def size(n:Int) -> Int:
     if n > 10:
-        return 'big'
+        return "big"
     else:
         return n

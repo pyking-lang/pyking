@@ -16,11 +16,11 @@ def constant(x:a, y:b) -> a:
     x
 def increment(n:Int) -> Int:
     n + 1
-print(echo(1), echo('two'), echo(true))
+print(echo(1), echo("two"), echo(true))
 print(apply_twice(increment, 5))
-print(swap((1, 'one')), swap(('a', true)))
-print(size([1, 2, 3]), size(['a', 'b']), size([]))
-print(constant(1, 'ignored'), constant('kept', 2))
+print(swap((1, "one")), swap(("a", true)))
+print(size([1, 2, 3]), size(["a", "b"]), size([]))
+print(constant(1, "ignored"), constant("kept", 2))
 counting: ([a]) -> Int = size
 adding: (Int) -> Int = increment
 either: (a, b) -> a = constant

@@ -1,11 +1,11 @@
 def fact(n:Int) -> Int:
     if n <= 1 then 1 else fact(n - 1) * n
 def sign(n:Int) -> String:
-    if n < 0 then 'negative' else 'not negative'
+    if n < 0 then "negative" else "not negative"
 def grade(n:Int) -> String:
-    if n > 89 then 'a' else if n > 79 then 'b' else 'c'
+    if n > 89 then "a" else if n > 79 then "b" else "c"
 def announce(n:Int) -> String:
-    'grade ' + grade(n) + (if n > 89 then '!' else '')
+    "grade " + grade(n) + (if n > 89 then "!" else "")
 flag: Bool = 3 < 4
 picked: Int = if flag then 10 else 20
 doubled: Int = fact(if flag then 3 else 4)

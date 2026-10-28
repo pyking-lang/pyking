@@ -7,7 +7,6 @@
 #                   SUITE=tinyweb for one suite)
 #   make stest      the same suite, one test at a time
 #   make quicktest  a random sample of it (PERCENT=10, 5 by default)
-#   make notebook   open PYKING-TUTORIAL.md as a notebook in the browser
 #   make pykhelp    open the help (getting started, the language reference,
 #                   the libraries) in the browser
 #   make website    build the website into website/
@@ -18,7 +17,7 @@
 # Run `make help` for the full list. The compiler is OCaml in src/,
 # built by dune into the executable this directory calls ./pyk.
 
-.PHONY: all help pykhelp build libs test stest quicktest check-node check-python check-jsonschema playground notebook vendor \
+.PHONY: all help pykhelp build libs test stest quicktest check-node check-python check-jsonschema playground vendor \
 	website website-dev website-release \
 	packaging packaging-setup packaging-install packaging-uninstall \
 	release \
@@ -117,9 +116,7 @@ help:
 	@echo "                  SEED=n repeats a run. JOBS, TARGET, SUITE as for"
 	@echo "                  make test"
 	@echo "make playground   serve the web playground (pyk playground), then print"
-	@echo "                  a link"
-	@echo "make notebook     serve PYKING-TUTORIAL.md as a notebook (pyk notebook),"
-	@echo "                  then print a link. PORT=n picks the port for both"
+	@echo "                  a link. PORT=n picks the port"
 	@echo "make pykhelp      serve the help (pyk pykhelp) -- getting started, the"
 	@echo "                  language reference and the libraries, generated"
 	@echo "                  into share/help/ by make -- then print a link"
@@ -275,9 +272,6 @@ quicktest: check-node check-python check-jsonschema
 # libraries downloaded once, which `vendor` does and then skips.
 playground: build vendor
 	./pyk playground $(if $(PORT),--port $(PORT))
-
-notebook: build vendor
-	./pyk notebook PYKING-TUTORIAL.md $(if $(PORT),--port $(PORT))
 
 vendor:
 	@python3 tools/webrun/server.py vendor

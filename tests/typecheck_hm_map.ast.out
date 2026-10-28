@@ -3,16 +3,16 @@ def identity(x:a) -> a:
 def double(n:Int) -> Int:
     n * 2
 def show(n:Int) -> String:
-    'n=' + string(n)
+    "n=" + string(n)
 def map(f:(a) -> b, lst:[a]) -> [b]:
     match lst:
         case [x, ..xs]:
             [f(x)] + map(f, xs)
         case []:
             []
-print(identity(4), identity('hi'))
+print(identity(4), identity("hi"))
 print(map(identity, [1, 2, 3]))
 print(map(double, [1, 4, 1]))
 print(map(show, [5, 6]))
-print(map(identity, ['a', 'b']))
+print(map(identity, ["a", "b"]))
 mapping: ((a) -> b, [a]) -> [b] = map

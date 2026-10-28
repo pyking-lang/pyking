@@ -11,7 +11,7 @@ null
 [{"kind": 14, "name": "greeting", "range": {"end": {"character": 27, "line": 0}, "start": {"character": 0, "line": 0}}, "selectionRange": {"end": {"character": 8, "line": 0}, "start": {"character": 0, "line": 0}}}, {"kind": 14, "name": "count", "range": {"end": {"character": 21, "line": 1}, "start": {"character": 0, "line": 1}}, "selectionRange": {"end": {"character": 5, "line": 1}, "start": {"character": 0, "line": 1}}}, {"kind": 14, "name": "mistake", "range": {"end": {"character": 22, "line": 2}, "start": {"character": 0, "line": 2}}, "selectionRange": {"end": {"character": 7, "line": 2}, "start": {"character": 0, "line": 2}}}]
 > edit unicode.pyk 3:20-3:21 "\"!\""
 > idle
-diagnostics $CASES/unicode.pyk v2 [{"code": "Parsing error", "message": "each statement must start on a new line. In this case, 'mistake = greeting' and ''!'' are seen as two different statements", "range": {"end": {"character": 22, "line": 2}, "start": {"character": 19, "line": 2}}, "severity": 1, "source": "pyking"}]
+diagnostics $CASES/unicode.pyk v2 [{"code": "Parsing error", "message": "each statement must start on a new line. In this case, 'mistake = greeting' and '\"!\"' are seen as two different statements", "range": {"end": {"character": 22, "line": 2}, "start": {"character": 19, "line": 2}}, "severity": 1, "source": "pyking"}]
 > edit unicode.pyk 1:10-1:11 "w"
 > hover unicode.pyk 1:3
 null

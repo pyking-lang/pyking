@@ -165,7 +165,6 @@ make            # dune build src/pyk.exe, copied here as ./pyk
 | `make stest` | the same suite, one test at a time |
 | `make quicktest` | a random sample of it: the latest version of each target family, node, web, C and Java on `PERCENT` of their cases (5 by default), the packaging, tinyweb and lsp suites on `PERCENT` of their checks; `SEED=n` repeats a run |
 | `make playground` | serve the [web playground](tools/playground/) (`pyk playground`), then print a link to open |
-| `make notebook` | serve `PYKING-TUTORIAL.md` as a [notebook](tools/notebook/) (`pyk notebook`), then print a link |
 | `make pykhelp` | serve the [help](tools/help/) (`pyk pykhelp`): getting started, the language reference and the libraries, with runnable examples |
 | `make vendor` | download Ace, KaTeX and Monaco into `tools/webrun/vendor/`, once; the two above run it first |
 | `make website` | build the [website](tools/site/) into `website/`, from `sitesrc/` and `lib/` (`make website-dev` serves it with Astro's dev server) |

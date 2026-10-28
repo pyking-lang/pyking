@@ -12,6 +12,6 @@
 flag = 1 < 2
 
 if flag:
-    inner = 'only in here'
+    inner = "only in here"
 
 echo = inner

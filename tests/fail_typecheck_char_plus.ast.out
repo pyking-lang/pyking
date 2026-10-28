@@ -1,0 +1,4 @@
+'tests/fail_typecheck_char_plus.pyk' 8:6-8:20 Type error: `+` cannot
+  be applied to String and Char; it accepts Int + Int or Float + Float
+  or String + String or two lists of one type. `+` joins two Strings,
+  and a Char is not one: write string(c)

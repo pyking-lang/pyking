@@ -18,9 +18,9 @@ def pair_up(n, word):
 
 def both_ways(n):
     first = identity(n)
-    second = identity('fixed')
+    second = identity("fixed")
     (first, second)
 
-print(pair_up(1, 'one'))
+print(pair_up(1, "one"))
 print(both_ways(9))
-print(both_ways('nine'))
+print(both_ways("nine"))

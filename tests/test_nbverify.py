@@ -433,7 +433,7 @@ def check_command_line(compiler):
         ran = subprocess.run([sys.executable, str(NBVERIFY), "run", str(program), "--", "a", "b c"],
                              input="hi\n", capture_output=True, text=True, env=env, timeout=TIMEOUT)
         trailer = ran.stderr.split("--- nbverify run ---\n")
-        checks.check(ran.returncode == 3 and ran.stdout == "hi ['a', 'b c']\n" and len(trailer) == 2
+        checks.check(ran.returncode == 3 and ran.stdout == 'hi ["a", "b c"]\n' and len(trailer) == 2
                      and trailer[0] == "to stderr\n" and json.loads(trailer[1])["status"] == "ok",
                      "run passes stdin, stdout and the status through, and adds its trailer",
                      repr((ran.returncode, ran.stdout, ran.stderr)))

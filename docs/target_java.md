@@ -109,6 +109,7 @@ java8 also spells every local's type, where java17 and java21 write
 |---|---|
 | `Int`, `Float`, `Bool` | `int`, `double`, `boolean`; `Integer`, `Double`, `Boolean` as a type argument |
 | `String` | `String` |
+| `Char` | `PykRuntime.PykChar`, a final class holding the code point as an `int` |
 | `()` | `Void`, whose one value is `null`; a function answering it is `void` |
 | `[T]` | `java.util.List<T>` |
 | `(A, B)` | `PykRuntime.T2<A, B>`, up to `T8` and beyond as a program needs |
@@ -238,9 +239,34 @@ cannot complete, and ends a method that can with a `throw`.
 Int or Bool its `String.valueOf`, a Float `PykRuntime.floatStr` -- the
 shortest text that reads back as the same double, in Pyking's own
 spelling -- and anything else `PykRuntime.str`, which walks the value at
-run time: a boxed `Double` is a Float, a `List` a list, a `Tuple` a
-tuple, a `Data` a datatype. A Java value carries its class, so the walk
-needs nothing from the compiler.
+run time: a boxed `Double` is a Float, a `PykChar` a Char, a `List` a
+list, a `Tuple` a tuple, a `Data` a datatype. A Java value carries its
+class, so the walk needs nothing from the compiler. A Char at top level
+is its character (`PykChar.toString`); inside another value a String is
+written in double quotes and a Char in single quotes, escaped as
+`Builtin.quote_string` and `Builtin.quote_char` say.
+
+## Chars and Strings
+
+A Char is `PykRuntime.PykChar`, a class of its own rather than an `int`
+so that `PykRuntime.str` can tell it from an Int when it walks a list.
+It holds the code point in `code`, and its `equals`, `hashCode` and
+`compareTo` are the code point's, so `==` on two Chars is
+`java.util.Objects.equals` like any other object, and `<`, `<=`, `>`,
+`>=` compare `a.code` with `b.code`. A literal `'a'` and a pattern
+`case 'a':` are `PykRuntime.chr(97)`.
+
+A Java String is UTF-16, but Pyking counts a String in code points:
+`len(s)` is `PykRuntime.len`, `s.codePointCount(0, s.length())`;
+`s[i]` is `PykRuntime.charAt`, the code point at
+`s.offsetByCodePoints(0, i)`, throwing `IndexOutOfBoundsException` out
+of range as a list's `get` does; and `for c in s`, `loop ... for c in s`
+and `[e for c in s]` walk `PykRuntime.chars(s)`, the String's Chars as a
+list. `int(c)` is `c.code`, `float(c)` `(double) c.code`, `bool(c)`
+`c.code != 0`, and `char(x)` is `PykRuntime.charOfInt` (`'\0'` for an
+Int that is no code point) or `PykRuntime.charOfString` (`'\0'` for
+`""`). No external module takes or answers a Char today; one that did
+would see a `PykRuntime.PykChar`.
 
 ## Naming the class
 

@@ -25,7 +25,7 @@ print(flag)
 
 # Strings: concatenation, escapes, and the quote forms.
 greeting = "hello"
-name = 'pyking'
+name = "pyking"
 
 print(greeting + ", " + name + "!")
 print("tab:\tpipe|", "newline next")

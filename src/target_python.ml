@@ -176,6 +176,9 @@ let print_escape c =
   | '\n' -> "\\n"
   | '\t' -> "\\t"
   | '\r' -> "\\r"
+  (* Python source may not hold a raw NUL, which a String or a Char
+     literal (`'\0'`) can. *)
+  | '\000' -> "\\x00"
   | c -> String.make 1 c
 
 (** s as a single-quoted Python string literal, escapes applied.
@@ -597,10 +600,49 @@ let mod_helper = "__pyk_mod"
 let truncate_helper = "__pyk_trunc"
 let float_parse_helper = "__pyk_float_of"
 
+(* A Char is a one-character Python str of its own class, so that the
+   print formatter, which walks a value at run time, can tell it from a
+   String and quote it as a Char (docs/target_python.md, "Characters").
+   Every module that has a Char in it defines the class; the formatter
+   asks only whether a str is a subclass, so a Char built in one module
+   prints right in another. *)
+let char_class = "__PykChar"
+let char_code_helper = "__pyk_code"
+let chars_helper = "__pyk_chars"
+let char_of_int_helper = "__pyk_char_of_int"
+let char_of_string_helper = "__pyk_char_of_str"
+
 (** The text of one conversion helper. string -> string *)
 let conversion_def name =
   String.concat "\n"
-    (if name = mod_helper then
+    (if name = char_class then
+       [
+         Printf.sprintf "class %s(str):" name;
+         "    # A Char: one code point, told from a String when printed.";
+         "    __slots__ = ()";
+       ]
+     else if name = char_code_helper then
+       (* Bound before any of the program runs, so a Pyking `ord` of
+          the program's own cannot stand in for Python's. *)
+       [ Printf.sprintf "%s = ord" name ]
+     else if name = chars_helper then
+       [
+         Printf.sprintf "def %s(s):" name;
+         Printf.sprintf "    return (%s(c) for c in s)" char_class;
+       ]
+     else if name = char_of_int_helper then
+       [
+         Printf.sprintf "def %s(n, chr=chr):" name;
+         "    if 0 <= n <= 0x10FFFF and not 0xD800 <= n <= 0xDFFF:";
+         Printf.sprintf "        return %s(chr(n))" char_class;
+         Printf.sprintf "    return %s('\\0')" char_class;
+       ]
+     else if name = char_of_string_helper then
+       [
+         Printf.sprintf "def %s(s):" name;
+         Printf.sprintf "    return %s(s[0] if s else '\\0')" char_class;
+       ]
+     else if name = mod_helper then
        [
          Printf.sprintf "def %s(a, b):" name;
          "    # Pyking's remainder takes the dividend's sign, as its `/`";
@@ -1369,10 +1411,16 @@ let scope_declarations names scope info =
 
 (** One character of a quoted string, escaped as Pyking escapes it: a
     chain of conditionals rather than a table, since the helper is built
-    as Python's own AST. info -> pyexpr -> pyexpr *)
-let escaped info char =
+    as Python's own AST. quote is the quote mark around it, which is
+    escaped too: a double one for a String inside a value, a single one
+    for a Char (builtin.ml, quote_string and quote_char).
+    info -> string -> pyexpr -> pyexpr *)
+let escaped info quote char =
   let escapes =
-    [ ("\\", "\\\\"); ("'", "\\'"); ("\n", "\\n"); ("\t", "\\t"); ("\r", "\\r") ]
+    [
+      ("\\", "\\\\"); (quote, "\\" ^ quote); ("\n", "\\n"); ("\t", "\\t");
+      ("\r", "\\r"); ("\000", "\\0");
+    ]
   in
   List.fold_left
     (fun result (literal, escape) ->
@@ -1544,26 +1592,37 @@ let build_format_helper info name floats =
     @ [
       (* A string prints bare on its own and quoted inside something --
          quoted the way Pyking quotes, which is not always the way
-         Python's own repr does. *)
+         Python's own repr does. A Char is a str of a class of its own
+         (`char_class`), single-quoted where a String is double-quoted. *)
       PyIf
         ( info,
           isa v "str",
-          [
-            PyIf (info, top, [ PyReturn (info, v) ], None);
-            PyAssign (info, PyTargetName (info, "out"), text "'");
-            PyFor
-              ( info,
-                "c",
-                v,
-                [
-                  PyAssign
-                    ( info,
-                      PyTargetName (info, "out"),
-                      PyAdd (info, out, escaped info (PyVar (info, "c"))) );
-                ],
-                None );
-            PyReturn (info, PyAdd (info, out, text "'"));
-          ],
+          (let quoted quote =
+             [
+               PyAssign (info, PyTargetName (info, "out"), text quote);
+               PyFor
+                 ( info,
+                   "c",
+                   v,
+                   [
+                     PyAssign
+                       ( info,
+                         PyTargetName (info, "out"),
+                         PyAdd (info, out, escaped info quote (PyVar (info, "c"))) );
+                   ],
+                   None );
+               PyReturn (info, PyAdd (info, out, text quote));
+             ]
+           in
+           [
+             PyIf (info, top, [ PyReturn (info, v) ], None);
+             PyIf
+               ( info,
+                 PyBinOp (info, "is not", 1, 2, 2, call "type" [ v ], var "str"),
+                 quoted "'",
+                 None );
+           ]
+           @ quoted "\""),
           None );
       PyIf
         ( info,
@@ -1692,7 +1751,8 @@ let rec bool_kind type_ =
      no elements, so no Bool is ever formatted through it. A *rigid* one
      is a type the caller chose and could be anything, which falls
      through to "unknown". *)
-  | Some (TInt _) | Some (TString _) | Some (TVar (_, _, _, false)) -> "not-bool"
+  | Some (TInt _) | Some (TString _) | Some (TChar _) | Some (TVar (_, _, _, false)) ->
+      "not-bool"
   | Some (TList (_, element, _)) ->
       if bool_kind (Some element) = "not-bool" then "not-bool" else "unknown"
   | Some (TTuple (_, elements, _)) ->
@@ -1702,15 +1762,15 @@ let rec bool_kind type_ =
       else "unknown"
   | _ -> "unknown"
 
-(** Whether a String sits anywhere *inside* a list or tuple of this
-    type. Such a string is quoted when it is printed, and Python's own
-    `repr` picks its quotes for itself -- writing `["it's"]` where every
-    other target writes `['it\\'s']` -- so the helper has to spell it
-    instead. A String on its own is not one of these: it prints bare,
-    which Python already agrees with. typ option -> bool -> bool *)
+(** Whether a String or a Char sits anywhere *inside* a list or tuple
+    of this type. Such a string is quoted when it is printed, and
+    Python's own `repr` picks its quotes for itself, and a Char's repr
+    is a String's, so the helper has to spell it instead. A String or a Char on its own is not one of these: it
+    prints bare, which Python already agrees with.
+    typ option -> bool -> bool *)
 let rec nests_a_string type_ inside =
   match type_ with
-  | Some (TString _) -> inside
+  | Some (TString _) | Some (TChar _) -> inside
   | Some (TList (_, element, _)) -> nests_a_string (Some element) true
   | Some (TTuple (_, elements, _)) ->
       List.exists (fun e -> nests_a_string (Some e) true) elements
@@ -1721,7 +1781,7 @@ let rec nests_a_string type_ inside =
     info -> string -> string -> string -> pyexpr *)
 let slice_middle info held prefix suffix =
   let start =
-    if prefix = "" then None else Some (PyInt (info, String.length prefix))
+    if prefix = "" then None else Some (PyInt (info, Builtin.utf8_length prefix))
   in
   let stop =
     if suffix = "" then None
@@ -1730,7 +1790,7 @@ let slice_middle info held prefix suffix =
         (PySub
            ( info,
              PyCall (info, PyVar (info, "len"), [ PyVar (info, held) ]),
-             PyInt (info, String.length suffix) ))
+             PyInt (info, Builtin.utf8_length suffix) ))
   in
   PySlice (info, PyVar (info, held), start, stop)
 
@@ -1801,6 +1861,9 @@ let rec translate_pattern p scope =
   match p with
   | PInt (info, v, _) -> (PyPInt (info, v), scope)
   | PString (info, s, _) -> (PyPString (info, s), scope)
+  (* A Char is a one-character str, which a literal pattern compares
+     equal to. *)
+  | PChar (info, code_point, _) -> (PyPString (info, Builtin.utf8 code_point), scope)
   | PBool (info, v, _) -> (PyPBool (info, v), scope)
   | PWildcard (info, _) -> (PyPWildcard info, scope)
   | PCapture (info, name, _) ->
@@ -1852,7 +1915,7 @@ let rec translate_pattern p scope =
             PyGreatThanEq
               ( info,
                 PyCall (info, PyVar (info, "len"), [ PyVar (info, held) ]),
-                PyInt (info, String.length prefix + String.length suffix) );
+                PyInt (info, Builtin.utf8_length prefix + Builtin.utf8_length suffix) );
           ]
         else []
       in
@@ -2239,6 +2302,36 @@ let turn_groups stmts scope =
 
 (* --- the translation proper --- *)
 
+(** gen with the named prelude helper recorded, and the Char class
+    ahead of it where the helper builds a Char. string -> gen -> gen *)
+let add_conversion name gen =
+  let add name gen =
+    if List.mem name gen.conversions then gen
+    else { gen with conversions = gen.conversions @ [ name ] }
+  in
+  let gen =
+    if List.mem name [ chars_helper; char_of_int_helper; char_of_string_helper ]
+    then add char_class gen
+    else gen
+  in
+  add name gen
+
+(** Whether the checker gave this expression the type String -- what
+    makes a `for` walk its Chars. expr -> gen -> bool *)
+let is_string_expr e gen =
+  match IntMap.find_opt (expr_sym e) gen.types with
+  | Some (TString _) -> true
+  | _ -> false
+
+(** A sequence a `for` walks, as Python iterates it: a String's
+    characters are made Chars on the way. expr -> pyexpr -> gen ->
+    (pyexpr, gen) *)
+let walked sequence py_sequence gen =
+  if is_string_expr sequence gen then
+    ( PyCall (expr_info sequence, PyVar (expr_info sequence, chars_helper), [ py_sequence ]),
+      add_conversion chars_helper gen )
+  else (py_sequence, gen)
+
 (** Translates one expression. expr -> scope -> gen -> (pyexpr, gen) *)
 let rec translate_expr e scope gen =
   let binary build info l r =
@@ -2251,6 +2344,9 @@ let rec translate_expr e scope gen =
   | EFloat (info, v, _) -> (PyFloat (info, v), gen)
   | EString (info, s, _) -> (PyString (info, s), gen)
   | EBool (info, v, _) -> (PyBool (info, v), gen)
+  | EChar (info, code_point, _) ->
+      ( PyCall (info, PyVar (info, char_class), [ PyString (info, Builtin.utf8 code_point) ]),
+        add_conversion char_class gen )
   | EVar (info, name, _) ->
       (* A name this module *declared* rather than defined is the host's,
          and lives in the implementation beside this file -- the two
@@ -2374,8 +2470,24 @@ let rec translate_expr e scope gen =
         | UNot _ -> PyUnOp (info, "not ", 0, 1, py_operand)
         | UBitNot _ -> PyUnOp (info, "~", 4, 5, py_operand)),
         gen )
-  | EIndex (info, l, index, _) ->
-      binary (fun i a b -> PyIndex (i, a, b)) info l index
+  | EIndex (info, l, index, sym) -> (
+      (* A String's s[i] is its i-th code point, which a Python str
+         indexes too; it is made a Char. *)
+      let indexed, gen = binary (fun i a b -> PyIndex (i, a, b)) info l index in
+      match IntMap.find_opt sym gen.types with
+      | Some (TChar _) ->
+          (PyCall (info, PyVar (info, char_class), [ indexed ]), add_conversion char_class gen)
+      | _ -> (indexed, gen))
+  | ECall (info, EVar (_, "char", _), [ (_, argument) ], _)
+    when not (is_bound "char" scope) -> (
+      let translated, gen = translate_expr argument scope gen in
+      let helper name =
+        (PyCall (info, PyVar (info, name), [ translated ]), add_conversion name gen)
+      in
+      match IntMap.find_opt (expr_sym argument) gen.types with
+      | Some (TChar _) -> (translated, gen)
+      | Some (TString _) -> helper char_of_string_helper
+      | _ -> helper char_of_int_helper)
   | ECall (info, EVar (_, name, _), args, _)
     when Builtin.crosses_host name && not (is_bound name scope) ->
       (* Python's own `print` answers None, and Pyking's answers unit --
@@ -2550,6 +2662,17 @@ and conversion info name argument scope gen =
       else { gen with conversions = gen.conversions @ [ helper_name ] } )
   in
   match (name, IntMap.find_opt (expr_sym argument) gen.types) with
+  | "int", Some (TChar _) ->
+      (PyCall (info, PyVar (info, char_code_helper), [ translated ]),
+       add_conversion char_code_helper gen)
+  | "float", Some (TChar _) ->
+      ( PyCall
+          ( info,
+            PyVar (info, "float"),
+            [ PyCall (info, PyVar (info, char_code_helper), [ translated ]) ] ),
+        add_conversion char_code_helper gen )
+  | _, Some (TChar _) ->
+      (PyBinOp (info, "!=", 1, 2, 2, translated, PyString (info, "\000")), gen)
   | "int", Some (TString _) -> helper int_helper gen
   | "int", Some (TFloat _) -> helper truncate_helper gen
   | "int", Some (TInt _) | "float", Some (TFloat _) | "bool", Some (TBool _) ->
@@ -2598,6 +2721,7 @@ and translate_comp_for clause scope gen =
   match clause with
   | CompFor (info, pattern, sequence, _) ->
       let py_sequence, gen = translate_expr sequence scope gen in
+      let py_sequence, gen = walked sequence py_sequence gen in
       if is_irrefutable pattern then
         let target, scope = pattern_to_target pattern scope in
         ([ PyCompFor (info, target, py_sequence) ], scope, gen)
@@ -3267,6 +3391,7 @@ and translate_loop s scope gen =
               if is_builtin_range sequence scope then lazy_range sequence scope gen
               else translate_expr sequence scope gen
             in
+            let py_sequence, gen = walked sequence py_sequence gen in
             let py_name, body_scope = bind name body_scope in
             (Some py_name, Some py_sequence, body_scope, gen)
         | _ -> (None, None, body_scope, gen)

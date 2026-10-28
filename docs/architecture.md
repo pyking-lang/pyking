@@ -153,7 +153,7 @@ repl`) rather than a `--target`.
 
 ## The builtins and the host boundary
 
-`print`, `debug`, `range`, `string`, `len`, `int`, `float` and `bool`
+`print`, `debug`, `range`, `string`, `len`, `int`, `float`, `bool` and `char`
 are in scope in every program and are
 bound by nothing. `src/builtin.ml` is the one table that says so: each
 one's name, how many arguments it takes, whether calling it can be

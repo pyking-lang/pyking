@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Runs the notebook's own test cases: that the Markdown renderer renders
-what it should, that every cell of PYKING-TUTORIAL.md runs through the
-compiler worker the page uses, and that `pyk notebook`, `pyk
+what it should, that every cell of tests/notebook/features.md runs
+through the compiler worker the page uses, and that `pyk notebook`, `pyk
 playground` and `pyk serve` serve what their pages load and refuse what
 they should.
 
@@ -19,7 +19,7 @@ Five parts:
             tests/notebook/drawing.md -- a task submitted with git,
             a solution saving a picture, stdin split into tests -- and of
             the headers it refuses.
-  cells     every runnable cell of PYKING-TUTORIAL.md and features.md,
+  cells     every runnable cell of features.md,
             run through tools/webrun/assets/pyking-worker.js: an `error`
             cell must be refused, every other cell must run.
   server    `pyk notebook`, `pyk playground`, `pyk pykhelp` and `pyk serve` on a free
@@ -77,7 +77,6 @@ import suite  # noqa: E402  (after sys.path, which is what finds it)
 REPO = HERE.parent
 FIXTURES = HERE / "notebook"
 FEATURES = FIXTURES / "features.md"
-TUTORIAL = REPO / "PYKING-TUTORIAL.md"
 BUNDLE = REPO / "share" / "pyking.js"
 MARKDOWN = REPO / "tools" / "notebook" / "assets" / "markdown.js"
 TASKS = REPO / "tools" / "notebook" / "assets" / "tasks.js"
@@ -476,7 +475,7 @@ const ran = await ask({ type: "run", source: program, name: "reads.pyk",
 check("it runs to sys.exit(3)", ran.answer?.value?.ok && ran.answer.value.exit === 3,
       JSON.stringify(ran.answer));
 check("it reads stdin and its arguments",
-      ran.printed === "who? hello Ada ['a', 'b c'] true\nthe rest\n\n",
+      ran.printed === 'who? hello Ada ["a", "b c"] true\nthe rest\n\n',
       JSON.stringify(ran.printed));
 check("what it read is echoed", ran.read === "Ada\n", JSON.stringify(ran.read));
 check("its debug line is marked apart", ran.debugged === "read Ada\n",
@@ -537,7 +536,6 @@ def run_driver(update):
         "update": update,
         "cases": CASES,
         "documents": [
-            {"name": "PYKING-TUTORIAL.md", "path": str(TUTORIAL)},
             {"name": "features.md", "path": str(FEATURES),
              "outputs": {"0": "Hello world 2026\n", "2": "49\n"}},
         ],
@@ -939,7 +937,7 @@ def parse_args(argv):
 def main(argv):
     """Runs the checks and reports them. [String] -> Int"""
     compiler, update = parse_args(argv)
-    missing = [p for p in (BUNDLE, TUTORIAL, FEATURES) if not p.exists()]
+    missing = [p for p in (BUNDLE, FEATURES) if not p.exists()]
     if missing:
         for path in missing:
             print(f"notebook: FAILED -- {path} is missing")

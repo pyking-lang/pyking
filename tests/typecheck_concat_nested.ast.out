@@ -1,33 +1,33 @@
 def inner(xss:[[Int]]) -> String:
     answer: String = match xss:
         case [[a, ..more], ..rest]:
-            'first row starts ' + string(a)
+            "first row starts " + string(a)
         case []:
-            'no rows'
+            "no rows"
         case _:
-            'other'
+            "other"
     return answer
 def tagged(p:(String, [Int])) -> String:
     answer: String = match p:
-        case ('id:' ++ name, [n, ..]):
-            name + '=' + string(n)
-        case ('id:' ++ name, []):
-            name + '=none'
+        case ("id:" + name, [n, ..]):
+            name + "=" + string(n)
+        case ("id:" + name, []):
+            name + "=none"
         case (other, _):
-            '?' + other
+            "?" + other
     return answer
 def both_ends(s:String) -> String:
     answer: String = match s:
-        case '(' ++ body ++ ')':
-            'paren ' + body
-        case '[' ++ body ++ ']':
-            'square ' + body
+        case "(" + body + ")":
+            "paren " + body
+        case "[" + body + "]":
+            "square " + body
         case _:
-            'bare ' + s
+            "bare " + s
     return answer
 def peel(s:String) -> String:
     answer: String = match s:
-        case 'ab' ++ rest:
+        case "ab" + rest:
             peel(rest)
         case _:
             s
@@ -39,11 +39,11 @@ def depth(xs:[Int]) -> Int:
         case _:
             return 0
 rows: [[Int]] = [[1, 2], [], [3, 4, 5]]
-words: [String] = ['id:one', 'plain', 'id:two']
+words: [String] = ["id:one", "plain", "id:two"]
 print(inner(rows), inner([]), inner([[]]))
-print(tagged(('id:x', [7])), tagged(('id:y', [])), tagged(('nope', [1])))
-print(both_ends('(hi)'), both_ends('[hi]'), both_ends('hi'))
-print(peel('ababc'), peel('xyz'), peel('abab'))
+print(tagged(("id:x", [7])), tagged(("id:y", [])), tagged(("nope", [1])))
+print(both_ends("(hi)"), both_ends("[hi]"), both_ends("hi"))
+print(peel("ababc"), peel("xyz"), peel("abab"))
 print(depth([1, 2, 3, 4, 5]))
 print([string(a) for [a, ..] in rows])
-print([n for 'id:' ++ n in words])
+print([n for "id:" + n in words])

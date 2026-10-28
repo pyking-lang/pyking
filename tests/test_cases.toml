@@ -120,6 +120,37 @@ file = "fail_typecheck_infer_mixed.pyk"
 file = "fail_typecheck_int_concat.pyk"
 
 [[cases]]
+file = "match_string_unicode.pyk"
+
+[[cases]]
+file = "char_basic.pyk"
+
+[[cases]]
+file = "char_lists.pyk"
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "fail_typecheck_char_long.pyk"
+
+[[cases]]
+file = "fail_typecheck_char_empty.pyk"
+
+[[cases]]
+file = "fail_typecheck_char_plus.pyk"
+
+[[cases]]
+file = "fail_typecheck_char_index.pyk"
+
+[[cases]]
+file = "fail_typecheck_char_compare.pyk"
+
+[[cases]]
+file = "fail_typecheck_char_match.pyk"
+
+[[cases]]
+file = "fail_typecheck_char_concat_list.pyk"
+
+[[cases]]
 file = "fail_typecheck_int_string1.pyk"
 
 [[cases]]
@@ -2059,9 +2090,6 @@ file = "fail_typecheck_if_int.pyk"
 
 [[cases]]
 file = "fail_typecheck_index_bracket_missing.pyk"
-
-[[cases]]
-file = "fail_typecheck_index_string.pyk"
 
 [[cases]]
 file = "fail_typecheck_index_type.pyk"

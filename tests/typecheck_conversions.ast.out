@@ -2,6 +2,6 @@ def parsed(text:String) -> Int:
     return int(text)
 def flag(n:Int) -> Bool:
     return bool(n)
-total: Int = parsed('40') + int(2.9)
-ratio: Float = float(total) / float('4')
+total: Int = parsed("40") + int(2.9)
+ratio: Float = float(total) / float("4")
 print(total, ratio, flag(1), string(ratio))

@@ -28,8 +28,8 @@ def start(a:String, b:Int) -> String:
         if b == 0:
             return finish(a)
         else:
-            (a + '*', b - 1)
+            (a + "*", b - 1)
 def finish(a:String) -> String:
-    a + '!'
-print(start('', 3))
-print(finish('x'))
+    a + "!"
+print(start("", 3))
+print(finish("x"))

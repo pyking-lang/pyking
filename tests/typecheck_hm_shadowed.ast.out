@@ -7,13 +7,13 @@ def head(lst:[a], fallback:a) -> a:
         case []:
             fallback
 print(singleton(1))
-print(singleton('a'))
+print(singleton("a"))
 print(singleton(true))
 print(singleton(singleton(2)))
 print(head([1, 2], 0))
 print(head([], 0))
-print(head(['a'], 'z'))
+print(head(["a"], "z"))
 print(head([], true))
-print(head(singleton((1, 'x')), (0, 'y')))
+print(head(singleton((1, "x")), (0, "y")))
 one: (a) -> [a] = singleton
 first: ([a], a) -> a = head

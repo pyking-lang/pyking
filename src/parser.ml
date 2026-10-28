@@ -111,6 +111,7 @@ and parse_atom eof tokens =
   | TokInt (i, v) :: rest -> parse_call_tail eof (EInt (i, v, 0)) rest
   | TokFloat (i, v) :: rest -> parse_call_tail eof (EFloat (i, v, 0)) rest
   | TokString (i, s) :: rest -> parse_call_tail eof (EString (i, s, 0)) rest
+  | TokChar (i, c) :: rest -> parse_call_tail eof (EChar (i, c, 0)) rest
   | TokTrue i :: rest -> parse_call_tail eof (EBool (i, true, 0)) rest
   | TokFalse i :: rest -> parse_call_tail eof (EBool (i, false, 0)) rest
   | TokIdent _ :: TokDot _ :: _ when Option.is_some (constructor_path tokens) ->
@@ -747,6 +748,7 @@ and parse_type_atom eof tokens =
   | TokTypeInt i :: rest -> (TInt (i, 0), rest)
   | TokTypeFloat i :: rest -> (TFloat (i, 0), rest)
   | TokTypeString i :: rest -> (TString (i, 0), rest)
+  | TokTypeChar i :: rest -> (TChar (i, 0), rest)
   | TokTypeBool i :: rest -> (TBool (i, 0), rest)
   | TokIdent (i, "all") :: rest ->
       (* `all a b. T`. `all` is reserved in type position, so it is
@@ -1130,6 +1132,7 @@ and parse_pattern_atom eof tokens =
       (PInt (combine_info i int_info, -v, 0), rest)
   | TokInt (i, v) :: rest -> (PInt (i, v, 0), rest)
   | TokString (i, s) :: rest -> (PString (i, s, 0), rest)
+  | TokChar (i, c) :: rest -> (PChar (i, c, 0), rest)
   | TokTrue i :: rest -> (PBool (i, true, 0), rest)
   | TokFalse i :: rest -> (PBool (i, false, 0), rest)
   | TokIdent (i, "_") :: rest -> (PWildcard (i, 0), rest)

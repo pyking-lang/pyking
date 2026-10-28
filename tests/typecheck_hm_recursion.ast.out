@@ -17,11 +17,11 @@ def depth(lst:[a]) -> Int:
 def spell(n:Int) -> String:
     loop n: Int = n:
         if n == 0:
-            return 'zero'
+            return "zero"
         else:
             n - 1
 print(countdown(3))
 print(sum_to(4))
 print(depth([1, 2, 3]))
-print(depth(['a', 'b']))
+print(depth(["a", "b"]))
 print(spell(3))

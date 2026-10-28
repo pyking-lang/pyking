@@ -87,14 +87,19 @@ print(flags)                           print(__pyk_str(flags, True))    # [true,
 ```
 
 Booleans are not the only thing the host spells its own way. A string
-prints **bare on its own and quoted inside a list or a tuple**
-(`builtin.ml`), with `'` escaped as `\'` — and Python's own
-`repr` picks its quotes for itself, writing `["it's"]` where every other
-target writes `['it\'s']`. So a value that can hold a string *inside* a
-container goes through the helper too, whatever its booleans say
-(`nests_a_string`). A string on its own does not: it prints bare, which
-Python already agrees with, and neither does a container of `Int`s.
-`tests/printing_quotes.pyk` is the case.
+prints **bare on its own and quoted inside a list, a tuple or a
+datatype value** (`builtin.ml`, `quote_string`): in double quotes, with
+`\`, `"`, a newline, a tab, a carriage return and a NUL escaped
+(`\\`, `\"`, `\n`, `\t`, `\r`, `\0`). A `Char` prints the same way in
+single quotes, escaping `'` where a string escapes `"` (`quote_char`):
+`['a', '\'']`. Python's own `repr` picks its quotes for itself, writing
+`['say "hi"']` where every other target writes `["say \"hi\""]`, and
+cannot tell a Char from a one-character string at all. So a value that
+can hold a String or a Char *inside* a container goes through the helper
+too, whatever its booleans say (`nests_a_string`). A string or a Char on
+its own does not: it prints bare, which Python already agrees with, and
+neither does a container of `Int`s. `tests/printing_quotes.pyk` and
+`tests/char_lists.pyk` are the cases.
 
 `isinstance`, not `v is True`/`v is False`: Python's `bool` is a subclass
 of `int` and `1 == True`, but `isinstance(1, bool)` is always `False`, so
@@ -124,10 +129,15 @@ def __pyk_str(v, top):
     if isinstance(v, str):
         if top:
             return v
-        out = '\''
+        if type(v) is not str:                # a Char
+            out = '\''
+            for c in v:
+                out = out + ('\\\\' if c == '\\' else ...)
+            return out + '\''
+        out = '"'
         for c in v:
             out = out + ('\\\\' if c == '\\' else ...)
-        return out + '\''
+        return out + '"'
     if isinstance(v, list):
         ...
     if isinstance(v, tuple):
@@ -142,10 +152,54 @@ The walk is what makes a boolean print as `true` wherever it sits —
 writes `(1, true)` — which is the rule `builtin.ml` states and
 the interpreter implements. The `top` parameter carries the one thing
 that changes with depth: a string prints bare on its own and quoted
-inside a container, and the quoting is Pyking's own (single quotes,
-backslash escapes) rather than Python's `repr`, which would switch to
-double quotes for a string containing an apostrophe and so disagree with
-the other backends on `print(("it's", 1))`.
+inside a container, and the quoting is Pyking's own (double quotes for a
+String, single quotes for a Char, backslash escapes) rather than
+Python's `repr`, which would switch to single quotes for a string
+containing a double quote and so disagree with the other backends on
+`print(('say "hi"', 1))`.
+
+### Characters
+
+A `Char` is a one-character Python `str` of a class of its own, emitted
+in the prelude of every module that makes one:
+
+```python
+class __PykChar(str):
+    # A Char: one code point, told from a String when printed.
+    __slots__ = ()
+```
+
+The subclass is there for printing alone: the helper above tells a Char
+from a String by `type(v) is not str`, which is true of a Char built in
+any module, whatever that module's prelude calls its class. Everything
+else is the `str` it is: `==` and `<` compare code points, a `case 'a':`
+pattern is a literal pattern on the one-character string, and
+`string(c)` is Python's `str(c)`, which answers a plain `str`. As an
+annotation a Char is `str`.
+
+What makes a Char:
+
+```pyking                        # generated Python
+c = 'é'                          c = __PykChar('é')
+d = s[i]                         d = __PykChar(s[i])
+for c in s: ...                  for c in __pyk_chars(s): ...
+[c for c in s]                   [c for c in __pyk_chars(s)]
+char(n) / char(s)                __pyk_char_of_int(n) / __pyk_char_of_str(s)
+```
+
+A Python `str` holds code points, so `s[i]` is the `i`-th code point and
+`len(s)` counts code points with no help, as every target now does. An
+index past the end raises Python's `IndexError`; a negative one counts
+from the end, as it does for a list here. `__pyk_chars(s)` walks a
+String (a `for` whose sequence the checker typed `String`) a Char at a
+time. `char(n)` answers `'\0'` for a number that is not a Unicode
+scalar value and `char("")` answers `'\0'`; `char(c)` of a Char is `c`.
+`int(c)` is `__pyk_code(c)`, `float(c)` is `float(__pyk_code(c))`, and
+`bool(c)` is `c != '\x00'`. `__pyk_code` is Python's `ord`, bound in the
+prelude, so a program's own `def ord` cannot stand in for it.
+
+A NUL, which a String or a Char may hold, is written `\x00` in the
+generated source, which may not hold a raw one.
 
 ### A `var` written from inside a function
 
@@ -422,7 +476,8 @@ program's own definition named `print` or `debug` is an ordinary call.
 it formats a Bool and a Float as `print` does. `int`, `float` and `bool`
 go by the argument's type. Python's own `int` and `float` are used where
 they agree -- `int(b)` of a Bool, `float(n)` of an Int -- and `bool` is a
-comparison (`s == 'true'`, `n == 1`). A String goes through
+comparison (`s == 'true'`, `n == 1`, `c != '\x00'`). A Char's `int` and
+`float` are its code point (see "Characters"). A String goes through
 `__pyk_int` and `__pyk_float_of`, and `int` of a Float through
 `__pyk_trunc`, prelude helpers emitted only where used: Python's `int`
 reads `" 3"` and `"1_000"` and raises on a NaN, where Pyking answers 0.

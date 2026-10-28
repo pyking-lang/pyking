@@ -1,4 +1,4 @@
 4
-['root', 'a', 'b', 'c']
+["root", "a", "b", "c"]
 root 3
-Cons(Rose('x', Nil), Nil)
+Cons(Rose("x", Nil), Nil)

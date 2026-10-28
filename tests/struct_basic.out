@@ -1,6 +1,6 @@
 Point(7, 10) 7 10
 Point(1, 78) Point(3, 2)
-Size(4, 5, 'px') 20 px
+Size(4, 5, "px") 20 px
 Pair(1, 2) Empty
 17 pixels, 4 wide cm
 10

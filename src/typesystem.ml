@@ -98,6 +98,7 @@ and argument =
 let t_int info = TInt (info, 0)
 let t_float info = TFloat (info, 0)
 let t_string info = TString (info, 0)
+let t_char info = TChar (info, 0)
 let t_bool info = TBool (info, 0)
 let t_list info element = TList (info, element, 0)
 let t_tuple info elements = TTuple (info, elements, 0)
@@ -659,6 +660,7 @@ let rec same_type a b =
   | TInt _, TInt _
   | TFloat _, TFloat _
   | TString _, TString _
+  | TChar _, TChar _
   | TBool _, TBool _ ->
       true
   | TBuiltin (_, x, _), TBuiltin (_, y, _) ->
@@ -926,6 +928,13 @@ let demand_list actual info what store =
   let element, store = fresh_meta info store in
   (element, demand actual (t_list info element) info what store)
 
+(** What a `for` or a comprehension walks: a String's Chars, or a list's
+    elements. typ -> info -> string -> store -> (typ, store) *)
+let demand_sequence actual info what store =
+  match prune actual store with
+  | TString _ -> (TChar (info, 0), store)
+  | _ -> demand_list actual info what store
+
 (* --- what the store records --- *)
 
 (** store recording where the definition tmsym was written.
@@ -1011,7 +1020,7 @@ let record store sym type_ =
 (* --- ground types, and the tables that name them --- *)
 
 (** The ground types the operator and builtin tables name. *)
-type kind = KInt | KFloat | KString | KBool | KList | KTuple | KData
+type kind = KInt | KFloat | KString | KChar | KBool | KList | KTuple | KData
 
 (** Whether a type is of this kind, deciding nothing.
     kind -> typ -> bool *)
@@ -1020,6 +1029,7 @@ let kind_matches kind type_ =
   | KInt, TInt _
   | KFloat, TFloat _
   | KString, TString _
+  | KChar, TChar _
   | KBool, TBool _
   | KList, TList _
   | KTuple, TTuple _
@@ -1035,6 +1045,7 @@ let kind_type kind info =
   | KInt -> t_int info
   | KFloat -> t_float info
   | KString -> t_string info
+  | KChar -> t_char info
   | KBool -> t_bool info
   | KList -> t_list info (t_unknown info)
   | KTuple -> t_tuple info []
@@ -1056,10 +1067,11 @@ let arithmetic = [ (KInt, KInt); (KFloat, KFloat) ]
 (** The rows `< <= > >=` share. Both answer Bool, so an operand nothing
     has decided is left open rather than defaulted -- which is what `==`
     already does. [(kind, kind)] *)
-let ordering = [ (KInt, KBool); (KFloat, KBool) ]
+let ordering = [ (KInt, KBool); (KFloat, KBool); (KChar, KBool) ]
 
 (** The rows `==` and `!=` share. [(kind, kind)] *)
-let equality = [ (KInt, KBool); (KFloat, KBool); (KString, KBool); (KBool, KBool) ]
+let equality =
+  [ (KInt, KBool); (KFloat, KBool); (KString, KBool); (KChar, KBool); (KBool, KBool) ]
 
 (** The rows of `and` and `or`, spelled as words, and of `xor`: logic
     on Bools and bitwise on Ints. Bool comes first, so two operands nothing has
@@ -1149,6 +1161,10 @@ let alternative expr left_type right_type =
           (kind_matches KString left_type && kind_matches KInt right_type)
           || (kind_matches KInt left_type && kind_matches KString right_type)
         then ". `+` joins two Strings and converts nothing: write string(n)"
+        else if
+          (kind_matches KString left_type && kind_matches KChar right_type)
+          || (kind_matches KChar left_type && kind_matches KString right_type)
+        then ". `+` joins two Strings, and a Char is not one: write string(c)"
         else ""
     | EBinary (_, BBitAnd Symbol, _, _, _) -> on_bools "'and' (or '&&')"
     | EBinary (_, BBitOr Symbol, _, _, _) -> on_bools "'or' (or '||')"
@@ -2839,8 +2855,8 @@ and check_iteration iterate env body_env store =
   | Some (ForIn (info, name, sequence, _)) ->
       let sequence_type, store = check_expr sequence env store in
       let element, store =
-        demand_list sequence_type info
-          "a 'for' loop walks a list, but this one" store
+        demand_sequence sequence_type info
+          "a 'for' loop walks a list or a String, but this one" store
       in
       (bind body_env name element, store)
   | Some (WhileTest (info, condition, _)) ->
@@ -2894,6 +2910,7 @@ and expr_type e env store =
   | EInt (info, _, _) -> (t_int info, store)
   | EFloat (info, _, _) -> (t_float info, store)
   | EString (info, _, _) -> (t_string info, store)
+  | EChar (info, _, _) -> (t_char info, store)
   | EBool (info, _, _) -> (t_bool info, store)
   | ETuple (info, elements, _) ->
       (* A tuple of the element types, in order -- and `()`, with no
@@ -3187,21 +3204,24 @@ and expr_type e env store =
                    hint )))
   | EIndex (info, list, index, _) ->
       (* `xs[i]` reads element i of a list, so the list is `[a]` for some
-         a, the index an Int, and the element is worth an `a`. *)
+         a, the index an Int, and the element is worth an `a`. A String
+         is indexed too, and its element is a Char. *)
       let list_type, store = check_expr list env store in
-      let element, store = fresh_meta info store in
-      let store =
-        match unify (t_list info element) list_type store with
-        | Some store -> store
-        | None ->
-            raise
-              (Type_error
-                 ( expr_info list,
-                   Printf.sprintf "only a list is indexed with '[...]', and this value is %s%s"
-                     (shown list_type store)
-                     (if kind_matches KString (prune list_type store) then
-                        "; a String's character is text.char_at(s, i)"
-                      else "") ))
+      let indexed = if kind_matches KString (prune list_type store) then "a String" else "a list" in
+      let element, store =
+        match prune list_type store with
+        | TString _ -> (t_char info, store)
+        | _ -> (
+            let element, store = fresh_meta info store in
+            match unify (t_list info element) list_type store with
+            | Some store -> (element, store)
+            | None ->
+                raise
+                  (Type_error
+                     ( expr_info list,
+                       Printf.sprintf
+                         "only a list or a String is indexed with '[...]', and this value is %s"
+                         (shown list_type store) )))
       in
       let index_type, store = check_expr index env store in
       let store =
@@ -3211,7 +3231,7 @@ and expr_type e env store =
             raise
               (Type_error
                  ( expr_info index,
-                   Printf.sprintf "a list's index is an Int, and this one is %s"
+                   Printf.sprintf "%s's index is an Int, and this one is %s" indexed
                      (shown index_type store) ))
       in
       (zonk element store, store)
@@ -3581,23 +3601,29 @@ and check_builtin_call name call env store =
   | ("print" | "debug"), _ -> (unit_type info, store)
   | "string", [ value ] ->
       check_builtin_arity name info given;
-      if not (every value [ KInt; KFloat; KString; KBool; KList; KTuple; KData ])
+      if not (every value [ KInt; KFloat; KString; KChar; KBool; KList; KTuple; KData ])
       then
         raise
           (builtin_argument_error name (List.hd args) value
-             "Int, Float, String, Bool, a list, a tuple or a datatype");
+             "Int, Float, String, Char, Bool, a list, a tuple or a datatype");
       (t_string info, store)
   | ("int" | "float" | "bool"), [ value ] ->
       check_builtin_arity name info given;
-      if not (every value [ KInt; KFloat; KString; KBool ]) then
+      if not (every value [ KInt; KFloat; KString; KChar; KBool ]) then
         raise
           (builtin_argument_error name (List.hd args) value
-             "Int, Float, String or Bool");
+             "Int, Float, String, Char or Bool");
       ( (match name with
         | "int" -> t_int info
         | "float" -> t_float info
         | _ -> t_bool info),
         store )
+  | "char", [ value ] ->
+      check_builtin_arity name info given;
+      if not (every value [ KInt; KString; KChar ]) then
+        raise
+          (builtin_argument_error name (List.hd args) value "Int, String or Char");
+      (t_char info, store)
   | "len", [ value ] ->
       check_builtin_arity name info given;
       if not (every value [ KList; KString ]) then
@@ -4223,8 +4249,8 @@ and check_clauses clauses env store =
       | CompFor (info, pattern, sequence, _) ->
           let sequence_type, store = check_expr sequence env store in
           let element, store =
-            demand_list sequence_type info
-              "a comprehension walks a list, but this one" store
+            demand_sequence sequence_type info
+              "a comprehension walks a list or a String, but this one" store
           in
           check_pattern pattern element env store
       | CompIf (info, condition, _) ->
@@ -4256,6 +4282,9 @@ and check_pattern pattern type_ env store =
       (env, record store sym (zonk type_ store))
   | PString (info, _, sym) ->
       let store = pattern_shape (t_string info) type_ info store in
+      (env, record store sym (zonk type_ store))
+  | PChar (info, _, sym) ->
+      let store = pattern_shape (t_char info) type_ info store in
       (env, record store sym (zonk type_ store))
   | PBool (info, _, sym) ->
       let store = pattern_shape (t_bool info) type_ info store in

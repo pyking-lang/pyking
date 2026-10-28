@@ -12,5 +12,5 @@ loop:
     if seen == 3:
         break
     seen := seen + 1
-    'a String nobody wants'
+    "a String nobody wants"
 print(seen)

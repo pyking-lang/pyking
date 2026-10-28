@@ -32,6 +32,7 @@ type expr =
   | EInt of info * int * int
   | EFloat of info * float * int
   | EString of info * string * int
+  | EChar of info * int * int (* 'a': one code point *)
   | EBool of info * bool * int (* 'true' / 'false' *)
   | EVar of info * string * int
   | EAdd of info * expr * expr * int (* left + right *)
@@ -110,6 +111,7 @@ and typ =
   | TInt of info * int (* Int *)
   | TFloat of info * int (* Float *)
   | TString of info * int (* String *)
+  | TChar of info * int (* Char *)
   | TBool of info * int (* Bool *)
   | TList of info * typ * int (* [element] *)
   | TTuple of info * typ list * int (* (e1, e2, ...); zero elements is () *)
@@ -154,6 +156,7 @@ and implicit_param = IParam of string * typ
 and pattern =
   | PInt of info * int * int (* case 0: *)
   | PString of info * string * int (* case "foo": *)
+  | PChar of info * int * int (* case 'a': *)
   | PBool of info * bool * int (* case true: / case false: *)
   | PWildcard of info * int (* case _: *)
   | PCapture of info * string * int (* case name: *)
@@ -275,6 +278,7 @@ let expr_info e =
   | EInt (i, _, _) -> i
   | EFloat (i, _, _) -> i
   | EString (i, _, _) -> i
+  | EChar (i, _, _) -> i
   | EBool (i, _, _) -> i
   | EVar (i, _, _) -> i
   | EAdd (i, _, _, _) -> i
@@ -308,6 +312,7 @@ let expr_sym e =
   | EInt (_, _, s) -> s
   | EFloat (_, _, s) -> s
   | EString (_, _, s) -> s
+  | EChar (_, _, s) -> s
   | EBool (_, _, s) -> s
   | EVar (_, _, s) -> s
   | EAdd (_, _, _, s) -> s
@@ -341,6 +346,7 @@ let type_info t =
   | TInt (i, _) -> i
   | TFloat (i, _) -> i
   | TString (i, _) -> i
+  | TChar (i, _) -> i
   | TBool (i, _) -> i
   | TList (i, _, _) -> i
   | TTuple (i, _, _) -> i
@@ -358,6 +364,7 @@ let type_sym t =
   | TInt (_, s) -> s
   | TFloat (_, s) -> s
   | TString (_, s) -> s
+  | TChar (_, s) -> s
   | TBool (_, s) -> s
   | TList (_, _, s) -> s
   | TTuple (_, _, s) -> s
@@ -374,6 +381,7 @@ let pattern_info p =
   match p with
   | PInt (i, _, _) -> i
   | PString (i, _, _) -> i
+  | PChar (i, _, _) -> i
   | PBool (i, _, _) -> i
   | PWildcard (i, _) -> i
   | PCapture (i, _, _) -> i
@@ -389,6 +397,7 @@ let pattern_sym p =
   match p with
   | PInt (_, _, s) -> s
   | PString (_, _, s) -> s
+  | PChar (_, _, s) -> s
   | PBool (_, _, s) -> s
   | PWildcard (_, s) -> s
   | PCapture (_, _, s) -> s
@@ -501,6 +510,7 @@ let set_expr_info i e =
   | EInt (_, v, s) -> EInt (i, v, s)
   | EFloat (_, v, s) -> EFloat (i, v, s)
   | EString (_, v, s) -> EString (i, v, s)
+  | EChar (_, v, s) -> EChar (i, v, s)
   | EBool (_, v, s) -> EBool (i, v, s)
   | EVar (_, n, s) -> EVar (i, n, s)
   | EAdd (_, l, r, s) -> EAdd (i, l, r, s)
@@ -534,6 +544,7 @@ let set_type_info i t =
   | TInt (_, s) -> TInt (i, s)
   | TFloat (_, s) -> TFloat (i, s)
   | TString (_, s) -> TString (i, s)
+  | TChar (_, s) -> TChar (i, s)
   | TBool (_, s) -> TBool (i, s)
   | TList (_, e, s) -> TList (i, e, s)
   | TTuple (_, es, s) -> TTuple (i, es, s)
@@ -550,6 +561,7 @@ let set_pattern_info i p =
   match p with
   | PInt (_, v, s) -> PInt (i, v, s)
   | PString (_, v, s) -> PString (i, v, s)
+  | PChar (_, v, s) -> PChar (i, v, s)
   | PBool (_, v, s) -> PBool (i, v, s)
   | PWildcard (_, s) -> PWildcard (i, s)
   | PCapture (_, n, s) -> PCapture (i, n, s)
@@ -604,14 +616,14 @@ let with_sym cfg sym self_delimited text =
 
 let expr_self_delimited e =
   match e with
-  | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ | EList _
+  | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ | EVar _ | EQualified _ | EList _
   | ETuple _ | EListComp _ | EConstruct _ | EField _ | EIndex _ ->
       true
   | _ -> false
 
 let type_self_delimited t =
   match t with
-  | TInt _ | TFloat _ | TString _ | TBool _ | TList _ | TTuple _ | TCon _ ->
+  | TInt _ | TFloat _ | TString _ | TChar _ | TBool _ | TList _ | TTuple _ | TCon _ ->
       true
   | _ -> false
 
@@ -684,22 +696,10 @@ let binop_prec op =
   | BMod -> prec_mul
   | BPow -> prec_power
 
-let escape_print c =
-  match c with
-  | '\\' -> "\\\\"
-  | '\'' -> "\\'"
-  | '\n' -> "\\n"
-  | '\t' -> "\\t"
-  | '\r' -> "\\r"
-  | c -> String.make 1 c
-
-(* Always delimit with single quotes and escape whatever the lexer's
-   scan_string can decode back, so the output round-trips. *)
-let quote_string s =
-  let body =
-    String.concat "" (List.map escape_print (List.of_seq (String.to_seq s)))
-  in
-  "'" ^ body ^ "'"
+(* Always delimit with double quotes, as a String is written, and
+   escape whatever the lexer's scan_string can decode back, so the output
+   round-trips. *)
+let quote_string s = Builtin.quote_string s
 
 let rec pprint_type cfg t =
   (* The outermost `all` is not printed: every free variable of a
@@ -732,6 +732,7 @@ and pprint_type_body cfg t =
   | TInt _ -> "Int"
   | TFloat _ -> "Float"
   | TString _ -> "String"
+  | TChar _ -> "Char"
   | TBool _ -> "Bool"
   | TList (_, element, _) -> "[" ^ grouped cfg element ^ "]"
   | TTuple (_, elements, _) ->
@@ -841,6 +842,7 @@ and pprint_expr_body cfg e min_prec =
      double and an .ast.out stays stable (docs/builtin.md). *)
   | EFloat (_, v, _) -> Builtin.float_text v
   | EString (_, s, _) -> quote_string s
+  | EChar (_, c, _) -> Builtin.quote_char c
   | EBool (_, v, _) -> if v then "true" else "false"
   | EVar (_, name, _) -> name
   | EQualified (_, module_name, name, _) -> module_name ^ "." ^ name
@@ -993,6 +995,7 @@ and pprint_pattern_body cfg p =
   match p with
   | PInt (_, v, _) -> string_of_int v
   | PString (_, s, _) -> quote_string s
+  | PChar (_, c, _) -> Builtin.quote_char c
   | PBool (_, v, _) -> if v then "true" else "false"
   | PWildcard _ -> "_"
   | PCapture (_, name, _) -> name
@@ -1015,13 +1018,13 @@ and pprint_pattern_body cfg p =
       let parts = parts @ List.map (pprint_pattern cfg) suffix in
       "[" ^ String.concat ", " parts ^ "]"
   | PText (_, prefix, rest, suffix, _) ->
-      (* Printed in the `++` form it can only have been written in. *)
+      (* Printed in the `+` form it is written in. *)
       let parts = if prefix <> "" then [ quote_string prefix ] else [] in
       let parts =
         parts @ [ (match rest with Some name -> name | None -> "_") ]
       in
       let parts = parts @ (if suffix <> "" then [ quote_string suffix ] else []) in
-      String.concat " ++ " parts
+      String.concat " + " parts
   | PConstructor (_, module_, name, positional, named, _) ->
       let reached =
         match module_ with Some m -> m ^ "." ^ name | None -> name

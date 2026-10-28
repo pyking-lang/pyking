@@ -1,0 +1,10 @@
+'a'
+"héj"[1]
+c = '👑'
+[c, 'x']
+(string(c), int(c), char(66))
+[d for d in "ok"]
+'a' < 'b'
+'ab'
+"a" + 'b'
+:ls

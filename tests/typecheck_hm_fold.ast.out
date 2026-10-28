@@ -12,6 +12,6 @@ def join(text:String, word:String) -> String:
 def count(total:Int, word:String) -> Int:
     total + len(word)
 print(fold_left(add, 0, [1, 2, 3]))
-print(fold_left(join, '', ['a', 'b', 'c']))
-print(fold_left(count, 0, ['ab', 'cde']))
+print(fold_left(join, "", ["a", "b", "c"]))
+print(fold_left(count, 0, ["ab", "cde"]))
 folding: ((a, b) -> a, a, [b]) -> a = fold_left

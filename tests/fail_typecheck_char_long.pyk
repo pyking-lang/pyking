@@ -1,0 +1,8 @@
+# A Char literal holds one character: a word in single quotes is a
+# String written the old way, which is now refused with a pointer to
+# double quotes.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+greeting = 'hello'

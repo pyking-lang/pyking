@@ -4,7 +4,7 @@ never: Bool = false
 if flag:
     a: Int = 1
 else:
-    b: String = 'two'
+    b: String = "two"
 if same:
     c: Int = 3
 best: Int = if flag:
@@ -12,15 +12,15 @@ best: Int = if flag:
 else:
     2
 greeting: String = if never:
-    'hello'
+    "hello"
 else:
-    'goodbye'
+    "goodbye"
 grade: String = if 1 < 2:
-    'a'
+    "a"
 else if 2 < 3:
-    'b'
+    "b"
 else:
-    'c'
+    "c"
 nested: Int = if flag:
     if same:
         10
@@ -29,9 +29,9 @@ nested: Int = if flag:
 else:
     30
 if flag:
-    d: String = 'inside the branch'
+    d: String = "inside the branch"
 else:
-    d: String = 'the other branch'
+    d: String = "the other branch"
 d: Int = 0
 total: Int = if flag:
     step: Int = 6

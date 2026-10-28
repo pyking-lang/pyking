@@ -10,8 +10,8 @@ boundary".
 
 ## Four readers, one table
 
-`print`, `debug`, `range`, `string`, `len`, `int`, `float` and `bool` are
-in scope in every program and are bound by nothing. Four parts of the compiler need that
+`print`, `debug`, `range`, `string`, `len`, `int`, `float`, `bool` and
+`char` are in scope in every program and are bound by nothing. Four parts of the compiler need that
 fact, and each needs something different about it:
 
 - `typesystem.ml` puts the names in the environment before the first
@@ -127,10 +127,11 @@ Two things cannot be said in this module, and the module graph is why.
 reads it, so it can depend on nothing that comes later.
 
 **Which argument types a builtin accepts** is `typesystem.ml`'s. `string`,
-`len` and the three conversions are overloaded names in the language —
-`string` takes an Int, a Float, a String, a Bool, a list or a tuple;
-`len` takes a list or a String; `int`, `float` and `bool` each take an
-Int, a Float, a String or a Bool — and those sets are not checked by
+`len` and the four conversions are overloaded names in the language —
+`string` takes an Int, a Float, a String, a Char, a Bool, a list or a
+tuple; `len` takes a list or a String; `int`, `float` and `bool` each
+take an Int, a Float, a String, a Char or a Bool; `char` takes an Int,
+a String or a Char — and those sets are not checked by
 comparison but settled by unification against the checker's own
 metavariables. Writing them here
 would mean a `Syntax.typ` in a table that otherwise needs nothing from
@@ -191,7 +192,8 @@ rather than any host's:
   does the same way;
 - a string prints **bare** on its own, and **quoted** inside a list or a
   tuple — `print("hi")` writes `hi`, and `print(["hi"])` writes
-  `['hi']`;
+  `["hi"]`, in double quotes; a Char prints bare on its own and in
+  single quotes inside one — `print(['a'])` writes `['a']`;
 - unit prints as `()`, never a host's own word for "no value" — not
   Python's `None`, not JavaScript's `undefined`;
 - a boolean prints as `true`/`false`, Pyking's own spelling rather than

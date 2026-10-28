@@ -1,0 +1,12 @@
+# A `match` on a Char must match every Char: a few literals leave the
+# rest out, so a `_` case is needed.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def grade(c: Char) -> Int:
+    match c:
+        case 'a': 3
+        case 'b': 2
+
+print(grade('a'))

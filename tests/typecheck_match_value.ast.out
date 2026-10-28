@@ -1,24 +1,24 @@
 def flip(b:Bool) -> String:
     answer: String = match b:
         case true:
-            'yes'
+            "yes"
         case false:
-            'no'
+            "no"
     return answer
 def sign(n:Int) -> String:
     return match n:
         case 0:
-            'zero'
+            "zero"
         case other:
-            if other > 0 then 'positive' else 'negative'
+            if other > 0 then "positive" else "negative"
 def described(n:Int) -> String:
     match n:
         case 1:
-            'single'
+            "single"
         case 2:
-            'double'
+            "double"
         case _:
-            'several'
+            "several"
 print(flip(true), flip(false))
 print(sign(0), sign(5), sign(0 - 5))
 print(described(1), described(2), described(9))

@@ -1,14 +1,14 @@
 def ping(n:Int) -> String:
     if n == 0:
-        'done'
+        "done"
     else:
-        pong('x')
+        pong("x")
 def pong(mark:String) -> String:
-    if mark == '':
-        'empty'
+    if mark == "":
+        "empty"
     else:
         ping(0)
-print(ping(2), pong(''))
+print(ping(2), pong(""))
 def apply_to(n:Int) -> Int:
     if n == 0:
         0

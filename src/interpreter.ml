@@ -87,6 +87,7 @@ type value =
   | VInt of int (* always within 32 signed bits *)
   | VFloat of float (* IEEE 754 binary64 *)
   | VString of string
+  | VChar of int (* one Unicode code point *)
   | VBool of bool
   | VUnit (* `()`: what a statement, a print and a program produce *)
   | VList of value list
@@ -115,21 +116,7 @@ let boolean b = VBool b
 
 (* --- formatting --- *)
 
-let escape_char c =
-  match c with
-  | '\\' -> "\\\\"
-  | '\'' -> "\\'"
-  | '\n' -> "\\n"
-  | '\t' -> "\\t"
-  | '\r' -> "\\r"
-  | c -> String.make 1 c
-
-let quote text =
-  let buffer = Buffer.create (String.length text + 2) in
-  Buffer.add_char buffer '\'';
-  String.iter (fun c -> Buffer.add_string buffer (escape_char c)) text;
-  Buffer.add_char buffer '\'';
-  Buffer.contents buffer
+let quote text = Builtin.quote_string text
 
 (* What `display_value` walks: a value still to be written, or a literal
    piece of text already decided on. *)
@@ -169,6 +156,9 @@ let display_value value =
         | VString text ->
             Buffer.add_string out (quote text);
             go rest
+        | VChar c ->
+            Buffer.add_string out (Builtin.quote_char c);
+            go rest
         | VBool b ->
             Buffer.add_string out (if b then "true" else "false");
             go rest
@@ -207,10 +197,20 @@ let display_value value =
   go [ Item value ];
   Buffer.contents out
 
+(** What a `for` or a comprehension walks: a String as the list of its
+    Chars, anything else as itself. value -> value *)
+let sequence_items value =
+  match value with
+  | VString text -> VList (List.map (fun c -> VChar c) (Builtin.code_points text))
+  | value -> value
+
 (** Formats a value as print writes it (builtin.ml's rules): a
     string bare, everything else as display_value. value -> string *)
 let format_value value =
-  match value with VString text -> text | value -> display_value value
+  match value with
+  | VString text -> text
+  | VChar c -> Builtin.utf8 c
+  | value -> display_value value
 
 (** A value's type name, as Pyking spells it, for an error message.
     value -> string *)
@@ -219,6 +219,7 @@ let describe value =
   | VInt _ -> "Int"
   | VFloat _ -> "Float"
   | VString _ -> "String"
+  | VChar _ -> "Char"
   | VBool _ -> "Bool"
   | VUnit -> "()"
   | VList _ -> "a list"
@@ -595,7 +596,7 @@ let arith op float_op left right =
    not. *)
 let compare_with op float_op left right =
   match (left, right) with
-  | VInt a, VInt b -> Some (boolean (op a b))
+  | VInt a, VInt b | VChar a, VChar b -> Some (boolean (op a b))
   | VFloat a, VFloat b -> Some (boolean (float_op a b))
   | _ -> None
 
@@ -625,6 +626,7 @@ let equals left right =
   (* IEEE's, so two NaNs are not equal and the two zeros are. *)
   | VFloat a, VFloat b -> Some (boolean (a = b))
   | VString a, VString b -> Some (boolean (a = b))
+  | VChar a, VChar b -> Some (boolean (a = b))
   | VBool a, VBool b -> Some (boolean (a = b))
   | _ -> None
 
@@ -699,6 +701,16 @@ let element left right =
                Printf.sprintf "the index %d is outside a list of %d element%s" i n
                  (if n = 1 then "" else "s") ))
       else Some (List.nth items i)
+  | VString text, VInt i ->
+      let chars = Builtin.code_points text in
+      let n = List.length chars in
+      if i < 0 || i >= n then
+        raise
+          (Trap
+             ( divide_info,
+               Printf.sprintf "the index %d is outside a String of %d character%s" i n
+                 (if n = 1 then "" else "s") ))
+      else Some (VChar (List.nth chars i))
   | _ -> None
 
 (** An operator's spelling and what it computes, or None for an
@@ -838,18 +850,24 @@ let apply_builtin name args info host =
   | "int", [ VInt n ] -> VInt n
   | "int", [ VFloat x ] -> VInt (Builtin.truncate_float x)
   | "int", [ VBool b ] -> VInt (if b then 1 else 0)
+  | "int", [ VChar c ] -> VInt c
   | "int", [ VString text ] ->
       VInt (Option.value (Builtin.parse_int text) ~default:0)
   | "float", [ VInt n ] -> VFloat (float_of_int n)
   | "float", [ VFloat x ] -> VFloat x
   | "float", [ VBool b ] -> VFloat (if b then 1.0 else 0.0)
+  | "float", [ VChar c ] -> VFloat (float_of_int c)
   | "float", [ VString text ] ->
       VFloat (Option.value (Builtin.parse_float text) ~default:Float.nan)
   | "bool", [ VBool b ] -> VBool b
   | "bool", [ VInt n ] -> VBool (n = 1)
   | "bool", [ VFloat x ] -> VBool (x = 1.0)
   | "bool", [ VString text ] -> VBool (text = "true")
-  | "len", [ VString text ] -> VInt (String.length text)
+  | "bool", [ VChar c ] -> VBool (c <> 0)
+  | "char", [ VInt n ] -> VChar (Builtin.char_of_int n)
+  | "char", [ VString text ] -> VChar (Builtin.char_of_string text)
+  | "char", [ VChar c ] -> VChar c
+  | "len", [ VString text ] -> VInt (Builtin.utf8_length text)
   | "len", [ VList elements ] -> VInt (List.length elements)
   | "range", [ VInt stop ] -> range_list 0 stop 1 info
   | "range", [ VInt start; VInt stop ] -> range_list start stop 1 info
@@ -921,6 +939,7 @@ and match_pattern env pattern value =
   | PInt (_, wanted, _), VInt got -> if wanted = got then Some env else None
   | PString (_, wanted, _), VString got ->
       if wanted = got then Some env else None
+  | PChar (_, wanted, _), VChar got -> if wanted = got then Some env else None
   | PBool (_, wanted, _), VBool got -> if wanted = got then Some env else None
   | PTuple (_, elements, _), VTuple parts
     when List.length elements = List.length parts ->
@@ -1020,6 +1039,7 @@ let rec evaluate e env =
   | EInt (_, value, _) -> VInt value
   | EFloat (_, value, _) -> VFloat value
   | EString (_, value, _) -> VString value
+  | EChar (_, value, _) -> VChar value
   | EBool (_, value, _) -> boolean value
   | EQualified (info, module_, name, _) -> (
       (* A public name of an imported module, bound under its qualified
@@ -1099,7 +1119,7 @@ and comprehension_envs clauses env =
   match clauses with
   | [] -> [ env ]
   | CompFor (info, pattern, sequence, _) :: rest -> (
-      match evaluate sequence env with
+      match sequence_items (evaluate sequence env) with
       | VList items ->
           List.concat_map
             (fun item ->
@@ -1111,7 +1131,7 @@ and comprehension_envs clauses env =
           raise
             (Trap
                ( info,
-                 Printf.sprintf "a comprehension walks a list, not %s"
+                 Printf.sprintf "a comprehension walks a list or a String, not %s"
                    (describe other) )))
   | CompIf (info, condition, _) :: rest -> (
       match evaluate condition env with
@@ -1531,12 +1551,12 @@ and comprehended state node want index frames done_ value env outer rest =
                "the condition of a comprehension must be Bool, not %s"
                (describe value)))
   | WSequence -> (
-      match value with
+      match sequence_items value with
       | VList items ->
           take state node ((index, items, env) :: frames) done_ outer rest
       | value ->
           failed state (clause_info ())
-            (Printf.sprintf "a comprehension walks a list, not %s"
+            (Printf.sprintf "a comprehension walks a list or a String, not %s"
                (describe value)))
 
 (** Starts on an expression: evaluates it directly if call-free,
@@ -1575,7 +1595,7 @@ and step_eval state e =
     (* A literal the machine built itself -- the `false` an `and` is
        taken as (`as_choice`) -- has no symbol of its own to be found
        call-free by. *)
-    | EInt _ | EFloat _ | EString _ | EBool _ -> (
+    | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ -> (
         match evaluate e state.env with
         | value -> { state with control = CApply value }
         | exception Trap (info, message) -> failed state info message)
@@ -1814,14 +1834,14 @@ and step_apply state value =
   | Some (KStartLoop loop) ->
       start_loop state { loop with accumulator = value }
   | Some (KSequence loop) -> (
-      match value with
+      match sequence_items value with
       | VList items -> begin_turn state { loop with remaining = items }
       | value ->
           failed state
             (match loop_iterate loop with
             | Some it -> loop_iter_info it
             | None -> stmt_info loop.loop_node)
-            (Printf.sprintf "a 'for' loop walks a list, not %s"
+            (Printf.sprintf "a 'for' loop walks a list or a String, not %s"
                (describe value)))
   | Some (KTest loop) -> (
       match value with

@@ -156,12 +156,12 @@ Another example
 
 ```stdout visible = true
 Another example / Another example
-args: ['other', '77']
+args: ["other", "77"]
 ```
 
 ```stdout
 123 / 123
-args: ['go', 'for', 'it']
+args: ["go", "for", "it"]
 ```
 
 A practice, worth no points, with no solution, checked against its

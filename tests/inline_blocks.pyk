@@ -28,26 +28,26 @@ print(one(), two(), three())
 
 # An `if` statement whose branches are each one expression. The `else`
 # starts its own line: the block on the header's line ended that one.
-if three() > 2: print('big')
-else: print('small')
+if three() > 2: print("big")
+else: print("small")
 
 # A header on its own line still opens an indented block, and one of its
 # statements may be an inline header in turn.
 if one() < two():
-    if two() < three(): print('rising')
-    print('done')
+    if two() < three(): print("rising")
+    print("done")
 
 # What the line holds is an expression, so an `if` written inline is the
 # `if`/`then`/`else` *expression*, never a second statement hiding
 # behind the ':'.
-def describe(n:Int) -> String: if n < 0 then 'negative' else 'positive'
+def describe(n:Int) -> String: if n < 0 then "negative" else "positive"
 
 
 def describe_long(n:Int) -> String:
     if n < 0:
-        'negative'
+        "negative"
     else:
-        'positive'
+        "positive"
 
 
 negative = 0 - 1
@@ -57,7 +57,7 @@ print(describe(1), describe_long(1))
 # Nested one level down, where the enclosing block is indented and the
 # inline block is not the first thing on its line.
 def classify(n:Int) -> String:
-    if n == 0: 'zero'
+    if n == 0: "zero"
     else: describe(n)
 
 

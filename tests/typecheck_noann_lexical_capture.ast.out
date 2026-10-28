@@ -1,8 +1,8 @@
 x: Int = 1
 def show() -> Int:
     x
-x: String = 'two'
-label: String = x + '!'
+x: String = "two"
+label: String = x + "!"
 count: Int = show() + 1
 y: Int = 1
 def f():
@@ -13,7 +13,7 @@ def g():
 gen: Int = 1
 def first_gen() -> Int:
     gen
-gen: String = 'second'
+gen: String = "second"
 def second_gen() -> String:
     gen
 gen: Bool = true

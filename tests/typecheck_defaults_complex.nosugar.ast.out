@@ -7,14 +7,14 @@ print(slice_())
 print(slice_([5]))
 print(slice_(size = 7))
 print(slice_([2, 3], 1))
-def pair(both:(Int, String) = (1, 'a')) -> String:
+def pair(both:(Int, String) = (1, "a")) -> String:
     match both:
         case (n, text):
             if n > 5:
-                return text + '!'
+                return text + "!"
             return text
 print(pair())
-print(pair((9, 'z')))
+print(pair((9, "z")))
 def countdown(n:Int, sofar:[Int] = []) -> [Int]:
     if n <= 0:
         return sofar

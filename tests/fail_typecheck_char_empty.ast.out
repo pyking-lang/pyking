@@ -1,0 +1,2 @@
+'tests/fail_typecheck_char_empty.pyk' 6:10-6:12 Lexing error: a Char
+  literal holds one character, and '' holds none

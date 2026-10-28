@@ -43,12 +43,12 @@ def take_first(total, pair):
     total + n
 
 print(filter(small, [1, 7, 2, 9]))
-print(filter(short, ['ab', 'long', 'c']))
-print(zip([1, 2], ['a', 'b']))
-print(zip([true], [(1, 'x')]))
+print(filter(short, ["ab", "long", "c"]))
+print(zip([1, 2], ["a", "b"]))
+print(zip([true], [(1, "x")]))
 print(fold(add, 0, filter(small, [1, 7, 2])))
-print(fold(join, '', filter(short, ['ab', 'long'])))
-print(fold(take_first, 0, zip([1, 2, 3], ['a', 'b', 'c'])))
+print(fold(join, "", filter(short, ["ab", "long"])))
+print(fold(take_first, 0, zip([1, 2, 3], ["a", "b", "c"])))
 
 filtering = filter
 zipping = zip

@@ -3,7 +3,7 @@ def scale(n, factor):
     return n * factor
 def greet : (String) -> String
 def greet(name):
-    'hello ' + name
+    "hello " + name
 def apply : ((Int) -> Int, Int) -> Int
 def apply(f, x):
     f(x)
@@ -14,6 +14,6 @@ def nothing : () -> ()
 def nothing():
     ()
 print(scale(6, 7))
-print(greet('world'))
+print(greet("world"))
 print(apply(inc, 41))
 nothing()

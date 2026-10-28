@@ -18,12 +18,12 @@ def tag(x, n): (x, n + 1)
 
 def hold(n):
     def wrap(other): (n, other)
-    (wrap(1), wrap('two'))
+    (wrap(1), wrap("two"))
 
-print(keep(1, 'a'), keep(true, 2))
-print(tag('x', 4), tag(true, 9))
+print(keep(1, "a"), keep(true, 2))
+print(tag("x", 4), tag(true, 9))
 print(hold(7))
-print(hold('seven'))
+print(hold("seven"))
 
 keeping = keep
 tagging = tag

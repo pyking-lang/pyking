@@ -1,9 +1,9 @@
 def echo(x:a) -> a:
     x
 def announce(value:Int) -> String:
-    'got ' + string(value)
+    "got " + string(value)
 number: Int = echo(1)
-word: String = echo('two')
+word: String = echo("two")
 flag: Bool = echo(true)
 print(number, word, flag)
 print(announce(1), announce(2))

@@ -1,3 +1,3 @@
 'tests/fail_typecheck_conversion_unit.pyk' 6:11-6:13 Type error:
-  'bool' cannot be applied to (); it accepts Int, Float, String or
-  Bool
+  'bool' cannot be applied to (); it accepts Int, Float, String, Char
+  or Bool

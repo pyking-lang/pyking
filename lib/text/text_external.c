@@ -17,7 +17,6 @@ int text_host_length(const char *s);
 const char *text_host_slice(const char *s, int start, int stop);
 int text_host_find(const char *s, const char *part, int start);
 int text_host_code(const char *s, int k);
-const char *text_host_from_code(int n);
 const char *text_host_replace(const char *s, const char *old, const char *by);
 const char *text_host_upper(const char *s);
 const char *text_host_lower(const char *s);
@@ -95,31 +94,6 @@ int text_host_code(const char *s, int k)
         code = (code << 6) | (p[i] & 0x3F);
     }
     return code;
-}
-
-const char *text_host_from_code(int n)
-{
-    char *out = malloc(5);
-    if (n < 0x80) {
-        out[0] = (char) n;
-        out[1] = '\0';
-    } else if (n < 0x800) {
-        out[0] = (char) (0xC0 | (n >> 6));
-        out[1] = (char) (0x80 | (n & 0x3F));
-        out[2] = '\0';
-    } else if (n < 0x10000) {
-        out[0] = (char) (0xE0 | (n >> 12));
-        out[1] = (char) (0x80 | ((n >> 6) & 0x3F));
-        out[2] = (char) (0x80 | (n & 0x3F));
-        out[3] = '\0';
-    } else {
-        out[0] = (char) (0xF0 | (n >> 18));
-        out[1] = (char) (0x80 | ((n >> 12) & 0x3F));
-        out[2] = (char) (0x80 | ((n >> 6) & 0x3F));
-        out[3] = (char) (0x80 | (n & 0x3F));
-        out[4] = '\0';
-    }
-    return out;
 }
 
 const char *text_host_replace(const char *s, const char *old, const char *by)

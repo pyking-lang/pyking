@@ -1,10 +1,10 @@
 Pyking REPL.  :help for commands, :quit to leave.
-> > 'hi world' : String
-> 'hi you' : String
-> 'hi pyk' : String
+> > "hi world" : String
+> "hi you" : String
+> "hi pyk" : String
 > greet = <function> : (String) -> String
 > (String) -> String
-> > 'yo again' : String
+> > "yo again" : String
 > def greet(who:String = "again") -> String: "yo " + who
 > '<repl>' 1:13-1:14 Name error: 'greet' has no parameter 'nope'
 > > '<repl>' 1:0-1:12 Name error: 'g' is a binding, not a function

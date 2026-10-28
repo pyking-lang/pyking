@@ -84,9 +84,9 @@ Probed against the interpreter, every one of these is refused today:
 | Arithmetic | `%`, `^` (power), bitwise and, or, xor, not, shifts | `math.int::mod`, `math.pow` (Float only) |
 | Equality | `==` on lists, tuples, datatypes | "`==` cannot be applied to [Int] and [Int]" |
 | Ordering | `<` on strings, tuples, lists | "`<` cannot be applied to String and String" |
-| Access | `xs[i]`, `s[i]`, slices, `t.0` | `text.char_at`, a recursive helper, or a pattern |
+| Access | slices, `t.0` (`xs[i]` and `s[i]` are done: a String's element is a `Char`) | a recursive helper, or a pattern |
 | Membership | `x in xs`, `"ab" in s` | `text.contains`; nothing for lists |
-| Iteration | `for (k, v) in pairs`, `for c in "abc"`, `enumerate`, `zip` | a `for` header binds one name and walks only lists |
+| Iteration | `for (k, v) in pairs`, `enumerate`, `zip` (`for c in "abc"` is done) | a `for` header binds one name |
 | Strings | interpolation, `"""…"""`, `\u{…}`, fixed-decimal formatting | `"x = " ++ string(x)` |
 | Failure | Option, Result, `assert`, a defined failure | conversions answer 0/NaN/false; libraries return `""` (docs/libraries.md, "Failure, where the language has none") |
 | Collections | a list library, maps, sets | each program writes its own `map`, `filter`, `sort` |
@@ -127,7 +127,6 @@ A feature is not done until every one of these is:
   - the notebook's code highlighting
 - **Docs**:
   - `PYKING.md`: grammar, feature summary, details
-  - `PYKING-TUTORIAL.md`
   - `docs/typesystem.md`
   - `docs/targets.md`: the shared-subset table
   - the help generator (`tools/help`)
@@ -338,7 +337,7 @@ greeting = "Hello, " + name + "!"
   | notebooks (essentials and test notebooks) | 11 |
   | `web_examples/`, `pyking-web-examples/` | 25 |
 
-  It also covers `PYKING.md`, `PYKING-TUTORIAL.md`, the help pages and
+  It also covers `PYKING.md`, the tutorial, the help pages and
   the playground examples. The `.out` files do not change. The editor
   grammars drop `++` as an operator.
 
@@ -837,12 +836,12 @@ needs none. This is a parser rule to write down and test.
 | Digit separators | `1_000_000` | decimal and Float. Hex and binary have them already |
 | Raw strings | `r"\d+"` | only if a regular-expression library arrives |
 
-- **No `Char` type.** A character stays a `String` of length 1, as
-  `text.char_at` and string patterns already treat it.
-- **Lengths in code points.** "Length" and "index" count code points
-  on every target. That is what `text.length` promises today; check
-  that `len` on a String does the same on JS and Java, where strings
-  are UTF-16.
+- **A `Char` type** (decided 2026-10-27, done): `'a'` is a `Char`, one
+  code point, and a String is written in double quotes only; `s[i]` is
+  a Char, `for c in s` walks them, and `char(x)` converts to one.
+  Strings inside a list print in double quotes, Chars in single ones.
+- **Lengths in code points** (done): `len`, `s[i]` and `text` count
+  code points on every target.
 
 ---
 

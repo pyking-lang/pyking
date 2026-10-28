@@ -15,5 +15,5 @@ def pair_up(x, y): (x, y)
 
 def strict(n): n + 1
 
-print(pair_up(1, 'a'), pair_up(true, 2))
-print(strict('not an Int'))
+print(pair_up(1, "a"), pair_up(true, 2))
+print(strict("not an Int"))

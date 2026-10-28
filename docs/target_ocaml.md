@@ -31,7 +31,8 @@ Nearly all of the fragment `src/typesystem.ml` checks. The list this
 backend maintains is the short one of what it *refuses*, in the next
 section; everything else compiles:
 
-- `print`, and the builtins `string`, `len`, `float`, `int` and `range`;
+- `print`, and the builtins `string`, `len`, `float`, `int`, `bool`,
+  `char` and `range`;
 - `def`, annotated or not — recursion, mutual recursion, nested
   functions, and a body written on the header's own line (`def f(x): e`);
 - functions as values: passed as arguments, returned, and called;
@@ -46,9 +47,9 @@ section; everything else compiles:
 - tuples, including a binding that takes one apart;
 - `return`, anywhere it can be written;
 - lambdas (`lam x. x + 1`);
-- integers, floats, strings and booleans; `+ - * / % ^`, unary minus,
-  comparisons, `==` and `!=`, `and`/`or`/`not`, the bitwise operators,
-  `xs[i]` (`List.nth`), and calls.
+- integers, floats, strings, characters and booleans; `+ - * / % ^`,
+  unary minus, comparisons, `==` and `!=`, `and`/`or`/`not`, the bitwise
+  operators, `xs[i]` (`List.nth`), `s[i]` on a String, and calls.
 
 A `def` needs no annotation here: the checker works one out from its
 body, and this backend reads the answer back. Annotations are erased
@@ -564,7 +565,32 @@ let () =
 
 A string inside a tuple is quoted, where one printed on its own is not,
 so a `pyk_quote` helper joins the prelude when a program needs it (see
-"Builtins").
+"Builtins"). It writes the String between double quotes, escaping `\`,
+`"`, newline, tab, carriage return and NUL as `builtin.ml`'s
+`quote_string` does; a `'` is left alone.
+
+### Chars
+
+A `Char` is an OCaml `int`, its code point: `'a'` compiles to `97` and
+`case 'a':` to the pattern `97`, so `==`, `<` and the rest are OCaml's
+own comparisons on ints. This is also how the interpreter's plugin host
+hands a Char to an OCaml external implementation, so an external
+written for the interpreter works here unchanged.
+
+A String stays a UTF-8 `string`, counted in code points. Every helper
+below is emitted only into a program that uses it, and each stands
+alone (they ride with the conversion helpers):
+
+| Pyking | OCaml |
+|---|---|
+| `'a'` | `97` |
+| `len(s)` | `pyk_char_length s` -- code points, not bytes |
+| `s[i]` | `pyk_char_at s i` -- the i-th code point, decoded with `String.get_utf_8_uchar` (OCaml 4.14 on); out of range raises `Invalid_argument`, as a list index out of range raises |
+| `for c in s`, `[e for c in s]` | the walk is over `pyk_chars s`, the String's code points as an `int list` |
+| `string(c)`, `print(c)` | `pyk_char_text c`, the code point UTF-8 encoded |
+| a Char inside a list, tuple or datatype | `pyk_quote_char c`: `'a'`, escaping `'`, `\`, newline, tab, CR and NUL |
+| `int(c)`, `float(c)`, `bool(c)` | `c`, `float_of_int c`, `c <> 0` |
+| `char(n)`, `char(s)`, `char(c)` | `pyk_char_of_int n` (0 unless a scalar value), `pyk_char_of_string s` (its first code point, 0 for `""`), `c` |
 
 ### `print`
 
@@ -594,7 +620,7 @@ builtin, which is how a program's own `debug` is told from the builtin.
 | Pyking | OCaml |
 |---|---|
 | `string(n)` | `string_of_int n` (or `string_of_bool`, or nothing at all for a `String`) |
-| `len(s)` | `String.length s` |
+| `len(s)` | `pyk_char_length s` (code points; see "Chars") |
 | `len(xs)` | `List.length xs` |
 | `range(n)` | `List.init (max 0 n) Fun.id` |
 | `range(a, b)`, `range(a, b, s)` | `pyk_range a b s`, a generated helper |

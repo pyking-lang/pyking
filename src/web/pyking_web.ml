@@ -124,7 +124,7 @@ let json_bool b = if b then "true" else "false"
 
 (* --- values across the boundary ---
 
-   What may cross is what a declaration may name: Int, String, Bool,
+   What may cross is what a declaration may name: Int, String, Char, Bool,
    unit, tuples and lists (docs/modules.md, "What may cross the
    boundary"). JSON carries all of them, with `null` for unit and an
    array for both a tuple and a list -- the declaration says which, so
@@ -142,6 +142,9 @@ let rec json_of_value value =
   | Interpreter.VFloat x ->
       Printf.sprintf "{\"pyk_float\":%s}" (json_string (Builtin.float_text x))
   | Interpreter.VString text -> json_string text
+  (* A Char is its code point in JavaScript, as the node and web
+     targets hold it; `coerce` makes it a Char again on the way back. *)
+  | Interpreter.VChar c -> string_of_int c
   | Interpreter.VBool b -> json_bool b
   | Interpreter.VUnit -> "null"
   | Interpreter.VList elements | Interpreter.VTuple elements ->
@@ -340,6 +343,7 @@ let next_callback = ref 0
 let rec coerce type_ value =
   match (type_, value) with
   | Syntax.TFloat _, Interpreter.VInt n -> Interpreter.VFloat (float_of_int n)
+  | Syntax.TChar _, Interpreter.VInt n -> Interpreter.VChar n
   (* A JavaScript number that is whole, -0 among them, where an Int is
      declared. *)
   | Syntax.TInt _, Interpreter.VFloat x when Float.is_integer x -> Interpreter.VInt (int_of_float x)

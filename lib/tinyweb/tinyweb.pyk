@@ -2727,18 +2727,18 @@ public def sound.rate_of(name: String, base: String = "C4") -> Float:
 
 # A note's semitones from C0, or -10000 for a name that is not a note.
 def sound.semitones(name: String) -> Int:
-    base = match strings.upper(strings.char_at(name, 0)):
-        case "C": 0
-        case "D": 2
-        case "E": 4
-        case "F": 5
-        case "G": 7
-        case "A": 9
-        case "B": 11
+    base = match strings.char_at(name, 0):
+        case 'C' | 'c': 0
+        case 'D' | 'd': 2
+        case 'E' | 'e': 4
+        case 'F' | 'f': 5
+        case 'G' | 'g': 7
+        case 'A' | 'a': 9
+        case 'B' | 'b': 11
         case _: -10000
     shift = match strings.char_at(name, 1):
-        case "#": 1
-        case "b": -1
+        case '#': 1
+        case 'b': -1
         case _: 0
     rest = strings.slice(name, if shift == 0 then 1 else 2, strings.length(name))
     octave = if rest == "" then 4 else int(rest)

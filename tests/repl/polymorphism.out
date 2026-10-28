@@ -1,5 +1,5 @@
 Pyking REPL.  :help for commands, :quit to leave.
-> > ('s', 1) : (String, Int)
+> > ("s", 1) : (String, Int)
 > (a, b) -> (b, a)
 > (2, true) : (Int, Bool)
 > pair = <function> : (a, b) -> (b, a)

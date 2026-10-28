@@ -4,12 +4,12 @@ Pyking REPL.  :help for commands, :quit to leave.
 > > > > 42 : Int
 > (Int) -> Int
 > > 50 : Int
-> 'concat' : String
+> "concat" : String
 > true : Bool
 > 8 : Int
 > 17 : Int
 > 1 : Int
-> > 'ab' : String
+> > "ab" : String
 > '<repl>' 1:6-1:7 Parsing error: comparisons do not chain: write 'a < b
   and b < c' rather than 'a < b < c'
 > '<repl>' 1:2-1:4 Parsing error: a lambda is now written 'lam x. x + 1'

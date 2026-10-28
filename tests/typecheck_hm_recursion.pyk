@@ -31,12 +31,12 @@ def depth(lst):
 
 def spell(n):
     if n == 0:
-        'zero'
+        "zero"
     else:
         spell(n - 1)
 
 print(countdown(3))
 print(sum_to(4))
 print(depth([1, 2, 3]))
-print(depth(['a', 'b']))
+print(depth(["a", "b"]))
 print(spell(3))

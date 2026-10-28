@@ -52,7 +52,7 @@ def right() -> Int:
     same := same + 1
     return same
 print(left(), right())
-same: String = 'outside'
+same: String = "outside"
 def inner_shadow() -> Int:
     var same = 7
     same := same * 3

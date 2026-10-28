@@ -21,4 +21,4 @@
 def combine(x, y): if x == y then x else y
 
 print(combine(1, 3))
-print(combine('hi', 'now'))
+print(combine("hi", "now"))

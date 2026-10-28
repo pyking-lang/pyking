@@ -1,10 +1,10 @@
 def window(start:Int, size:Int, step:Int) -> Int:
     return start + size * step
 print(window(1, 2, 3))
-def padded(text:String = 'x', left:Int = 1, right:Int = 2) -> String:
+def padded(text:String = "x", left:Int = 1, right:Int = 2) -> String:
     if left + right <= 0:
         return text
-    return '.' + padded(text, left - 1, right = right - 1)
+    return "." + padded(text, left - 1, right = right - 1)
 print(padded())
-print(padded('y', left = 3))
+print(padded("y", left = 3))
 print(window(window(1, 1, 1), 2, 2))

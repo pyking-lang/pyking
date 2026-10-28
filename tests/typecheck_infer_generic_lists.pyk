@@ -20,5 +20,5 @@ def reverse(lst):
 
 print(append([1, 2], [3]))
 print(reverse([1, 2, 3]))
-print(reverse(['a', 'b']))
+print(reverse(["a", "b"]))
 print(append(reverse([true]), [false]))

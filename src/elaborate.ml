@@ -268,7 +268,7 @@ and expression_body e qmap work =
       ([], work) es
   in
   match e with
-  | EInt _ | EFloat _ | EString _ | EBool _ -> (e, work)
+  | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ -> (e, work)
   | EVar (i, name, s) -> (EVar (i, plain name, s), work)
   | EQualified (i, module_, name, s) ->
       (EQualified (i, module_, plain name, s), work)

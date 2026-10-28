@@ -13,4 +13,4 @@
 def scale(n:Int, factor):
     n * factor
 
-print(scale('six', 7))
+print(scale("six", 7))

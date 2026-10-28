@@ -118,7 +118,7 @@ later part of the language and mean nothing yet.")
   "Regexp matching any Pyking keyword as a whole symbol.")
 
 (defconst pyking-mode-types
-  '("Int" "Float" "String" "Bool")
+  '("Int" "Float" "String" "Char" "Bool")
   "Reserved type names usable in type annotations.
 Annotations appear on a parameter, on a `def' return value, and on an
 immutable binding (`x: Int = 1' -- see `assignment' in PYKING.md's
@@ -153,7 +153,7 @@ much a literal value as `123' is, not a keyword like `if' or `return'.")
   "Regexp matching any name in `pyking-mode-constants' as a whole symbol.")
 
 (defconst pyking-mode-builtins
-  '("print" "debug" "range" "string" "len" "float" "int" "bool")
+  '("print" "debug" "range" "string" "len" "float" "int" "bool" "char")
   "Well-known Python builtin function names used in Pyking source.
 
 Pyking's own grammar has no notion of a builtin -- any identifier can be
@@ -196,7 +196,7 @@ builtin.")
    ;; from being mistaken for a declaration of a variable called `else'.
    ;; A `public' in front of it declares the same name, so it is
    ;; skipped rather than mistaken for the name being declared.
-   '("^[ \t]*\\(?:public[ \t]+\\)?\\(\\(?:\\sw+\\.\\)*\\sw+\\)[ \t]*:[ \t]*\\(?:Int\\|String\\|Bool\\|[][(]\\)"
+   '("^[ \t]*\\(?:public[ \t]+\\)?\\(\\(?:\\sw+\\.\\)*\\sw+\\)[ \t]*:[ \t]*\\(?:Int\\|Float\\|String\\|Char\\|Bool\\|[][(]\\)"
      1 font-lock-variable-name-face)
    ;; mutation = ident , ":=" , expr -- Pyking's one deliberate departure
    ;; from plain Python assignment (see PYKING.md), worth calling out.
@@ -668,9 +668,10 @@ block opener that list holds a single forced column (see
     ;; Comments: "#" runs to end of line.
     (modify-syntax-entry ?# "<" table)
     (modify-syntax-entry ?\n ">" table)
-    ;; string = "'" , { string_char } , "'" | '"' , { string_char } , '"' ;
-    ;; both quote characters delimit strings, and "\\" is the escape
-    ;; character for both (see `scan_string'/`_ESCAPES' in src/lexer.ml).
+    ;; string = '"' , { string_char } , '"' ; char = "'" , char_body , "'" ;
+    ;; a String is in double quotes and a Char -- one character -- in
+    ;; single quotes, and "\\" is the escape character for both (see
+    ;; `scan_string' in src/lexer.ml). A Char is shown as a string is.
     (modify-syntax-entry ?\" "\"" table)
     (modify-syntax-entry ?\' "\"" table)
     (modify-syntax-entry ?\\ "\\" table)
@@ -702,11 +703,11 @@ Provides syntax highlighting for Pyking's keywords (`for', `in', `if',
 `return', `match', `case'), the one keyword recognized only where it
 is one (`all' in a type), the
 `:=' mutation operator, the `..'/`..name' list-pattern rest marker,
-string literals (with backslash escapes), `#' comments, the name an
+string and Char literals (with backslash escapes), `#' comments, the name an
 annotated binding declares (`x: Int = 1'), integer and
 boolean literals (`true'/`false', see `pyking-mode-constants', coloured
 the same as an integer literal, not as a keyword), type annotation names
-(`Int', `String', `Bool', see `pyking-mode-types'), and well-known
+(`Int', `String', `Char', `Bool', see `pyking-mode-types'), and well-known
 builtins (see `pyking-mode-builtins'), consistent with the grammar
 documented in PYKING.md and implemented in src/lexer.ml and
 src/parser.ml.

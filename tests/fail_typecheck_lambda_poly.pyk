@@ -11,9 +11,9 @@
 
 def named(x): x
 
-print(named(1), named('a'))
+print(named(1), named("a"))
 
 id = lam x. x
 
 print(id(1))
-print(id('a'))
+print(id("a"))

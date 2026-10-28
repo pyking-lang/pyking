@@ -263,7 +263,7 @@ def build_cases():
         if ran.returncode != 0 or not (root / "out" / "build" / "hi.py").exists():
             return False, ran.stderr
         out = subprocess.run([str(root / "out" / "hi"), "a"], capture_output=True, text=True)
-        return out.stdout == "hello ['a']\n", out.stdout + out.stderr
+        return out.stdout == 'hello ["a"]\n', out.stdout + out.stderr
 
     def replaced(compiler, root):
         (root / "hello.pyk").write_text(HELLO)
@@ -287,7 +287,7 @@ def build_cases():
     def run_target(compiler, root):
         (root / "hello.pyk").write_text(HELLO)
         ran = invoke(compiler, root, ["hello.pyk", "-t", "ocaml", "--", "x"])
-        if ran.stdout != "hello ['x']\n":
+        if ran.stdout != 'hello ["x"]\n':
             return False, ran.stdout + ran.stderr
         beside = sorted(p.name for p in root.iterdir())
         return beside == ["build", "hello.pyk"], f"beside build/: {beside}"
@@ -301,7 +301,7 @@ def build_cases():
             return False, "--no-build built something: " + ran.stderr
         made = subprocess.run(["make", "-s", "run", "ARGS=m"], cwd=root / "build",
                               capture_output=True, text=True, timeout=STEP_TIMEOUT * 3)
-        if made.stdout != "hello ['m']\n":
+        if made.stdout != 'hello ["m"]\n':
             return False, made.stdout + made.stderr
         subprocess.run(["make", "-s", "clean"], cwd=root / "build", capture_output=True)
         return not list((root / "build").glob("*.class")), "make clean left classes"

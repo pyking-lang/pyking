@@ -330,16 +330,19 @@ public def time() -> Float
 ##   negative one is 0.
 ##
 ## # Examples
-## A drum that never stops: a kick every half second, and a word
-## printed with each.
-## ```pyking norun
+## Three kicks, half a second apart, and a word printed with each; a
+## plain `loop:` without the count is a drum that never stops.
+## ```pyking
 ## import tinyweb as tw
 ## tw.web_init(0)
 ## kick = tw.load_sample("kick1.wav")
-## loop:
+## loop n = 0:
+##     if n == 3:
+##         break
 ##     tw.play(kick)
 ##     print("kick")
 ##     tw.sdelay(0.5)
+##     n + 1
 ## ```
 ## ```stdout
 ## kick

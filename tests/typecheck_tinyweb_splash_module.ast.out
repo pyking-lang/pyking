@@ -1,7 +1,7 @@
 import tinyweb as tinyweb2
 import typecheck_tinyweb_splash_module_drums as drums
-tinyweb: String = 'drums'
+tinyweb: String = "drums"
 drums.start()
-drums.drum_button('Kick')
+drums.drum_button("Kick")
 print(tinyweb)
 tinyweb2.splash()

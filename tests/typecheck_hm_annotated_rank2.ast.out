@@ -5,7 +5,7 @@ def use_it(f):
     print(f(1), f(true))
 def describe : ((all a. (a) -> a)) -> ()
 def describe(f):
-    print(f('x'), f(2))
+    print(f("x"), f(2))
 def extract : (((all a. (a) -> a)) -> b) -> b
 def extract(packed):
     packed(identity)
@@ -14,7 +14,7 @@ def pack_int(k):
     k(41)
 def pack_string : ((all a. (a) -> a)) -> String
 def pack_string(k):
-    k('hello')
+    k("hello")
 use_it(identity)
 describe(identity)
 print(extract(pack_int), extract(pack_string))

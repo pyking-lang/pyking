@@ -330,6 +330,7 @@ let unused_prefix stmts =
 let is_int t = match t with TInt _ -> true | _ -> false
 let is_float t = match t with TFloat _ -> true | _ -> false
 let is_string t = match t with TString _ -> true | _ -> false
+let is_char t = match t with TChar _ -> true | _ -> false
 let is_bool t = match t with TBool _ -> true | _ -> false
 let is_unit t = match t with TTuple (_, [], _) -> true | _ -> false
 
@@ -1168,6 +1169,106 @@ let range_helper_def =
       "  go start []";
     ]
 
+(* --- characters ---
+
+   A Char is an OCaml int, its code point, and a String is UTF-8 counted
+   in code points (builtin.ml, "characters"). Each helper below stands
+   alone, so they can be written in whatever order the program first
+   needed them; they ride along in `conversions`. *)
+
+let char_text_helper = "pyk_char_text"
+let char_quote_helper = "pyk_quote_char"
+let char_length_helper = "pyk_char_length"
+let char_get_helper = "pyk_char_at"
+let chars_helper = "pyk_chars"
+let char_of_int_helper = "pyk_char_of_int"
+let char_of_string_helper = "pyk_char_of_string"
+
+(** The lines of a character helper, or None for another name.
+    string -> [string]? *)
+let char_helper_lines name =
+  if name = char_text_helper then
+    Some
+      [
+        Printf.sprintf "let %s c =" name;
+        "  let out = Buffer.create 4 in";
+        "  Buffer.add_utf_8_uchar out (Uchar.of_int c);";
+        "  Buffer.contents out";
+      ]
+  else if name = char_quote_helper then
+    Some
+      [
+        Printf.sprintf "let %s c =" name;
+        "  match c with";
+        "  | 0x27 -> \"'\\\\''\"";
+        "  | 0x5C -> \"'\\\\\\\\'\"";
+        "  | 0x0A -> \"'\\\\n'\"";
+        "  | 0x09 -> \"'\\\\t'\"";
+        "  | 0x0D -> \"'\\\\r'\"";
+        "  | 0x00 -> \"'\\\\0'\"";
+        "  | _ ->";
+        "      let out = Buffer.create 6 in";
+        "      Buffer.add_char out '\\'';";
+        "      Buffer.add_utf_8_uchar out (Uchar.of_int c);";
+        "      Buffer.add_char out '\\'';";
+        "      Buffer.contents out";
+      ]
+  else if name = char_length_helper then
+    Some
+      [
+        Printf.sprintf "let %s s =" name;
+        "  let rec go k n =";
+        "    if k >= String.length s then n";
+        "    else go (k + Uchar.utf_decode_length (String.get_utf_8_uchar s k)) (n + 1)";
+        "  in";
+        "  go 0 0";
+      ]
+  else if name = char_get_helper then
+    Some
+      [
+        Printf.sprintf "let %s s i =" name;
+        "  let rec go k j =";
+        "    if i < 0 || k >= String.length s then invalid_arg \"index out of range\"";
+        "    else";
+        "      let d = String.get_utf_8_uchar s k in";
+        "      if j = i then Uchar.to_int (Uchar.utf_decode_uchar d)";
+        "      else go (k + Uchar.utf_decode_length d) (j + 1)";
+        "  in";
+        "  go 0 0";
+      ]
+  else if name = chars_helper then
+    Some
+      [
+        Printf.sprintf "let %s s =" name;
+        "  let rec go k out =";
+        "    if k >= String.length s then List.rev out";
+        "    else";
+        "      let d = String.get_utf_8_uchar s k in";
+        "      go (k + Uchar.utf_decode_length d) (Uchar.to_int (Uchar.utf_decode_uchar d) :: out)";
+        "  in";
+        "  go 0 []";
+      ]
+  else if name = char_of_int_helper then
+    Some
+      [
+        Printf.sprintf "let %s n =" name;
+        "  if n >= 0 && n <= 0x10FFFF && not (n >= 0xD800 && n <= 0xDFFF) then n else 0";
+      ]
+  else if name = char_of_string_helper then
+    Some
+      [
+        Printf.sprintf "let %s s =" name;
+        "  if s = \"\" then 0";
+        "  else Uchar.to_int (Uchar.utf_decode_uchar (String.get_utf_8_uchar s 0))";
+      ]
+  else None
+
+(** acc, noting that the program needs the helper `name`.
+    acc -> string -> acc *)
+let need acc name =
+  if List.mem name acc.conversions then acc
+  else { acc with conversions = acc.conversions @ [ name ] }
+
 (* The conversions OCaml's own would get wrong (builtin.ml, "what a
    conversion reads"): `int_of_string` reads "0x1F" and "1_000", and
    `int_of_float` of a NaN is whatever the hardware gives. *)
@@ -1180,7 +1281,10 @@ let power_helper = "pyk_ipow"
 (** The text of one conversion helper. string -> string *)
 let conversion_def name =
   String.concat "\n"
-    (if name = power_helper then
+    (match char_helper_lines name with
+     | Some lines -> lines
+     | None ->
+     if name = power_helper then
        [
          "(* An Int raised to an Int at least 0, by repeated squaring. *)";
          Printf.sprintf "let rec %s base exponent =" name;
@@ -1243,18 +1347,19 @@ let quote_helper_def =
     [
       Printf.sprintf "let %s text =" quote_helper;
       "  let out = Buffer.create (String.length text + 2) in";
-      "  Buffer.add_char out '\\'';";
+      "  Buffer.add_char out '\"';";
       "  String.iter";
       "    (fun c ->";
       "      match c with";
       "      | '\\\\' -> Buffer.add_string out \"\\\\\\\\\"";
-      "      | '\\'' -> Buffer.add_string out \"\\\\'\"";
+      "      | '\"' -> Buffer.add_string out \"\\\\\\\"\"";
       "      | '\\n' -> Buffer.add_string out \"\\\\n\"";
       "      | '\\t' -> Buffer.add_string out \"\\\\t\"";
       "      | '\\r' -> Buffer.add_string out \"\\\\r\"";
+      "      | '\\000' -> Buffer.add_string out \"\\\\0\"";
       "      | c -> Buffer.add_char out c)";
       "    text;";
-      "  Buffer.add_char out '\\'';";
+      "  Buffer.add_char out '\"';";
       "  Buffer.contents out";
     ]
 
@@ -1281,6 +1386,8 @@ let rec expr ctx acc e =
   | EInt (_, value, _) -> (OInt value, acc)
   | EFloat (_, value, _) -> (OFloat value, acc)
   | EString (_, value, _) -> (OStr value, acc)
+  (* A Char is its code point. *)
+  | EChar (_, value, _) -> (OInt value, acc)
   | EBool (_, value, _) -> (OBool value, acc)
   | EVar (_, name, _) ->
       (* A name this module *declared* rather than defined is the host's,
@@ -1425,7 +1532,10 @@ let rec expr ctx acc e =
       (OApp (OVar (match op with UNot _ -> "not" | UBitNot _ -> "lnot"), [ o_operand ]), acc)
   | EIndex (_, list, index, _) ->
       let pieces, sequence, acc = in_order ctx acc [ list; index ] in
-      (sequence (OApp (OVar "List.nth", pieces)), acc)
+      if is_string (type_of ctx list) then
+        (* A String's i-th code point. *)
+        (sequence (OApp (OVar char_get_helper, pieces)), need acc char_get_helper)
+      else (sequence (OApp (OVar "List.nth", pieces)), acc)
   | EConstruct (_, _, name, args, _) -> (
       let canonical =
         match type_of ctx e with TCon (_, c, _, _) -> c | _ -> name
@@ -1467,6 +1577,13 @@ let rec expr ctx acc e =
               (OMatch (o_record, arms), acc)
           | None -> unsupported (expr_info e) "a field of a datatype this module cannot see")
       | _ -> unsupported (expr_info e) "a field of a value whose type is not settled")
+
+(** A `for`'s sequence as the list it walks: a String's Chars, or the
+    list itself. ctx -> acc -> expr -> oexpr -> (oexpr, acc) *)
+and walked_chars ctx acc sequence o_sequence =
+  if is_string (type_of ctx sequence) then
+    (OApp (OVar chars_helper, [ o_sequence ]), need acc chars_helper)
+  else (o_sequence, acc)
 
 (** One binary operator application.
     ctx -> acc -> string -> expr -> expr -> (oexpr, acc) *)
@@ -1595,6 +1712,10 @@ and string_of ctx acc type_ translated info top =
     else
       ( OApp (OVar quote_helper, [ translated ]),
         { acc with needs_quote = true } )
+  else if is_char type_ then
+    (* Bare on its own, between single quotes inside a value. *)
+    let helper = if top then char_text_helper else char_quote_helper in
+    (OApp (OVar helper, [ translated ]), need acc helper)
   else if is_int type_ then (OApp (OVar "string_of_int", [ translated ]), acc)
   else if is_float type_ then
     ( OApp (OVar float_helper, [ translated ]),
@@ -1710,6 +1831,10 @@ and builtin_call ctx acc call name args =
       | "float", TInt _ -> (OApp (OVar "float_of_int", [ o_value ]), acc)
       | "float", TBool _ -> (OIf (o_value, OFloat 1.0, Some (OFloat 0.0)), acc)
       | "bool", TString _ -> (OBin ("=", o_value, OStr "true"), acc)
+      (* A Char is its code point already. *)
+      | "int", TChar _ -> (o_value, acc)
+      | "float", TChar _ -> (OApp (OVar "float_of_int", [ o_value ]), acc)
+      | "bool", TChar _ -> (OBin ("<>", o_value, OInt 0), acc)
       | "bool", TInt _ -> (OBin ("=", o_value, OInt 1), acc)
       | "bool", TFloat _ -> (OBin ("=", o_value, OFloat 1.0), acc)
       | ("int" | "float" | "bool"), (TInt _ | TFloat _ | TBool _) -> (o_value, acc)
@@ -1719,12 +1844,26 @@ and builtin_call ctx acc call name args =
   | "len", [ value ] -> (
       let type_ = type_of ctx value in
       let o_value, acc = expr ctx acc value in
-      if is_string type_ then (OApp (OVar "String.length", [ o_value ]), acc)
+      if is_string type_ then
+        (OApp (OVar char_length_helper, [ o_value ]), need acc char_length_helper)
       else if is_list type_ then
         (OApp (OVar "List.length", [ o_value ]), acc)
       else
         unsupported (expr_info call)
           (Printf.sprintf "`len` of a value of type %s" (name_of type_)))
+  | "char", [ value ] -> (
+      let type_ = type_of ctx value in
+      let o_value, acc = expr ctx acc value in
+      match type_ with
+      | TInt _ ->
+          (OApp (OVar char_of_int_helper, [ o_value ]), need acc char_of_int_helper)
+      | TString _ ->
+          ( OApp (OVar char_of_string_helper, [ o_value ]),
+            need acc char_of_string_helper )
+      | TChar _ -> (o_value, acc)
+      | _ ->
+          unsupported (expr_info call)
+            (Printf.sprintf "`char` of a value of type %s" (name_of type_)))
   | "range", [ count ] ->
       (* `List.init` refuses a negative length where `range` answers with
          nothing, so the count is floored here. *)
@@ -1767,6 +1906,7 @@ and matcher ctx acc p used =
         (if value >= 0 then string_of_int value
          else Printf.sprintf "(%d)" value)
   | PString (_, value, _) -> plain (quote value)
+  | PChar (_, value, _) -> plain (string_of_int value)
   | PBool (_, value, _) -> plain (if value then "true" else "false")
   | PTuple (_, elements, _) ->
       let parts, guards, extracts, acc =
@@ -2067,6 +2207,7 @@ and clauses ctx acc clause_list element =
         else arms @ [ ("_", None, OList []) ]
       in
       let o_sequence, acc = expr ctx acc sequence in
+      let o_sequence, acc = walked_chars ctx acc sequence o_sequence in
       (* A `function` takes no `when`, so a guarded pattern is matched
          inside the body instead. *)
       let taking, acc =
@@ -2356,6 +2497,13 @@ and loop ctx acc s returning =
         | _, [ o_init ] -> (o_init, None)
         | _, [ o_init; sequence ] -> (o_init, Some sequence)
         | _ -> (OUnit, None)
+      in
+      let o_sequence, acc =
+        match (o_sequence, walked) with
+        | Some o, [ sequence ] ->
+            let o, acc = walked_chars ctx acc sequence o in
+            (Some o, acc)
+        | _ -> (o_sequence, acc)
       in
       let parameter, accumulator, acc =
         match target with
@@ -2982,6 +3130,7 @@ let rec type_text type_ name top =
   | TInt _ -> "int"
   | TFloat _ -> "float"
   | TString _ -> "string"
+  | TChar _ -> "int"
   | TBool _ -> "bool"
   | TList (_, element, _) -> Printf.sprintf "%s list" (type_text element name false)
   | TTuple (_, [], _) -> "unit"

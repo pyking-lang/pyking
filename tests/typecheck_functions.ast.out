@@ -1,7 +1,7 @@
 def double(n:Int) -> Int:
     return n * 2
 def shout(word:String) -> String:
-    word + '!'
+    word + "!"
 def choose(a:Int, keep:Bool) -> Int:
     if keep:
         return a
@@ -14,12 +14,12 @@ picker: (Int, Bool) -> Int = choose
 firstly: ((Int, Bool)) -> Int = first
 four: Int = double(2)
 eight: Int = double(double(2))
-loud: String = shout('hi')
+loud: String = shout("hi")
 kept: Int = choose(7, true)
 dropped: Int = choose(7, false)
 sum: Int = double(3) + 4
-message: String = shout('a') + shout('b')
+message: String = shout("a") + shout("b")
 compared: Bool = double(1) == 2
-n: String = 'not the parameter'
+n: String = "not the parameter"
 print(four, eight, loud, kept, dropped)
 print(sum, message, compared, n)

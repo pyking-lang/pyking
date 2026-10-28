@@ -30,10 +30,10 @@ def whole(xs): xs
 def wanted(n:Int) -> Int: n * 3
 def forwards(n): wanted(n)
 
-print(added(1), held('anything'))
+print(added(1), held("anything"))
 print(shown(7), kept(true))
-print(chosen(true, 'yes'), paired(false, 9))
-print(head([5, 6]), whole(['a']))
+print(chosen(true, "yes"), paired(false, 9))
+print(head([5, 6]), whole(["a"]))
 print(forwards(4))
 
 # The types, printed. Read them in pairs: the pinned one names a type,

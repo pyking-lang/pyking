@@ -21,7 +21,7 @@
 > continue
 {"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
 > wait terminated
-{"body": {"category": "stdout", "output": "args ['a', 'b c']\n"}, "event": "output", "type": "event"}
+{"body": {"category": "stdout", "output": "args [\"a\", \"b c\"]\n"}, "event": "output", "type": "event"}
 {"body": {"category": "stderr", "output": "read hello\n"}, "event": "output", "type": "event"}
 {"body": {"exitCode": 0}, "event": "exited", "type": "event"}
 {"body": {}, "event": "terminated", "type": "event"}

@@ -39,6 +39,7 @@ type head =
   | HTuple of int (* a tuple of this many elements *)
   | HInt of int (* an Int literal *)
   | HString of string (* a String literal *)
+  | HChar of int (* a Char literal *)
   | HText of string * string (* a String split around this prefix and suffix *)
   | HLength of int (* a list of exactly this many elements *)
   | HLonger of int (* a list of this many elements or more *)
@@ -60,6 +61,7 @@ let rec of_pattern p =
   | POr (_, alternatives, _) -> Or (List.map of_pattern alternatives)
   | PInt (_, v, _) -> Con (HInt v, [])
   | PString (_, v, _) -> Con (HString v, [])
+  | PChar (_, v, _) -> Con (HChar v, [])
   | PBool (_, v, _) -> Con (HBool v, [])
   | PTuple (_, elements, _) ->
       Con (HTuple (List.length elements), List.map of_pattern elements)
@@ -226,6 +228,7 @@ let split n items =
     [head] -> pat *)
 let unmatched_literal written =
   let ints = List.filter_map (function HInt n -> Some n | _ -> None) written in
+  let chars = List.filter_map (function HChar c -> Some c | _ -> None) written in
   let strings = List.filter_map (function HString s -> Some s | _ -> None) written in
   let texts = List.filter_map (function HText (p, s) -> Some (p, s) | _ -> None) written in
   let starts_with s p = String.length s >= String.length p && String.sub s 0 (String.length p) = p in
@@ -236,6 +239,9 @@ let unmatched_literal written =
   if ints <> [] then
     let rec free n = if List.mem n ints then free (n + 1) else n in
     Con (HInt (free 0), [])
+  else if chars <> [] then
+    let rec free c = if List.mem c chars then free (c + 1) else c in
+    Con (HChar (free (Char.code 'a')), [])
   else if strings <> [] || texts <> [] then
     let taken s =
       List.mem s strings
@@ -331,16 +337,7 @@ let rec useful datatype rows q types =
 (* --- the messages --- *)
 
 (** A string as a Pyking literal. string -> string *)
-let quoted s =
-  let escaped =
-    String.concat ""
-      (List.map
-         (function
-           | '\\' -> "\\\\" | '\'' -> "\\'" | '\n' -> "\\n" | '\t' -> "\\t"
-           | '\r' -> "\\r" | c -> String.make 1 c)
-         (List.of_seq (String.to_seq s)))
-  in
-  "'" ^ escaped ^ "'"
+let quoted s = Builtin.quote_string s
 
 (** A value no case matches, written as the pattern that would match it.
     pat -> string *)
@@ -359,6 +356,7 @@ let rec shown p =
   | Con (HTuple _, parts) -> "(" ^ all parts ^ ")"
   | Con (HInt n, _) -> string_of_int n
   | Con (HString s, _) -> quoted s
+  | Con (HChar c, _) -> Builtin.quote_char c
   | Con (HText (prefix, suffix), _) -> quoted (prefix ^ suffix)
   | Con (HLength _, parts) -> "[" ^ all parts ^ "]"
   | Con (HLonger _, parts) -> "[" ^ all parts ^ ", ..]"

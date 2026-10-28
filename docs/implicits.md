@@ -11,7 +11,7 @@ def foo(x: a, implicit bar: (a) -> b) -> (b, b):
 
 def my1() -> ():
     implicit def bar(z: Int) -> String: string(z) + "!"
-    print(foo(78))                      # ('78!', '78!')
+    print(foo(78))                      # ("78!", "78!")
 ```
 
 The design follows "Syntactic Implicit Parameters with Static

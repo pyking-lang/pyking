@@ -52,7 +52,7 @@ let children n =
   match n with
   | NExpr e -> (
       match e with
-      | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ -> []
+      | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ | EVar _ | EQualified _ -> []
       | EAdd (_, l, r, _)
       | ESub (_, l, r, _)
       | EMul (_, l, r, _)
@@ -83,7 +83,7 @@ let children n =
       | EField (_, record, _, _) -> [ NExpr record ])
   | NType t -> (
       match t with
-      | TInt _ | TFloat _ | TString _ | TBool _ | TUnknown _ | TBuiltin _
+      | TInt _ | TFloat _ | TString _ | TChar _ | TBool _ | TUnknown _ | TBuiltin _
       | TVar _ ->
           []
       | TList (_, element, _) -> [ NType element ]
@@ -101,7 +101,7 @@ let children n =
             constructors)
   | NPattern p -> (
       match p with
-      | PInt _ | PString _ | PBool _ | PWildcard _ | PCapture _ | PText _ -> []
+      | PInt _ | PString _ | PChar _ | PBool _ | PWildcard _ | PCapture _ | PText _ -> []
       | PTuple (_, elements, _) -> List.map (fun p -> NPattern p) elements
       | PList (_, prefix, rest, suffix, _) ->
           List.map (fun p -> NPattern p) prefix

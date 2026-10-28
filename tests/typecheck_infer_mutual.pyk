@@ -28,7 +28,7 @@ def is_odd(n):
 # which the last line does.
 def stage_one(n):
     if n < 1:
-        'done'
+        "done"
     else:
         stage_two(n - 1)
 

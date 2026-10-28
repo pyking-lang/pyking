@@ -5,7 +5,7 @@ nested: ((Int,),) = ((1,),)
 listed: [(Int,)] = [(1,), (2,)]
 print(one, two, none, nested, listed)
 a: (Int,) = (1,)
-b: (String,) = ('x',)
+b: (String,) = ("x",)
 c: (Bool,) = (true,)
 d: (Int, Bool) = (1, true)
 e: () = ()
@@ -17,7 +17,7 @@ print(a, b, c, d, e)
 print(f, g, h, i)
 p: Int = 1
 q: Int = 2
-r: String = 'deep'
+r: String = "deep"
 s: [Int] = [1, 2]
 t: (Int, Bool) = (1, true)
 print(p, q, r, s, t)
@@ -31,7 +31,7 @@ def only(v:(String,)) -> String:
     match v:
         case (word,):
             word
-print(only(('hello',)))
+print(only(("hello",)))
 def apply_plain(fn:(Int) -> Int, n:Int) -> Int:
     return fn(n)
 def apply_comma(fn:(Int) -> Int, n:Int) -> Int:

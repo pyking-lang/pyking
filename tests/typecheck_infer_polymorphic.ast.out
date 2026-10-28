@@ -7,7 +7,7 @@ def map(f:(a) -> b, lst:[a]) -> [b]:
 def double(n:Int) -> Int:
     n * 2
 def label(n:Int) -> String:
-    'n=' + string(n)
+    "n=" + string(n)
 numbers: [Int] = [1, 4, 6, 9]
 print(map(double, numbers))
 print(map(label, numbers))

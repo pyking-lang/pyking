@@ -373,11 +373,13 @@ contexts:
   main:
     - match: '#.*$'
       scope: comment.line.number-sign.pyking
-    - match: '"(\\.|[^"\\])*"|''(\\.|[^''\\])*'''
-      scope: string.quoted.pyking
+    - match: '"(\\.|[^"\\])*"'
+      scope: string.quoted.double.pyking
+    - match: '''(\\.|[^''\\])'''
+      scope: constant.character.pyking
     - match: '\b(for|in|if|while|loop|break|continue|then|else|var|def|return|match|case|public|implicit|import|from|as)\b'
       scope: keyword.control.pyking
-    - match: '\b(Int|Float|String|Bool)\b'
+    - match: '\b(Int|Float|String|Char|Bool)\b'
       scope: storage.type.pyking
     - match: '\b(true|false)\b'
       scope: constant.language.pyking

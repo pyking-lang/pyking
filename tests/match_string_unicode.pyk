@@ -1,0 +1,14 @@
+# A string pattern's prefix and suffix are cut by characters, whatever
+# a target counts a String's length in: UTF-8 bytes, UTF-16 units or
+# code points. Non-ASCII letters and an emoji outside the BMP on either
+# side.
+
+def middle(s: String) -> String:
+    match s:
+        case "å" + rest + "ö": "[" + rest + "]"
+        case "👑" + rest: "crown " + rest
+        case rest + "é": "acute " + rest
+        case _: "none"
+
+print(middle("åbcö"), middle("åö"), middle("👑x👑"), middle("caféé"), middle("abc"))
+print(len(middle("👑ü")), middle("å"))

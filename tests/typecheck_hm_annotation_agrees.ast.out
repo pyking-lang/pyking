@@ -23,7 +23,7 @@ def map_inferred(f:(a) -> b, lst:[a]) -> [b]:
             []
 def negate(n:Int) -> Int:
     0 - n
-print(pair_written(1, 'a'), pair_inferred(1, 'a'))
+print(pair_written(1, "a"), pair_inferred(1, "a"))
 print(apply_written(negate, 3), apply_inferred(negate, 3))
 print(map_written(negate, [1, 2]), map_inferred(negate, [1, 2]))
 print(map_written(negate, [3]), map_inferred(negate, [3]))

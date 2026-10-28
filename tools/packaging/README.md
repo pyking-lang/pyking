@@ -41,10 +41,10 @@ cask:
 brew uninstall pyking && brew install pyking-lang/tap/pyking
 ```
 
-The tutorial as a notebook (the path the cask's caveats print):
+A notebook is any Markdown file, opened in the browser:
 
 ```sh
-pyk notebook "$(brew --caskroom)"/pyking/*/pyking-*/PYKING-TUTORIAL.md
+pyk notebook notes.md
 ```
 
 ### Linux and WSL
@@ -166,7 +166,7 @@ ships beside it by looking in its own directory (`src/install.ml`):
 ```
 pyk                    the compiler
 LICENSE
-PYKING-TUTORIAL.md
+CHANGELOG.md
 lib/                   the standard library
 share/pyking.js        the compiler as JavaScript: the iweb targets and the pages
 tools/webrun/          the web tools' scripts, and Ace, Monaco and KaTeX

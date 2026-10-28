@@ -27,10 +27,6 @@ public final class TextExternal {
         return s.codePointAt(s.offsetByCodePoints(0, k));
     }
 
-    public static String host_from_code(int n) {
-        return new String(Character.toChars(n));
-    }
-
     public static String host_replace(String s, String old, String by) {
         return s.replace(old, by);
     }

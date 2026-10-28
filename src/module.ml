@@ -1284,7 +1284,7 @@ and qualified name type_ =
             d,
             List.map (fun (IParam (n, t)) -> IParam (n, go t)) ips )
     | TForall (i, vs, b, s) -> TForall (i, vs, go b, s)
-    | TInt _ | TFloat _ | TString _ | TBool _ | TUnknown _ | TBuiltin _
+    | TInt _ | TFloat _ | TString _ | TChar _ | TBool _ | TUnknown _ | TBuiltin _
     | TVar _ ->
         t
   in

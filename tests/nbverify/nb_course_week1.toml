@@ -150,7 +150,7 @@ reason = "Not right.\nOne or more right answers were not checked."
 [[solution]]
 file = "nb_course_week1_values_s4.pyk"
 accepted = false
-reason = "Not right.\n2: A list shows its strings quoted: `['hi']`."
+reason = "Not right.\n2: A list shows its strings quoted: `[\"hi\"]`."
 
 [[solution]]
 file = "nb_course_week1_values_s5.pyk"

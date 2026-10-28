@@ -397,6 +397,7 @@ let rec value_type v =
   | Interpreter.VInt _ -> Some (TInt (none, 0))
   | Interpreter.VFloat _ -> Some (TFloat (none, 0))
   | Interpreter.VString _ -> Some (TString (none, 0))
+  | Interpreter.VChar _ -> Some (TChar (none, 0))
   | Interpreter.VBool _ -> Some (TBool (none, 0))
   | Interpreter.VUnit -> Some (TTuple (none, [], 0))
   | Interpreter.VList (first :: _) -> Option.map (fun e -> TList (none, e, 0)) (value_type first)

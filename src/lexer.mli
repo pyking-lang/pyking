@@ -38,6 +38,7 @@ type token =
   | TokInt of info * int
   | TokFloat of info * float
   | TokString of info * string
+  | TokChar of info * int (* 'a': one Unicode code point *)
   | TokAdd of info (* '+' user defined *)
   | TokConcat of info (* '++' (no longer an operator: `+` joins) *)
   | TokSub of info (* '-' user defined *)
@@ -99,6 +100,7 @@ type token =
   | TokTypeInt of info (* 'Int' (type annotation) *)
   | TokTypeFloat of info (* 'Float' (type annotation) *)
   | TokTypeString of info (* 'String' (type annotation) *)
+  | TokTypeChar of info (* 'Char' (type annotation) *)
   | TokTypeBool of info (* 'Bool' (type annotation) *)
   | TokTrue of info (* 'true' (boolean literal) *)
   | TokFalse of info (* 'false' (boolean literal) *)

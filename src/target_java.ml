@@ -353,6 +353,7 @@ let rec jt ctx ?(boxed = false) ?(erase = false) t =
   | TFloat _ -> if boxed then "Double" else "double"
   | TBool _ -> if boxed then "Boolean" else "boolean"
   | TString _ -> "String"
+  | TChar _ -> runtime_class ^ ".PykChar"
   | TTuple (_, [], _) -> "Void"
   | TTuple (_, es, _) -> Printf.sprintf "%s.T%d<%s>" runtime_class (List.length es) (targs ctx es)
   | TList (_, e, _) -> "java.util.List<" ^ jt ctx ~boxed:true e ^ ">"
@@ -580,6 +581,7 @@ let rec type_of ctx scope e =
       | EInt (i, _, _) -> TInt (i, 0)
       | EFloat (i, _, _) -> TFloat (i, 0)
       | EString (i, _, _) -> TString (i, 0)
+      | EChar (i, _, _) -> TChar (i, 0)
       | EBool (i, _, _) | EEq (i, _, _, _) | ELessThan (i, _, _, _)
       | ELessThanEq (i, _, _, _) | EGreatThan (i, _, _, _) | EGreatThanEq (i, _, _, _)
       | EBinary (i, (BNeq | BAnd _ | BOr _ | BBoolXor), _, _, _) | EUnary (i, UNot _, _, _) ->
@@ -649,6 +651,28 @@ let quote s =
   Buffer.add_char b '"';
   Buffer.contents b
 
+(** A Char literal: the runtime's PykChar of a code point. int -> jexpr *)
+let char_literal v = atom (Printf.sprintf "%s.chr(%d)" runtime_class v)
+
+(** A Char's code point, as an int. jexpr -> jexpr *)
+let char_code (v : jexpr) =
+  if v.boxed then atom (Printf.sprintf "((%s.PykChar) %s).code" runtime_class (at p_unary v))
+  else atom (at p_atom v ^ ".code")
+
+(** A sequence a `for` walks: a String's Chars as a list of them, a
+    list as itself. typ -> jexpr -> jexpr *)
+let walked t (seq : jexpr) =
+  match t with
+  | TString _ -> atom (Printf.sprintf "%s.chars(%s)" runtime_class seq.text)
+  | _ -> seq
+
+(** The type of a sequence's items: a String's are Chars. typ -> typ *)
+let item_type t =
+  match t with
+  | TList (_, el, _) -> el
+  | TString (i, _) -> TChar (i, 0)
+  | _ -> TUnknown (no_info, 0)
+
 (** A Float literal. float -> jexpr *)
 let float_literal v =
   if v <> v then atom "Double.NaN"
@@ -667,6 +691,7 @@ let float_literal v =
 let printed _ctx t v =
   match t with
   | TString _ -> if v.boxed then mk p_unary ("(String) " ^ at p_unary v) else v
+  | TChar _ -> atom (Printf.sprintf "String.valueOf((Object) %s)" (at p_unary v))
   | TFloat _ -> atom (Printf.sprintf "%s(%s)" (rt "floatStr") (if v.boxed then "(double) " ^ at p_unary v else v.text))
   | TInt _ | TBool _ ->
       atom (Printf.sprintf "String.valueOf(%s)" (if v.boxed then "(Object) " ^ at p_unary v else v.text))
@@ -823,6 +848,7 @@ let rec pattern ctx st p (s : jexpr) (t : typ) binding =
       let s = unboxed ctx (TBool (info, 0)) s in
       ([ (if v then s else mk p_unary ("!" ^ at p_unary s)) ], [], st)
   | PString (_, v, _) -> ([ atom (Printf.sprintf "%s.equals(%s)" (quote v) s.text) ], [], st)
+  | PChar (_, v, _) -> ([ equal ctx (TChar (info, 0)) s (char_literal v) ], [], st)
   | PTuple (_, ps, _) ->
       let types = match t with TTuple (_, ts, _) -> ts | _ -> List.map (fun _ -> t) ps in
       parts ctx st ps (List.mapi (fun i _ -> tuple_get ctx s i) ps) types binding
@@ -860,7 +886,7 @@ let rec pattern ctx st p (s : jexpr) (t : typ) binding =
         @ (if suffix = "" then [] else [ atom (Printf.sprintf "%s.endsWith(%s)" (at p_atom s) (quote suffix)) ])
         @
         if prefix <> "" && suffix <> "" then
-          [ binary p_rel ">=" (atom (at p_atom s ^ ".length()")) (atom (string_of_int (String.length prefix + String.length suffix))) ]
+          [ binary p_rel ">=" (atom (at p_atom s ^ ".length()")) (atom (string_of_int (Builtin.utf16_length prefix + Builtin.utf16_length suffix))) ]
         else []
       in
       let binds =
@@ -869,8 +895,8 @@ let rec pattern ctx st p (s : jexpr) (t : typ) binding =
         | Some name ->
             [ ( name,
                 atom
-                  (Printf.sprintf "%s.substring(%d, %s.length() - %d)" (at p_atom s) (String.length prefix)
-                     (at p_atom s) (String.length suffix)),
+                  (Printf.sprintf "%s.substring(%d, %s.length() - %d)" (at p_atom s) (Builtin.utf16_length prefix)
+                     (at p_atom s) (Builtin.utf16_length suffix)),
                 t ) ]
       in
       (conds, binds, st)
@@ -991,6 +1017,7 @@ let rec expr ctx st scope e =
   | EInt (_, v, _) -> ((if v < 0 then mk p_unary (string_of_int v) else atom (string_of_int v)), st)
   | EFloat (_, v, _) -> (float_literal v, st)
   | EString (_, s, _) -> (atom (quote s), st)
+  | EChar (_, v, _) -> (char_literal v, st)
   | EBool (_, b, _) -> (atom (if b then "true" else "false"), st)
   | ETuple (_, [], _) -> (null_expr, st)
   | ETuple (_, es, _) ->
@@ -1067,10 +1094,12 @@ let rec expr ctx st scope e =
       let v, st = expr ctx st scope operand in
       let spelling = match op with UNot _ -> "!" | UBitNot _ -> "~" in
       (mk p_unary (spelling ^ at p_unary v), st)
-  | EIndex (_, l, index, _) ->
+  | EIndex (_, l, index, _) -> (
       let a, st = expr ctx st scope l in
       let i, st = expr ctx st scope index in
-      (atom ~boxed:true (Printf.sprintf "%s.get(%s)" (at p_atom a) i.text), st)
+      match type_of ctx scope l with
+      | TString _ -> (atom (Printf.sprintf "%s(%s, %s)" (rt "charAt") a.text i.text), st)
+      | _ -> (atom ~boxed:true (Printf.sprintf "%s.get(%s)" (at p_atom a) i.text), st))
   | ELessThan (_, l, r, _) -> comparison ctx st scope "<" l r
   | ELessThanEq (_, l, r, _) -> comparison ctx st scope "<=" l r
   | EGreatThan (_, l, r, _) -> comparison ctx st scope ">" l r
@@ -1152,7 +1181,9 @@ and arithmetic ctx st scope prec op l r =
 and comparison ctx st scope op l r =
   let a, st = expr ctx st scope l in
   let b, st = expr ctx st scope r in
-  (binary p_rel op a b, st)
+  match type_of ctx scope l with
+  | TChar _ -> (binary p_rel op (char_code a) (char_code b), st)
+  | _ -> (binary p_rel op a b, st)
 
 (** A name read as a value. ctx -> state -> scope -> expr -> string ->
     (jexpr, state) *)
@@ -1427,6 +1458,7 @@ and builtin ctx st scope e name args =
       | TFloat _ -> (helper "truncate", st)
       | TBool _ -> (mk p_cond (Printf.sprintf "%s ? 1 : 0" (at (p_cond + 1) v)), st)
       | TString _ -> (helper "intOfString", st)
+      | TChar _ -> (char_code v, st)
       | _ -> unsupported info "`int` of this type")
   | "float", [ v ] -> (
       match arg_type 0 with
@@ -1434,6 +1466,7 @@ and builtin ctx st scope e name args =
       | TInt _ -> (mk p_unary (Printf.sprintf "(double) %s" (at p_unary (unboxed ctx (TInt (info, 0)) v))), st)
       | TBool _ -> (mk p_cond (Printf.sprintf "%s ? 1.0 : 0.0" (at (p_cond + 1) v)), st)
       | TString _ -> (helper "floatOfString", st)
+      | TChar _ -> (mk p_unary (Printf.sprintf "(double) %s" (at p_unary (char_code v))), st)
       | _ -> unsupported info "`float` of this type")
   | "bool", [ v ] -> (
       match arg_type 0 with
@@ -1441,7 +1474,14 @@ and builtin ctx st scope e name args =
       | TInt _ -> (equal ctx (TInt (info, 0)) v (atom "1"), st)
       | TFloat _ -> (equal ctx (TFloat (info, 0)) v (atom "1.0"), st)
       | TString _ -> (atom (Printf.sprintf "%s.equals(%s)" (quote "true") v.text), st)
+      | TChar _ -> (binary p_eq "!=" (char_code v) (atom "0"), st)
       | _ -> unsupported info "`bool` of this type")
+  | "char", [ v ] -> (
+      match arg_type 0 with
+      | TChar _ -> (v, st)
+      | TInt _ -> (helper "charOfInt", st)
+      | TString _ -> (helper "charOfString", st)
+      | _ -> unsupported info "`char` of this type")
   | _ -> unsupported info (Printf.sprintf "the builtin `%s` with these arguments" name)
 
 (** The line a print writes: its arguments' texts, a space between.
@@ -1526,7 +1566,8 @@ and comprehension ctx st scope e element clauses =
     | CompFor (_, p, sequence, _) :: rest ->
         let seq, st = expr ctx st scope sequence in
         let seq_t = type_of ctx scope sequence in
-        let element_t = match seq_t with TList (_, el, _) -> el | _ -> TUnknown (no_info, 0) in
+        let seq = walked seq_t seq in
+        let element_t = item_type seq_t in
         let item, st = temp st "i" in
         let conds, binds, st = pattern ctx st p (atom ~boxed:true item) element_t true in
         let decls, inner, st = bind_all ctx st scope binds in
@@ -2074,7 +2115,9 @@ and loop ctx st scope s =
       (match iterate with
       | Some (ForIn (_, element, sequence, _)) ->
           let seq, st = expr ctx st scope sequence in
-          let element_t = match type_of ctx scope sequence with TList (_, el, _) -> el | _ -> TUnknown (info, 0) in
+          let seq_t = type_of ctx scope sequence in
+          let seq = walked seq_t seq in
+          let element_t = match item_type seq_t with TUnknown _ -> TUnknown (info, 0) | t -> t in
           let jname, inner, st = new_local ctx st inner element element_t in
           let body_stmts, st = tail_block ctx st inner fin body in
           ( setup @ [ JFor (label, Printf.sprintf "final %s %s : %s" (jt ctx element_t) jname seq.text, turn_decls @ body_stmts) ],
@@ -2906,15 +2949,75 @@ let runtime_source programs version =
         "        return java.util.Collections.unmodifiableList(out);";
         "    }";
         "";
-        "    // A String's length in UTF-8 bytes, as Pyking counts it.";
-        "    public static int len(String s) {";
-        "        return s.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;";
+        "    // A Char: one Unicode code point. A class of its own, so that print";
+        "    // tells it from an Integer and a String.";
+        "    public static final class PykChar implements Comparable<PykChar> {";
+        "        public final int code;";
+        "";
+        "        public PykChar(int code) {";
+        "            this.code = code;";
+        "        }";
+        "";
+        "        @Override";
+        "        public boolean equals(Object other) {";
+        "            return other instanceof PykChar && ((PykChar) other).code == code;";
+        "        }";
+        "";
+        "        @Override";
+        "        public int hashCode() {";
+        "            return code;";
+        "        }";
+        "";
+        "        @Override";
+        "        public int compareTo(PykChar other) {";
+        "            return Integer.compare(code, other.code);";
+        "        }";
+        "";
+        "        @Override";
+        "        public String toString() {";
+        "            return new String(Character.toChars(code));";
+        "        }";
         "    }";
         "";
-        "    // What print writes for a value: a String bare, everything else as";
-        "    // it is written inside another value.";
+        "    public static PykChar chr(int code) {";
+        "        return new PykChar(code);";
+        "    }";
+        "";
+        "    // The Char of a code point, or '\\0' where n is none.";
+        "    public static PykChar charOfInt(int n) {";
+        "        return new PykChar(n >= 0 && n <= 0x10FFFF && !(n >= 0xD800 && n <= 0xDFFF) ? n : 0);";
+        "    }";
+        "";
+        "    // A String's first Char, or '\\0' for \"\".";
+        "    public static PykChar charOfString(String s) {";
+        "        return new PykChar(s.isEmpty() ? 0 : s.codePointAt(0));";
+        "    }";
+        "";
+        "    // s[i]: the i-th code point, counting from 0.";
+        "    public static PykChar charAt(String s, int i) {";
+        "        if (i < 0 || i >= s.codePointCount(0, s.length()))";
+        "            throw new IndexOutOfBoundsException(\"String index \" + i + \" out of range\");";
+        "        return new PykChar(s.codePointAt(s.offsetByCodePoints(0, i)));";
+        "    }";
+        "";
+        "    // A String's Chars, in order: what `for c in s` walks.";
+        "    public static java.util.List<PykChar> chars(String s) {";
+        "        java.util.ArrayList<PykChar> out = new java.util.ArrayList<PykChar>();";
+        "        for (int k = 0; k < s.length(); k = s.offsetByCodePoints(k, 1)) out.add(new PykChar(s.codePointAt(k)));";
+        "        return java.util.Collections.unmodifiableList(out);";
+        "    }";
+        "";
+        "    // A String's length in code points, as Pyking counts it.";
+        "    public static int len(String s) {";
+        "        return s.codePointCount(0, s.length());";
+        "    }";
+        "";
+        "    // What print writes for a value: a String or a Char bare, everything";
+        "    // else as it is written inside another value.";
         "    public static String str(Object value) {";
-        "        return value instanceof String ? (String) value : show(value);";
+        "        if (value instanceof String) return (String) value;";
+        "        if (value instanceof PykChar) return value.toString();";
+        "        return show(value);";
         "    }";
         "";
         "    public static String show(Object value) {";
@@ -2928,6 +3031,8 @@ let runtime_source programs version =
         "            out.append(\"()\");";
         "        } else if (value instanceof String) {";
         "            out.append(quote((String) value));";
+        "        } else if (value instanceof PykChar) {";
+        "            out.append(quoteChar((PykChar) value));";
         "        } else if (value instanceof Double) {";
         "            out.append(floatStr((Double) value));";
         "        } else if (value instanceof java.util.List) {";
@@ -2964,20 +3069,35 @@ let runtime_source programs version =
         "        }";
         "    }";
         "";
+        "    // A String inside another value: in double quotes, escaped.";
         "    private static String quote(String text) {";
-        "        StringBuilder out = new StringBuilder(\"'\");";
+        "        StringBuilder out = new StringBuilder(\"\\\"\");";
         "        for (int i = 0; i < text.length(); i++) {";
         "            char c = text.charAt(i);";
         "            switch (c) {";
         "                case '\\\\': out.append(\"\\\\\\\\\"); break;";
-        "                case '\\'': out.append(\"\\\\'\"); break;";
+        "                case '\"': out.append(\"\\\\\\\"\"); break;";
         "                case '\\n': out.append(\"\\\\n\"); break;";
         "                case '\\t': out.append(\"\\\\t\"); break;";
         "                case '\\r': out.append(\"\\\\r\"); break;";
+        "                case '\\0': out.append(\"\\\\0\"); break;";
         "                default: out.append(c);";
         "            }";
         "        }";
-        "        return out.append('\\'').toString();";
+        "        return out.append('\"').toString();";
+        "    }";
+        "";
+        "    // A Char inside another value: in single quotes, escaped.";
+        "    private static String quoteChar(PykChar c) {";
+        "        switch (c.code) {";
+        "            case '\\'': return \"'\\\\''\";";
+        "            case '\\\\': return \"'\\\\\\\\'\";";
+        "            case '\\n': return \"'\\\\n'\";";
+        "            case '\\t': return \"'\\\\t'\";";
+        "            case '\\r': return \"'\\\\r'\";";
+        "            case 0: return \"'\\\\0'\";";
+        "            default: return \"'\" + c + \"'\";";
+        "        }";
         "    }";
         "";
         "    // A Float written the way Pyking writes one. Locale.ROOT, since a";

@@ -245,6 +245,7 @@ heap and refuses, with a source position and the reason, what does:
 |---|---|---|---|---|---|
 | scalars, strings, a `+` joining strings, every operator (`and`/`or`/`not` short-circuiting, `%`, `^`, `!=`, the bitwise ones) | ✅ | ✅ | ✅ | ✅ | ✅ (a string join allocates and is never freed) |
 | `xs[i]` on a list | ✅ | ✅ | ✅ (`get`) | ✅ (`List.nth`) | ❌ lists need a heap |
+| `Char`, `s[i]` on a String, `for c in s`, `len` of a String (code points) | ✅ (a one-character `str` subclass) | ✅ (the code point, a number) | ✅ (the runtime's `PykChar`) | ✅ (the code point, an `int`) | ✅ (the code point, an `int`; `for c in s` walks the UTF-8) |
 | `def`, recursion, mutual recursion, nested `def` | ✅ | ✅ | ✅ (a nested `def` is a static method taking what it captures) | ✅ | ✅ (a nested `def` is a function taking what it captures) |
 | `loop`, `while`, `break`, `continue`, value forms | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `for x in range(...)` | ✅ | ✅ | ✅ | ✅ | ✅ (a counting loop: no list is built) |
@@ -314,7 +315,10 @@ followed by a third difference, which is about the values themselves:
   Java, `Failure "nth"` or `Invalid_argument` on OCaml and `undefined` on
   JavaScript; a negative index is the element counted from the end on
   Python. The interpreter reports a Pyking runtime error (`the index 5
-  is outside a list of 2 elements`). C has no lists.
+  is outside a list of 2 elements`). C has no lists. `s[i]` outside a
+  String is the same case: the host's own error, a negative index
+  counted from the end on Python, and on C a message and status 1; the
+  interpreter says `the index 9 is outside a String of 3 characters`.
 - **A power with a negative Int exponent, and a shift by a negative
   count or by 32 or more.** The language leaves both undefined (PYKING.md,
   "Remainder and power", "Bitwise operators"); the interpreter reports a

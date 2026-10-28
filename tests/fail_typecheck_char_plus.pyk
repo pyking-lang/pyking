@@ -1,0 +1,8 @@
+# `+` joins two Strings, and a Char is not a String: `string(c)` makes
+# one.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+word = "ab"
+print(word + word[0])

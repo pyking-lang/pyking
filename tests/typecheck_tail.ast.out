@@ -10,11 +10,11 @@ def area(width:Int, height:Int) -> Int:
     scaled + 0
 def describe(n:Int) -> String:
     if n < 0:
-        'negative'
+        "negative"
     else if n == 0:
-        'zero'
+        "zero"
     else:
-        'positive'
+        "positive"
 def nested(n:Int, keep:Bool) -> Int:
     if keep:
         if n > 10:
@@ -35,9 +35,9 @@ def clamp(n:Int, hi:Int) -> Int:
         return n
 def pick(keep:Bool) -> String:
     return if keep:
-        'kept'
+        "kept"
     else:
-        'dropped'
+        "dropped"
 four: Int = scale(2, 2)
 nine: Int = scale(1, 1)
 doubled: Int = double(21)

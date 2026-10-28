@@ -6,7 +6,7 @@ public def twice(n:Int) -> Int:
     return n * 2
 public def label : (Int) -> String
 def label(n):
-    return if n > 0 then 'positive' else 'other'
+    return if n > 0 then "positive" else "other"
 public offset: Int = start + 1
 print(typecheck_module_public_mod1.name())
 print(m1.marker, offset)

@@ -89,3 +89,40 @@ val crosses_host : string -> bool
     reads back as the same double, always with a point or an exponent.
     float -> string *)
 val float_text : float -> string
+
+(** Whether an Int is a Unicode scalar value, which is what a Char
+    holds: 0 to 0x10FFFF, surrogates left out. int -> bool *)
+val is_code_point : int -> bool
+
+(** A UTF-8 String's characters, as code points; a byte that starts no
+    character is U+FFFD. string -> [int] *)
+val code_points : string -> int list
+
+(** One code point as UTF-8; U+FFFD for an Int that is none. int -> string *)
+val utf8 : int -> string
+
+(** How many characters a UTF-8 String holds: what `len` answers.
+    string -> int *)
+val utf8_length : string -> int
+
+(** `char(n)`: the code point itself, or 0 where it is none. int -> int *)
+val char_of_int : int -> int
+
+(** `char(s)`: a String's first character, or 0 where it has none.
+    string -> int *)
+val char_of_string : string -> int
+
+(** A Char as it is written inside a list or tuple: in single quotes,
+    with a quote, a backslash, a newline, a tab and a carriage return
+    escaped as a String's are. int -> string *)
+val quote_char : int -> string
+
+(** A String as it is written inside a list or tuple: in double quotes,
+    with a quote, a backslash, a newline, a tab and a carriage return
+    escaped. string -> string *)
+val quote_string : string -> string
+
+(** How many UTF-16 code units a UTF-8 String takes: its length in
+    JavaScript and Java, which a string pattern's prefix and suffix are
+    cut by there. string -> int *)
+val utf16_length : string -> int

@@ -11,7 +11,6 @@ make libs           build the interpreter's library plugins in lib/
 make test           the test suite (make stest for one at a time)
 make quicktest      a random sample of it (PERCENT=10; 5 by default)
 make playground     serve the web playground (pyk playground)
-make notebook       serve PYKING-TUTORIAL.md as a notebook (pyk notebook)
 make vendor         download the browser libraries the two above need
 make packaging      build the installable packages (on a Mac)
 make clean          remove _build/, ./pyk, lib/'s plugins, __pycache__/
@@ -211,7 +210,7 @@ the website build and `make -C tools/playground check`, which run in a
 checkout; `tests/test_notebook.py` checks that `pyk` serves every file
 they name and the same manifest. `pyk notebook --mode test` serves
 nothing: it runs `tools/notebook/check.js` under node, which checks the document's
-tasks and quizzes and runs its programs, so test mode needs node. `make playground` and `make notebook` go through `./pyk` the same
+tasks and quizzes and runs its programs, so test mode needs node. `make playground` goes through `./pyk` the same
 way, after `make vendor` has downloaded Ace, KaTeX and Monaco once.
 
 A program using a library that needs a page -- `tinyweb` -- is shown by

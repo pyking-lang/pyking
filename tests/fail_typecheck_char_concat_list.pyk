@@ -1,0 +1,8 @@
+# A list of Chars is not a String: `text.from_chars` or a loop joining
+# `string(c)` makes one.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+letters = [c for c in "ab"]
+print("x" + letters)

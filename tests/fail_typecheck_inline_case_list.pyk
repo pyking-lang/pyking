@@ -10,6 +10,6 @@
 
 n = 1
 
-label = match n: case _: 'any'
+label = match n: case _: "any"
 
 print(label)

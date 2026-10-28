@@ -7,11 +7,10 @@ file is the notebook, written in any editor, and it reads correctly in any
 Markdown viewer too.
 
 ```sh
-pyk notebook PYKING-TUTORIAL.md          # serve it and print a link
+pyk notebook notes.md                    # serve it and print a link
 pyk notebook --port 9000 notes.md
 pyk notebook --mode teacher exam.md      # every solution, test, answer and problem shown
 pyk notebook --mode test exam.md         # check it, and serve nothing
-make notebook                            # at the repository root: the tutorial
 ```
 
 A notebook may hold **tasks and quizzes**, checked in the page; see
@@ -615,7 +614,7 @@ listens on `localhost` only.
 `tests/test_notebook.py`, part of `make test`, renders
 `tests/notebook/features.md` — every feature above — against
 `features.html`, checks a list of short cases against CommonMark's own
-answers, runs every cell of `PYKING-TUTORIAL.md` through the compiler's
+answers, runs every cell of `features.md` through the compiler's
 worker under node, checks what `tasks.js` makes of `features.md` and
 its grading arithmetic, starts `pyk notebook` and `pyk playground` to fetch
 what their pages load, and runs test mode on `features.md` and

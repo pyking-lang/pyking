@@ -26,13 +26,13 @@ def show(nodes:[(Int, Int, Int)], index:Int) -> String:
         case (0, value, _):
             string(value)
         case (1, left, right):
-            '(' + show(nodes, left) + ' + ' + show(nodes, right) + ')'
+            "(" + show(nodes, left) + " + " + show(nodes, right) + ")"
         case (2, left, right):
-            '(' + show(nodes, left) + ' * ' + show(nodes, right) + ')'
+            "(" + show(nodes, left) + " * " + show(nodes, right) + ")"
         case (3, left, right):
-            '(' + show(nodes, left) + ' - ' + show(nodes, right) + ')'
+            "(" + show(nodes, left) + " - " + show(nodes, right) + ")"
         case _:
-            '?'
+            "?"
     return text
 program: [(Int, Int, Int)] = [(2, 1, 2), (1, 3, 4), (3, 5, 6), (0, 2, 0), (0, 3, 0), (0, 10, 0), (0, 4, 0)]
 print(show(program, 0))

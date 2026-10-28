@@ -33,12 +33,12 @@ def take_first(total:Int, pair:(Int, a)) -> Int:
     (n, s): (Int, a) = pair
     total + n
 print(filter(small, [1, 7, 2, 9]))
-print(filter(short, ['ab', 'long', 'c']))
-print(zip([1, 2], ['a', 'b']))
-print(zip([true], [(1, 'x')]))
+print(filter(short, ["ab", "long", "c"]))
+print(zip([1, 2], ["a", "b"]))
+print(zip([true], [(1, "x")]))
 print(fold(add, 0, filter(small, [1, 7, 2])))
-print(fold(join, '', filter(short, ['ab', 'long'])))
-print(fold(take_first, 0, zip([1, 2, 3], ['a', 'b', 'c'])))
+print(fold(join, "", filter(short, ["ab", "long"])))
+print(fold(take_first, 0, zip([1, 2, 3], ["a", "b", "c"])))
 filtering: ((a) -> Bool, [a]) -> [a] = filter
 zipping: ([a], [b]) -> [(a, b)] = zip
 folding: ((a, b) -> a, a, [b]) -> a = fold

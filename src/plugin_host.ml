@@ -352,6 +352,7 @@ let rec to_host back type_ value =
   | TInt _, Interpreter.VInt n -> Obj.repr n
   | TFloat _, Interpreter.VFloat x -> Obj.repr x
   | TString _, Interpreter.VString text -> Obj.repr text
+  | TChar _, Interpreter.VChar c -> Obj.repr c
   | TBool _, Interpreter.VBool b -> Obj.repr b
   | TTuple (_, [], _), _ -> Obj.repr ()
   | TList (_, element, _), Interpreter.VList items ->
@@ -376,6 +377,7 @@ and of_host type_ value =
   | TInt _ -> Interpreter.VInt (Obj.obj value : int)
   | TFloat _ -> Interpreter.VFloat (Obj.obj value : float)
   | TString _ -> Interpreter.VString (Obj.obj value : string)
+  | TChar _ -> Interpreter.VChar (Obj.obj value : int)
   | TBool _ -> Interpreter.VBool (Obj.obj value : bool)
   | TTuple (_, [], _) -> Interpreter.VUnit
   | TList (_, element, _) ->

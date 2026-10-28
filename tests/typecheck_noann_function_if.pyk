@@ -12,11 +12,11 @@
 
 def sign(n):
     if n < 1:
-        return 'small'
+        return "small"
     else if n == 1:
-        return 'one'
+        return "one"
     else:
-        return 'large'
+        return "large"
 
 def clamp(n, hi):
     if n > hi:
@@ -43,16 +43,16 @@ def pick(keep):
 # bound first (see PYKING.md, "return of an if").
 def pick_directly(keep):
     return if keep:
-        'kept'
+        "kept"
     else:
-        'dropped'
+        "dropped"
 
 # An `if` that yields nothing is an ordinary statement inside a body,
 # and the return after it is what makes the body return.
 def describe(n):
     if n > 0:
         positive = true
-    return 'described'
+    return "described"
 
 # The parameters of one function are not visible in another, so `n`
 # below is `sign`'s parameter and nothing else -- and the calls compose

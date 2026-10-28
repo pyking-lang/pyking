@@ -23,11 +23,11 @@ def reverse(lst):
 def empty(): []
 
 print(append([1, 2], [3]))
-print(append(['a'], ['b', 'c']))
+print(append(["a"], ["b", "c"]))
 print(append([], [true]))
 print(append(empty(), [1]))
 print(reverse([1, 2, 3]))
-print(reverse(['a', 'b']))
+print(reverse(["a", "b"]))
 print(reverse(append(reverse([true]), [false])))
 
 appending = append

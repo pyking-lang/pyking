@@ -17,7 +17,7 @@ def tail_group2(state:Int, n:Int) -> String:
     loop (state, n): (Int, Int) = (state, n):
         if state == 0:
             if n < 1:
-                return 'done'
+                return "done"
             else:
                 (1, n - 1)
         else if state == 1:

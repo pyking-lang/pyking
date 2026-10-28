@@ -34,10 +34,12 @@ ace.define("ace/mode/pyking_highlight_rules", [], function (require, exports) {
     this.$rules = {
       start: [
         { token: "comment", regex: "#.*$" },
-        // Strings: both quote forms, with the backslash escapes scan_string
-        // decodes. An unterminated literal is a string to the end of its
-        // line rather than swallowing the rest of the file.
-        { token: "string", regex: "'(?:[^'\\\\]|\\\\.)*'" },
+        // A String in double quotes and a Char -- one character, or one
+        // escape -- in single quotes, with the backslash escapes
+        // scan_string decodes. An unterminated literal is a string to the
+        // end of its line rather than swallowing the rest of the file.
+        { token: "constant.character", regex: "'(?:\\\\.|[\\uD800-\\uDBFF][\\uDC00-\\uDFFF]|[^'\\\\])'" },
+        { token: "invalid", regex: "'(?:[^'\\\\]|\\\\.)*'" },
         { token: "string", regex: '"(?:[^"\\\\]|\\\\.)*"' },
         { token: "string", regex: "['\"].*$" },
         { token: "constant.numeric", regex: "\\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\\d+(?:\\.\\d+)?)\\b" },

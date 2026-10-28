@@ -1,0 +1,5 @@
+def initial(name: String) -> Char:
+    name[0]
+
+letter = initial("Åsa")
+codes = [int(c) for c in "ok"]

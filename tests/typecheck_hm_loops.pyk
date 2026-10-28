@@ -30,9 +30,9 @@ def big(n): n > 1
 def long_word(w): len(w) > 2
 
 print(collect([1, 2, 3]))
-print(collect(['a', 'b']))
+print(collect(["a", "b"]))
 print(total([1, 2, 3]))
-print(any_of([1, 2], big), any_of(['ab'], long_word))
+print(any_of([1, 2], big), any_of(["ab"], long_word))
 
 collecting = collect
 anything = any_of

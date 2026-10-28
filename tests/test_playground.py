@@ -283,7 +283,7 @@ answer = submit("[10, 20, 30][1] + (7 % 4) + (2 ^ 3) + (12 and 10)");
 replCheck("the new operators answer as in a file", shown.join("|") === "39 : Int",
           JSON.stringify([shown, answer.errors]));
 answer = submit("(lam (a, b). a + b)(\"con\", \"cat\")");
-replCheck("a lam lambda joining two Strings", shown.join("|") === "'concat' : String",
+replCheck("a lam lambda joining two Strings", shown.join("|") === '"concat" : String',
           JSON.stringify([shown, answer.errors]));
 answer = submit("x => x");
 replCheck("the old lambda is refused by name",

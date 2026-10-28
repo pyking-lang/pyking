@@ -13,4 +13,4 @@ flag = 1 < 2
 answer = if flag:
     42
 else:
-    'forty-two'
+    "forty-two"

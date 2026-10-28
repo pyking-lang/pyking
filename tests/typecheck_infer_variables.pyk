@@ -22,11 +22,11 @@ def constant(x, y): x
 
 def increment(n): n + 1
 
-print(echo(1), echo('two'), echo(true))
+print(echo(1), echo("two"), echo(true))
 print(apply_twice(increment, 5))
-print(swap((1, 'one')), swap(('a', true)))
-print(size([1, 2, 3]), size(['a', 'b']), size([]))
-print(constant(1, 'ignored'), constant('kept', 2))
+print(swap((1, "one")), swap(("a", true)))
+print(size([1, 2, 3]), size(["a", "b"]), size([]))
+print(constant(1, "ignored"), constant("kept", 2))
 
 # `size` counts a list without ever looking at an element, so it takes a
 # list of anything; `increment` adds, so it does not.

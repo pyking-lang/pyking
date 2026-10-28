@@ -22,7 +22,7 @@ never = false
 if flag:
     a = 1
 else:
-    b = 'two'
+    b = "two"
 
 # With no `else` at all: there is a way through the statement that runs
 # no branch, so it supplies nothing whatever the branch ends in.
@@ -37,19 +37,19 @@ else:
     2
 
 greeting = if never:
-    'hello'
+    "hello"
 else:
-    'goodbye'
+    "goodbye"
 
 # An `else if` ladder is a nested `if` in the else branch (the parser
 # desugars it, and the printer prints it flat again), so the rule applies
 # down the whole chain.
 grade = if 1 < 2:
-    'a'
+    "a"
 else if 2 < 3:
-    'b'
+    "b"
 else:
-    'c'
+    "c"
 
 # Nesting the other way: a branch whose last statement is itself an `if`
 # yields what *that* if yields.
@@ -65,9 +65,9 @@ else:
 # `if` -- this `d` is the first `d` there is, not a rebinding of one from
 # a branch above.
 if flag:
-    d = 'inside the branch'
+    d = "inside the branch"
 else:
-    d = 'the other branch'
+    d = "the other branch"
 
 d = 0
 

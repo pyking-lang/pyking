@@ -1,0 +1,2 @@
+letter = "ab"[0]
+oops = "a" + letter

@@ -14,5 +14,5 @@ def count_of(xs:[a]) -> Int:
             0
         case [_, ..rest]:
             1 + count_of(rest)
-print(count_of([]), count_of([1, 2]), count_of(['a', 'b', 'c']))
+print(count_of([]), count_of([1, 2]), count_of(["a", "b", "c"]))
 sized: ([a]) -> Int = count_of

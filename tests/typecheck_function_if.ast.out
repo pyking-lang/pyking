@@ -1,10 +1,10 @@
 def sign(n:Int) -> String:
     if n < 1:
-        return 'small'
+        return "small"
     else if n == 1:
-        return 'one'
+        return "one"
     else:
-        return 'large'
+        return "large"
 def clamp(n:Int, hi:Int) -> Int:
     if n > hi:
         return hi
@@ -21,13 +21,13 @@ def pick(keep:Bool) -> Int:
     return chosen
 def pick_directly(keep:Bool) -> String:
     return if keep:
-        'kept'
+        "kept"
     else:
-        'dropped'
+        "dropped"
 def describe(n:Int) -> String:
     if n > 0:
         positive: Bool = true
-    return 'described'
+    return "described"
 kind: String = sign(4)
 bounded: Int = clamp(99, 10)
 size: Int = area(3, 4)

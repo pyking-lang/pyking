@@ -11,7 +11,7 @@ def double(n):
     n * 2
 
 def greet(name):
-    'hello, ' + name
+    "hello, " + name
 
 def is_big(n):
     n > 100
@@ -19,7 +19,7 @@ def is_big(n):
 # Each call is what decides the function it calls. `double` is asked for
 # an Int here, so `n * 2` is Int arithmetic and the result is Int.
 doubled = double(21)
-greeting = greet('pyking')
+greeting = greet("pyking")
 big = is_big(5)
 
 print(doubled, greeting, big)
@@ -34,4 +34,4 @@ print(announce(4))
 # What a binding gets is the type of *that* call, not a summary of the
 # function: `announced` is a String because `announce` returns one.
 announced = announce(1)
-print(announced + '!')
+print(announced + "!")

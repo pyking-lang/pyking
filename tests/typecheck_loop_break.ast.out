@@ -7,11 +7,11 @@ def count_to(limit:Int) -> Int:
             i + 1
 def name_of(limit:Int) -> String:
     var i = 0
-    return loop said: String = 'waiting':
+    return loop said: String = "waiting":
         if i >= limit:
             break
         i := i + 1
-        'enough'
+        "enough"
 def nothing(limit:Int) -> ():
     var i = 0
     loop:
@@ -22,11 +22,11 @@ def spin() -> Int:
     loop n: Int = 0:
         n + 1
 def carried() -> (Int, String):
-    return loop (n, s): (Int, String) = (0, ''):
+    return loop (n, s): (Int, String) = (0, ""):
         if n > 2:
             break
         else:
-            (n + 1, s + 'x')
+            (n + 1, s + "x")
 print(count_to(3), count_to(0))
 print(name_of(2))
 print(nothing(2))

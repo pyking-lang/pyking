@@ -181,7 +181,7 @@ carry is the notation the type cannot (`[T]` is `t list`, `T?` is
 
 The groups:
 
-- **`Expr`** — `EInt`, `EString`, `EBool`, `EVar`, `EAdd`, `ESub`,
+- **`Expr`** — `EInt`, `EString`, `EChar`, `EBool`, `EVar`, `EAdd`, `ESub`,
   `EMul`, `EDiv`, `ENeg`, `EConcat`, `ELessThan`, `ELessThanEq`,
   `EGreatThan`, `EGreatThanEq`, `EEq`, `EBinary`, `EUnary`, `EIndex`,
   `ECall`, `EList`, `ETuple`, `EIf`, `EListComp`, `ELambda`, `ELet`,
@@ -205,13 +205,13 @@ The groups:
   `for x in e:` and `while c:` *are* `SLoop`, with no accumulator
   written, which is what lets every combination of the three halves
   work without a construct of its own.
-- **`Pattern`** — `PInt`, `PString`, `PBool`, `PWildcard`, `PCapture`,
+- **`Pattern`** — `PInt`, `PString`, `PChar`, `PBool`, `PWildcard`, `PCapture`,
   `PTuple`, `PList`, `PText`, `PConstructor`, `POr`, `PAs`. `PText` is a
   string split around a fixed beginning and end (`"ab" + rest`); the
   list form of `+` is folded into `PList` by the parser, so only the
   string one is a node. `PConstructor` carries positional and named
   field patterns; after `desugar_args.ml` every field is positional.
-- **`Type`** — `TInt`, `TString`, `TBool`, `TList`, `TTuple`,
+- **`Type`** — `TInt`, `TString`, `TChar`, `TBool`, `TList`, `TTuple`,
   `TUnknown`, `TBuiltin`, `TFunction`, `TVar`, `TForall`, `TCon`,
   `TData`. `TCon` is a datatype applied to its parameters, under the
   canonical name in a type the checker made; `TData` is what a
@@ -1209,7 +1209,7 @@ three are design rather than accident:
 
 ### Data structures
 
-- **`Value`** — `VInt`, `VFloat`, `VString`, `VBool`, `VUnit`, `VList`, `VTuple`,
+- **`Value`** — `VInt`, `VFloat`, `VString`, `VChar`, `VBool`, `VUnit`, `VList`, `VTuple`,
   `VClosure(name, params, body, env)`, `VBuiltin(name)`, and
   `VUndefined(name)` (a hoisted `def` whose definition has not run yet),
   and `VData(constructor, fields)`, a datatype's value, each field with

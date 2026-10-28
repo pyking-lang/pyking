@@ -12,10 +12,10 @@
 # the error message, not a program's output.
 
 def shout(word):
-    word + '!'
+    word + "!"
 
 def whisper(word):
-    word + '...'
+    word + "..."
 
 def chooser(loud):
     if loud:
@@ -23,4 +23,4 @@ def chooser(loud):
     else:
         whisper
 
-print(chooser(true)('hey'))
+print(chooser(true)("hey"))

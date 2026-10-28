@@ -1,9 +1,9 @@
 Pyking REPL.  :help for commands, :quit to leave.
-> > > '5' : String
-> 'true' : String
-> '7' : String
-> > > '3!' : String
-> > '3' : String
+> > > "5" : String
+> "true" : String
+> "7" : String
+> > > "3!" : String
+> > "3" : String
 > implicit fmt        = <function> : (Int) -> String
 loud       = <function> : (Int, implicit fmt: (Int) -> String) -> String
 plain      = <function> : (Int) -> String

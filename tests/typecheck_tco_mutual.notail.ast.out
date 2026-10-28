@@ -12,7 +12,7 @@ print(is_even(10), is_odd(10))
 print(is_even(101), is_odd(101))
 def step_one(n:Int) -> String:
     if n < 1:
-        'done'
+        "done"
     else:
         step_two(n - 1)
 def step_two(n:Int) -> String:

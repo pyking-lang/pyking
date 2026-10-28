@@ -45,6 +45,7 @@ type token =
   | TokInt of info * int
   | TokFloat of info * float
   | TokString of info * string
+  | TokChar of info * int (* 'a': one Unicode code point *)
   | TokAdd of info (* '+' user defined *)
   | TokConcat of info (* '++' (no longer an operator: `+` joins) *)
   | TokSub of info (* '-' user defined *)
@@ -106,6 +107,7 @@ type token =
   | TokTypeInt of info (* 'Int' (type annotation) *)
   | TokTypeFloat of info (* 'Float' (type annotation) *)
   | TokTypeString of info (* 'String' (type annotation) *)
+  | TokTypeChar of info (* 'Char' (type annotation) *)
   | TokTypeBool of info (* 'Bool' (type annotation) *)
   | TokTrue of info (* 'true' (boolean literal) *)
   | TokFalse of info (* 'false' (boolean literal) *)
@@ -126,6 +128,7 @@ let token_info tok =
   | TokInt (i, _) -> i
   | TokFloat (i, _) -> i
   | TokString (i, _) -> i
+  | TokChar (i, _) -> i
   | TokAdd i -> i
   | TokConcat i -> i
   | TokSub i -> i
@@ -187,6 +190,7 @@ let token_info tok =
   | TokTypeInt i -> i
   | TokTypeFloat i -> i
   | TokTypeString i -> i
+  | TokTypeChar i -> i
   | TokTypeBool i -> i
   | TokTrue i -> i
   | TokFalse i -> i
@@ -205,6 +209,7 @@ let pprint_token tok =
   | TokInt (_, x) -> Printf.sprintf "TokInt(%d)" x
   | TokFloat (_, x) -> Printf.sprintf "TokFloat(%s)" (Builtin.float_text x)
   | TokString (_, s) -> Printf.sprintf "TokString('%s')" s
+  | TokChar (_, c) -> Printf.sprintf "TokChar(%d)" c
   | TokAdd _ -> "TokAdd"
   | TokConcat _ -> "TokConcat"
   | TokSub _ -> "TokSub"
@@ -266,6 +271,7 @@ let pprint_token tok =
   | TokTypeInt _ -> "TokTypeInt"
   | TokTypeFloat _ -> "TokTypeFloat"
   | TokTypeString _ -> "TokTypeString"
+  | TokTypeChar _ -> "TokTypeChar"
   | TokTypeBool _ -> "TokTypeBool"
   | TokTrue _ -> "TokTrue"
   | TokFalse _ -> "TokFalse"
@@ -306,7 +312,7 @@ let keywords =
     "for"; "in"; "if"; "while"; "loop"; "break"; "continue"; "then"; "let";
     "else"; "var"; "def"; "return"; "match"; "case"; "public"; "implicit";
     "import";
-    "from"; "as"; "datatype"; "struct"; "Int"; "Float"; "String"; "Bool"; "true"; "false";
+    "from"; "as"; "datatype"; "struct"; "Int"; "Float"; "String"; "Char"; "Bool"; "true"; "false";
     "use"; "lam"; "and"; "or"; "not"; "xor";
   ]
     @ reserved_words
@@ -340,6 +346,7 @@ let keyword_token name i =
   | "Int" -> Some (TokTypeInt i)
   | "Float" -> Some (TokTypeFloat i)
   | "String" -> Some (TokTypeString i)
+  | "Char" -> Some (TokTypeChar i)
   | "Bool" -> Some (TokTypeBool i)
   | "true" -> Some (TokTrue i)
   | "false" -> Some (TokFalse i)
@@ -405,6 +412,7 @@ let escape_char e =
   | '\\' -> Some '\\'
   | '\'' -> Some '\''
   | '"' -> Some '"'
+  | '0' -> Some '\000'
   | _ -> None
 
 (** Reads a string literal body up to and including the closing quote,
@@ -554,11 +562,32 @@ let lexing file chars =
         let text, ys = string_until (fun ch -> ch <> '\n') xs in
         lex ys r (c + 1 + String.length text) stack depth line_start tokens
     (* String *)
-    | s :: xs when s = '\'' || s = '"' ->
-        let text, body_length, ys = scan_string file r c s xs in
+    | '"' :: xs ->
+        let text, body_length, ys = scan_string file r c '"' xs in
         let length = 1 + body_length in
         lex ys r (c + length) stack depth line_start
           (TokString (fi r c length, text) :: tokens)
+    (* Char: one code point between single quotes *)
+    | '\'' :: xs -> (
+        let text, body_length, ys = scan_string file r c '\'' xs in
+        let length = 1 + body_length in
+        match Builtin.code_points text with
+        | [ code ] ->
+            lex ys r (c + length) stack depth line_start
+              (TokChar (fi r c length, code) :: tokens)
+        | [] ->
+            raise
+              (Lex_error
+                 ( fi r c length,
+                   "a Char literal holds one character, and '' holds none" ))
+        | _ ->
+            raise
+              (Lex_error
+                 ( fi r c length,
+                   Printf.sprintf
+                     "a Char literal holds one character; a String is \
+                      written in double quotes: %s"
+                     (Builtin.quote_string text) )))
     (* Operators that are user defined in real pyking. `++` is read as one
        token so that the parser can say `+` joins now. *)
     | '+' :: '+' :: xs ->

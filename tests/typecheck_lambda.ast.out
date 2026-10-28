@@ -1,8 +1,8 @@
 inc: (Int) -> Int = lam (x:Int). x + 1
 print(inc(1))
 def on_text(f:(String) -> String) -> String:
-    f('ab')
-print(on_text(lam (x:String). x + '!'))
+    f("ab")
+print(on_text(lam (x:String). x + "!"))
 half: (Int) -> Int = lam (n:Int). n / 2
 print(half(9))
 pair: (Int) -> (Int) -> Int = lam (a:Int). lam (b:Int). a * b

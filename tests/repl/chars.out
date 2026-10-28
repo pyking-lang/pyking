@@ -1,0 +1,15 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> 'a' : Char
+> 'é' : Char
+> > ['👑', 'x'] : [Char]
+> ("👑", 128081, 'B') : (String, Int, Char)
+> ['o', 'k'] : [Char]
+> true : Bool
+> '<repl>' 1:0-1:4 Lexing error: a Char literal holds one character; a
+  String is written in double quotes: "ab"
+> '<repl>' 1:0-1:9 Type error: `+` cannot be applied to String and Char;
+  it accepts Int + Int or Float + Float or String + String or two
+  lists of one type. `+` joins two Strings, and a Char is not one:
+  write string(c)
+> c = '👑' : Char
+> 

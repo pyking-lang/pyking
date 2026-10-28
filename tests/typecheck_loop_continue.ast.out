@@ -12,7 +12,7 @@ def branches(n:Int) -> Int:
 def over_match(xs:[String]) -> Int:
     return loop acc: Int = 0 for x in xs:
         match x:
-            case 'double':
+            case "double":
                 acc + 2
             case _:
                 acc + 1
@@ -31,11 +31,11 @@ def loose(xs:[Int]) -> String:
     for x in xs:
         if x < 0:
             continue
-        'this value goes nowhere'
-    return 'done'
+        "this value goes nowhere"
+    return "done"
 print(total([1, 2, 3]), total([]))
 print(branches(5), branches(0))
-print(over_match(['double', 'x', 'double']))
+print(over_match(["double", "x", "double"]))
 print(early([1, 2]), early([1, 0 - 1]))
 print(skipping([1, 0 - 1, 2]))
 print(loose([1, 0 - 1, 2]))

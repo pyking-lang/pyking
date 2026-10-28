@@ -14,10 +14,10 @@ def middle(xs:[String]) -> [String]:
 def last_two(xs:[Int]) -> String:
     answer: String = match xs:
         case [.., a, b]:
-            string(a) + ',' + string(b)
+            string(a) + "," + string(b)
         case _:
-            'too short'
+            "too short"
     return answer
 print(outer([1, 2, 3, 9]), outer([7]), outer([]))
-print(middle(['a', 'b', 'c', 'd']), middle(['x']))
+print(middle(["a", "b", "c", "d"]), middle(["x"]))
 print(last_two([1, 2, 3]), last_two([4]))

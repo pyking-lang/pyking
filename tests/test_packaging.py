@@ -109,7 +109,7 @@ IMPORTS = "import sys\n\nprint(len(sys.args()))\n"
 # each library's plugin from the tree.
 LIBRARY = ('import io\nimport sys\nio.write_line("read " + io.read_line())\n'
            'print(sys.args())\n')
-LIBRARY_OUTPUT = "read typed\n['a', 'b']\n"
+LIBRARY_OUTPUT = 'read typed\n["a", "b"]\n'
 
 
 class Checks:
@@ -164,7 +164,7 @@ def check_stage(check, compiler):
         # Before anything runs from the tree: Python writes __pycache__
         # beside a script it runs.
         files = {str(p.relative_to(tree)) for p in tree.rglob("*") if p.is_file()}
-        for wanted in ["pyk", "LICENSE", "CHANGELOG.md", "PYKING-TUTORIAL.md", "share/pyking.js",
+        for wanted in ["pyk", "LICENSE", "CHANGELOG.md", "share/pyking.js",
                        "share/plugin/pyk_plugin.cmi", "lib/sys/sys.pyk",
                        "lib/io/io_external.cmxs", "tools/notebook/check.js",
                        "tools/notebook/assets/index.html",
@@ -270,13 +270,15 @@ def check_stage(check, compiler):
         (root / "empty").mkdir()
         bare = dict(env, PATH=str(root / "empty"))
         port = test_notebook.free_port()
+        served = work / "notes.md"
+        served.write_text("# Notes\n\n```pyking\nprint(1)\n```\n")
         process, printed = test_notebook.start(
-            [str(pyk)], ["notebook", "--port", str(port), str(tree / "PYKING-TUTORIAL.md")],
+            [str(pyk)], ["notebook", "--port", str(port), str(served)],
             bare)
         if check("`pyk notebook` starts from the package", process is not None, printed):
             try:
                 for path in ["/", "/notebook/notebook.js", "/webrun/web.js",
-                             "/pyking/pyking.js", "/doc/PYKING-TUTORIAL.md"]:
+                             "/pyking/pyking.js", "/doc/notes.md"]:
                     status, _ = test_notebook.fetch(port, path)
                     check(f"the packaged notebook serves {path}", status == 200,
                           f"status {status}")

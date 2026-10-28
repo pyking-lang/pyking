@@ -23,7 +23,6 @@ def host_length(s: String) -> Int
 def host_slice(s: String, start: Int, stop: Int) -> String
 def host_find(s: String, part: String, start: Int) -> Int
 def host_code(s: String, k: Int) -> Int
-def host_from_code(n: Int) -> String
 def host_replace(s: String, old: String, by: String) -> String
 def host_upper(s: String) -> String
 def host_lower(s: String) -> String

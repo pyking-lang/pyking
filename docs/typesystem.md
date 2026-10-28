@@ -403,7 +403,8 @@ pattern is a **demand**:
 
 ```
    case 1:              unify(subject, Int)
-   case 'x':            unify(subject, String)
+   case "x":            unify(subject, String)
+   case 'x':            unify(subject, Char)
    case (a, b):         unify(subject, (?1, ?2)), then recurse
    case [h] + t:        unify(subject, [?e]), then recurse on ?e
    case name:           binds; demands nothing

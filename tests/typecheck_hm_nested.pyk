@@ -17,13 +17,13 @@ def outer(n):
         match lst:
             case [x] + _: x
             case []: n
-    (pick(n, 'ignored'), pick(true, 1), later([]), later([n]))
+    (pick(n, "ignored"), pick(true, 1), later([]), later([n]))
 
 def plain(n):
     def twice_over(x): (x, x)
     twice_over(twice_over(n))
 
 print(outer(3))
-print(outer('three'))
+print(outer("three"))
 print(plain(1))
-print(plain('one'))
+print(plain("one"))

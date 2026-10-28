@@ -103,19 +103,23 @@ last bit; the tests print those to six decimals
 `text` is what is inside a String. A position or a length counts
 **code points** on every host: OCaml and C walk the UTF-8 bytes, and
 JavaScript and Java, whose strings are UTF-16, count a surrogate pair as
-one. Its declaration half is eight private primitives (`host_length`,
-`host_slice`, `host_find`, `host_code`, `host_from_code`,
-`host_replace`, `host_upper`, `host_lower`), each called only with
-positions inside the string, so no host has to agree with the others
-about one outside it:
+one -- as the builtins `len` and `s[i]` do. Its declaration half is
+seven private primitives (`host_length`, `host_slice`, `host_find`,
+`host_code`, `host_replace`, `host_upper`, `host_lower`), each called
+only with positions inside the string, so no host has to agree with the
+others about one outside it:
 
 - **Positions are clamped in `text.pyk`**: `slice` holds both ends to
-  the string, `char_at` and `code` answer `""` and -1 outside it, and
-  `from_code` answers `""` for what a string cannot hold (0, a
-  surrogate, past U+10FFFF) -- C could not carry the first.
+  the string, and `char_at` answers `'\0'` outside it.
+- **A character is a `Char`**, so `char_at`, `code`, `from_code`,
+  `chars` and `from_chars` are written in Pyking over `s[i]`, `int(c)`,
+  `char(n)` and `for c in s`, and need no primitive: `from_code`
+  answers `'\0'` for what is no character (a negative number, a
+  surrogate, past U+10FFFF), as `char` does.
 - **`upper`, `lower`, `trim` and `words` know ASCII only**, since the
   hosts' own case tables differ.
-- **`split`, `words`, `join` and `lines` take or answer a list**, so
+- **`split`, `words`, `join`, `lines`, `chars` and `from_chars` take
+  or answer a list**, so
   they are written in Pyking over the primitives and do not reach C;
   everything else does. `words` and `lines` replace the line endings
   first and then `split`, so a string is walked with `host_find` rather

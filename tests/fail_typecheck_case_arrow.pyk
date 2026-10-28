@@ -12,7 +12,7 @@
 n = 1
 
 label = match n:
-    case 0 -> 'zero'
-    case _ -> 'other'
+    case 0 -> "zero"
+    case _ -> "other"
 
 print(label)

@@ -18,10 +18,10 @@ def echo(x):
     x
 
 def announce(value):
-    'got ' + string(value)
+    "got " + string(value)
 
 number = echo(1)
-word = echo('two')
+word = echo("two")
 flag = echo(true)
 
 print(number, word, flag)

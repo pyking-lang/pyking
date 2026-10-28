@@ -1,0 +1,7 @@
+# A Char compares with a Char only: an Int is not a code point until
+# `char` makes it one.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print('a' < 97)

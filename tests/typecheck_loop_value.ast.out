@@ -15,11 +15,11 @@ def counted(limit:Int) -> Int:
             n + 1
 def marked(width:Int) -> String:
     var made = 0
-    loop text: String = '':
+    loop text: String = "":
         if made == width:
             break
         made := made + 1
-        text + '*'
+        text + "*"
 print(capped(10), capped(0))
 print(counted(3), counted(50))
 print(marked(5), marked(0))

@@ -14,15 +14,15 @@ def compose(f, g, x): f(g(x))
 
 def id(x): x
 
-def show(n): 'n=' + string(n)
+def show(n): "n=" + string(n)
 
 def size(s): len(s)
 
 def bump(n): n + 1
 
 print(compose(show, bump, 4))
-print(compose(size, id, 'abcd'))
-print(compose(bump, size, 'xyz'))
+print(compose(size, id, "abcd"))
+print(compose(bump, size, "xyz"))
 print(compose(id, id, true))
 
 composing = compose

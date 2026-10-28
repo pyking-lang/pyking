@@ -50,20 +50,45 @@ initializers, so every struct is built by a function of its own
 
 `for x in range(a, b, c)` builds no list: it is a counting loop.
 A `match` over a list, a list pattern and `len` of a list are refused
-with the list. A String's `len` is `strlen`.
+with the list (so are `[e for c in s]` and `lib/text`'s `chars`, which
+make a list of a String's Chars).
+
+## Chars and Strings
+
+A `Char` is an `int` holding its code point; `'a'` is written `97`, and
+`case 'a':` tests `== 97`. A String stays UTF-8 and is counted in code
+points, walked by the helper `pyk_utf8_step(p, &c)`, which decodes the
+code point at `p` into `c` and answers where the next one starts, or
+`NULL` at the end:
+
+| Pyking | C |
+|---|---|
+| `len(s)` | `pyk_utf8_length(s)`: code points, not bytes |
+| `s[i]` | `pyk_char_at(s, i)`; out of range it writes the error to stderr and exits with 1 |
+| `for c in s`, `loop acc = e for c in s:` | `for (c_at = s; (c_at = pyk_utf8_step(c_at, &c)) != NULL; )`: no list, so no heap |
+| `string(c)`, printing a Char | `pyk_utf8(c)`: its UTF-8 bytes, in a String of its own |
+| `int(c)`, `float(c)`, `bool(c)` | `c`, `(double)c`, `c != 0` |
+| `char(n)`, `char(s)`, `char(c)` | `pyk_char_of_int(n)` (0 unless a Unicode scalar value), `pyk_char_of_string(s)` (its first code point, 0 for `""`), `c` |
+| `<`, `==`, ... on Chars | the same operators on the code points |
+
+Inside a tuple or a datatype (`pyk_show_...`), a Char is written by
+`pyk_quote_char` (`'a'`, with `\'`, `\\`, `\n`, `\t`, `\r`, `\0`
+escaped) and a String by `pyk_quote` (`"abc"`, with `\\`, `\"`, `\n`,
+`\t`, `\r` escaped). A C string ends at its first NUL byte, so
+`string('\0')` is `""` here.
 
 ## How types are written
 
 | Pyking | C |
 |---|---|
-| `Int`, `Float`, `Bool`, `String` | `int`, `double`, `int`/`bool`, `const char *` |
+| `Int`, `Char`, `Float`, `Bool`, `String` | `int`, `int` (the code point), `double`, `int`/`bool`, `const char *` |
 | `()` | `void` as a result, `int` as a value (0) |
 | `(Int, String)` | `pyk_t_Tis_`, a struct with `a0`, `a1` |
 | `Shape`, `Maybe(Int)` | `pyk_d_D<module>_Shape__`, `pyk_d_D<module>_Maybe_i_`: a struct with a `tag` and a union of the constructors' fields |
 | `(Int) -> Int` | `pyk_c_Fi_i_`: a function `fn` taking the environment first, the environment `env`, and `plain`, the function itself where it captures nothing |
 
 A compound type's name is its **code**: one letter per scalar (`i`,
-`f`, `b`, `s`, `u` for unit), and `T...`, `D<module>_<name>_...` and
+`c`, `f`, `b`, `s`, `u` for unit), and `T...`, `D<module>_<name>_...` and
 `F..._..._` for a tuple, a datatype and a function. A datatype is
 always named with its module, so every file of a program writes the
 same struct. Each type is declared guarded (`#ifndef PYK_TYPE_...`), so
@@ -360,7 +385,7 @@ output and handed to the compiler with it.
 An external module has no Pyking top level, so no `sys_init()` is
 declared and none is called.
 
-The boundary carries `Int`, `Float`, `String`, `Bool`, unit, a tuple of
+The boundary carries `Int`, `Char` (an `int`, its code point), `Float`, `String`, `Bool`, unit, a tuple of
 those -- the struct this backend writes for it, which the implementation
 declares the same, guarded the same (`lib/time/time_external.c`) -- and
 a callback. A declaration naming a list is left out, and a call to one

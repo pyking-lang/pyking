@@ -52,7 +52,7 @@ let rec expression tmap e =
   if is_debug_call tmap e then unit_for e
   else
     match e with
-    | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ -> e
+    | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ | EVar _ | EQualified _ -> e
     | EAdd (i, l, r, s) -> EAdd (i, go l, go r, s)
     | ESub (i, l, r, s) -> ESub (i, go l, go r, s)
     | EMul (i, l, r, s) -> EMul (i, go l, go r, s)

@@ -47,11 +47,11 @@ print(map(double, numbers))
 print(map(show, numbers))
 print(fold_left(add, 0, numbers))
 print(fold_left(bigger, 0, numbers))
-print(fold_left(join, '', map(show, numbers)))
+print(fold_left(join, "", map(show, numbers)))
 print(fold_left(add, 0, filter(positive, map(double, [0 - 1, 3, 0 - 2, 4]))))
 print(map(show, filter(positive, numbers)))
 def take_first : (Int, (Int, String)) -> Int
 def take_first(total, pair):
     (n, s): (Int, String) = pair
     return total + n
-print(fold_left(take_first, 0, [(1, 'a'), (2, 'b'), (3, 'c')]))
+print(fold_left(take_first, 0, [(1, "a"), (2, "b"), (3, "c")]))

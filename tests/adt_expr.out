@@ -1,5 +1,5 @@
 (1 * x + 0) => x = 10
 let x = 5 in (x + 2 * y) => let x = 5 in (x + 2 * y) = 3
 --(2 + 3) * 0 => 0 = 0
-Var('x')
-Let('z', Num(1), Var('z'))
+Var("x")
+Let("z", Num(1), Var("z"))

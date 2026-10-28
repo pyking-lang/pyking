@@ -27,7 +27,7 @@ def sum_to(n):
 # numbers.
 def repeat(word, times):
     if times < 1:
-        ''
+        ""
     else:
         word + repeat(word, times - 1)
 
@@ -35,9 +35,9 @@ def repeat(word, times):
 # call has a type the moment it is reached.
 def countdown(n) -> String:
     if n < 1:
-        return 'liftoff'
+        return "liftoff"
     return countdown(n - 1)
 
 print(fact(5), sum_to(4))
-print(repeat('ab', 3))
+print(repeat("ab", 3))
 print(countdown(3))

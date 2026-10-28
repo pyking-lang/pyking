@@ -18,7 +18,7 @@ def join(text, word): text + word
 def count(total, word): total + len(word)
 
 print(fold_left(add, 0, [1, 2, 3]))
-print(fold_left(join, '', ['a', 'b', 'c']))
-print(fold_left(count, 0, ['ab', 'cde']))
+print(fold_left(join, "", ["a", "b", "c"]))
+print(fold_left(count, 0, ["ab", "cde"]))
 
 folding = fold_left

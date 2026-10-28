@@ -86,6 +86,7 @@ type value =
   | VInt of int (* at least 32 signed bits; overflow is undefined *)
   | VFloat of float (* IEEE 754 binary64 *)
   | VString of string
+  | VChar of int (* one Unicode code point *)
   | VBool of bool
   | VUnit (* `()`: what a statement, a print and a program produce *)
   | VList of value list

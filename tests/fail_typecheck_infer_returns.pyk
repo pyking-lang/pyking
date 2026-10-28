@@ -16,6 +16,6 @@
 def maybe(n):
     if n > 0:
         return 1
-    print('nothing')
+    print("nothing")
 
 print(maybe(5))

@@ -1,5 +1,5 @@
-[('alice', 90), ('bob', 65), ('carol', 97)]
-['alice', 'carol']
+[("alice", 90), ("bob", 65), ("carol", 97)]
+["alice", "carol"]
 [[1, 1], [], [1, 1, 1]]
 up, up, down, done
 done

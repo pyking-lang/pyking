@@ -6,12 +6,12 @@ program, and it removes two pieces of syntax entirely:
 
 ```pyking                           # what the pass builds
 def greet(who: String = "world"):   def greet__default__who() -> String:
-    print("hi " + who)                  'world'
+    print("hi " + who)                  "world"
                                     def greet(who: String):
 greet()                                 print("hi " + who)
 greet(who = "you")
                                     greet(greet__default__who())
-                                    greet('you')
+                                    greet("you")
 ```
 
 Nothing after the pass knows the sugar exists. The type checker, the
@@ -28,7 +28,7 @@ The obvious lowering is to evaluate each default once, where the
 definition stands, and bind it to a name:
 
 ```pyking
-greet__default__who = 'world'       # the lowering NOT used here
+greet__default__who = "world"       # the lowering NOT used here
 def greet(who: String): ...
 ```
 
@@ -191,7 +191,7 @@ nothing about defaults or parameter names, deliberately, so
 
 ```pyking
 g = greet
-g(who = 'you')
+g(who = "you")
 ```
 
 has no information to work from — `g` is a `(String) -> String` like any
@@ -205,7 +205,7 @@ way `analyses.ml` and `typesystem.ml` do. Shadowing has to be right or
 the pass would apply the wrong function's defaults silently:
 
 ```pyking
-def greet(who: String = 'world'): ...
+def greet(who: String = "world"): ...
 if ready:
     greet = 1
     greet()          # a Binding here, not the def

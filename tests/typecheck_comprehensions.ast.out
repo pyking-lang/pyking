@@ -1,5 +1,5 @@
 numbers: [Int] = [1, 2, 3, 4, 5]
-pairs: [(Int, String)] = [(1, 'a'), (2, 'b'), (3, 'c')]
+pairs: [(Int, String)] = [(1, "a"), (2, "b"), (3, "c")]
 print([n * 2 for n in numbers])
 print([n for n in numbers if n > 3])
 print([s for (n, s) in pairs])

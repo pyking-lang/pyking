@@ -11,6 +11,6 @@ def marked(n:Int, step:Int, marks:String) -> String:
         if n <= 0:
             return marks
         else:
-            (n - step, step, marks + '*')
-print(marked(9, 2, ''))
-print(marked(0, 1, '|'))
+            (n - step, step, marks + "*")
+print(marked(9, 2, ""))
+print(marked(0, 1, "|"))

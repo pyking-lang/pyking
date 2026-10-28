@@ -30,8 +30,8 @@ def add(total:Int, n:Int) -> Int:
 def join(text:String, word:String) -> String:
     text + word
 print(filter(small, [1, 7, 2, 9]))
-print(filter(short, ['ab', 'long', 'c']))
-print(zip([1, 2], ['a', 'b']))
-print(zip([true], [(1, 'x')]))
+print(filter(short, ["ab", "long", "c"]))
+print(zip([1, 2], ["a", "b"]))
+print(zip([true], [(1, "x")]))
 print(fold(add, 0, [1, 2, 3]))
-print(fold(join, '', ['a', 'b']))
+print(fold(join, "", ["a", "b"]))

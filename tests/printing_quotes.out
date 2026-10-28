@@ -1,15 +1,15 @@
 it's
-['it\'s']
-('it\'s', 1)
-[['it\'s']]
-['a\nb']
-['a\tb']
-['a\rb']
-['a\\b']
-['a\'b']
-['a"b']
-('tab\there', 'nl\nhere')
-['it\'s a \\ thing']
+["it's"]
+("it's", 1)
+[["it's"]]
+["a\nb"]
+["a\tb"]
+["a\rb"]
+["a\\b"]
+["a'b"]
+["a\"b"]
+("tab\there", "nl\nhere")
+["it's a \\ thing"]
 [1, 2, 3]
 (1, true)
 plain

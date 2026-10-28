@@ -26,4 +26,4 @@ def drop_one(lst:[a], n:Int) -> [a]:
     take(lst, n - 1)
 print(walk_even(4), walk_odd(4))
 print(take([1, 2, 3, 4], 2))
-print(take(['a', 'b', 'c'], 2))
+print(take(["a", "b", "c"], 2))

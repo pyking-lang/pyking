@@ -1,22 +1,22 @@
 def area(width:Int, height:Int) -> Int:
     width * height
 def announce(message:String) -> ():
-    print('note: ' + message)
+    print("note: " + message)
 def spaced(word:String) -> String:
-    padded: String = ' ' + word
-    padded + ' '
+    padded: String = " " + word
+    padded + " "
 def describe(n:Int) -> String:
     if n < 0:
-        'negative'
+        "negative"
     else if n == 0:
-        'zero'
+        "zero"
     else:
-        'positive'
+        "positive"
 def clamp(n:Int, hi:Int) -> Int:
     if n > hi:
         return hi
     n
-announce('starting')
-print(area(3, 4), spaced('x') + '|')
+announce("starting")
+print(area(3, 4), spaced("x") + "|")
 print(describe(0), describe(7))
 print(clamp(9, 5), clamp(2, 5))

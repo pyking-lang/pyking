@@ -492,7 +492,7 @@ function pykFormat(value, inner) {
   return String(value);
 }
 
-function pykQuote(text) { /* ' quoted the way Pyking quotes */ }
+function pykQuote(text) { /* " quoted the way Pyking quotes a String */ }
 
 function print(...values) {
   console.log(values.map((value) => pykFormat(value)).join(' '));
@@ -599,14 +599,21 @@ JavaScript type, so `float` of an Int is the value itself, and a Bool is
 and `int` of a Float through `pykTrunc`, in `pyk-runtime.js`, since
 `Number` and `parseInt` read strings Pyking does not (`" 3"`, `"0x1F"`)
 and `Math.trunc` answers a NaN where Pyking answers 0. `bool` is a
-comparison: `x === "true"`, or `x === 1`.
+comparison: `x === "true"`, `x === 1`, or `c !== 0` for a Char.
+
+`char(x)` is the operand for a Char, `pykCharOfInt(n)` for an Int (`n`
+where it is a Unicode scalar value, else 0) and `pykCharOfString(s)` for
+a String (its first code point, 0 for `""`). `int(c)` and `float(c)` are
+the code point itself, and `string(c)` is `pykShaped(c, 'c')`, which is
+`String.fromCodePoint(c)`. See "Chars" below.
 
 ### `range` and `len`
 
 Two helpers the module writes for itself where it uses them: `pykRange`
 builds the list of Ints `range` answers, and refuses a step of zero as
 the interpreter does; `pykLen` answers a list's length or a String's in
-UTF-8 bytes, which is how Pyking counts it.
+code points, which is how Pyking counts it -- a `for..of` over the
+string, so a surrogate pair counts once.
 
 A program that defines its own `len` is naming its own function and
 compiles as usual.
@@ -701,6 +708,48 @@ module imports whichever of them it uses, the same way it imports
 `float(n)` compiles to the operand and nothing else: a JavaScript number
 is already a double, so widening has nothing to do, and it is the print
 site that makes the result read as `3.0`. `int(x)` is `Math.trunc(x)`.
+
+## Chars
+
+A `Char` is a JavaScript **number**: its code point. That is what the
+browser interpreter (`src/web/pyking_web.ml`) hands a JavaScript external
+too, so a Char means one thing whichever way the program runs. A literal
+`'a'` is `97`, a pattern `case 'a':` is `subject === 97`, and `==`, `<`
+and the rest are JavaScript's own on the numbers.
+
+A String is counted in code points, not in the UTF-16 units JavaScript
+indexes by:
+
+```pyking            // generated JavaScript
+s[i]                 pykCharAt(s, i)       // throws RangeError out of range
+for c in s:          for (const c of pykChars(s)) {
+[f(c) for c in s]    pykList(pykChars(s).flatMap(...))
+len(s)               pykLen(s)
+```
+
+`pykChars` lists a String's code points (`Array.from` walks a surrogate
+pair as one); the compiler uses it wherever the checker typed the
+sequence `String`. All four are helpers the module writes for itself
+where it uses them, as `pykRange` is.
+
+**Printing** is the Float problem again -- a code point is an Int to
+look at -- and is solved the same way: the descriptor has a `c` for a
+Char, and every print, `string(x)` and datatype construction whose type
+holds a Char goes through `pykShaped`. A Char at the top level prints as
+itself (`String.fromCodePoint`); inside a list, tuple or datatype as
+`'a'` (`pykQuoteChar`), where a String is `"abc"` (`pykQuote`), each
+with builtin.ml's escapes.
+
+```javascript
+print(pykShaped(c, 'c'));              // c : Char      -> a
+print(pykShaped(cs, '[c]'));           // cs : [Char]   -> ['a', 'b']
+print(pykShaped(pair, '(c,.)'));       // (Char, String) -> ('a', "b")
+```
+
+*Not complete, as for Floats:* a datatype value records its shape when
+it is built, from the arguments' types there; one built inside a
+polymorphic function, where the field's type is a type variable, prints
+its Char as the code point.
 
 ## Modules
 

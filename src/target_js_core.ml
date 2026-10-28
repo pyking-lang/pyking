@@ -161,24 +161,39 @@ let type_of e scope = IntMap.find_opt (expr_sym e) scope.types
 let is_float_expr e scope =
   match type_of e scope with Some (TFloat _) -> true | _ -> false
 
-(** Whether a Float sits anywhere inside a type. typ -> bool *)
+(** Whether a Float or a Char sits anywhere inside a type: a value
+    that prints by its type, since a JavaScript number cannot say
+    whether it is an Int, a Float or a Char's code point. typ -> bool *)
 let rec holds_float type_ =
   match type_ with
-  | TFloat _ -> true
+  | TFloat _ | TChar _ -> true
   | TList (_, element, _) -> holds_float element
   | TTuple (_, elements, _) -> List.exists holds_float elements
   | _ -> false
 
-(** Which positions of a value are Floats, as the descriptor `pykShaped`
-    reads: `f` a Float, `.` anything else, `[s]` a list, `(s,s)` a
-    tuple. typ -> string *)
+(** Which positions of a value are Floats or Chars, as the descriptor
+    `pykShaped` reads: `f` a Float, `c` a Char, `.` anything else, `[s]`
+    a list, `(s,s)` a tuple. typ -> string *)
 let rec float_shape type_ =
   match type_ with
   | TFloat _ -> "f"
+  | TChar _ -> "c"
   | TList (_, element, _) -> "[" ^ float_shape element ^ "]"
   | TTuple (_, elements, _) ->
       "(" ^ String.concat "," (List.map float_shape elements) ^ ")"
   | _ -> "."
+
+(** Whether the checker settled this expression's type as String, which
+    is what makes an index or a `for` walk its code points.
+    expr -> scope -> bool *)
+let is_string_expr e scope =
+  match type_of e scope with Some (TString _) -> true | _ -> false
+
+(** A sequence a `for` walks, as an array: a String's Chars are its code
+    points, which `pykChars` lists. info -> jsexpr -> bool -> jsexpr *)
+let walked info js_sequence is_string =
+  if is_string then JsCall (info, JsVar (info, "pykChars"), [ js_sequence ])
+  else js_sequence
 
 (** The JavaScript name a Pyking name reads as. Names bound nowhere are
     runtime operations or builtins, and pass through unchanged.
@@ -215,7 +230,8 @@ let reserved =
         undefined NaN Infinity console String Array document print \
         pykConcat pykFormat pykList pykOutput pykQuote pykWrite require \
         pykData pykWithShape pykRange pykLen TextEncoder exports run runtime \
-        init")
+        init pykChars pykCharAt pykCharOfInt pykCharOfString pykFloatStr \
+        pykShaped pykParseInt pykTrunc pykParseFloat")
 
 (** `name2`, `name3`, ... -- the first not already spoken for here.
     string -> scope -> string *)
@@ -377,6 +393,8 @@ let rec translate_expr e scope =
   | EInt (info, v, _) -> JsNum (info, v)
   | EFloat (info, v, _) -> JsFloat (info, v)
   | EString (info, s, _) -> JsStr (info, s)
+  (* A Char is its code point: equality and order are the numbers'. *)
+  | EChar (info, code_point, _) -> JsNum (info, code_point)
   | EBool (info, v, _) -> JsBool (info, v)
   | EVar (info, name, _) ->
       (* A name this module *declared* rather than defined is the host's,
@@ -437,6 +455,12 @@ let rec translate_expr e scope =
         ( info,
           (match op with UNot _ -> "!" | UBitNot _ -> "~"),
           translate_expr operand scope )
+  | EIndex (info, text, index, _) when is_string_expr text scope ->
+      (* A String's i-th code point, not its i-th UTF-16 unit. *)
+      JsCall
+        ( info,
+          JsVar (info, "pykCharAt"),
+          [ translate_expr text scope; translate_expr index scope ] )
   | EIndex (info, list, index, _) ->
       JsIndex (info, translate_expr list scope, translate_expr index scope)
   | EList (info, elements, _) ->
@@ -485,6 +509,15 @@ let rec translate_expr e scope =
       | Some (TFloat _) -> printed_argument argument scope
       | Some type_ when holds_float type_ -> printed_argument argument scope
       | _ -> JsCall (info, JsVar (info, "pykFormat"), [ translate_expr argument scope ]))
+  | ECall (info, EVar (_, "char", _), [ (_, argument) ], _)
+    when not (SMap.mem "char" scope.names) -> (
+      (* A Char is a code point already; the other two are checked. *)
+      let translated = translate_expr argument scope in
+      match type_of argument scope with
+      | Some (TInt _) -> JsCall (info, JsVar (info, "pykCharOfInt"), [ translated ])
+      | Some (TString _) ->
+          JsCall (info, JsVar (info, "pykCharOfString"), [ translated ])
+      | _ -> translated)
   | ECall (info, EVar (_, (("int" | "float" | "bool") as name), _), [ (_, argument) ], _)
     when not (SMap.mem name scope.names) -> (
       (* A JavaScript number is already a double, so widening an Int is the
@@ -502,6 +535,7 @@ let rec translate_expr e scope =
           JsCond (info, translated, JsNum (info, 1), JsNum (info, 0))
       | ("int" | "float"), _ -> translated
       | _, Some (TBool _) -> translated
+      | _, Some (TChar _) -> JsBinary (info, "!==", translated, JsNum (info, 0))
       | _, Some (TString _) -> is (JsStr (info, "true"))
       | _, _ -> is (JsNum (info, 1)))
   | ECall (info, EVar (_, (("range" | "len") as name), _), args, _)
@@ -638,7 +672,11 @@ and translate_comprehension info element clauses scope =
       in
       JsCall
         ( clause_info,
-          JsMember (clause_info, translate_expr sequence scope, "flatMap"),
+          JsMember
+            ( clause_info,
+              walked clause_info (translate_expr sequence scope)
+                (is_string_expr sequence scope),
+              "flatMap" ),
           [ JsArrow (clause_info, [ item ], bindings, guarded) ] )
   | CompIf (clause_info, condition, _) :: rest ->
       JsCond
@@ -664,7 +702,7 @@ and pattern_test pattern subject scope =
   | PCapture (_, name, _) ->
       let js_name, scope = bind name scope in
       (None, [ JsConst (info, JsTargetName (info, js_name), subject) ], scope)
-  | PInt (_, value, _) ->
+  | PInt (_, value, _) | PChar (_, value, _) ->
       (Some (JsBinary (info, "===", subject, JsNum (info, value))), [], scope)
   | PString (_, value, _) ->
       (Some (JsBinary (info, "===", subject, JsStr (info, value))), [], scope)
@@ -703,7 +741,7 @@ and pattern_test pattern subject scope =
               ( info,
                 ">=",
                 length,
-                JsNum (info, String.length prefix + String.length suffix) );
+                JsNum (info, Builtin.utf16_length prefix + Builtin.utf16_length suffix) );
           ]
         else []
       in
@@ -724,12 +762,12 @@ and pattern_test pattern subject scope =
               JsCall
                 ( info,
                   JsMember (info, subject, "slice"),
-                  JsNum (info, String.length prefix)
+                  JsNum (info, Builtin.utf16_length prefix)
                   :: (if suffix = "" then []
                       else
                         [
                           JsBinary
-                            (info, "-", length, JsNum (info, String.length suffix));
+                            (info, "-", length, JsNum (info, Builtin.utf16_length suffix));
                         ]) )
             in
             ([ JsConst (info, JsTargetName (info, js_name), middle) ], scope)
@@ -1311,7 +1349,9 @@ and translate_loop s scope =
       let js_name, js_sequence, body_scope =
         match iterate with
         | Some (ForIn (_, name, sequence, _)) ->
-            let js_sequence = translate_expr sequence scope in
+            let js_sequence =
+              walked info (translate_expr sequence scope) (is_string_expr sequence scope)
+            in
             let js_name, body_scope = bind name body_scope in
             (Some js_name, Some js_sequence, body_scope)
         | _ -> (None, None, body_scope)
@@ -1717,11 +1757,58 @@ let range_helper =
 let len_helper =
   String.concat "\n"
     [
-      "// Pyking's `len`: a list's items, or a String's bytes in UTF-8.";
+      "// Pyking's `len`: a list's items, or a String's code points.";
       "function pykLen(value) {";
-      "  return Array.isArray(value) ? value.length : new TextEncoder().encode(value).length;";
+      "  if (Array.isArray(value)) return value.length;";
+      "  let n = 0;";
+      "  for (const _ of value) n++;";
+      "  return n;";
       "}";
     ]
+
+let char_helpers =
+  [
+    ( "pykChars",
+      String.concat "\n"
+        [
+          "// A String's Chars, as `for` walks them: its code points, a";
+          "// surrogate pair being one.";
+          "function pykChars(text) {";
+          "  return pykList(Array.from(text, (c) => c.codePointAt(0)));";
+          "}";
+        ] );
+    ( "pykCharAt",
+      String.concat "\n"
+        [
+          "// `s[i]`: a String's i-th code point, counting from 0.";
+          "function pykCharAt(text, index) {";
+          "  if (index >= 0) {";
+          "    let i = 0;";
+          "    for (const c of text) {";
+          "      if (i === index) return c.codePointAt(0);";
+          "      i++;";
+          "    }";
+          "  }";
+          "  throw new RangeError('string index out of range');";
+          "}";
+        ] );
+    ( "pykCharOfInt",
+      String.concat "\n"
+        [
+          "// `char(n)`: n where it is a Unicode scalar value, else '\\0'.";
+          "function pykCharOfInt(n) {";
+          "  return n >= 0 && n <= 0x10FFFF && !(n >= 0xD800 && n <= 0xDFFF) ? n : 0;";
+          "}";
+        ] );
+    ( "pykCharOfString",
+      String.concat "\n"
+        [
+          "// `char(s)`: a String's first code point, or '\\0' for \"\".";
+          "function pykCharOfString(text) {";
+          "  return text.length === 0 ? 0 : text.codePointAt(0);";
+          "}";
+        ] );
+  ]
 
 let shape_helper =
   String.concat "\n"
@@ -1798,12 +1885,23 @@ let js_helpers ?(level = 0) stmts =
   in
   let uses_range = uses (function JsVar (_, "pykRange") -> true | _ -> false) stmts in
   let uses_len = uses (function JsVar (_, "pykLen") -> true | _ -> false) stmts in
+  let chars =
+    List.filter_map
+      (fun (name, helper) ->
+        if uses (function JsVar (_, used) -> used = name | _ -> false) stmts
+        then Some helper
+        else None)
+      char_helpers
+  in
+  let uses_chars = uses (function JsVar (_, "pykChars") -> true | _ -> false) stmts in
   let wanted =
     (* `pykConcat` and `pykRange` build a list, so they need `pykList`
        beside them. *)
-    (if uses_list || uses_concat || uses_range then [ list_helper ] else [])
+    (if uses_list || uses_concat || uses_range || uses_chars then [ list_helper ]
+     else [])
     @ (if uses_range then [ range_helper ] else [])
     @ (if uses_len then [ len_helper ] else [])
+    @ chars
     @ (if uses_concat then [ concat_helper ] else [])
     @ (if uses_data then [ data_helper ] else [])
     @ if uses_shape then [ shape_helper ] else []

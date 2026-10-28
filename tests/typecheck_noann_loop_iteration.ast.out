@@ -2,26 +2,26 @@ def count_down(from_:Int) -> String:
     while from_ > 0:
         print(from_)
         break
-    return 'counted'
+    return "counted"
 def scan(xs:[Int]) -> String:
     nothing: () = for x in xs:
         if x == 0:
             break
         print(x)
-    return 'scanned'
+    return "scanned"
 def skipping(xs:[Int]) -> String:
     for x in xs:
         if x < 0:
             continue
         print(x)
-    return 'filtered'
+    return "filtered"
 def nested(xss:[[Int]]) -> String:
     for xs in xss:
         for x in xs:
             if x == 0:
                 break
             print(x)
-    return 'nested'
+    return "nested"
 def never_runs(xs:[a]) -> Int:
     for x in xs:
         print(x)

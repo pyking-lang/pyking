@@ -2,11 +2,11 @@ Pyking REPL.  :help for commands, :quit to leave.
 > > > Point(7, 10) : Point
 > Point(5, 10) : Point
 > 78 : Int
-> . . > . . . > > Config('c', 3.0) : Config
+> . . > . . . > > Config("c", 3.0) : Config
 > 3.0 : Float
 > '<repl>' 1:8-1:9 Type error: '.x' reads a field of a datatype, but
   this value is Int
 > p     = Point(7, 10) : Point
 start = <function> : () -> Float
-c     = Config('c', 3.0) : Config
+c     = Config("c", 3.0) : Config
 > 

@@ -36,11 +36,11 @@ def area(width:Int, height:Int) -> Int:
 # branch of every level is itself in tail position.
 def describe(n:Int) -> String:
     if n < 0:
-        'negative'
+        "negative"
     else if n == 0:
-        'zero'
+        "zero"
     else:
-        'positive'
+        "positive"
 
 # And so does an `if` nested inside a branch.
 def nested(n:Int, keep:Bool) -> Int:
@@ -73,9 +73,9 @@ def clamp(n:Int, hi:Int) -> Int:
 # yields, and checks against the annotation the same way.
 def pick(keep:Bool) -> String:
     return if keep:
-        'kept'
+        "kept"
     else:
-        'dropped'
+        "dropped"
 
 # The tail of a body may be a call, a comparison, or anything else with
 # a type -- it is an expression like any other.

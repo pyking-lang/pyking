@@ -1,0 +1,2 @@
+'tests/fail_typecheck_char_index.pyk' 7:11-7:14 Type error: a String's
+  index is an Int, and this one is Char

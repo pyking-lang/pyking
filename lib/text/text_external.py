@@ -24,10 +24,6 @@ def host_code(s, k):
     return ord(s[k])
 
 
-def host_from_code(n):
-    return chr(n)
-
-
 def host_replace(s, old, by):
     return s.replace(old, by)
 

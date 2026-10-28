@@ -242,6 +242,7 @@ let rec code own info t =
   let info = if info.file = "<c>" then type_info t else info in
   match t with
   | TInt _ -> "i"
+  | TChar _ -> "c"
   | TFloat _ -> "f"
   | TBool _ -> "b"
   | TString _ -> "s"
@@ -393,7 +394,136 @@ let int_str_helper =
   "static const char *pyk_int_str(int n)\n{\n    char *out = malloc(24);\n    sprintf(out, \"%d\", n);\n    return out;\n}"
 
 let quote_helper =
-  "static const char *pyk_quote(const char *s)\n{\n    char *out = malloc(strlen(s) * 2 + 3);\n    size_t k = 0;\n    out[k++] = '\\'';\n    for (; *s != '\\0'; s++) {\n        switch (*s) {\n        case '\\\\': out[k++] = '\\\\'; out[k++] = '\\\\'; break;\n        case '\\'': out[k++] = '\\\\'; out[k++] = '\\''; break;\n        case '\\n': out[k++] = '\\\\'; out[k++] = 'n'; break;\n        case '\\t': out[k++] = '\\\\'; out[k++] = 't'; break;\n        case '\\r': out[k++] = '\\\\'; out[k++] = 'r'; break;\n        default: out[k++] = *s;\n        }\n    }\n    out[k++] = '\\'';\n    out[k] = '\\0';\n    return out;\n}"
+  "static const char *pyk_quote(const char *s)\n{\n    char *out = malloc(strlen(s) * 2 + 3);\n    size_t k = 0;\n    out[k++] = '\"';\n    for (; *s != '\\0'; s++) {\n        switch (*s) {\n        case '\\\\': out[k++] = '\\\\'; out[k++] = '\\\\'; break;\n        case '\"': out[k++] = '\\\\'; out[k++] = '\"'; break;\n        case '\\n': out[k++] = '\\\\'; out[k++] = 'n'; break;\n        case '\\t': out[k++] = '\\\\'; out[k++] = 't'; break;\n        case '\\r': out[k++] = '\\\\'; out[k++] = 'r'; break;\n        default: out[k++] = *s;\n        }\n    }\n    out[k++] = '\"';\n    out[k] = '\\0';\n    return out;\n}"
+
+(* --- characters ---
+   A Char is an int holding its code point; a String is UTF-8, walked a
+   code point at a time by pyk_utf8_step, which answers NULL at the end. *)
+
+let utf8_step_helper =
+  String.concat "\n"
+    [
+      "static const char *pyk_utf8_step(const char *p, int *c)";
+      "{";
+      "    const unsigned char *s = (const unsigned char *)p;";
+      "    int n, k, v;";
+      "    if (*s == 0) {";
+      "        return NULL;";
+      "    }";
+      "    if (*s < 0x80) {";
+      "        *c = *s;";
+      "        return p + 1;";
+      "    }";
+      "    if (*s >= 0xF8 || *s < 0xC0) {";
+      "        *c = 0xFFFD;";
+      "        return p + 1;";
+      "    }";
+      "    n = *s >= 0xF0 ? 3 : *s >= 0xE0 ? 2 : 1;";
+      "    v = *s & (0x3F >> n);";
+      "    for (k = 1; k <= n; k++) {";
+      "        if ((s[k] & 0xC0) != 0x80) {";
+      "            *c = 0xFFFD;";
+      "            return p + 1;";
+      "        }";
+      "        v = (v << 6) | (s[k] & 0x3F);";
+      "    }";
+      "    *c = v;";
+      "    return p + 1 + n;";
+      "}";
+    ]
+
+let utf8_length_helper =
+  "static int pyk_utf8_length(const char *s)\n{\n    int c, n = 0;\n    while ((s = pyk_utf8_step(s, &c)) != NULL) {\n        n++;\n    }\n    return n;\n}"
+
+let char_at_helper =
+  String.concat "\n"
+    [
+      "static int pyk_char_at(const char *s, int i)";
+      "{";
+      "    const char *p = s;";
+      "    int c = 0, k = 0, n;";
+      "    if (i >= 0) {";
+      "        while ((p = pyk_utf8_step(p, &c)) != NULL) {";
+      "            if (k == i) {";
+      "                return c;";
+      "            }";
+      "            k++;";
+      "        }";
+      "    }";
+      "    n = pyk_utf8_length(s);";
+      "    fprintf(stderr, \"error: the index %d is outside a String of %d character%s\\n\", i, n, n == 1 ? \"\" : \"s\");";
+      "    exit(1);";
+      "    return 0;";
+      "}";
+    ]
+
+let utf8_helper =
+  String.concat "\n"
+    [
+      "static const char *pyk_utf8(int c)";
+      "{";
+      "    char *out = malloc(5);";
+      "    if (c < 0x80) {";
+      "        out[0] = (char)c;";
+      "        out[1] = '\\0';";
+      "    } else if (c < 0x800) {";
+      "        out[0] = (char)(0xC0 | (c >> 6));";
+      "        out[1] = (char)(0x80 | (c & 0x3F));";
+      "        out[2] = '\\0';";
+      "    } else if (c < 0x10000) {";
+      "        out[0] = (char)(0xE0 | (c >> 12));";
+      "        out[1] = (char)(0x80 | ((c >> 6) & 0x3F));";
+      "        out[2] = (char)(0x80 | (c & 0x3F));";
+      "        out[3] = '\\0';";
+      "    } else {";
+      "        out[0] = (char)(0xF0 | (c >> 18));";
+      "        out[1] = (char)(0x80 | ((c >> 12) & 0x3F));";
+      "        out[2] = (char)(0x80 | ((c >> 6) & 0x3F));";
+      "        out[3] = (char)(0x80 | (c & 0x3F));";
+      "        out[4] = '\\0';";
+      "    }";
+      "    return out;";
+      "}";
+    ]
+
+let quote_char_helper =
+  String.concat "\n"
+    [
+      "static const char *pyk_quote_char(int c)";
+      "{";
+      "    switch (c) {";
+      "    case '\\'': return \"'\\\\''\";";
+      "    case '\\\\': return \"'\\\\\\\\'\";";
+      "    case '\\n': return \"'\\\\n'\";";
+      "    case '\\t': return \"'\\\\t'\";";
+      "    case '\\r': return \"'\\\\r'\";";
+      "    case 0: return \"'\\\\0'\";";
+      "    }";
+      "    return pyk_concat(pyk_concat(\"'\", pyk_utf8(c)), \"'\");";
+      "}";
+    ]
+
+let char_of_int_helper =
+  "static int pyk_char_of_int(int n)\n{\n    return n >= 0 && n <= 0x10FFFF && !(n >= 0xD800 && n <= 0xDFFF) ? n : 0;\n}"
+
+let char_of_string_helper =
+  "static int pyk_char_of_string(const char *s)\n{\n    int c = 0;\n    return pyk_utf8_step(s, &c) != NULL ? c : 0;\n}"
+
+(* Each character helper, those it calls added before it. *)
+let rec need_char st name =
+  let deps, text =
+    match name with
+    | "pyk_utf8_step" -> ([], utf8_step_helper)
+    | "pyk_utf8_length" -> ([ "pyk_utf8_step" ], utf8_length_helper)
+    | "pyk_char_at" -> ([ "pyk_utf8_step"; "pyk_utf8_length" ], char_at_helper)
+    | "pyk_utf8" -> ([], utf8_helper)
+    | "pyk_quote_char" -> ([ "pyk_concat"; "pyk_utf8" ], quote_char_helper)
+    | "pyk_char_of_int" -> ([], char_of_int_helper)
+    | "pyk_char_of_string" -> ([ "pyk_utf8_step" ], char_of_string_helper)
+    | "pyk_concat" -> ([], concat_helper)
+    | _ -> invalid_arg name
+  in
+  need_helper (List.fold_left need_char st deps) name text
 
 let truncate_helper =
   "static int pyk_truncate(double x)\n{\n    if (x != x || x <= -2147483649.0 || x >= 2147483648.0) {\n        return 0;\n    }\n    return (int)x;\n}"
@@ -559,7 +689,7 @@ let need_float st = need_helper st "pyk_float_str" float_helper
 let host_callback_type _ctx t =
   match t with
   | TFunction (_, ps, r, _, _, _, _) ->
-      let letter t = match t with TInt _ -> "i" | TFloat _ -> "f" | TBool _ -> "b" | TString _ -> "s" | _ -> "v" in
+      let letter t = match t with TInt _ -> "i" | TChar _ -> "c" | TFloat _ -> "f" | TBool _ -> "b" | TString _ -> "s" | _ -> "v" in
       "pyk_fn_" ^ String.concat "" (List.map letter ps) ^ "_" ^ letter r
   | _ -> "void"
 
@@ -679,7 +809,7 @@ let rec ctype ctx st info t =
   let t = substitute ctx.sigma t in
   let info = if info.file = "<c>" then type_info t else info in
   match t with
-  | TInt _ -> ("int", st)
+  | TInt _ | TChar _ -> ("int", st)
   | TFloat _ -> ("double", st)
   | TBool _ -> (bool_type ctx, { st with uses_bool = true })
   | TString _ -> ("const char *", st)
@@ -825,6 +955,7 @@ let rec shower ctx st info t =
   | TFloat _ -> ((fun v -> Printf.sprintf "pyk_float_str(%s)" v), need_float st)
   | TBool _ -> ((fun v -> Printf.sprintf "(%s ? \"true\" : \"false\")" v), st)
   | TString _ -> ((fun v -> Printf.sprintf "pyk_quote(%s)" v), need_helper st "pyk_quote" quote_helper)
+  | TChar _ -> ((fun v -> Printf.sprintf "pyk_quote_char(%s)" v), need_char st "pyk_quote_char")
   | TTuple (_, [], _) -> ((fun _ -> "\"()\""), st)
   | TFunction _ -> ((fun _ -> "\"<function>\""), st)
   | TTuple (_, es, _) ->
@@ -916,6 +1047,7 @@ let rec shower ctx st info t =
 let printed ctx st info t (v : cexpr) =
   match substitute ctx.sigma t with
   | TString _ -> (v.text, st)
+  | TChar _ -> (Printf.sprintf "pyk_utf8(%s)" v.text, need_char st "pyk_utf8")
   | t ->
       let show, st = shower ctx st info t in
       (show v.text, st)
@@ -933,6 +1065,7 @@ let rec type_of ctx scope e =
         | EInt (i, _, _) -> TInt (i, 0)
         | EFloat (i, _, _) -> TFloat (i, 0)
         | EString (i, _, _) -> TString (i, 0)
+        | EChar (i, _, _) -> TChar (i, 0)
         | EBool (i, _, _) | EEq (i, _, _, _) | ELessThan (i, _, _, _) | ELessThanEq (i, _, _, _)
         | EGreatThan (i, _, _, _) | EGreatThanEq (i, _, _, _)
         | EBinary (i, (BNeq | BAnd _ | BOr _ | BBoolXor), _, _, _) | EUnary (i, UNot _, _, _) ->
@@ -1042,6 +1175,7 @@ let rec pattern ctx st p (s : cexpr) (t : typ) =
   | PWildcard _ -> ([], [], st)
   | PCapture (_, name, _) -> ([], [ (name, s, t) ], st)
   | PInt (_, v, _) -> ([ binary p_eq "==" s (if v < 0 then mk p_unary (string_of_int v) else atom (string_of_int v)) ], [], st)
+  | PChar (_, v, _) -> ([ binary p_eq "==" s (atom (string_of_int v)) ], [], st)
   | PBool (_, v, _) -> ([ (if v then s else mk p_unary ("!" ^ at p_unary s)) ], [], st)
   | PString (_, v, _) -> ([ binary p_eq "==" (atom (Printf.sprintf "strcmp(%s, %s)" s.text (quote v))) (atom "0") ], [], st)
   | PTuple (_, ps, _) ->
@@ -1220,6 +1354,7 @@ and expr ctx st scope e =
       let lit, math = float_literal v in
       (lit, if math then { st with includes_math = true } else st)
   | EString (_, s, _) -> (atom (quote s), st)
+  | EChar (_, c, _) -> (atom (string_of_int c), st)
   | EBool (_, b, _) -> (atom (if b then true_text ctx else false_text ctx), { st with uses_bool = st.uses_bool || ctx.standard <> "c89" })
   | ETuple (_, [], _) -> (unit_value, st)
   | ETuple (_, es, _) ->
@@ -1298,7 +1433,13 @@ and expr ctx st scope e =
       let v, st = expr ctx st scope operand in
       let spelling = match op with UNot _ -> "!" | UBitNot _ -> "~" in
       (mk p_unary (spelling ^ at p_unary v), st)
-  | EIndex _ -> unsupported info heap_reason
+  | EIndex (_, l, r, _) -> (
+      match type_of ctx scope l with
+      | TString _ ->
+          let pieces, steps, st = in_order ctx st scope [ l; r ] in
+          ( sequenced steps (atom (Printf.sprintf "pyk_char_at(%s, %s)" (List.nth pieces 0).text (List.nth pieces 1).text)),
+            need_char st "pyk_char_at" )
+      | _ -> unsupported info heap_reason)
   | ELessThan (_, l, r, _) -> arithmetic ctx st scope p_rel "<" l r
   | ELessThanEq (_, l, r, _) -> arithmetic ctx st scope p_rel "<=" l r
   | EGreatThan (_, l, r, _) -> arithmetic ctx st scope p_rel ">" l r
@@ -1711,17 +1852,18 @@ and builtin ctx st scope e name args =
          needs a heap: C has no garbage collector to free one"
   | "len", [ v ] -> (
       match arg_type 0 with
-      | TString _ -> wrap (atom (Printf.sprintf "(int)strlen(%s)" v.text))
+      | TString _ -> (sequenced steps (atom (Printf.sprintf "pyk_utf8_length(%s)" v.text)), need_char st "pyk_utf8_length")
       | _ -> unsupported info heap_reason)
   | "string", [ v ] -> (
       match arg_type 0 with
       | TString _ -> wrap v
+      | TChar _ -> (sequenced steps (atom (Printf.sprintf "pyk_utf8(%s)" v.text)), need_char st "pyk_utf8")
       | t ->
           let show, st = shower ctx st info t in
           (sequenced steps (atom (show v.text)), st))
   | "int", [ v ] -> (
       match arg_type 0 with
-      | TInt _ -> wrap v
+      | TInt _ | TChar _ -> wrap v
       | TFloat _ -> (sequenced steps (atom (Printf.sprintf "pyk_truncate(%s)" v.text)), need_helper st "pyk_truncate" truncate_helper)
       | TBool _ -> wrap (mk p_cond (Printf.sprintf "%s ? 1 : 0" (at (p_cond + 1) v)))
       | TString _ -> (sequenced steps (atom (Printf.sprintf "pyk_int_of_string(%s)" v.text)), need_helper st "pyk_int_of_string" int_of_string_helper)
@@ -1729,7 +1871,7 @@ and builtin ctx st scope e name args =
   | "float", [ v ] -> (
       match arg_type 0 with
       | TFloat _ -> wrap v
-      | TInt _ -> wrap (mk p_unary (Printf.sprintf "(double)%s" (at p_unary v)))
+      | TInt _ | TChar _ -> wrap (mk p_unary (Printf.sprintf "(double)%s" (at p_unary v)))
       | TBool _ -> wrap (mk p_cond (Printf.sprintf "%s ? 1.0 : 0.0" (at (p_cond + 1) v)))
       | TString _ ->
           ( sequenced steps (atom (Printf.sprintf "pyk_float_of_string(%s)" v.text)),
@@ -1741,7 +1883,14 @@ and builtin ctx st scope e name args =
       | TInt _ -> wrap (binary p_eq "==" v (atom "1"))
       | TFloat _ -> wrap (binary p_eq "==" v (atom "1.0"))
       | TString _ -> wrap (binary p_eq "==" (atom (Printf.sprintf "strcmp(%s, \"true\")" v.text)) (atom "0"))
+      | TChar _ -> wrap (binary p_eq "!=" v (atom "0"))
       | _ -> unsupported info "`bool` of this type")
+  | "char", [ v ] -> (
+      match arg_type 0 with
+      | TChar _ -> wrap v
+      | TInt _ -> (sequenced steps (atom (Printf.sprintf "pyk_char_of_int(%s)" v.text)), need_char st "pyk_char_of_int")
+      | TString _ -> (sequenced steps (atom (Printf.sprintf "pyk_char_of_string(%s)" v.text)), need_char st "pyk_char_of_string")
+      | _ -> unsupported info "`char` of this type")
   | _ -> unsupported info (Printf.sprintf "the builtin `%s` with these arguments" name)
 
 (** A print or debug call, as the C call writing the line.
@@ -1755,6 +1904,7 @@ and print_call ctx st scope name args =
         match t with
         | TInt _ -> (out @ [ ("%d", v.text) ], st)
         | TString _ -> (out @ [ ("%s", v.text) ], st)
+        | TChar _ -> (out @ [ ("%s", Printf.sprintf "pyk_utf8(%s)" v.text) ], need_char st "pyk_utf8")
         | _ ->
             let text, st = printed ctx st (expr_info a) t v in
             (out @ [ ("%s", text) ], st))
@@ -2190,6 +2340,22 @@ and loop ctx st scope s =
             @ [ CDecl ("int", stop_name, Some stop.text); CDecl ("int", step_name, Some step.text); CDecl ("int", cname, None);
                 CFor (header, body_stmts) ],
             value, acc_t, st )
+      | Some (ForIn (iter_info, element, sequence, _))
+        when (match type_of ctx scope sequence with TString _ -> true | _ -> false) ->
+          (* A String's Chars, decoded from its UTF-8 bytes as the loop
+             walks them: no list, so no heap. *)
+          let v, st = expr ctx st scope sequence in
+          let spre, st = flush st in
+          let cname, st = fresh st element in
+          let pos_name, st = fresh st (element ^ "_at") in
+          let st = need_char st "pyk_utf8_step" in
+          let inner = bind_value inner element { value = atom cname; kind = BLocal; btype = TChar (iter_info, 0); cname_ = cname } in
+          let body_stmts, st = tail_block ctx st inner fin body in
+          let header = Printf.sprintf "%s = %s; (%s = pyk_utf8_step(%s, &%s)) != NULL; " pos_name (at p_assign v) pos_name pos_name cname in
+          ( pre @ setup
+            @ [ CDecl ("const char *", pos_name, None); CDecl ("int", cname, None) ]
+            @ spre @ [ CFor (header, body_stmts) ],
+            value, acc_t, st )
       | Some (ForIn (iter_info, _, _, _)) -> unsupported iter_info ("a `for` loop over " ^ heap_reason)
       | Some (WhileTest (_, condition, _)) ->
           let c, st = expr ctx st inner condition in
@@ -2331,7 +2497,7 @@ type cprogram = {
     ctx -> info -> typ -> string *)
 let rec host_type ctx info t =
   match t with
-  | TInt _ -> "int"
+  | TInt _ | TChar _ -> "int"
   | TFloat _ -> "double"
   | TBool _ -> bool_type ctx
   | TString _ -> "const char *"
@@ -2341,7 +2507,7 @@ let rec host_type ctx info t =
       host_callback_type ctx t
   (* A tuple of what crosses crosses too, as the struct this backend
      writes it as: a C implementation declares the same one. *)
-  | TTuple (_, es, _) when List.for_all (fun e -> match e with TInt _ | TFloat _ | TBool _ | TString _ -> true | _ -> false) es ->
+  | TTuple (_, es, _) when List.for_all (fun e -> match e with TInt _ | TChar _ | TFloat _ | TBool _ | TString _ -> true | _ -> false) es ->
       "pyk_t_" ^ code ctx.own info t
   | _ ->
       unsupported info

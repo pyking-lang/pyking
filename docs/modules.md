@@ -532,6 +532,7 @@ they are not the same everywhere:
 | `Int` | `int` | `number` | `int` | `int` | `int` |
 | `Float` | `float` | `number` | `double` | `double` | `float` |
 | `String` | `str` | `string` | `const char *` | `String` | `string` |
+| `Char` | `str` of one character | `number` (the code point) | `int` (the code point) | `PykRuntime.PykChar` | `int` (the code point) |
 | `Bool` | `bool` | `boolean` | `bool` / `int` | `boolean` | `bool` |
 | `()` | `()` | `undefined` | `void` | `void` | `unit` |
 | `(A, B)` | `tuple` | `Array` | refused | refused | tuple |

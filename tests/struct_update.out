@@ -7,5 +7,5 @@ Point(10, 20, 3)
 x
 inner
 Point(1, 5, 0)
-Account('ada', 15, 'SEK')
-Labelled(3, 'drei') 5
+Account("ada", 15, "SEK")
+Labelled(3, "drei") 5

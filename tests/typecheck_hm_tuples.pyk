@@ -27,11 +27,11 @@ def add(a, b): a + b
 
 def join(a, b): a + b
 
-print(swap((1, 'a')))
+print(swap((1, "a")))
 print(swap((true, 2)))
-print(fst(swap(('x', 9))))
+print(fst(swap(("x", 9))))
 print(uncurry(add, (2, 3)))
-print(uncurry(join, ('ab', 'cd')))
+print(uncurry(join, ("ab", "cd")))
 print(uncurry(make_pair, (1, true)))
 
 swapping = swap

@@ -1,10 +1,10 @@
 # How a string is spelled when it is printed *inside* something.
 #
-# runtime_interface.py's rule: a string prints bare on its own and
-# quoted with `'` inside a list or a tuple, with `'` escaped as `\'`.
+# The rule: a string prints bare on its own and quoted with `"` inside a
+# list or a tuple, with `"` escaped as `\"` and a `'` left as it is.
 # A host's own idea of how to quote a string is not that rule -- Python's
-# `repr` switches to double quotes when the text holds an apostrophe, so
-# `["it's"]` where every other target writes `['it\'s']` -- so a backend
+# `repr` picks single quotes, and switches to double ones when the text
+# holds an apostrophe -- so a backend
 # that lets the host print a container has to stop doing that as soon as
 # a string can be inside it.
 

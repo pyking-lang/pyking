@@ -45,6 +45,7 @@ type expr =
   | EInt of info * int * int
   | EFloat of info * float * int
   | EString of info * string * int
+  | EChar of info * int * int (* 'a': one code point *)
   | EBool of info * bool * int (* 'true' / 'false' *)
   | EVar of info * string * int
   | EAdd of info * expr * expr * int (* left + right *)
@@ -123,6 +124,7 @@ and typ =
   | TInt of info * int (* Int *)
   | TFloat of info * int (* Float *)
   | TString of info * int (* String *)
+  | TChar of info * int (* Char *)
   | TBool of info * int (* Bool *)
   | TList of info * typ * int (* [element] *)
   | TTuple of info * typ list * int (* (e1, e2, ...); zero elements is () *)
@@ -167,6 +169,7 @@ and implicit_param = IParam of string * typ
 and pattern =
   | PInt of info * int * int (* case 0: *)
   | PString of info * string * int (* case "foo": *)
+  | PChar of info * int * int (* case 'a': *)
   | PBool of info * bool * int (* case true: / case false: *)
   | PWildcard of info * int (* case _: *)
   | PCapture of info * string * int (* case name: *)

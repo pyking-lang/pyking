@@ -47,6 +47,7 @@ let rec same_type a b =
   match (a, b) with
   | TInt _, TInt _ -> true
   | TString _, TString _ -> true
+  | TChar _, TChar _ -> true
   | TBool _, TBool _ -> true
   | TList (_, x, _), TList (_, y, _) -> same_type x y
   | TTuple (_, xs, _), TTuple (_, ys, _) ->

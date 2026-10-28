@@ -1,6 +1,6 @@
 start
-Counter('a', 100, 20, 3.0)
-Counter('b', 1, 20, 3.0)
+Counter("a", 100, 20, 3.0)
+Counter("b", 1, 20, 3.0)
 start
 102
 Circle(2.0) Square(99) Square(2)

@@ -38,7 +38,7 @@ def pack_int(k):
 
 def pack_string : all r. ((String) -> r) -> r
 def pack_string(k):
-    return k('hello')
+    return k("hello")
 
 
 print(extract(pack_int), extract(pack_string))

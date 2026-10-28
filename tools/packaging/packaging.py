@@ -156,7 +156,6 @@ def nix_install(v):
 SHIPPED = [
     ("LICENSE", "LICENSE"),
     ("CHANGELOG.md", "CHANGELOG.md"),
-    ("PYKING-TUTORIAL.md", "PYKING-TUTORIAL.md"),
     ("lib", "lib"),
     ("share/pyking.js", "share/pyking.js"),
     ("tools/webrun/package.json", "tools/webrun/package.json"),
@@ -660,8 +659,8 @@ cask "{NAME}" do
     running the result needs that target's own tools (node, cc,
     javac, ...).
 
-    To read the tutorial as a notebook:
-      pyk notebook #{{staged_path}}/{NAME}-#{{version}}/PYKING-TUTORIAL.md
+    To open a notebook (any Markdown file) in the browser:
+      pyk notebook notes.md
   EOS
 end
 '''

@@ -132,6 +132,7 @@ let inlined annotation default =
     | EInt _ | ENeg (_, EInt _, _) -> Some `Int
     | EFloat _ | ENeg (_, EFloat _, _) -> Some `Float
     | EString _ -> Some `String
+    | EChar _ -> Some `Char
     | EBool _ -> Some `Bool
     | _ -> None
   in
@@ -141,6 +142,7 @@ let inlined annotation default =
   | Some `Int, Some (TInt _)
   | Some `Float, Some (TFloat _)
   | Some `String, Some (TString _)
+  | Some `Char, Some (TChar _)
   | Some `Bool, Some (TBool _) ->
       Some default
   | Some _, Some _ -> None
@@ -399,7 +401,7 @@ let let_around info lets body =
     those. expr -> bool *)
 let rec pure e =
   match e with
-  | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ | EQualified _ | ELambda _ -> true
+  | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ | EVar _ | EQualified _ | ELambda _ -> true
   | ETuple (_, es, _) | EList (_, es, _) -> List.for_all pure es
   | EConstruct (_, _, _, args, _) -> List.for_all (fun (_, a) -> pure a) args
   | ENeg (_, o, _) -> pure o
@@ -414,6 +416,7 @@ let rec placed info literal =
   | EInt (_, v, s) -> EInt (info, v, s)
   | EFloat (_, v, s) -> EFloat (info, v, s)
   | EString (_, v, s) -> EString (info, v, s)
+  | EChar (_, v, s) -> EChar (info, v, s)
   | EBool (_, v, s) -> EBool (info, v, s)
   | ENeg (_, inner, s) -> ENeg (info, placed info inner, s)
   | e -> e
@@ -603,7 +606,7 @@ let shown callee =
 let rec expression signatures scope e =
   let go = expression signatures scope in
   match e with
-  | EInt _ | EFloat _ | EString _ | EBool _ | EVar _ -> e
+  | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ | EVar _ -> e
   | EQualified (i, alias, field, s) -> (
       (* `x.field` is read as `module.name` by the parser, which cannot
          know which names are modules; a name bound here is a value, and
@@ -847,7 +850,7 @@ and updated info shown reached explicit base rebuild =
 and pattern_of signatures scope p =
   let go = pattern_of signatures scope in
   match p with
-  | PInt _ | PString _ | PBool _ | PWildcard _ | PCapture _ | PText _ -> p
+  | PInt _ | PString _ | PChar _ | PBool _ | PWildcard _ | PCapture _ | PText _ -> p
   | PTuple (i, elements, s) -> PTuple (i, List.map go elements, s)
   | PList (i, prefix, rest, suffix, s) ->
       PList (i, List.map go prefix, rest, List.map go suffix, s)

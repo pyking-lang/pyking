@@ -376,7 +376,8 @@ evaluation order around a closure that produces nothing.
 
 ## Values: no host objects
 
-`Value`'s variants — `VInt`, `VString`, `VBool`, `VUnit`, `VList`,
+`Value`'s variants — `VInt`, `VFloat`, `VString`, `VChar` (a code
+point), `VBool`, `VUnit`, `VList`,
 `VTuple`, `VClosure`, `VBuiltin`, `VUndefined` — hold nothing from
 outside this small vocabulary: a `VList`'s elements are more `Value`s, a
 `VClosure`'s

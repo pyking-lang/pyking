@@ -11,4 +11,4 @@
 def double(n:Int) -> Int:
     return n * 2
 
-doubled = double('two')
+doubled = double("two")

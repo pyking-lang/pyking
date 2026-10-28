@@ -128,7 +128,7 @@ let rec pattern_bindings pattern =
   | POr (_, first :: _, _) -> pattern_bindings first
   | POr (_, [], _) -> []
   | PAs (i, inner, n, s) -> pattern_bindings inner @ [ (n, i, s) ]
-  | PInt _ | PString _ | PBool _ | PWildcard _ | PText _ -> []
+  | PInt _ | PString _ | PChar _ | PBool _ | PWildcard _ | PText _ -> []
 
 (** An environment with names bound at places in the module resolved.
     context -> binding_kind -> meaning SMap.t -> [(string, Lexer.info,
@@ -177,7 +177,7 @@ let qualified ctx env module_ name =
 let rec resolve_expr ctx env e found =
   let go = resolve_expr ctx env in
   match e with
-  | EInt _ | EFloat _ | EString _ | EBool _ -> found
+  | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ -> found
   | EVar (i, n, _) -> { found with uses = { use_at = i; use_name = n; use_meaning = lookup env n } :: found.uses }
   | EAdd (_, a, b, _) | ESub (_, a, b, _) | EMul (_, a, b, _) | EDiv (_, a, b, _)
   | EConcat (_, a, b, _) | ELessThan (_, a, b, _) | ELessThanEq (_, a, b, _)

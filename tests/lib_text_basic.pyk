@@ -14,15 +14,15 @@ print("[" + text.slice(crown, 3, 3) + "]", "[" + text.slice(crown, 4, 1) + "]")
 print("[" + text.slice("", 0, 1) + "]", "[" + text.slice("abc", 99, 100) + "]")
 
 print(text.char_at(crown, 0), text.char_at(crown, 4), text.char_at("abc", 2))
-print(text.char_at(crown, 5) == "", text.char_at(crown, -1) == "", text.char_at("", 0) == "")
+print(text.char_at(crown, 5) == '\0', text.char_at(crown, -1) == '\0', text.char_at("", 0) == '\0')
 
-print(text.code("A", 0), text.code(crown, 0), text.code(crown, 3), text.code(crown, 4))
-print(text.code(crown, 5), text.code(crown, -1), text.code("", 0))
+print(text.code('A'), text.code(crown[0]), text.code(crown[3]), text.code(crown[4]))
+print(text.code('\0'), text.code(text.char_at(crown, 9)))
 
 print(text.from_code(65), text.from_code(229), text.from_code(128081), text.from_code(8364))
-print(text.from_code(0) == "", text.from_code(-1) == "", text.from_code(55296) == "")
-print(text.from_code(57343) == "", text.from_code(1114112) == "", text.length(text.from_code(1114111)))
-print(text.code(text.from_code(128081), 0), text.code(text.from_code(57344), 0))
+print(text.from_code(0) == '\0', text.from_code(-1) == '\0', text.from_code(55296) == '\0')
+print(text.from_code(57343) == '\0', text.from_code(1114112) == '\0', text.code(text.from_code(1114111)))
+print(text.code(text.from_code(128081)), text.code(text.from_code(57344)))
 
 print(text.find("one two one", "one"), text.find("one two one", "one", 1))
 print(text.find("one two one", "one", 9), text.find("one two one", "three"))

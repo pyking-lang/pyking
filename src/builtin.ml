@@ -97,8 +97,9 @@ let all =
       doc =
         "Answer the argument as a String, formatted the way `print` writes \
          it -- so a Bool is `true`/`false` and unit is `()`, in Pyking's own \
-         spelling rather than the host's. Accepts an Int, a Float, a String, \
-         a Bool, a list or a tuple.";
+         spelling rather than the host's, and a Char is its one character. \
+         Accepts an Int, a Float, a String, a Char, a Bool, a list or a \
+         tuple.";
     };
     {
       name = "len";
@@ -106,8 +107,8 @@ let all =
       max_args = Some 1;
       crosses_host = false;
       doc =
-        "Answer how many items a list holds, or how many characters a \
-         String holds.";
+        "Answer how many items a list holds, or how many characters -- \
+         Unicode code points, as `s[i]` counts them -- a String holds.";
     };
     {
       name = "float";
@@ -117,8 +118,8 @@ let all =
       doc =
         "Answer the argument as a Float: an Int exactly for a magnitude \
          below 2^53 and as the nearest double above it, a Bool as 1.0 or \
-         0.0, a Float as itself, and a String read by `parse_float` -- NaN \
-         where it is not a number. Pyking converts nothing on its own, so \
+         0.0, a Float as itself, a Char as its code point, and a String read \
+         by `parse_float` -- NaN where it is not a number. Pyking converts nothing on its own, so \
          this and `int` are the only way an Int and a Float meet.";
     };
     {
@@ -129,7 +130,7 @@ let all =
       doc =
         "Answer the argument as an Int: a Float truncated toward zero -- the \
          rounding `/` already does -- a Bool as 1 or 0, an Int as itself, \
-         and a String read by `parse_int`. Where there is no Int to answer \
+         a Char as its code point, and a String read by `parse_int`. Where there is no Int to answer \
          -- a String that is not one, a NaN, an infinity, a value outside \
          the signed 32-bit range -- it is 0.";
     };
@@ -140,8 +141,19 @@ let all =
       crosses_host = false;
       doc =
         "Answer the argument as a Bool: true for the String \"true\", the \
-         Int 1 and the Float 1.0, a Bool as itself, and false for anything \
-         else.";
+         Int 1, the Float 1.0 and every Char but '\\0', a Bool as itself, \
+         and false for anything else.";
+    };
+    {
+      name = "char";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc =
+        "Answer the argument as a Char: the Char whose code point an Int \
+         is, the first character of a String, a Char as itself. Where \
+         there is none -- an Int that is no code point, an empty String \
+         -- it is '\\0'.";
     };
   ]
 
@@ -311,3 +323,68 @@ let float_text x =
       else
         sign ^ String.sub digits 0 decpt ^ "."
         ^ String.sub digits decpt (len - decpt)
+
+(* --- characters ---
+
+   A Char is one Unicode code point, and a String is counted in them:
+   `len`, `s[i]` and `for c in s` all agree with lib/text. Strings are
+   UTF-8 in the compiler, the interpreter and the OCaml and C targets. *)
+
+let is_code_point n = n >= 0 && n <= 0x10FFFF && not (n >= 0xD800 && n <= 0xDFFF)
+
+let code_points s =
+  let rec go k acc =
+    if k >= String.length s then List.rev acc
+    else
+      let d = String.get_utf_8_uchar s k in
+      go (k + Uchar.utf_decode_length d) (Uchar.to_int (Uchar.utf_decode_uchar d) :: acc)
+  in
+  go 0 []
+
+let utf8 n =
+  let b = Buffer.create 4 in
+  Buffer.add_utf_8_uchar b
+    (if is_code_point n then Uchar.of_int n else Uchar.of_int 0xFFFD);
+  Buffer.contents b
+
+let utf8_length s =
+  let rec go k count =
+    if k >= String.length s then count
+    else go (k + Uchar.utf_decode_length (String.get_utf_8_uchar s k)) (count + 1)
+  in
+  go 0 0
+
+let char_of_int n = if is_code_point n then n else 0
+
+let char_of_string s = match code_points s with c :: _ -> c | [] -> 0
+
+let quote_char c =
+  match c with
+  | 0x27 -> "'\\''"
+  | 0x5C -> "'\\\\'"
+  | 0x0A -> "'\\n'"
+  | 0x09 -> "'\\t'"
+  | 0x0D -> "'\\r'"
+  | 0x00 -> "'\\0'"
+  | _ -> "'" ^ utf8 c ^ "'"
+
+let quote_string s =
+  let b = Buffer.create (String.length s + 2) in
+  Buffer.add_char b '"';
+  String.iter
+    (fun c ->
+      Buffer.add_string b
+        (match c with
+        | '\\' -> "\\\\"
+        | '"' -> "\\\""
+        | '\n' -> "\\n"
+        | '\t' -> "\\t"
+        | '\r' -> "\\r"
+        | '\000' -> "\\0"
+        | c -> String.make 1 c))
+    s;
+  Buffer.add_char b '"';
+  Buffer.contents b
+
+let utf16_length s =
+  List.fold_left (fun n c -> n + if c >= 0x10000 then 2 else 1) 0 (code_points s)

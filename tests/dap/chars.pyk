@@ -1,0 +1,8 @@
+def initial(name: String) -> Char:
+    first = name[0]
+    first
+
+
+word = "Åsa"
+pair = (initial(word), "Åsa")
+print(pair, len(word))

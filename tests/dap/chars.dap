@@ -1,0 +1,15 @@
+# Chars under the debugger: a variable holding one shows it in single
+# quotes, a String in double quotes, and the console evaluates the new
+# Char operations where the program stopped.
+launch chars.pyk
+break chars.pyk 3
+configure
+wait stopped
+stack
+scopes 1
+variables Environment
+evaluate 1 (name[1], int(first), char(98), first < 'B')
+evaluate 1 [c for c in name]
+continue
+wait terminated
+disconnect

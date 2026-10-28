@@ -10,9 +10,9 @@ print(box(7, 2, 3))
 print(box(7, 2, 8))
 print(box(7, 8, 9))
 def join(left:String, right:String) -> String:
-    return left + '-' + right
-print(join('a', 'b'))
-print(join('a', 'c'))
+    return left + "-" + right
+print(join("a", "b"))
+print(join("a", "c"))
 def scale(base:Int, factor:Int) -> Int:
     return base * factor
 print(scale(3, box(0, 0, 2)))

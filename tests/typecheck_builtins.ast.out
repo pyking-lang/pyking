@@ -1,17 +1,17 @@
-print('plain')
-print(1, 'two', true)
+print("plain")
+print(1, "two", true)
 print()
 digits: String = string(42)
-label: String = 'n = ' + string(7)
-size: Int = len('hello')
+label: String = "n = " + string(7)
+size: Int = len("hello")
 numbers: [Int] = range(4)
 counted: Int = len(range(4))
 total: Int = size + counted
-same: Bool = string(1) == '1'
-long_enough: Bool = len('abc') > 2
-print(string(size), len('xyz'), range(2))
+same: Bool = string(1) == "1"
+long_enough: Bool = len("abc") > 2
+print(string(size), len("xyz"), range(2))
 def describe(n:Int) -> String:
-    'value ' + string(n)
+    "value " + string(n)
 print(describe(total), describe(counted))
 def nothing(n:Int) -> ():
     ignored: Int = n

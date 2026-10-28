@@ -1,0 +1,41 @@
+# Char: a literal is one Unicode code point between single quotes, a
+# String's character is `s[i]`, and the conversions and comparisons
+# take one. No list here, so every target runs it, C included.
+
+word = "Håll 👑"
+first = word[0]
+print(first, word[1], word[5], len(word), len("👑👑"), len(""))
+
+# The escapes a String has, in a Char.
+print('a', 'å', '👑', '\'', '"', '\\', 'x' == 'x')
+print(string('\n') == "\n", string('\t') == "\t", int('\r'), int('\0'))
+
+# Conversions: a code point each way.
+print(int('A'), int('å'), int('👑'), float('A'))
+print(bool('\0'), bool(' '), bool('a'))
+print(char(66), char(229), char(128081), char("Zed"), char('q'))
+print(char(-1) == '\0', char(55296) == '\0', char(1114112) == '\0', char("") == '\0')
+print(string('é') + "!", string(char(int('a') + 1)))
+
+# Comparisons by code point.
+print('a' < 'b', 'b' <= 'a', 'Z' < 'a', 'å' > 'z', 'x' != 'y', 'x' >= 'x')
+
+def kind(c: Char) -> String:
+    match c:
+        case 'a' | 'e' | 'i' | 'o' | 'u': "vowel"
+        case ' ': "space"
+        case d if '0' <= d and d <= '9': "digit"
+        case _: "other"
+
+print(kind('e'), kind(' '), kind('7'), kind('z'))
+
+def count_vowels(s: String) -> Int:
+    loop n = 0 for c in s:
+        if kind(c) == "vowel" then n + 1 else n
+
+print(count_vowels("education"), count_vowels(""))
+
+# A Char as a struct field and in a tuple printed on its own.
+struct Cell(mark: Char, count: Int)
+cell = Cell('x', 3)
+print(cell.mark, cell.count)

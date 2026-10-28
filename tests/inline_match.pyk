@@ -8,19 +8,19 @@
 
 def name_of(n):
     match n:
-        case 0: 'zero'
-        case 1: 'one'
-        case _: 'many'
+        case 0: "zero"
+        case 1: "one"
+        case _: "many"
 
 
 def name_of_block(n):
     match n:
         case 0:
-            'zero'
+            "zero"
         case 1:
-            'one'
+            "one"
         case _:
-            'many'
+            "many"
 
 
 print(name_of(0), name_of(1), name_of(7))
@@ -31,11 +31,11 @@ print(name_of_block(0), name_of_block(1), name_of_block(7))
 # it does more than produce a value.
 def describe(n):
     match n:
-        case 0: 'nothing'
+        case 0: "nothing"
         case 1:
             doubled = n + n
-            'one, doubled is ' + string(doubled)
-        case _: 'several'
+            "one, doubled is " + string(doubled)
+        case _: "several"
 
 
 print(describe(0))
@@ -47,9 +47,9 @@ print(describe(5))
 # expression, so the clauses are always indented under it.
 def grade(n):
     match n:
-        case 0: 'none'
-        case 1: 'single'
-        case _: 'plenty'
+        case 0: "none"
+        case 1: "single"
+        case _: "plenty"
 
 
 print(grade(0), grade(1), grade(9))
@@ -58,8 +58,8 @@ print(grade(0), grade(1), grade(9))
 # expression like any other.
 def sign_of(n):
     match n:
-        case 0: 'zero'
-        case other: if other < 0 then 'negative' else 'positive'
+        case 0: "zero"
+        case other: if other < 0 then "negative" else "positive"
 
 
 print(sign_of(0), sign_of(4))

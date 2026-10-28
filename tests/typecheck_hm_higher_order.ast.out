@@ -9,6 +9,6 @@ def m(x:a, i:b) -> (a, b, a):
 def keep(x:a, i:b) -> a:
     x
 print(foo(m, 7, 0))
-print(foo(m, 'hi', 0))
+print(foo(m, "hi", 0))
 print(foo(keep, true, 3))
 looping: ((a, Int) -> b, a, Int) -> b = foo

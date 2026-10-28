@@ -5,7 +5,7 @@ def add_one(n:Int) -> Int:
 def repeat(word:String) -> String:
     word + word
 print(apply_twice(add_one, 5))
-print(apply_twice(repeat, 'ab'))
+print(apply_twice(repeat, "ab"))
 def apply_once(f:(Int) -> Int, x:Int) -> Int:
     f(x)
 print(apply_once(add_one, 10))

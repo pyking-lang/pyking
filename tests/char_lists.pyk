@@ -1,0 +1,35 @@
+# Char in lists and tuples: printed in single quotes, where a String
+# is printed in double quotes, with what needs it escaped. A String is
+# walked as its Chars by `for` and by a comprehension.
+
+print(['a', 'b'], ["a", "b"], ('c', "c"), [('\'', "it's"), ('"', "say \"hi\"")])
+print(['\n', '\t', '\\', '\0'], ["line\n", "tab\t"])
+
+letters = [c for c in "héllo" if c != 'l']
+print(letters, len(letters))
+
+def reversed(s: String) -> String:
+    loop out = "" for c in s:
+        string(c) + out
+
+print(reversed("Håll 👑"), reversed(""))
+
+for c in "ab":
+    print(c, int(c))
+
+codes = [int(c) for c in "AZ"]
+print(codes, [char(n) for n in codes])
+
+def initials(names: [String]) -> [Char]:
+    [name[0] for name in names if len(name) > 0]
+
+print(initials(["Ada", "", "Bo", "Åsa"]))
+
+def first_two(s: String) -> (Char, Char):
+    (s[0], s[1])
+
+print(first_two("xyz"))
+
+match ['a', 'b', 'c']:
+    case ['a', ..rest]: print("starts with a, then", rest)
+    case _: print("other")

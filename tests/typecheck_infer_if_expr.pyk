@@ -14,12 +14,12 @@
 
 def fact(n): if n <= 1 then 1 else fact(n - 1) * n
 
-def sign(n): if n < 0 then 'negative' else 'not negative'
+def sign(n): if n < 0 then "negative" else "not negative"
 
 # Nested, and used as an ordinary subexpression.
-def grade(n): if n > 89 then 'a' else if n > 79 then 'b' else 'c'
+def grade(n): if n > 89 then "a" else if n > 79 then "b" else "c"
 
-def announce(n): 'grade ' + grade(n) + (if n > 89 then '!' else '')
+def announce(n): "grade " + grade(n) + (if n > 89 then "!" else "")
 
 # In a binding, and in an argument.
 flag = 3 < 4
