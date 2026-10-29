@@ -1330,14 +1330,16 @@ let page_js = String.concat "" [
   "        const context = host.audio();\n";
   "        if (cmd.text === \"pause\" && frozen === null) {\n";
   "          frozen = host.clock();\n";
-  "          if (context && context.state === \"running\") context.suspend();\n";
+  "          if (context && context.state === \"running\") context.suspend().catch(() => {});\n";
   "        } else if (cmd.text === \"resume\" && frozen !== null) {\n";
   "          const at = frozen;\n";
   "          if (context) {\n";
+  "            // A page closed meanwhile closes its context, and the\n";
+  "            // resume() is then refused: the run is over.\n";
   "            context.resume().then(() => {\n";
   "              host.thaw(at);\n";
   "              frozen = null;\n";
-  "            });\n";
+  "            }, () => {});\n";
   "          } else {\n";
   "            host.thaw(at);\n";
   "            frozen = null;\n";
@@ -1730,7 +1732,8 @@ let page_js = String.concat "" [
   "        offset = (paused !== null ? paused : (now() - start) / 1000) - audio.currentTime;\n";
   "      };\n";
   "    }\n";
-  "    if (audio.state === \"suspended\") audio.resume();\n";
+  "    // Refused where the page closes meanwhile, which is no matter.\n";
+  "    if (audio.state === \"suspended\") audio.resume().catch(() => {});\n";
   "  }\n";
   "\n";
   "  box.addEventListener(\"pointerdown\", startAudio);\n";
@@ -2139,7 +2142,7 @@ let page_js = String.concat "" [
   "    window.removeEventListener(\"blur\", onBlur);\n";
   "    if (!standalone) element.removeEventListener(\"click\", takeFocus);\n";
   "    engine.close();\n";
-  "    if (audio !== null) audio.close();\n";
+  "    if (audio !== null && audio.state !== \"closed\") audio.close().catch(() => {});\n";
   "  }\n";
   "\n";
   "  return {\n";

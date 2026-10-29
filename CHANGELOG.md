@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   code changed, got no standard input or arguments, since the page
   had not yet found out that the program reads them. A run now waits
   for that.
+- A tinyweb page closed while its sound was starting or resuming (a
+  new run, Stop, or leaving the page) no longer leaves an uncaught
+  "AudioContext closed before a pending resume() could complete" error
+  in the browser.
 
 ## [0.1.7] - 2026-10-28
 
