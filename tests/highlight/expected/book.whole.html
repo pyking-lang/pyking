@@ -1,0 +1,36 @@
+<body>
+<div class="pkn-notebook" data-theme="light">
+<main class="pkn-main">
+<div class="pkn-prose">
+<h1 id="squares-and-greetings"><a class="pkn-anchor" href="#squares-and-greetings" aria-hidden="true">#</a>Squares and greetings</h1>
+<p>Some <em>prose</em> with <code>inline code</code>, a <a href="https://example.org">link</a> and a list:</p>
+<ul>
+<li>one</li>
+<li>two</li>
+</ul>
+<p>A cell, with what it prints:</p>
+<pre style="font-family:'Menlo',monospace;white-space:pre;color:#4d4d4c"><span style="color:#8959a8">def</span> <span style="color:#4271ae">square</span>(x: <span style="color:#c99e00">Int</span>) <span style="color:#3e999f">-&gt;</span> <span style="color:#c99e00">Int</span>:
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8959a8">return</span> x <span style="color:#3e999f">*</span> x
+
+<span style="color:#3e999f">print</span>(square(<span style="color:#f5871f">4</span>))</pre>
+<pre style="font-family:'Menlo',monospace;white-space:pre;color:#4d4d4c">16</pre>
+<p>A fragment that is not run:</p>
+<pre style="font-family:'Menlo',monospace;white-space:pre;color:#4d4d4c">&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8959a8">if</span> x <span style="color:#3e999f">&gt;</span> <span style="color:#f5871f">0</span>:
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#3e999f">print</span>(<span style="color:#718c00">&quot;positive&quot;</span>)</pre>
+<p>A cell that is refused:</p>
+<pre style="font-family:'Menlo',monospace;white-space:pre;color:#4d4d4c">x: <span style="color:#c99e00">Int</span> <span style="color:#3e999f">=</span> <span style="color:#718c00">&quot;not a number&quot;</span></pre>
+<p>A cell reading its input:</p>
+<pre style="font-family:'Menlo',monospace;white-space:pre;color:#4d4d4c">Ada</pre>
+<pre style="font-family:'Menlo',monospace;white-space:pre;color:#4d4d4c"><span style="color:#8959a8">import</span> io
+<span style="color:#3e999f">print</span>(<span style="color:#718c00">&quot;Hello, &quot;</span> <span style="color:#3e999f">+</span> io.prompt_line(<span style="color:#718c00">&quot;&quot;</span>))</pre>
+<p><strong>Task.</strong> Write <code>double</code>.</p>
+<pre style="font-family:'Menlo',monospace;white-space:pre;color:#4d4d4c"><span style="color:#8959a8">def</span> <span style="color:#4271ae">double</span>(n: <span style="color:#c99e00">Int</span>) <span style="color:#3e999f">-&gt;</span> <span style="color:#c99e00">Int</span>:
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8959a8">return</span> <span style="color:#f5871f">0</span>  <span style="color:#8e908c;font-style:italic"># change this</span></pre>
+<pre style="font-family:'Menlo',monospace;white-space:pre;color:#4d4d4c"><span style="color:#8959a8">def</span> <span style="color:#4271ae">double</span>(n: <span style="color:#c99e00">Int</span>) <span style="color:#3e999f">-&gt;</span> <span style="color:#c99e00">Int</span>:
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8959a8">return</span> <span style="color:#f5871f">2</span> <span style="color:#3e999f">*</span> n</pre>
+<p>That is all.</p>
+</div>
+</main>
+</div>
+</body>
+</html>

@@ -15,6 +15,11 @@ tab's Download (tools/playground/assets/download.js): each case in
 DOWNLOADS is compiled by the bundle and packed as the page packs it, the
 zip is read back by Python's zipfile, and a case that runs is unpacked
 and built and run with its own Makefile (tests/playground/download.mjs).
+And the page's keys (tools/playground/assets/keys.js), under node
+(tests/playground/keys.mjs): every command the playground adds and its
+default keys, reading, matching, writing and showing a key on a Mac and
+elsewhere, and the settings that hold them, an earlier version's
+`debugKeys` migrated.
 
 What it does not cover is the page: mounting, the editor, the worker
 boundary and the sandboxed iframe are what
@@ -30,6 +35,7 @@ Functions:
     parity_pairs(compiler) -- what `pyk compile` makes of every case.
     run_parity(bundle, pairs) -- the same cases compiled by the bundle.
     check_downloads(bundle) -- the Download of every case in DOWNLOADS.
+    check_keys() -- the page's keys, keys.js.
     main(argv) -- the command-line entry point.
 """
 
@@ -597,6 +603,26 @@ def check_downloads(bundle):
         shutil.rmtree(directory, ignore_errors=True)
 
 
+# The page's keys (tools/playground/assets/keys.js) under node: each
+# command and its defaults, reading, matching, writing and showing a key,
+# and the settings holding them, an earlier version's migrated.
+KEYS_DRIVER = HERE / "playground" / "keys.mjs"
+
+
+def check_keys():
+    """The page's keys: (checks passed, failures). () -> (Int, [String])"""
+    try:
+        result = subprocess.run(NODE + [str(KEYS_DRIVER)], capture_output=True, text=True,
+                                timeout=120, cwd=REPO)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return 0, [f"keys: the driver did not run: {e}"]
+    if result.returncode != 0 or not result.stdout.strip():
+        detail = (result.stderr or result.stdout or "no output").strip()
+        return 0, [f"keys: the driver did not finish: {detail.splitlines()[-1]}"]
+    answer = json.loads(result.stdout.strip().splitlines()[-1])
+    return answer["checks"] - len(answer["failures"]), answer["failures"]
+
+
 def parse_args(argv):
     """`--bundle FILE` or the default. [String] -> Path"""
     if argv[:1] == ["--bundle"]:
@@ -632,6 +658,9 @@ def main(argv):
     mismatches = run_parity(bundle, parity)
     print(f"playground: packing and building {len(DOWNLOADS)} downloads.", flush=True)
     downloaded, download_failures = check_downloads(bundle)
+    keyed, key_failures = check_keys()
+    for failure in key_failures:
+        print(f"playground: FAILED {failure}")
     for failure in download_failures:
         print(f"playground: FAILED download: {failure}")
     for mismatch in mismatches:
@@ -652,11 +681,13 @@ def main(argv):
           f"{len(mismatches)} differ.")
     print(f"playground: {downloaded} of {len(DOWNLOADS)} downloads packed, "
           "unpacked and built.")
-    failed = len(failures) + len(listed) + len(mismatches) + len(download_failures)
+    print(f"playground: the page's keys, {keyed} checks passed.")
+    failed = (len(failures) + len(listed) + len(mismatches) + len(download_failures)
+              + len(key_failures))
     suite.footer(
         "playground",
         checks + pairs + len(parity) - len(failures) - len(mismatches)
-        - (1 if listed else 0) + downloaded,
+        - (1 if listed else 0) + downloaded + keyed,
         failed,
         f"{len(prepared['examples'])} examples, "
         f"{len(prepared['targets'])} targets")

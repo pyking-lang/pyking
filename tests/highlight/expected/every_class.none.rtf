@@ -1,0 +1,35 @@
+{\rtf1\ansi\ansicpg1252\deff0\uc1
+{\fonttbl{\f0\fmodern\fcharset0 Monaco;}{\f1\fswiss\fcharset0 Helvetica;}}
+{\colortbl;\red77\green77\blue76;\red137\green89\blue168;\red201\green158\blue0;\red245\green135\blue31;\red113\green140\blue0;\red142\green144\blue140;\red66\green113\blue174;\red62\green153\blue159;}
+\pard\plain\f0\cf1 {\cf6\i # Every class of span pyk highlight colours, in a program that runs.}\par
+{\cf2 use} mutation\par
+\par
+{\cf2 datatype} {\cf3 Shape}:\par
+    {\cf3 Circle}(r: {\cf3 Float})\par
+    {\cf3 Rect}(w: {\cf3 Float}, h: {\cf3 Float})\par
+\par
+{\cf2 def} {\cf7 area}(s: {\cf3 Shape}) {\cf8 ->} {\cf3 Float}:\par
+    {\cf2 match} s:\par
+        {\cf2 case} {\cf3 Circle}(r):\par
+            {\cf2 return} {\cf4 3.0} {\cf8 *} r {\cf8 *} r  {\cf6\i # a float literal}\par
+        {\cf2 case} {\cf3 Rect}(w, h):\par
+            {\cf2 return} w {\cf8 *} h\par
+\par
+{\cf2 def} {\cf7 describe}(n: {\cf3 Int}, c: {\cf3 Char}) {\cf8 ->} {\cf3 String}:\par
+    twice {\cf8 =} {\cf2 let} t {\cf8 =} n {\cf2 in} t {\cf8 +} n\par
+    {\cf2 if} n {\cf8 >=} {\cf4 0} {\cf2 and} {\cf2 not} (n {\cf8 ==} {\cf4 1}) {\cf2 or} {\cf4 false}:\par
+        {\cf2 return} {\cf5 "big: "} {\cf8 +} {\cf8 string}(twice) {\cf8 +} {\cf8 string}(c)\par
+    {\cf2 else}:\par
+        {\cf2 return} {\cf5 "\u252?n\u239?code \\"quoted\\" \\\\ \u233? \u-10179?\u-8704?"}\par
+\par
+{\cf2 def} {\cf7 main}():\par
+    {\cf2 var} count {\cf8 =} {\cf4 0x1F}\par
+    count {\cf8 :=} count {\cf8 <<} {\cf4 2} {\cf8 |} {\cf4 0b101} {\cf8 &} {\cf8 ~}count\par
+    {\cf2 for} i {\cf2 in} {\cf8 range}({\cf4 3}):\par
+        {\cf8 print}(describe(i, {\cf5 'a'}), area({\cf3 Circle}({\cf4 1.5})) {\cf8 !=} {\cf4 2.0e1}, {\cf4 true})\par
+    {\cf8 print}(count {\cf8 %} {\cf4 7}, {\cf8 len}([{\cf4 1}, {\cf4 2}, {\cf4 3}]) {\cf8 ^} {\cf4 2})\par
+    {\cf8 print}(describe({\cf4 1}, {\cf5 'b'}))\par
+    double {\cf8 =} {\cf2 lam} x. x {\cf8 *} {\cf4 2}\par
+    {\cf8 print}(double({\cf4 21}))\par
+\par
+main()}

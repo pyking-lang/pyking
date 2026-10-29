@@ -14,8 +14,10 @@ Four parts:
             node (tests/lsp/browser.mjs), which must answer the same.
   page      where a Chromium is found and `make vendor` has run, the
             playground driven by tests/lsp/playground.mjs: a marker, a
-            hover, completion and the outline in its editor. Skipped
-            otherwise.
+            hover, completion and the outline in its editor, and the
+            rest of the page -- its tabs, the REPL, the debugger, the
+            settings, Copy for slides read back off the clipboard, and
+            every command's keys pressed for real. Skipped otherwise.
   editors   the VS Code extension's manifest and grammar, the Emacs
             mode's eglot entry (where emacs is installed), and the setup
             snippets on the website.
@@ -639,7 +641,7 @@ def main(argv):
             try:
                 ran = suite.run_with_progress(
                     ["node", str(PAGE_DRIVER), chromium, f"http://127.0.0.1:{port}/"],
-                    "the playground in Chromium", 300)
+                    "the playground in Chromium", 600)
                 try:
                     result = json.loads(ran.stdout)
                 except json.JSONDecodeError:

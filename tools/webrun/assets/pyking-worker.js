@@ -51,6 +51,11 @@
 // answers what it sends once the client has stopped typing -- the
 // diagnostics. Both answer null where the bundle has no `pykLsp`.
 //
+// `highlight` colours Pyking source as `pyk highlight` does
+// (src/highlight.ml): {source, options} -- options {theme, font, size,
+// background, spaces}, each optional -- answers {html, rtf, text}, and
+// options it refuses are an `error`.
+//
 // So does the playground's REPL (src/repl_session.ml), on a worker of
 // its own: `repl` with `action` "start" begins an empty session, "line"
 // says whether text is a whole entry and how the next line is indented,
@@ -153,6 +158,8 @@ self.onmessage = (event) => {
       }));
     case "analyze":
       return answer(() => analyze(message));
+    case "highlight":
+      return answer(() => highlight(message));
     case "lsp":
       return answer(() => (typeof self.pykLsp === "function"
         ? JSON.parse(self.pykLsp(message.message)) : null));
@@ -228,6 +235,18 @@ function supply({ source, name }) {
 function analyze(message) {
   supply(message);
   return JSON.parse(self.pykAnalyze(message.name));
+}
+
+/** Pyking source coloured as `pyk highlight` colours it: {html, rtf,
+ *  text}. Throws where the options are refused, or where the bundle has
+ *  no highlighter. {source, options} -> {html, rtf, text} */
+function highlight({ source = "", options = {} }) {
+  if (typeof self.pykHighlight !== "function") {
+    throw new Error("this compiler bundle has no highlighter: rebuild it with make");
+  }
+  const answer = JSON.parse(self.pykHighlight(String(source), JSON.stringify(options ?? {})));
+  if (answer.error) throw new Error(answer.error);
+  return answer;
 }
 
 /** Runs a program with the interpreter. Answers {ok:true, exit?} or a

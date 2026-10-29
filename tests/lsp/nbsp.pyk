@@ -1,0 +1,7 @@
+## Doubles a number.
+def twice(n: Int) -> Int:
+    # two comment lines,
+    # indented with non-breaking spaces
+    return n * 2
+
+answer = twice(21)

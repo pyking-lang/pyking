@@ -1,0 +1,32 @@
+# Every class of span pyk highlight colours, in a program that runs.
+use mutation
+
+datatype Shape:
+    Circle(r: Float)
+    Rect(w: Float, h: Float)
+
+def area(s: Shape) -> Float:
+    match s:
+        case Circle(r):
+            return 3.0 * r * r  # a float literal
+        case Rect(w, h):
+            return w * h
+
+def describe(n: Int, c: Char) -> String:
+    twice = let t = n in t + n
+    if n >= 0 and not (n == 1) or false:
+        return "big: " + string(twice) + string(c)
+    else:
+        return "ünïcode \"quoted\" \\ é 😀"
+
+def main():
+    var count = 0x1F
+    count := count << 2 | 0b101 & ~count
+    for i in range(3):
+        print(describe(i, 'a'), area(Circle(1.5)) != 2.0e1, true)
+    print(count % 7, len([1, 2, 3]) ^ 2)
+    print(describe(1, 'b'))
+    double = lam x. x * 2
+    print(double(21))
+
+main()

@@ -71,7 +71,12 @@ threading column state through every grammar rule, and it is why this
 module — not `parser.ml` — is where "indentation must be a multiple of
 4 spaces" and "unindent does not match any outer indentation level" are
 raised: those are lexical facts about a line's leading whitespace, not
-facts about grammar.
+facts about grammar. `leading_spaces` reads that whitespace: ordinary
+spaces and non-breaking ones (U+00A0, two bytes in UTF-8), each counted
+as one space, while the column moves on by the bytes they take, since
+columns count bytes. `indent_width`, `trim` and `blank` answer the same
+questions for the REPL and the language server, which look at a line's
+spaces without lexing it.
 
 The mechanism is `stack`, a list of indentation *levels*
 (`width / 4`, not raw column counts), starting at `[0]`, plus a
@@ -205,7 +210,9 @@ are on the roadmap, and why they aren't built yet).
 ## What isn't tokenized
 
 There is no token for whitespace between tokens on the same line (it is
-consumed and dropped by the `' ' :: xs` arm), and no token marking the
+consumed and dropped by the `' ' :: xs` arm, or the `'\xC2' :: '\xA0'`
+arm for a non-breaking space, U+00A0, which code copied out of a PDF or
+a slide has in place of a space), and no token marking the
 end of a line — only `TokIndent`/`TokDedent` say anything about
 structure across lines. That absence is a real cost paid downstream:
 `parser.ml`'s `check_own_line` (the rule that rejects `print h` as two

@@ -125,6 +125,26 @@ keywords, builtins and targets the compiler has, and the JavaScript value
 formatter the playground's generated code is run with. Nothing here keeps a
 copy of any of them, so none can drift from the language.
 
+**Code for a slide.** `runtime.highlight(source, options = {})` colours
+Pyking source as `pyk highlight` does (`src/highlight.ml`, through the
+bundle's `pykHighlight` and the worker's `highlight` request) and
+resolves to `{html, rtf, text}`: an HTML `<pre>` with every style
+inline, a complete RTF document, and plain text, each with leading
+spaces as non-breaking spaces by default so a slide exported to PDF
+keeps its indentation when the code is copied out. A page puts all
+three on the clipboard (`text/html`, `text/rtf`, `text/plain`) and a
+slide program pastes the one it likes. It waits for the compiler to
+load, and rejects with the reason where an option is refused. The
+options and their defaults are the command's:
+
+| Option | Values | Default |
+|---|---|---|
+| `theme` | `"light"`, `"dark"` -- the playground's `pyking-light` and `pyking-dark` colours | `"light"` |
+| `font` | a font's name, in letters, digits, spaces, `-`, `_` and `.`; HTML falls back to `monospace` | `"Menlo"` |
+| `size` | points, a whole number from 1 to 1000, or `null` for the application's | `null` |
+| `background` | `"none"`, `"theme"` (the theme's), or `"#rrggbb"` | `"none"` |
+| `spaces` | `"indent"` (leading spaces as U+00A0), `"all"` (every space but those inside a string literal), `"none"` | `"indent"` |
+
 `pyking-runtime.js` and `pyking-worker.js` are described in
 `../playground/README.md` ("How programs are executed", "Embedding it in
 another page"): every compile and run happens on the worker, so a program

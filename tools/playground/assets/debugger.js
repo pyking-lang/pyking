@@ -7,7 +7,7 @@
 // it where the program stopped.
 //
 // Every control has keys, shown when the pointer rests on it and
-// changed in the settings (`DEFAULT_KEYS`). Start's, Continue's and the
+// changed in the settings (keys.js, `COMMANDS`). Start's, Continue's and the
 // steps' act anywhere in the playground -- Continue's starting debugging
 // when nothing is debugged, the steps' doing nothing then -- and the
 // others where the focus is in the editor or in this tab.
@@ -20,123 +20,24 @@
  *  are this file's. */
 const FILE = "playground.pyk";
 
-/** What each action is called, in the settings and in a tooltip. */
-export const ACTIONS = [
-  ["start", "Start debugging, or start again"],
-  ["continue", "Continue"],
-  ["next", "Step over"],
-  ["in", "Step into"],
-  ["out", "Step out"],
-  ["stop", "Stop debugging"],
-  ["breakpoint", "Set or remove a breakpoint on the cursor's line"],
-];
+import {
+  COMMANDS, defaultKeys, keysOf, matchesKey, parseKey, showKeys,
+} from "./keys.js";
 
-/** The keys each action has until the settings say otherwise: an Alt
- *  key for each (Debug, Continue, Over, Into, ouT, Stop, Breakpoint) and
- *  a function key for continuing and each step. Alt is Option on a Mac,
- *  and `Mod` Cmd there and Ctrl elsewhere. */
-export const DEFAULT_KEYS = {
-  start: ["Alt+D"],
-  continue: ["F8", "Alt+C"],
-  next: ["F10", "Alt+O"],
-  in: ["F11", "Alt+I"],
-  out: ["Shift+F11", "Alt+T"],
-  stop: ["Alt+S"],
-  breakpoint: ["Alt+B"],
-};
+/** What each action is called, in the settings and in a tooltip: the
+ *  debugger's commands of keys.js, "debug.next" as "next". */
+export const ACTIONS = COMMANDS.filter((c) => c.area === "Debugger")
+  .map((c) => [c.id.slice("debug.".length), c.label]);
+
+/** The keys each action has until the settings say otherwise (keys.js):
+ *  an Alt key for each (Debug, Continue, Over, Into, ouT, Stop,
+ *  Breakpoint) and a function key for continuing and each step. Alt is
+ *  Option on a Mac. */
+export const DEFAULT_KEYS = Object.fromEntries(ACTIONS.map(([action]) =>
+  [action, defaultKeys("debug." + action)]));
 
 /** The actions that act only while a program is being debugged. */
 const SESSION_ACTIONS = ["next", "in", "out", "stop"];
-
-/** An action's keys as the settings hold them -- a list, or one spec
- *  as earlier settings saved it -- as a list. Any -> [String] */
-export function keyList(held) {
-  if (Array.isArray(held)) return held.filter((k) => typeof k === "string" && k !== "");
-  return typeof held === "string" && held !== "" ? [held] : [];
-}
-
-/** Several key specs as this computer's keyboard writes them, "F10 or
- *  Option+O". [String] -> String */
-export function showKeys(specs) {
-  return specs.length === 0 ? "no key" : specs.map(showKey).join(" or ");
-}
-
-/** The physical key a written character stands for, so a key means the
- *  same with Shift held: `;` is Semicolon whether or not it types `:`. */
-const CODES = {
-  ";": "Semicolon", "'": "Quote", "\\": "Backslash", ",": "Comma", ".": "Period",
-  "/": "Slash", "[": "BracketLeft", "]": "BracketRight", "-": "Minus", "=": "Equal",
-  "`": "Backquote", Enter: "Enter", Space: "Space", Tab: "Tab", Backspace: "Backspace",
-  Up: "ArrowUp", Down: "ArrowDown", Left: "ArrowLeft", Right: "ArrowRight",
-};
-
-/** Whether the page is on a Mac, where Mod is Cmd. () -> Bool */
-function onMac() {
-  const platform = globalThis.navigator?.userAgentData?.platform ?? globalThis.navigator?.platform ?? "";
-  return /mac|iphone|ipad/i.test(platform);
-}
-
-/** A key spec, "Mod+Shift+;", as {mod, ctrl, alt, shift, code}.
- *  String -> Object? */
-export function parseKey(spec) {
-  if (typeof spec !== "string" || spec === "") return null;
-  const parts = spec.split("+");
-  // "Mod++" is the key `+` itself.
-  let key = parts.pop();
-  if (key === "" && parts.length > 0 && parts[parts.length - 1] === "") {
-    parts.pop();
-    key = "+";
-  }
-  const has = (name) => parts.includes(name);
-  let code = CODES[key];
-  if (!code && /^[A-Za-z]$/.test(key)) code = "Key" + key.toUpperCase();
-  if (!code && /^[0-9]$/.test(key)) code = "Digit" + key;
-  if (!code && /^F[0-9]{1,2}$/.test(key)) code = key;
-  if (!code && key === "+") code = "Equal";
-  if (!code) return null;
-  return { mod: has("Mod"), ctrl: has("Ctrl"), alt: has("Alt"), shift: has("Shift"), code };
-}
-
-/** Whether a key event is the key a spec names. Object -> KeyboardEvent -> Bool */
-export function matchesKey(parsed, event) {
-  if (!parsed || event.code !== parsed.code) return false;
-  const mac = onMac();
-  const mod = mac ? event.metaKey : event.ctrlKey;
-  const ctrl = mac ? event.ctrlKey : false;
-  if (mac && !parsed.mod && event.metaKey) return false;
-  if (!mac && !parsed.mod && event.metaKey) return false;
-  return mod === parsed.mod && ctrl === parsed.ctrl && event.altKey === parsed.alt
-    && event.shiftKey === parsed.shift;
-}
-
-/** The spec a key event writes, for the settings' key fields, or null
- *  for a modifier pressed on its own. KeyboardEvent -> String? */
-export function specOf(event) {
-  if (["Shift", "Control", "Alt", "Meta"].includes(event.key)) return null;
-  const named = Object.entries(CODES).find(([, code]) => code === event.code)?.[0];
-  let key = named;
-  if (!key && /^Key[A-Z]$/.test(event.code)) key = event.code.slice(3);
-  if (!key && /^Digit[0-9]$/.test(event.code)) key = event.code.slice(5);
-  if (!key && /^F[0-9]{1,2}$/.test(event.code)) key = event.code;
-  if (!key) return null;
-  const mac = onMac();
-  const parts = [];
-  if (mac ? event.metaKey : event.ctrlKey) parts.push("Mod");
-  if (mac && event.ctrlKey) parts.push("Ctrl");
-  if (event.altKey) parts.push("Alt");
-  if (event.shiftKey) parts.push("Shift");
-  parts.push(key);
-  return parts.join("+");
-}
-
-/** A key spec as this computer's keyboard writes it: Cmd on a Mac.
- *  String -> String */
-export function showKey(spec) {
-  if (!spec) return "no key";
-  const mac = onMac();
-  return spec.split("+").map((part) => part === "Mod" ? (mac ? "Cmd" : "Ctrl")
-    : part === "Alt" && mac ? "Option" : part).join("+");
-}
 
 export class Debugger {
   /** The Debug tab of a playground: it uses the playground's editor,
@@ -302,9 +203,8 @@ export class Debugger {
   /** Every action's key specs: the settings' over the defaults.
    *  () -> {action: [String]} */
   keys() {
-    const saved = this.app.settings.debugKeys ?? {};
-    return Object.fromEntries(Object.entries(DEFAULT_KEYS).map(([action, specs]) =>
-      [action, action in saved ? keyList(saved[action]) : specs]));
+    return Object.fromEntries(ACTIONS.map(([action]) =>
+      [action, keysOf(this.app.settings, "debug." + action)]));
   }
 
   /** Runs the action a key event names, if it names one of `only`'s

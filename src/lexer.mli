@@ -135,6 +135,18 @@ val reserved_words : string list
 (** A string as the character list the lexer reads. string -> [char] *)
 val chars_of_string : string -> char list
 
+(** How many spaces a line starts with, a non-breaking space (U+00A0)
+    counting as one, as the lexer counts indentation. string -> int *)
+val indent_width : string -> int
+
+(** A line without the spaces at either end, non-breaking spaces
+    (U+00A0) and tabs included. string -> string *)
+val trim : string -> string
+
+(** Whether a line holds nothing but spaces, non-breaking spaces, tabs
+    and a carriage return. string -> bool *)
+val blank : string -> bool
+
 (** Lexes a character list into a list of tokens, attributing every one
     of them to `file`. Raises Lex_error on the first character that
     cannot start a token, on a bad string escape, on an integer literal

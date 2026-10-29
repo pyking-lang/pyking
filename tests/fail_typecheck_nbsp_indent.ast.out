@@ -1,0 +1,2 @@
+'tests/fail_typecheck_nbsp_indent.pyk' 4:0-4:6 Lexing error:
+  indentation must be a multiple of 4 spaces

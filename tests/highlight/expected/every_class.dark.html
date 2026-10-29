@@ -1,0 +1,32 @@
+<pre style="font-family:'Fira Code',monospace;white-space:pre;color:#c5c8c6;background:#1d1f21;font-size:18pt"><span style="color:#969896;font-style:italic"># Every class of span pyk highlight colours, in a program that runs.</span>
+<span style="color:#b294bb">use</span> mutation
+
+<span style="color:#b294bb">datatype</span> <span style="color:#f0c674">Shape</span>:
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f0c674">Circle</span>(r: <span style="color:#f0c674">Float</span>)
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#f0c674">Rect</span>(w: <span style="color:#f0c674">Float</span>, h: <span style="color:#f0c674">Float</span>)
+
+<span style="color:#b294bb">def</span> <span style="color:#81a2be">area</span>(s: <span style="color:#f0c674">Shape</span>) <span style="color:#8abeb7">-&gt;</span> <span style="color:#f0c674">Float</span>:
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#b294bb">match</span> s:
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#b294bb">case</span> <span style="color:#f0c674">Circle</span>(r):
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#b294bb">return</span> <span style="color:#de935f">3.0</span> <span style="color:#8abeb7">*</span> r <span style="color:#8abeb7">*</span> r  <span style="color:#969896;font-style:italic"># a float literal</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#b294bb">case</span> <span style="color:#f0c674">Rect</span>(w, h):
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#b294bb">return</span> w <span style="color:#8abeb7">*</span> h
+
+<span style="color:#b294bb">def</span> <span style="color:#81a2be">describe</span>(n: <span style="color:#f0c674">Int</span>, c: <span style="color:#f0c674">Char</span>) <span style="color:#8abeb7">-&gt;</span> <span style="color:#f0c674">String</span>:
+&nbsp;&nbsp;&nbsp;&nbsp;twice <span style="color:#8abeb7">=</span> <span style="color:#b294bb">let</span> t <span style="color:#8abeb7">=</span> n <span style="color:#b294bb">in</span> t <span style="color:#8abeb7">+</span> n
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#b294bb">if</span> n <span style="color:#8abeb7">&gt;=</span> <span style="color:#de935f">0</span> <span style="color:#b294bb">and</span> <span style="color:#b294bb">not</span> (n <span style="color:#8abeb7">==</span> <span style="color:#de935f">1</span>) <span style="color:#b294bb">or</span> <span style="color:#de935f">false</span>:
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#b294bb">return</span> <span style="color:#b5bd68">&quot;big: &quot;</span> <span style="color:#8abeb7">+</span> <span style="color:#8abeb7">string</span>(twice) <span style="color:#8abeb7">+</span> <span style="color:#8abeb7">string</span>(c)
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#b294bb">else</span>:
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#b294bb">return</span> <span style="color:#b5bd68">&quot;&#252;n&#239;code \&quot;quoted\&quot; \\ &#233; &#128512;&quot;</span>
+
+<span style="color:#b294bb">def</span> <span style="color:#81a2be">main</span>():
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#b294bb">var</span> count <span style="color:#8abeb7">=</span> <span style="color:#de935f">0x1F</span>
+&nbsp;&nbsp;&nbsp;&nbsp;count <span style="color:#8abeb7">:=</span> count <span style="color:#8abeb7">&lt;&lt;</span> <span style="color:#de935f">2</span> <span style="color:#8abeb7">|</span> <span style="color:#de935f">0b101</span> <span style="color:#8abeb7">&amp;</span> <span style="color:#8abeb7">~</span>count
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#b294bb">for</span> i <span style="color:#b294bb">in</span> <span style="color:#8abeb7">range</span>(<span style="color:#de935f">3</span>):
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8abeb7">print</span>(describe(i, <span style="color:#b5bd68">'a'</span>), area(<span style="color:#f0c674">Circle</span>(<span style="color:#de935f">1.5</span>)) <span style="color:#8abeb7">!=</span> <span style="color:#de935f">2.0e1</span>, <span style="color:#de935f">true</span>)
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8abeb7">print</span>(count <span style="color:#8abeb7">%</span> <span style="color:#de935f">7</span>, <span style="color:#8abeb7">len</span>([<span style="color:#de935f">1</span>, <span style="color:#de935f">2</span>, <span style="color:#de935f">3</span>]) <span style="color:#8abeb7">^</span> <span style="color:#de935f">2</span>)
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8abeb7">print</span>(describe(<span style="color:#de935f">1</span>, <span style="color:#b5bd68">'b'</span>))
+&nbsp;&nbsp;&nbsp;&nbsp;double <span style="color:#8abeb7">=</span> <span style="color:#b294bb">lam</span> x. x <span style="color:#8abeb7">*</span> <span style="color:#de935f">2</span>
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8abeb7">print</span>(double(<span style="color:#de935f">21</span>))
+
+main()</pre>

@@ -1,0 +1,35 @@
+{\rtf1\ansi\ansicpg1252\deff0\uc1
+{\fonttbl{\f0\fmodern\fcharset0 Menlo;}{\f1\fswiss\fcharset0 Helvetica;}}
+{\colortbl;\red77\green77\blue76;\red16\green32\blue48;\red137\green89\blue168;\red201\green158\blue0;\red245\green135\blue31;\red113\green140\blue0;\red142\green144\blue140;\red66\green113\blue174;\red62\green153\blue159;}
+\pard\plain\f0\cf1\cb2 {\cf7\i #\~Every\~class\~of\~span\~pyk\~highlight\~colours,\~in\~a\~program\~that\~runs.}\par
+{\cf3 use}\~mutation\par
+\par
+{\cf3 datatype}\~{\cf4 Shape}:\par
+\~\~\~\~{\cf4 Circle}(r:\~{\cf4 Float})\par
+\~\~\~\~{\cf4 Rect}(w:\~{\cf4 Float},\~h:\~{\cf4 Float})\par
+\par
+{\cf3 def}\~{\cf8 area}(s:\~{\cf4 Shape})\~{\cf9 ->}\~{\cf4 Float}:\par
+\~\~\~\~{\cf3 match}\~s:\par
+\~\~\~\~\~\~\~\~{\cf3 case}\~{\cf4 Circle}(r):\par
+\~\~\~\~\~\~\~\~\~\~\~\~{\cf3 return}\~{\cf5 3.0}\~{\cf9 *}\~r\~{\cf9 *}\~r\~\~{\cf7\i #\~a\~float\~literal}\par
+\~\~\~\~\~\~\~\~{\cf3 case}\~{\cf4 Rect}(w,\~h):\par
+\~\~\~\~\~\~\~\~\~\~\~\~{\cf3 return}\~w\~{\cf9 *}\~h\par
+\par
+{\cf3 def}\~{\cf8 describe}(n:\~{\cf4 Int},\~c:\~{\cf4 Char})\~{\cf9 ->}\~{\cf4 String}:\par
+\~\~\~\~twice\~{\cf9 =}\~{\cf3 let}\~t\~{\cf9 =}\~n\~{\cf3 in}\~t\~{\cf9 +}\~n\par
+\~\~\~\~{\cf3 if}\~n\~{\cf9 >=}\~{\cf5 0}\~{\cf3 and}\~{\cf3 not}\~(n\~{\cf9 ==}\~{\cf5 1})\~{\cf3 or}\~{\cf5 false}:\par
+\~\~\~\~\~\~\~\~{\cf3 return}\~{\cf6 "big: "}\~{\cf9 +}\~{\cf9 string}(twice)\~{\cf9 +}\~{\cf9 string}(c)\par
+\~\~\~\~{\cf3 else}:\par
+\~\~\~\~\~\~\~\~{\cf3 return}\~{\cf6 "\u252?n\u239?code \\"quoted\\" \\\\ \u233? \u-10179?\u-8704?"}\par
+\par
+{\cf3 def}\~{\cf8 main}():\par
+\~\~\~\~{\cf3 var}\~count\~{\cf9 =}\~{\cf5 0x1F}\par
+\~\~\~\~count\~{\cf9 :=}\~count\~{\cf9 <<}\~{\cf5 2}\~{\cf9 |}\~{\cf5 0b101}\~{\cf9 &}\~{\cf9 ~}count\par
+\~\~\~\~{\cf3 for}\~i\~{\cf3 in}\~{\cf9 range}({\cf5 3}):\par
+\~\~\~\~\~\~\~\~{\cf9 print}(describe(i,\~{\cf6 'a'}),\~area({\cf4 Circle}({\cf5 1.5}))\~{\cf9 !=}\~{\cf5 2.0e1},\~{\cf5 true})\par
+\~\~\~\~{\cf9 print}(count\~{\cf9 %}\~{\cf5 7},\~{\cf9 len}([{\cf5 1},\~{\cf5 2},\~{\cf5 3}])\~{\cf9 ^}\~{\cf5 2})\par
+\~\~\~\~{\cf9 print}(describe({\cf5 1},\~{\cf6 'b'}))\par
+\~\~\~\~double\~{\cf9 =}\~{\cf3 lam}\~x.\~x\~{\cf9 *}\~{\cf5 2}\par
+\~\~\~\~{\cf9 print}(double({\cf5 21}))\par
+\par
+main()}

@@ -3780,6 +3780,15 @@ def bucket(x):
 print(bucket(0), bucket(5))
 ```
 
+A non-breaking space (U+00A0) is a space wherever a space may stand:
+in indentation, where it counts as one space, and between the words
+of a line. Code copied out of a PDF, a slide or a web page often has
+them in place of ordinary spaces, and it runs as it looks. Inside a
+string or a comment one is kept as written. A tab is not a space. `pyk highlight`, and the
+playground's Copy for slides, write indentation with them for this
+reason (see the documentation's "Code on slides" page,
+`sitesrc/documentation/slides.md`).
+
 ### Lines and continuation
 
 A statement ends where the tokens stop being able to continue it, and

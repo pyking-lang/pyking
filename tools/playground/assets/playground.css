@@ -478,27 +478,75 @@
 }
 .pyk-hint { font-size: .78rem; color: var(--pyk-dim); margin: 0; }
 
-/* The settings dialog: three columns, the debugger's keys across all
-   three below them, one column on a narrow screen. */
-.pyk-modal.pyk-modal-wide { max-width: min(64rem, calc(100% - 2rem)); width: 64rem; }
-.pyk-settings-body { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem 1.6rem; }
-.pyk-settings-column { display: grid; gap: 1rem; align-content: start; }
-.pyk-settings-wide { grid-column: 1 / -1; }
+/* The settings dialog: five tabs -- Appearance, Running, Debugger, Copy
+   for slides and Keys -- above one panel. The panel keeps one height, so
+   moving between the tabs does not make the dialog jump; a tab with more
+   than fits scrolls. The tabs scroll sideways on a phone. */
+.pyk-modal.pyk-modal-wide { max-width: min(52rem, calc(100% - 2rem)); width: 52rem; }
+.pyk-settings-dialog { display: flex; flex-direction: column; overflow: hidden; }
+.pyk-settings-tabs {
+  display: flex; gap: .15rem; padding: .4rem .6rem 0; flex: none;
+  border-bottom: 1px solid var(--pyk-edge); overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.pyk-playground .pyk-settings-tab {
+  background: transparent; border: 1px solid transparent; border-bottom: none;
+  border-radius: 5px 5px 0 0; padding: .35rem .75rem; margin-bottom: -1px;
+  color: var(--pyk-dim); white-space: nowrap; flex: none;
+}
+.pyk-playground .pyk-settings-tab:hover { color: var(--pyk-text); background: var(--pyk-control); }
+.pyk-playground .pyk-settings-tab.active {
+  color: var(--pyk-text); background: var(--pyk-panel);
+  border-color: var(--pyk-edge); border-bottom: 1px solid var(--pyk-panel);
+  box-shadow: inset 0 2px 0 var(--pyk-accent);
+}
+.pyk-playground .pyk-settings-tab:focus-visible { outline: 2px solid var(--pyk-accent); outline-offset: -2px; }
+.pyk-settings-body { height: 30rem; min-height: 0; overflow: auto; flex: 0 1 auto; }
+.pyk-settings-panel { display: grid; gap: 1rem; align-content: start; }
+.pyk-settings-panel.pyk-hidden { display: none; }
+/* Copy for slides: its options two by two, the preview across both. */
+.pyk-slides-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.6rem; }
+.pyk-settings-panel .pyk-field { align-content: start; }
+.pyk-slides-panel .pyk-wide { grid-column: 1 / -1; }
+.pyk-playground .pyk-settings-panel .pyk-input-line, .pyk-playground .pyk-settings-panel select {
+  width: 100%; min-width: 0;
+}
+.pyk-playground .pyk-settings-panel .pyk-field-row select { width: auto; flex: 1 1 auto; }
+.pyk-settings-panel input[type="color"] {
+  flex: none; width: 2.6rem; height: 1.9rem; padding: .1rem;
+  background: var(--pyk-control); border: 1px solid var(--pyk-edge); border-radius: 5px;
+}
+/* The preview is what is pasted: its own colours, its own font, its own
+   size, on a checkerboard where its background is the slide's. */
+.pyk-slides-preview {
+  border: 1px solid var(--pyk-edge); border-radius: 5px; padding: .6rem; overflow: auto;
+  max-height: 12rem; color: #1f2328;
+  background: repeating-conic-gradient(#e9ebee 0% 25%, #ffffff 0% 50%) 0 0 / 16px 16px;
+}
+.pyk-slides-preview pre { margin: 0; }
+/* Dark colours are for a dark slide, so they are previewed on one. */
+.pyk-slides-preview.pyk-slides-dark {
+  background: repeating-conic-gradient(#2a2c2f 0% 25%, #1d1f21 0% 50%) 0 0 / 16px 16px;
+}
+.pyk-slides-preview.pyk-slides-unavailable { background: var(--pyk-sunken); color: var(--pyk-dim); }
 @media (max-width: 760px) {
-  .pyk-settings-body { grid-template-columns: minmax(0, 1fr); }
+  .pyk-slides-panel { grid-template-columns: minmax(0, 1fr); }
+  .pyk-settings-body { height: auto; }
 }
 
-/* The debugger's keys in the settings: each action, its keys as chips
-   with a ✕ each, a + that takes the next key pressed, and a reset. */
-.pyk-key-list {
-  display: grid; gap: .35rem 1.6rem;
-  grid-template-columns: repeat(auto-fill, minmax(24rem, 1fr));
+/* The Keys tab: each command, by area, its keys as chips with a ✕ each,
+   a + that takes the next key pressed, and a reset. */
+.pyk-key-list { display: grid; gap: 1rem; }
+.pyk-key-group { display: grid; gap: .35rem; }
+.pyk-key-area {
+  font-size: .78rem; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--pyk-dim); border-bottom: 1px solid var(--pyk-edge); padding-bottom: .2rem;
 }
 .pyk-key-row {
   display: flex; align-items: center; gap: .5rem; font-size: .8rem;
   color: var(--pyk-text); min-width: 0;
 }
-.pyk-key-name { flex: 0 0 12rem; }
+.pyk-key-name { flex: 0 0 17rem; }
 .pyk-key-chips { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; }
 .pyk-key-chip {
   display: inline-flex; align-items: center; gap: .2rem;
@@ -517,7 +565,7 @@
 .pyk-key-field:focus { outline: 2px solid var(--pyk-accent); outline-offset: -1px; }
 .pyk-panel-debug:focus { outline: none; }
 @media (max-width: 760px) {
-  .pyk-key-list { grid-template-columns: minmax(0, 1fr); gap: .6rem; }
+  .pyk-key-group { gap: .6rem; }
   .pyk-key-row { flex-wrap: wrap; }
   .pyk-key-name { flex-basis: 100%; }
   .pyk-key-chips { min-width: 0; }

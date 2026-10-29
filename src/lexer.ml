@@ -15,6 +15,10 @@
       pprint_token tok -- formats one token for display.
       keyword_token name info -- the keyword token for a reserved word.
       string_until pred chars -- splits off the longest prefix matching pred.
+      leading_spaces chars -- the spaces a line starts with, U+00A0 too.
+      indent_width line -- how many spaces a line starts with.
+      trim line -- a line without spaces of any kind at either end.
+      blank line -- whether a line holds only spaces of any kind.
       scan_string file r c quote chars -- reads a string literal body.
       is_digit x / is_letter x / is_digit_letter x -- character classes.
       token_info tok -- the source span a token carries.
@@ -445,6 +449,47 @@ let scan_string file r c quote chars =
   in
   scan [] 0 chars
 
+(** The spaces a line starts with: how many there are, each a space or a
+    non-breaking space (U+00A0, two bytes in UTF-8), the bytes they take,
+    and what follows them. [char] -> (int, int, [char]) *)
+let leading_spaces chars =
+  let rec go count bytes rest =
+    match rest with
+    | ' ' :: xs -> go (count + 1) (bytes + 1) xs
+    | '\xC2' :: '\xA0' :: xs -> go (count + 1) (bytes + 2) xs
+    | _ -> (count, bytes, rest)
+  in
+  go 0 0 chars
+
+let indent_width line =
+  let count, _, _ = leading_spaces (chars_of_string line) in
+  count
+
+let trim line =
+  let n = String.length line in
+  let rec from i =
+    if i < n && (line.[i] = ' ' || line.[i] = '\t' || line.[i] = '\r' || line.[i] = '\n') then from (i + 1)
+    else if i + 1 < n && line.[i] = '\xC2' && line.[i + 1] = '\xA0' then from (i + 2)
+    else i
+  in
+  let rec upto j =
+    if j > 0 && (line.[j - 1] = ' ' || line.[j - 1] = '\t' || line.[j - 1] = '\r' || line.[j - 1] = '\n') then upto (j - 1)
+    else if j > 1 && line.[j - 2] = '\xC2' && line.[j - 1] = '\xA0' then upto (j - 2)
+    else j
+  in
+  let a = from 0 in
+  let b = upto n in
+  if b <= a then "" else String.sub line a (b - a)
+
+let blank line =
+  let rec go = function
+    | (' ' | '\t' | '\r') :: xs -> go xs
+    | '\xC2' :: '\xA0' :: xs -> go xs
+    | [] -> true
+    | _ -> false
+  in
+  go (chars_of_string line)
+
 (** Lexes a character list into a list of tokens.
     string -> [char] -> [token] *)
 let lexing file chars =
@@ -459,15 +504,15 @@ let lexing file chars =
   let rec lex rest r c stack depth line_start tokens =
     match rest with
     | x :: _ when line_start && x <> '\n' && x <> '#' ->
-        let spaces, ys = string_until (fun ch -> ch = ' ') rest in
-        let width = String.length spaces in
+        (* A non-breaking space counts as one space, as it shows. *)
+        let count, width, ys = leading_spaces rest in
         (match ys with
         | y :: _ when y <> '\n' && y <> '#' ->
-            if width mod 4 <> 0 then
+            if count mod 4 <> 0 then
               raise
                 (Lex_error
                    (fi r c width, "indentation must be a multiple of 4 spaces"));
-            let level = width / 4 in
+            let level = count / 4 in
             let top = List.hd stack in
             if level > top then
               lex ys r (c + width) (level :: stack) depth false
@@ -669,6 +714,9 @@ let lexing file chars =
     | '|' :: xs ->
         lex xs r (c + 1) stack depth line_start (TokBar (fi r c 1) :: tokens)
     | ' ' :: xs -> lex xs r (c + 1) stack depth line_start tokens
+    (* A non-breaking space (U+00A0) is a space, as text pasted from a
+       slide or a web page writes one. *)
+    | '\xC2' :: '\xA0' :: xs -> lex xs r (c + 2) stack depth line_start tokens
     | '\n' :: xs -> lex xs (r + 1) 0 stack depth (depth = 0) tokens
     (* Keywords and identifiers *)
     | x :: _ when is_letter x ->

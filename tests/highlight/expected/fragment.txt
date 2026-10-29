@@ -1,0 +1,5 @@
+x = print('ab') + 1 # not lexed
+name = "unterminated
+    case Some(v) ->
+  odd = [1, 2
+    z = 1  # a tab

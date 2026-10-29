@@ -197,14 +197,13 @@ let continuable source =
     last line opened a block (ends in ':'), level with it otherwise.
     string -> string *)
 let next_indent source =
-  let trimmed line = String.trim line <> "" in
-  let lines = List.filter trimmed (String.split_on_char '\n' source) in
+  let lines = List.filter (fun line -> not (Lexer.blank line)) (String.split_on_char '\n' source) in
   match List.rev lines with
   | [] -> ""
   | last :: _ ->
-      let length = String.length last in
-      let rec spaces i = if i < length && last.[i] = ' ' then spaces (i + 1) else i in
-      let indent = String.sub last 0 (spaces 0) in
+      (* Ordinary spaces, however many non-breaking ones a pasted line
+         was indented with. *)
+      let indent = String.make (Lexer.indent_width last) ' ' in
       let stripped = String.trim last in
       if
         String.length stripped > 0

@@ -1,0 +1,32 @@
+<pre style="font-family:'Courier New',monospace;white-space:pre;color:#4d4d4c"><span style="color:#8e908c;font-style:italic"># Every class of span pyk highlight colours, in a program that runs.</span>
+<span style="color:#8959a8">use</span> mutation
+
+<span style="color:#8959a8">datatype</span> <span style="color:#c99e00">Shape</span>:
+    <span style="color:#c99e00">Circle</span>(r: <span style="color:#c99e00">Float</span>)
+    <span style="color:#c99e00">Rect</span>(w: <span style="color:#c99e00">Float</span>, h: <span style="color:#c99e00">Float</span>)
+
+<span style="color:#8959a8">def</span> <span style="color:#4271ae">area</span>(s: <span style="color:#c99e00">Shape</span>) <span style="color:#3e999f">-&gt;</span> <span style="color:#c99e00">Float</span>:
+    <span style="color:#8959a8">match</span> s:
+        <span style="color:#8959a8">case</span> <span style="color:#c99e00">Circle</span>(r):
+            <span style="color:#8959a8">return</span> <span style="color:#f5871f">3.0</span> <span style="color:#3e999f">*</span> r <span style="color:#3e999f">*</span> r  <span style="color:#8e908c;font-style:italic"># a float literal</span>
+        <span style="color:#8959a8">case</span> <span style="color:#c99e00">Rect</span>(w, h):
+            <span style="color:#8959a8">return</span> w <span style="color:#3e999f">*</span> h
+
+<span style="color:#8959a8">def</span> <span style="color:#4271ae">describe</span>(n: <span style="color:#c99e00">Int</span>, c: <span style="color:#c99e00">Char</span>) <span style="color:#3e999f">-&gt;</span> <span style="color:#c99e00">String</span>:
+    twice <span style="color:#3e999f">=</span> <span style="color:#8959a8">let</span> t <span style="color:#3e999f">=</span> n <span style="color:#8959a8">in</span> t <span style="color:#3e999f">+</span> n
+    <span style="color:#8959a8">if</span> n <span style="color:#3e999f">&gt;=</span> <span style="color:#f5871f">0</span> <span style="color:#8959a8">and</span> <span style="color:#8959a8">not</span> (n <span style="color:#3e999f">==</span> <span style="color:#f5871f">1</span>) <span style="color:#8959a8">or</span> <span style="color:#f5871f">false</span>:
+        <span style="color:#8959a8">return</span> <span style="color:#718c00">&quot;big: &quot;</span> <span style="color:#3e999f">+</span> <span style="color:#3e999f">string</span>(twice) <span style="color:#3e999f">+</span> <span style="color:#3e999f">string</span>(c)
+    <span style="color:#8959a8">else</span>:
+        <span style="color:#8959a8">return</span> <span style="color:#718c00">&quot;&#252;n&#239;code \&quot;quoted\&quot; \\ &#233; &#128512;&quot;</span>
+
+<span style="color:#8959a8">def</span> <span style="color:#4271ae">main</span>():
+    <span style="color:#8959a8">var</span> count <span style="color:#3e999f">=</span> <span style="color:#f5871f">0x1F</span>
+    count <span style="color:#3e999f">:=</span> count <span style="color:#3e999f">&lt;&lt;</span> <span style="color:#f5871f">2</span> <span style="color:#3e999f">|</span> <span style="color:#f5871f">0b101</span> <span style="color:#3e999f">&amp;</span> <span style="color:#3e999f">~</span>count
+    <span style="color:#8959a8">for</span> i <span style="color:#8959a8">in</span> <span style="color:#3e999f">range</span>(<span style="color:#f5871f">3</span>):
+        <span style="color:#3e999f">print</span>(describe(i, <span style="color:#718c00">'a'</span>), area(<span style="color:#c99e00">Circle</span>(<span style="color:#f5871f">1.5</span>)) <span style="color:#3e999f">!=</span> <span style="color:#f5871f">2.0e1</span>, <span style="color:#f5871f">true</span>)
+    <span style="color:#3e999f">print</span>(count <span style="color:#3e999f">%</span> <span style="color:#f5871f">7</span>, <span style="color:#3e999f">len</span>([<span style="color:#f5871f">1</span>, <span style="color:#f5871f">2</span>, <span style="color:#f5871f">3</span>]) <span style="color:#3e999f">^</span> <span style="color:#f5871f">2</span>)
+    <span style="color:#3e999f">print</span>(describe(<span style="color:#f5871f">1</span>, <span style="color:#718c00">'b'</span>))
+    double <span style="color:#3e999f">=</span> <span style="color:#8959a8">lam</span> x. x <span style="color:#3e999f">*</span> <span style="color:#f5871f">2</span>
+    <span style="color:#3e999f">print</span>(double(<span style="color:#f5871f">21</span>))
+
+main()</pre>

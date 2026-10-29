@@ -60,6 +60,15 @@ function pyk_register_utf8_0(name, f) {
   return 0;
 }
 
+//Provides: pyk_register2
+//Requires: pyk_utf8_of_text, pyk_text_of_utf8
+function pyk_register2(name, f) {
+  globalThis[name] = function (a, b) {
+    return pyk_text_of_utf8(f(pyk_utf8_of_text(a), pyk_utf8_of_text(b)));
+  };
+  return 0;
+}
+
 //Provides: pyk_register3
 //Requires: pyk_utf8_of_text, pyk_text_of_utf8
 function pyk_register3(name, f) {

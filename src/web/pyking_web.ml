@@ -24,6 +24,8 @@
       pykTargets()                      the targets, as JSON
       pykFormatHelper()                 the JS value formatter's source
       pykKeywords() / pykBuiltins()     the language's own word lists
+      pykHighlight(source, options)     source coloured as HTML, RTF
+                                        and text (highlight.ml)
 
     A running program's output goes to `pykOnPrint`, one line at a time
     as it is produced, so output made before a program hangs is still
@@ -42,6 +44,8 @@
 
 external register0 : string -> (unit -> string) -> unit = "pyk_register0"
 external register1 : string -> (string -> string) -> unit = "pyk_register1"
+
+external register2 : string -> (string -> string -> string) -> unit = "pyk_register2"
 
 external register3 : string -> (string -> string -> string -> string) -> unit
   = "pyk_register3"
@@ -1691,6 +1695,28 @@ let debug_stop () =
     the backend rather than hand-copied. () -> string *)
 let format_helper () = Target_js_packaging.format_js
 
+(** `pykHighlight(source, options)`: the source coloured as
+    `pyk highlight` colours it (highlight.ml), as {html, rtf, text}, or
+    {error} where the options -- JSON, {theme, font, size, background,
+    spaces}, "" for none -- are refused. string -> string -> string *)
+let highlight source options_json =
+  let options =
+    if String.trim options_json = "" then Ok Highlight.default_options
+    else
+      match Json.parse options_json with
+      | value -> Highlight.options_of_json value
+      | exception Json.Parse_error message -> Error ("the options are not JSON: " ^ message)
+  in
+  match options with
+  | Error message -> json_object [ ("error", json_string message) ]
+  | Ok options ->
+      json_object
+        [
+          ("html", json_string (Highlight.html options source));
+          ("rtf", json_string (Highlight.rtf options source));
+          ("text", json_string (Highlight.text options source));
+        ]
+
 let () =
   register3 "pykCompile" compile_source;
   register1 "pykRun" (fun request ->
@@ -1754,5 +1780,6 @@ let () =
   register0 "pykFormatHelper" format_helper;
   register0 "pykKeywords" (fun () ->
       json_array (List.map json_string Lexer.keywords));
+  register2 "pykHighlight" highlight;
   register0 "pykBuiltins" (fun () ->
       json_array (List.map json_string Builtin.names))

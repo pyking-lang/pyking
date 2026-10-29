@@ -1,0 +1,41 @@
+# Squares and greetings
+
+Some *prose* with `inline code`, a [link](https://example.org) and a list:
+
+- one
+- two
+
+A cell, with what it prints:
+
+def square(x: Int) -> Int:
+    return x * x
+
+print(square(4))
+
+16
+
+A fragment that is not run:
+
+    if x > 0:
+        print("positive")
+
+A cell that is refused:
+
+x: Int = "not a number"
+
+A cell reading its input:
+
+Ada
+
+import io
+print("Hello, " + io.prompt_line(""))
+
+**Task.** Write `double`.
+
+def double(n: Int) -> Int:
+    return 0  # change this
+
+def double(n: Int) -> Int:
+    return 2 * n
+
+That is all.

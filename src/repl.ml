@@ -463,14 +463,14 @@ let editor is_complete indent_for idle =
   let submits buf =
     if Array.length buf.lines = 1 then
       is_complete (text_of buf) && not (continuable (text_of buf))
-    else String.trim (line_of buf) = ""
+    else Lexer.blank (line_of buf)
   in
   (* buf's text, with the trailing blank line dropped. *)
   let submitted buf =
     let lines = ref (Array.to_list buf.lines) in
     let rec trim list =
       match List.rev list with
-      | last :: rest when List.length list > 1 && String.trim last = "" ->
+      | last :: rest when List.length list > 1 && Lexer.blank last ->
           trim (List.rev rest)
       | _ -> list
     in
@@ -632,7 +632,7 @@ let read_entry read_line =
         let rec more lines =
           match read_line continuation with
           | None -> Some (String.concat "\n" (List.rev lines))
-          | Some line when String.trim line = "" ->
+          | Some line when Lexer.blank line ->
               Some (String.concat "\n" (List.rev lines))
           | Some line -> more (line :: lines)
         in
@@ -757,7 +757,7 @@ let start ?read ?session ?(libs = []) ?(features = []) format_error =
         0
     | Some source -> (
         let line = String.trim source in
-        if line = "" then loop session ""
+        if Lexer.blank source then loop session ""
         else if List.mem line quit_commands then 0
         else if starts_with ":" line then
           let outcome = run_meta ~extra:[ (":load", meta_load) ] session line report in

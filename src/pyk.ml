@@ -1,7 +1,7 @@
 (** The driver: what `pyk` on the command line runs. Parses argv,
-    sequences the front-end stages, and dispatches to one of six
+    sequences the front-end stages, and dispatches to one of its
     commands (`pyk <file>`, `repl`, `compile`, `notebook`,
-    `playground`, `example`). Every program is
+    `playground`, `example`, `highlight`, ...). Every program is
     type-checked, so a program that does not check is refused whatever
     was asked for. A program of several modules runs the middle of that
     sequence once per module, in the order module.ml puts them in. Each
@@ -22,6 +22,8 @@
       command_compile checked options -- `pyk compile`.
       command_web tool options -- `pyk notebook` and `pyk playground`.
       command_example options -- `pyk example`.
+      command_highlight argv -- `pyk highlight`, which parses its own
+        options.
       wrap text -- reflows text to the driver's line width. *)
 
 (* The compiling targets, in the order the usage message lists them. The
@@ -206,7 +208,10 @@ let synopsis =
   \       pyk serve [--port N] [<dir>|<file>]  serve a directory's files\n\
   \       pyk lsp [--stdio] [--log FILE]       the language server, for editors\n\
   \       pyk dap [--stdio] [--log FILE]       the debug adapter, for editors\n\
-  \       pyk example [<name>]                 list the examples, or save one\n\n\
+  \       pyk example [<name>]                 list the examples, or save one\n\
+  \       pyk highlight <file> [options]       colour code for slides: HTML, RTF\n\
+  \                                            or text\n\
+  \n\
    Options:\n\
   \  -t, --target <name>   compile for <name> (default: python); with\n\
   \                        `pyk <filename>`, compile for it and run it\n\
@@ -393,7 +398,12 @@ let usage_full () =
      `pyk example` lists the example programs, one per line, and `pyk\n\
      example <name>` saves the one named in the current directory, which\n\
      it refuses to do over a file already there. The playground offers\n\
-     the same examples."
+     the same examples.\n\n\
+     `pyk highlight <file>` writes Pyking code coloured as the playground\n\
+     colours it, for a slide: HTML with every style inline, RTF or plain\n\
+     text, with leading spaces as non-breaking spaces so a PDF keeps them.\n\
+     <file> is a program or a notebook; `pyk highlight --help` lists its\n\
+     options."
     synopsis more_options (target_table ())
     (wrap ("An unversioned name is the family's default: " ^ alias_line () ^ ".")
     ^ "\n\n"
@@ -2200,8 +2210,227 @@ let command_dap options =
       note "!!!" (Printexc.to_string error);
       quit 1
 
-(** Runs pyk. [string] -> int *)
-let main argv =
+(* --- pyk highlight --- *)
+
+let highlight_usage =
+  "Usage: pyk highlight <file> [options]\n\n\
+   Writes Pyking code coloured as the playground colours it, as text a\n\
+   slide program such as Keynote pastes and keeps as text: HTML with\n\
+   every style inline, RTF, or plain text. <file> is a program (.pyk) or\n\
+   a notebook (.md, or .json as `pyk notebook --to-json` writes it).\n\n\
+   Options:\n\
+  \  --html | --rtf | --text   the format (default: --html)\n\
+  \  --theme light|dark        the playground's light or dark colours\n\
+  \                            (default: light)\n\
+  \  --font NAME               the font (default: Menlo; HTML falls back\n\
+  \                            to monospace)\n\
+  \  --size PT                 the size in points (default: the\n\
+  \                            application's)\n\
+  \  --background none|theme|#rrggbb\n\
+  \                            behind the text: nothing (default), the\n\
+  \                            theme's background, or a colour\n\
+  \  --spaces indent|all|none  leading spaces as non-breaking spaces\n\
+  \                            (default), every space outside a\n\
+  \                            string, or none: a PDF\n\
+  \                            keeps non-breaking ones when copied\n\
+  \  -o, --output FILE         write it to FILE (default: standard output)\n\n\
+   For a notebook, every ```pyking block counts, numbered from 1 in the\n\
+   order written:\n\
+  \  --notebook split          one file per block, <book>-<N>.html (or\n\
+  \                            .rtf, .txt), in --output-dir (default:\n\
+  \                            beside the notebook)\n\
+  \  --notebook page           every block, without the prose\n\
+  \  --notebook whole          the notebook, its prose rendered as its\n\
+  \                            page renders it (HTML needs node)\n\
+  \  --block N                 only block N, on standard output unless\n\
+  \                            --output names a file\n\
+  \  --output-dir DIR          where split writes its files"
+
+(** What `pyk highlight` was asked: the file, the format, the options,
+    and for a notebook the mode, the block and where it writes. *)
+type highlight_request = {
+  hl_file : string option;
+  hl_format : string option;  (* "html", "rtf" or "text" *)
+  hl_options : Highlight.options;
+  hl_output : string option;
+  hl_notebook : string option;  (* "split", "page" or "whole" *)
+  hl_block : int option;
+  hl_output_dir : string option;
+}
+
+(** `pyk highlight`: a program or a notebook's Pyking blocks, coloured.
+    Every refusal is one line, `pyk highlight: ...`, and status 1.
+    [string] -> int *)
+let command_highlight argv =
+  let exception Refused of string in
+  let refuse message = raise (Refused message) in
+  let ok = function Ok v -> v | Error message -> refuse message in
+  let rec parse request = function
+    | [] -> request
+    | ("--help" | "-h") :: _ ->
+        print_endline highlight_usage;
+        exit 0
+    | (("--html" | "--rtf" | "--text") as flag) :: rest ->
+        let format = String.sub flag 2 (String.length flag - 2) in
+        (match request.hl_format with
+        | Some given when given <> format ->
+            refuse (Printf.sprintf "--%s and --%s each say what is written, so only one may be given" given format)
+        | _ -> ());
+        parse { request with hl_format = Some format } rest
+    | (("--theme" | "--font" | "--size" | "--background" | "--spaces" | "--output" | "-o" | "--notebook"
+       | "--block" | "--output-dir") as flag)
+      :: rest -> (
+        match rest with
+        | [] -> refuse (Printf.sprintf "%s needs a value" flag)
+        | value :: rest ->
+            let o = request.hl_options in
+            let request =
+              match flag with
+              | "--theme" -> { request with hl_options = { o with theme = ok (Highlight.parse_theme flag value) } }
+              | "--font" -> { request with hl_options = { o with font = ok (Highlight.parse_font flag value) } }
+              | "--size" -> { request with hl_options = { o with size = Some (ok (Highlight.parse_size flag value)) } }
+              | "--background" ->
+                  { request with hl_options = { o with background = ok (Highlight.parse_background flag value) } }
+              | "--spaces" -> { request with hl_options = { o with spaces = ok (Highlight.parse_spaces flag value) } }
+              | "--output" | "-o" -> { request with hl_output = Some value }
+              | "--notebook" ->
+                  if List.mem value [ "split"; "page"; "whole" ] then { request with hl_notebook = Some value }
+                  else refuse (Printf.sprintf "--notebook is split, page or whole, not '%s'" value)
+              | "--block" -> (
+                  match int_of_string_opt value with
+                  | Some n when n >= 1 && String.for_all (fun c -> c >= '0' && c <= '9') value ->
+                      { request with hl_block = Some n }
+                  | _ -> refuse (Printf.sprintf "--block is a block's number, counted from 1, not '%s'" value))
+              | _ -> { request with hl_output_dir = Some value }
+            in
+            parse request rest)
+    | flag :: _ when String.length flag > 1 && flag.[0] = '-' ->
+        refuse (Printf.sprintf "there is no option '%s'; `pyk highlight --help` lists them" flag)
+    | file :: rest -> (
+        match request.hl_file with
+        | Some _ -> refuse "takes one file"
+        | None -> parse { request with hl_file = Some file } rest)
+  in
+  let run () =
+    let request =
+      parse
+        {
+          hl_file = None;
+          hl_format = None;
+          hl_options = Highlight.default_options;
+          hl_output = None;
+          hl_notebook = None;
+          hl_block = None;
+          hl_output_dir = None;
+        }
+        argv
+    in
+    let file =
+      match request.hl_file with
+      | Some file -> file
+      | None -> refuse "names no file; `pyk highlight --help` says what it takes"
+    in
+    let format = Option.value ~default:"html" request.hl_format in
+    let options = request.hl_options in
+    let extension = match format with "rtf" -> ".rtf" | "text" -> ".txt" | _ -> ".html" in
+    let read () =
+      match Module.read_whole_file file with
+      | text -> text
+      | exception Sys_error _ -> refuse (Printf.sprintf "no such file: %s" file)
+    in
+    let write path text =
+      match path with
+      | None | Some "-" -> print_string text
+      | Some path -> (
+          match Out_channel.with_open_bin path (fun out -> Out_channel.output_string out text) with
+          | () -> ()
+          | exception Sys_error message -> refuse message)
+    in
+    let snippet source =
+      match format with
+      | "rtf" -> Highlight.rtf options source
+      | "text" -> Highlight.text options source
+      | _ -> Highlight.html options source ^ "\n"
+    in
+    let kind = String.lowercase_ascii (Filename.extension file) in
+    if kind = ".pyk" then (
+      if request.hl_notebook <> None then refuse (Printf.sprintf "--notebook says how a notebook is written, and %s is a program" file);
+      if request.hl_block <> None then refuse (Printf.sprintf "--block picks a notebook's block, and %s is a program" file);
+      if request.hl_output_dir <> None then refuse (Printf.sprintf "--output-dir is where a notebook's blocks are written, and %s is a program" file);
+      write request.hl_output (snippet (read ())))
+    else if List.mem kind [ ".md"; ".markdown"; ".json" ] then (
+      let text = read () in
+      let markdown =
+        if kind <> ".json" then text
+        else
+          match Notebook_format.to_markdown (Json.parse text) with
+          | markdown -> markdown
+          | exception Json.Parse_error message -> refuse (Printf.sprintf "%s is not JSON: %s" file message)
+          | exception Notebook_format.Format_error message -> refuse (Printf.sprintf "%s is not a notebook: %s" file message)
+      in
+      let pieces = Highlight.notebook_pieces markdown in
+      let blocks = Highlight.notebook_blocks markdown in
+      let count = List.length blocks in
+      if count = 0 then refuse (Printf.sprintf "%s has no pyking blocks" file);
+      let mode = Option.value ~default:"split" request.hl_notebook in
+      if request.hl_output_dir <> None && (mode <> "split" || request.hl_block <> None) then
+        refuse "--output-dir is where --notebook split writes one file per block";
+      match request.hl_block with
+      | Some n ->
+          if n > count then
+            refuse
+              (Printf.sprintf "--block %d: %s has %d pyking block%s, numbered from 1" n file count
+                 (if count = 1 then "" else "s"));
+          write request.hl_output (snippet (List.nth blocks (n - 1)).Highlight.source)
+      | None -> (
+          let book = Filename.remove_extension (Filename.basename file) in
+          match mode with
+          | "split" ->
+              if request.hl_output <> None then
+                refuse "--notebook split writes one file per block, so --output-dir names where, not --output";
+              let directory = Option.value ~default:(Filename.dirname file) request.hl_output_dir in
+              if not (Sys.file_exists directory && Sys.is_directory directory) then
+                refuse (Printf.sprintf "no such directory: %s" directory);
+              List.iter
+                (fun (b : Highlight.block) ->
+                  let path = Filename.concat directory (Printf.sprintf "%s-%d%s" book b.number extension) in
+                  write (Some path) (snippet b.source);
+                  print_endline ("Wrote " ^ path))
+                blocks
+          | "page" ->
+              let codes = List.filter (function Highlight.Code _ -> true | _ -> false) pieces in
+              write request.hl_output
+                (match format with
+                | "rtf" -> Highlight.rtf_document options codes
+                | "text" -> Highlight.text_document options codes
+                | _ -> Highlight.html_snippets options codes)
+          | _ -> (
+              match format with
+              | "rtf" -> write request.hl_output (Highlight.rtf_document options pieces)
+              | "text" -> write request.hl_output (Highlight.text_document options pieces)
+              | _ ->
+                  let html, title = ok (Web_tools.render_markdown (Highlight.marked_markdown pieces)) in
+                  let theme = if options.theme = Highlight.Dark then "dark" else "light" in
+                  let body =
+                    Printf.sprintf
+                      "<div class=\"pkn-notebook\" data-theme=\"%s\">\n<main class=\"pkn-main\">\n<div class=\"pkn-prose\">\n%s</div>\n</main>\n</div>\n"
+                      theme
+                      (Highlight.fill_markers options pieces html)
+                  in
+                  write request.hl_output
+                    (Highlight.html_page ~title:(if title = "" then book else title)
+                       ~style:(Web_tools.notebook_stylesheet ()) body))))
+    else refuse (Printf.sprintf "%s is neither a Pyking program (.pyk) nor a notebook (.md, or .json)" file)
+  in
+  match run () with
+  | () -> 0
+  | exception Refused message ->
+      prerr_endline (wrap ("pyk highlight: " ^ message));
+      1
+
+(** Runs every command but `pyk highlight`, whose options are its own.
+    [string] -> int *)
+let run_command argv =
   let options = parse_args argv in
   (* tinyweb's implementation reads this when its plugin is loaded, and
      prints its log on stderr as well (lib/tinyweb/tinyweb_external.ml). *)
@@ -2226,5 +2455,11 @@ let main argv =
     let checked = front_end options in
     if options.command = "compile" then command_compile checked options
     else command_interpret ~libs:(library_path options) checked options.arguments
+
+(** Runs pyk. [string] -> int *)
+let main argv =
+  match argv with
+  | "highlight" :: rest -> command_highlight rest
+  | _ -> run_command argv
 
 let () = exit (main (List.tl (Array.to_list Sys.argv)))

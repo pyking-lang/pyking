@@ -1,0 +1,9 @@
+def twice(n: Int) -> Int:
+    m = n * 2
+    return m
+   
+twice(21)
+if twice(1) == 2:
+    print("indented with non-breaking spaces")
+ 
+  twice(5)

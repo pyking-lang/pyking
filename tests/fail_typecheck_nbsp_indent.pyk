@@ -1,0 +1,6 @@
+# Three non-breaking spaces are three spaces, which is no indentation
+# level: refused as three ordinary spaces would be.
+def f(x: Int) -> Int:
+   return x
+
+print(f(1))

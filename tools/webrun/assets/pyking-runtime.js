@@ -162,6 +162,21 @@ export class PykingRuntime {
     return this._send("lsp", { message: text });
   }
 
+  /** Pyking source coloured as `pyk highlight` colours it
+   *  (src/highlight.ml), for pasting into a slide: resolves to {html,
+   *  rtf, text} -- an HTML `<pre>` with every style inline, a complete
+   *  RTF document, and plain text. `options` are the command's, with
+   *  the same defaults: {theme: "light" | "dark", font: "Menlo", size:
+   *  points or null for the application's, background: "none" |
+   *  "theme" | "#rrggbb", spaces: "indent" | "all" | "none"}; options
+   *  it refuses reject with the reason. Waits for the compiler rather
+   *  than refusing before it is loaded.
+   *  (String, Object) -> Promise<{html, rtf, text}> */
+  async highlight(source, options = {}) {
+    await this.ready(this.onStatus);
+    return this._send("highlight", { source, options });
+  }
+
   /** What the language server sends once the client is idle: the
    *  diagnostics of the documents a change marked as due. Resolves like
    *  `lsp`. () -> Promise<[Object]?> */

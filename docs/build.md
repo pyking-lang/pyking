@@ -106,11 +106,11 @@ the compiler saying it is dead.
 entry-point module and one hand-written JavaScript stub.
 
 - **`src/web/pyking_web.ml`** is the entry point. It registers
-  `pykCompile`, `pykRun`, `pykTargets`, `pykFormatHelper`, `pykKeywords`
-  and `pykBuiltins`, and does nothing a backend or the driver does not
+  `pykCompile`, `pykRun`, `pykTargets`, `pykFormatHelper`, `pykKeywords`,
+  `pykBuiltins`, `pykHighlight` and the rest, and does nothing a backend or the driver does not
   already do.
-- **`src/web/stub.js`** is the boundary. It declares four primitives
-  (`pyk_register0`, `pyk_register1`, `pyk_register3`, `pyk_emit`) with
+- **`src/web/stub.js`** is the boundary. It declares the primitives
+  (`pyk_register0`, `pyk_register1`, `pyk_register2`, `pyk_register3`, `pyk_emit`) with
   js_of_ocaml's `//Provides:` comments, which is all that is needed to
   put an OCaml function on the global object. No OCaml JS binding
   library is involved, which is what keeps the dependency list at

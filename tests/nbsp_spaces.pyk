@@ -1,0 +1,18 @@
+# Non-breaking spaces (U+00A0), as code copied out of a PDF of slides
+# has them: indentation, the spaces between words, a comment's indent,
+# and a line of nothing but them. Inside a string one is kept as written.
+def classify(n: Int) -> String:
+    if n < 0:
+        return "negative"
+    # a comment indented with non-breaking spaces
+    else if n == 0:
+        return "zero"
+    else:
+        return "positive"
+   
+for x in [-2, 0, 7]:
+    print(x, classify(x))
+for x in range(2):
+    print("x", x)
+s = "a b"
+print(int(s[1]), s == "a" + string(char(160)) + "b")

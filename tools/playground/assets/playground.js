@@ -18,7 +18,11 @@ import {
   splitArguments, themeFor,
 } from "../webrun/web.js";
 import { LspClient } from "./lsp-client.js";
-import { ACTIONS, DEFAULT_KEYS, Debugger, keyList, showKey, showKeys, specOf } from "./debugger.js";
+import { Debugger } from "./debugger.js";
+import {
+  AREAS, COMMANDS, defaultKeys, isDefault, isKey, keysOf, migrateSettings, monacoKey,
+  showKey, showKeys, specOf, withKeys,
+} from "./keys.js";
 import { linkTo, sourceFromHash } from "./share.js";
 import { packFiles, zip } from "./download.js";
 
@@ -37,13 +41,40 @@ const DEFAULT_SETTINGS = {
   clearOnRun: true,
   autoRun: false,
   tinywebLog: false,
-  // The debugger: whether it stops at the first statement, whether it
-  // steps over the standard library's code, and each action's key where
-  // the viewer changed it (debugger.js, DEFAULT_KEYS).
+  // The debugger: whether it stops at the first statement, and whether
+  // it steps over the standard library's code.
   debugStopOnEntry: false,
   debugJustMyCode: true,
-  debugKeys: {},
+  // Every command's keys where the viewer changed them (keys.js); an
+  // earlier version's `debugKeys` is moved in here (`migrateSettings`).
+  keys: {},
+  // Copy for slides: the colours (light or dark), the font, the size in
+  // points (null keeps the size of what it is pasted into), the
+  // background ("none", "theme" or "#rrggbb"), which spaces are
+  // non-breaking ("indent", "all" or "none"), and whether the editor has
+  // a button for it -- the right-click menu and the key always do.
+  slidesTheme: "light",
+  slidesFont: "Menlo",
+  slidesSize: null,
+  slidesBackground: "none",
+  slidesSpaces: "indent",
+  slidesButton: false,
 };
+
+/** What the settings' Copy for slides tab previews. */
+const SLIDES_SAMPLE = `def greet(name: String) -> String:
+    # Say hello
+    return "Hello, " + name
+
+print(greet("world"))
+`;
+
+/** The settings dialog's tabs, in order: [name, title]. It opens on the
+ *  first, as the right-hand tabs open on Run output. */
+const SETTINGS_TABS = [
+  ["appearance", "Appearance"], ["running", "Running"], ["debugger", "Debugger"],
+  ["slides", "Copy for slides"], ["keys", "Keys"],
+];
 
 /** How long the source has to sit still before an automatic run. Long
  *  enough to finish a word -- half-written code is mostly code that does
@@ -137,7 +168,11 @@ class Playground {
     this.jsRunner = new JsRunner(cfg.base + "/js-worker.js");
     this.running = null;       // {origin, kind} while something executes
     this.stopped = false;      // last run ended by the user, not by itself
-    this.settings = { ...DEFAULT_SETTINGS, ...loadSettings() };
+    const saved = loadSettings();
+    this.settings = { ...DEFAULT_SETTINGS, ...migrateSettings(saved) };
+    // Settings saved by an earlier version are saved again as this one
+    // writes them.
+    this.migrated = saved && typeof saved === "object" && "debugKeys" in saved;
     // What the last run was given to read and as its arguments, offered
     // again the next time a program asks for them.
     this.input = { stdin: "", args: "" };
@@ -211,6 +246,7 @@ class Playground {
     ui.copy.addEventListener("click", () => this.copyRight());
     ui.download.addEventListener("click", () => this.download());
     ui.copyLink.addEventListener("click", () => this.copyLink());
+    ui.copySlides.addEventListener("click", () => this.copyForSlides());
     ui.refresh.addEventListener("click", () => this.refreshPage());
     // A press anywhere is the reader choosing where the focus goes: the
     // editor no longer keeps the focus a run gave it back.
@@ -233,30 +269,10 @@ class Playground {
     this.installSettings();
     this.applySettings();
 
-    // Keyboard shortcuts.
-    //
-    // Registered as Monaco actions rather than as one bubbling keydown
-    // listener, because Monaco handles keys on its own hidden textarea
-    // first: a listener on the container would not run until Monaco had
-    // already inserted the newline that Shift+Enter would otherwise type.
-    // An action's keys belong to its own editor, where a command's would
-    // be shared by every editor on the page.
-    //
-    // Shift+Enter and Ctrl+Enter (Cmd+Enter too, on a Mac) run, and mean
-    // the Run button of whichever pane has focus -- the source pane runs
-    // the program itself, the generated pane runs what is displayed.
-    // Overriding them costs nothing, since plain Enter already inserts a
-    // newline. Compiling has no key. While a program runs, they stop it.
-    const { KeyMod, KeyCode } = monaco;
-    const RUN = [KeyMod.Shift | KeyCode.Enter, KeyMod.CtrlCmd | KeyCode.Enter,
-                 KeyMod.WinCtrl | KeyCode.Enter];
-    const bind = (editor, id, label, run) =>
-      editor.addAction({ id, label, keybindings: RUN, run: () => { run(); } });
-
-    bind(this.left, "pyk-run", "Run the program",
-         () => (this.running ? this.stopRun() : this.runFromSource()));
-    bind(this.right, "pyk-run", "Run the generated code",
-         () => (this.running ? this.stopRun() : this.runGenerated()));
+    // Keyboard shortcuts: Run's and Copy for slides', each editor's
+    // actions (`installEditorKeys`), with the keys the settings give them.
+    this.editorActions = [];
+    this.installEditorKeys();
 
     // The debugger's keys, caught on the way down, before an editor sees
     // them: Start's, Continue's and the steps' anywhere in the
@@ -273,7 +289,7 @@ class Playground {
       if (event.target === document.body || event.target === document.documentElement) debugKey(event);
     });
 
-    // The same keys when focus is outside both editors -- on a dropdown, a
+    // Run's keys when focus is outside both editors -- on a dropdown, a
     // button, or the page itself. Monaco stops propagation for keys it
     // handled, but the check for an enclosing editor is explicit so that a
     // future Monaco that stops doing so cannot make this fire twice.
@@ -283,12 +299,10 @@ class Playground {
         this.closeSettings();
         return;
       }
-      if (event.key !== "Enter") return;
       if (!ui.modal.classList.contains("pyk-hidden")) return;
       if (!ui.inputModal.classList.contains("pyk-hidden")) return;
       if (event.target?.closest?.(".monaco-editor")) return;
-      const accel = event.ctrlKey || event.metaKey;
-      if (!accel && !event.shiftKey) return;
+      if (!isKey(this.settings, "run", event)) return;
       event.preventDefault();
       if (this.running) this.stopRun();
       else this.runFromSource();
@@ -330,6 +344,139 @@ class Playground {
     this.status("ready", "ready");
     this.note("Press Run to run the program. Compiled code compiles it for a "
               + "target, and the REPL runs Pyking an entry at a time.");
+  }
+
+  // -- the editors' keys ------------------------------------------------
+
+  /** Run's keys and Copy for slides', as each editor's actions, made
+   *  again whenever the settings change them. An action rather than a
+   *  key listener on the container, because Monaco handles keys on its
+   *  own hidden textarea first: a listener would not run until Monaco
+   *  had already typed the newline Shift+Enter would otherwise type. An
+   *  action's keys belong to its own editor. Run means the Run button of
+   *  whichever editor has the focus -- the source's runs the program, the
+   *  generated code's what it shows -- and stops what runs; Copy for
+   *  slides is the source's, in its right-click menu beside Copy.
+   *  () -> () */
+  installEditorKeys() {
+    for (const action of this.editorActions) action.dispose();
+    const keys = (id) => keysOf(this.settings, id)
+      .map((spec) => monacoKey(this.monaco, spec)).filter((k) => k !== null);
+    const run = keys("run");
+    this.editorActions = [
+      this.left.addAction({
+        id: "pyk-run", label: "Run the program", keybindings: run,
+        run: () => { this.running ? this.stopRun() : this.runFromSource(); },
+      }),
+      this.right.addAction({
+        id: "pyk-run", label: "Run the generated code", keybindings: run,
+        run: () => { this.running ? this.stopRun() : this.runGenerated(); },
+      }),
+      this.left.addAction({
+        id: "pyk-copy-slides", label: "Copy for Slides", keybindings: keys("copySlides"),
+        contextMenuGroupId: "9_cutcopypaste", contextMenuOrder: 2.5,
+        run: () => { this.copyForSlides(); },
+      }),
+    ];
+    this.showCommandKeys();
+  }
+
+  /** Each control's tooltip, naming its command's keys as they are now.
+   *  () -> () */
+  showCommandKeys() {
+    const { ui } = this;
+    ui.runLeft.title = `Run the program itself (${showKeys(keysOf(this.settings, "run"))})`;
+    ui.copySlides.title = "Copy the selection, or the whole program, coloured for slides "
+      + `(${showKeys(keysOf(this.settings, "copySlides"))})`;
+    this.updateRunButtons();
+    this.debugger?.showKeys();
+  }
+
+  // -- Copy for slides ---------------------------------------------------
+
+  /** The options Copy for slides gives the highlighter, from the
+   *  settings (`PykingRuntime.highlight`). () -> Object */
+  slidesOptions() {
+    const s = this.settings;
+    const size = Number(s.slidesSize);
+    return {
+      theme: s.slidesTheme === "dark" ? "dark" : "light",
+      font: (s.slidesFont ?? "").trim() || "Menlo",
+      size: s.slidesSize === null || s.slidesSize === "" || !(size > 0) ? null : Math.round(size),
+      background: s.slidesBackground || "none",
+      spaces: ["indent", "all", "none"].includes(s.slidesSpaces) ? s.slidesSpaces : "indent",
+    };
+  }
+
+  /** The source's selection, or the whole program where nothing is
+   *  selected, highlighted: {html, rtf, text, what}. () -> Promise<Object> */
+  async highlightForSlides(source, options) {
+    if (!(await this.ensureRuntime())) throw new Error("the compiler did not start");
+    if (typeof this.runtime.highlight !== "function") {
+      throw new Error("this compiler has no highlighter");
+    }
+    return this.runtime.highlight(source, options);
+  }
+
+  /** Copy for slides: the editor's selection, or the whole program where
+   *  nothing is selected, onto the clipboard twice over -- as HTML with
+   *  the colours, the font and the size inline, which Keynote, PowerPoint
+   *  and Google Slides paste as coloured text, and as plain text -- with
+   *  the spaces the settings say made non-breaking, so the indentation
+   *  survives a PDF reader's copy. The status line says what was copied.
+   *  The clipboard is written at once, with the highlighting to follow,
+   *  as Safari requires within the key press or click.
+   *  () -> Promise<Bool> */
+  async copyForSlides() {
+    const model = this.left.getModel();
+    const selection = this.left.getSelection();
+    const marked = Boolean(selection && !selection.isEmpty());
+    const source = marked ? model.getValueInRange(selection) : model.getValue();
+    const lines = source.replace(/\n$/, "").split("\n").length;
+    const what = `${marked ? "the selection" : "the program"} (${lines} line${lines === 1 ? "" : "s"})`;
+    const made = this.highlightForSlides(source, this.slidesOptions());
+    made.catch(() => {});
+    const blob = (type, key) => {
+      const promised = made.then((r) => new Blob([r[key]], { type }));
+      promised.catch(() => {});   // reported below, from `made`
+      return promised;
+    };
+    let copied = false;
+    if (globalThis.ClipboardItem && navigator.clipboard?.write) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({
+          "text/html": blob("text/html", "html"), "text/plain": blob("text/plain", "text"),
+        })]);
+        copied = true;
+      } catch { /* a browser taking no promises, or refusing: below */ }
+    }
+    let result;
+    try {
+      result = await made;
+    } catch (err) {
+      this.status("error", "Copy for slides failed");
+      this.error("Copy for slides: " + err.message);
+      return false;
+    }
+    if (!copied && globalThis.ClipboardItem && navigator.clipboard?.write) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({
+          "text/html": new Blob([result.html], { type: "text/html" }),
+          "text/plain": new Blob([result.text], { type: "text/plain" }),
+        })]);
+        copied = true;
+      } catch { /* below */ }
+    }
+    // Where there is no ClipboardItem: the copy a key press makes, with
+    // both kinds of text put on it.
+    if (!copied) copied = copyByEvent({ "text/html": result.html, "text/plain": result.text });
+    if (!copied) {
+      this.status("error", "the browser refused the clipboard");
+      this.error("Copy for slides: the browser refused clipboard access.");
+      return false;
+    }
+    this.status("ready", `copied ${what} for slides`);
+    return true;
   }
 
   // -- examples ---------------------------------------------------------
@@ -479,7 +626,7 @@ class Playground {
       ? `${this.current} is a view of the front end, not code to run`
       : !how ? whyNotRunnable(target)
       : !haveCode ? "Compile first, then run"
-      : `Run the generated ${target} code (Shift+Enter or Ctrl+Enter)`;
+      : `Run the generated ${target} code (${showKeys(keysOf(this.settings, "run"))})`;
   }
 
   // -- running ----------------------------------------------------------
@@ -1222,7 +1369,9 @@ class Playground {
     });
     ui.replInput.addEventListener("input", () => this.fitReplInput());
     ui.replInput.addEventListener("keydown", (event) => {
-      if (event.key !== "Tab" && event.key !== "Shift") this.hideReplCompletions();
+      if (!isKey(this.settings, "repl.complete", event) && event.key !== "Shift") {
+        this.hideReplCompletions();
+      }
       this.replKey(event);
     });
     ui.replInput.addEventListener("blur", () => this.hideReplCompletions());
@@ -1274,9 +1423,11 @@ class Playground {
     this.fitReplInput();
   }
 
-  /** What a key does in the prompt: Enter, Shift+Enter, Tab (an indent
-   *  at the start of a line, a completion after a word), Backspace in the
-   *  indentation, Escape, and Up and Down through the history.
+  /** What a key does in the prompt: submit (Enter), a new line
+   *  (Shift+Enter), complete (Tab: an indent at the start of a line, a
+   *  completion after a word), the entries before and after (Up on the
+   *  first line, Down on the last) -- each the keys the settings give it
+   *  (keys.js) -- and Backspace in the indentation and Escape.
    *  KeyboardEvent -> () */
   replKey(event) {
     const input = this.ui.replInput;
@@ -1284,12 +1435,16 @@ class Playground {
     const before = value.slice(0, at);
     const onFirstLine = !before.includes("\n");
     const onLastLine = !value.slice(at).includes("\n");
-    if (event.key === "Enter" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    const is = (id) => isKey(this.settings, "repl." + id, event);
+    if (is("submit")) {
       event.preventDefault();
       if (this.replBusy) return;
-      if (event.shiftKey) this.replNewline();
-      else this.replEnter();
-    } else if (event.key === "Tab" && !event.shiftKey) {
+      this.replEnter();
+    } else if (is("newline")) {
+      event.preventDefault();
+      if (this.replBusy) return;
+      this.replNewline();
+    } else if (is("complete")) {
       event.preventDefault();
       const line = before.slice(before.lastIndexOf("\n") + 1);
       if (line.trim() === "" || at !== selectionEnd) {
@@ -1298,6 +1453,16 @@ class Playground {
       } else {
         this.replTab();
       }
+    } else if (is("previous") && onFirstLine && this.replAt > 0) {
+      event.preventDefault();
+      if (this.replAt === this.replHistory.length) this.replDraft = value;
+      this.replAt -= 1;
+      this.setReplInput(this.replHistory[this.replAt]);
+    } else if (is("next") && onLastLine && this.replAt < this.replHistory.length) {
+      event.preventDefault();
+      this.replAt += 1;
+      this.setReplInput(this.replAt === this.replHistory.length
+        ? this.replDraft : this.replHistory[this.replAt]);
     } else if (event.key === "Backspace" && at === selectionEnd && at > 0) {
       // Inside a line's indentation, Backspace removes a whole level.
       const line = before.slice(before.lastIndexOf("\n") + 1);
@@ -1311,17 +1476,6 @@ class Playground {
       event.preventDefault();
       this.setReplInput("");
       this.replAt = this.replHistory.length;
-    } else if (event.key === "ArrowUp" && onFirstLine && this.replAt > 0) {
-      event.preventDefault();
-      if (this.replAt === this.replHistory.length) this.replDraft = value;
-      this.replAt -= 1;
-      this.setReplInput(this.replHistory[this.replAt]);
-    } else if (event.key === "ArrowDown" && onLastLine
-               && this.replAt < this.replHistory.length) {
-      event.preventDefault();
-      this.replAt += 1;
-      this.setReplInput(this.replAt === this.replHistory.length
-        ? this.replDraft : this.replHistory[this.replAt]);
     }
   }
 
@@ -1648,7 +1802,8 @@ class Playground {
   // -- settings ---------------------------------------------------------
 
   installSettings() {
-    const { settingsButton, modal, modalClose, fontSize } = this.ui;
+    const { ui } = this;
+    const { settingsButton, modal, modalClose, fontSize } = ui;
     settingsButton.addEventListener("click", () => this.openSettings());
     modalClose.addEventListener("click", () => this.closeSettings());
     // Only a click on the backdrop itself closes; one inside the dialog
@@ -1656,131 +1811,276 @@ class Playground {
     modal.addEventListener("click", (e) => {
       if (e.target === modal) this.closeSettings();
     });
+    this.installSettingsTabs();
     fontSize.addEventListener("input", () => {
       this.applyFontSize(Number(fontSize.value));
       this.saveSettings();
     });
-    this.ui.autoRun.addEventListener("change", () => {
-      this.settings.autoRun = this.ui.autoRun.checked;
+    ui.autoRun.addEventListener("change", () => {
+      this.settings.autoRun = ui.autoRun.checked;
       // Switching it off must also drop an edit already waiting to run;
       // switching it on does not run anything until the next keystroke, so
       // ticking a box never starts a download on its own.
       if (!this.settings.autoRun) this.cancelAutoRun();
       this.saveSettings();
     });
-    this.ui.scrollOutput.addEventListener("change", () => {
-      this.settings.scrollOutput = this.ui.scrollOutput.checked;
+    ui.scrollOutput.addEventListener("change", () => {
+      this.settings.scrollOutput = ui.scrollOutput.checked;
       this.applyOutputScroll();
       this.saveSettings();
     });
-    this.ui.clearOnRun.addEventListener("change", () => {
-      this.settings.clearOnRun = this.ui.clearOnRun.checked;
+    ui.clearOnRun.addEventListener("change", () => {
+      this.settings.clearOnRun = ui.clearOnRun.checked;
       this.saveSettings();
     });
-    this.ui.tinywebLog.addEventListener("change", () => {
-      this.settings.tinywebLog = this.ui.tinywebLog.checked;
-      // A program already running starts or stops logging at once.
-      this.runtime?.setTinywebLog?.(this.settings.tinywebLog);
+    // The tinyweb log has two switches, the Web output tab's and the
+    // settings', which follow each other.
+    for (const box of [ui.tinywebLog, ui.tinywebLogSetting]) {
+      box.addEventListener("change", () => {
+        this.settings.tinywebLog = box.checked;
+        ui.tinywebLog.checked = ui.tinywebLogSetting.checked = box.checked;
+        // A program already running starts or stops logging at once.
+        this.runtime?.setTinywebLog?.(this.settings.tinywebLog);
+        this.saveSettings();
+      });
+    }
+    ui.resetLayoutButton.addEventListener("click", () => this.resetLayout());
+    ui.debugStopOnEntry.addEventListener("change", () => {
+      this.settings.debugStopOnEntry = ui.debugStopOnEntry.checked;
       this.saveSettings();
     });
-    this.ui.resetLayoutButton.addEventListener("click", () => this.resetLayout());
-    this.ui.debugStopOnEntry.addEventListener("change", () => {
-      this.settings.debugStopOnEntry = this.ui.debugStopOnEntry.checked;
+    ui.debugJustMyCode.addEventListener("change", () => {
+      this.settings.debugJustMyCode = ui.debugJustMyCode.checked;
       this.saveSettings();
     });
-    this.ui.debugJustMyCode.addEventListener("change", () => {
-      this.settings.debugJustMyCode = this.ui.debugJustMyCode.checked;
-      this.saveSettings();
+    this.installSlidesSettings();
+    ui.keysReset.addEventListener("click", () => {
+      this.settings.keys = {};
+      this.keysChanged();
     });
-    this.ui.debugKeysReset.addEventListener("click", () => {
-      this.settings.debugKeys = {};
-      this.saveSettings();
-      this.showDebugKeys();
-    });
-    this.showDebugKeys();
+    this.showKeySettings();
   }
 
-  /** The settings' debugger keys: per action, a chip for each key with
-   *  ✕ to remove it, + to record one more (Escape leaves it), and Reset
-   *  for the action's defaults. () -> () */
-  showDebugKeys() {
-    const list = this.ui.debugKeyList;
-    list.textContent = "";
-    const saved = this.settings.debugKeys ?? {};
-    const keysOf = (action) => action in saved ? keyList(saved[action]) : DEFAULT_KEYS[action];
-    const save = (action, specs) => {
-      const rest = { ...(this.settings.debugKeys ?? {}) };
-      if (specs.join("\n") === DEFAULT_KEYS[action].join("\n")) delete rest[action];
-      else rest[action] = specs;
-      this.settings.debugKeys = rest;
+  /** The settings' tabs: a click, or the arrow keys, Home and End on the
+   *  tab that has the focus, shows another. () -> () */
+  installSettingsTabs() {
+    const { ui } = this;
+    ui.settingsTabButtons = [...ui.settingsTabs.querySelectorAll("[role=tab]")];
+    for (const tab of ui.settingsTabButtons) {
+      tab.addEventListener("click", () => this.showSettingsTab(tab.dataset.settingsTab));
+      tab.addEventListener("keydown", (event) => {
+        const tabs = ui.settingsTabButtons.filter((t) => !t.classList.contains("pyk-hidden"));
+        const at = tabs.indexOf(tab);
+        const to = { ArrowRight: at + 1, ArrowLeft: at - 1, ArrowDown: at + 1, ArrowUp: at - 1,
+                     Home: 0, End: tabs.length - 1 }[event.key];
+        if (to === undefined) return;
+        event.preventDefault();
+        const next = tabs[(to + tabs.length) % tabs.length];
+        this.showSettingsTab(next.dataset.settingsTab);
+        next.focus();
+      });
+    }
+    this.showSettingsTab("appearance");
+  }
+
+  /** Shows one of the settings' tabs. String -> () */
+  showSettingsTab(name) {
+    const { ui } = this;
+    this.settingsTab = name;
+    for (const tab of ui.settingsTabButtons) {
+      const on = tab.dataset.settingsTab === name;
+      tab.setAttribute("aria-selected", String(on));
+      tab.tabIndex = on ? 0 : -1;
+      tab.classList.toggle("active", on);
+    }
+    for (const panel of ui.modal.querySelectorAll("[data-settings-panel]")) {
+      panel.classList.toggle("pyk-hidden", panel.dataset.settingsPanel !== name);
+    }
+    if (name === "slides") this.previewSlides();
+  }
+
+  /** The Copy for slides tab: each option saved as it changes, and the
+   *  preview drawn again. () -> () */
+  installSlidesSettings() {
+    const { ui } = this;
+    const changed = () => {
       this.saveSettings();
-      this.showDebugKeys();
+      this.previewSlides();
+    };
+    ui.slidesTheme.addEventListener("change", () => {
+      this.settings.slidesTheme = ui.slidesTheme.value;
+      changed();
+    });
+    ui.slidesFont.addEventListener("input", () => {
+      this.settings.slidesFont = ui.slidesFont.value;
+      changed();
+    });
+    ui.slidesSize.addEventListener("input", () => {
+      const size = Number(ui.slidesSize.value);
+      this.settings.slidesSize = ui.slidesSize.value.trim() === "" || !(size > 0) ? null : size;
+      changed();
+    });
+    const background = () => {
+      const kind = ui.slidesBackgroundKind.value;
+      ui.slidesColor.classList.toggle("pyk-hidden", kind !== "custom");
+      this.settings.slidesBackground = kind === "custom" ? ui.slidesColor.value : kind;
+      changed();
+    };
+    ui.slidesBackgroundKind.addEventListener("change", background);
+    ui.slidesColor.addEventListener("input", background);
+    ui.slidesSpaces.addEventListener("change", () => {
+      this.settings.slidesSpaces = ui.slidesSpaces.value;
+      changed();
+    });
+    ui.slidesButton.addEventListener("change", () => {
+      this.settings.slidesButton = ui.slidesButton.checked;
+      this.applySlidesSettings();
+      this.saveSettings();
+    });
+  }
+
+  /** The Copy for slides tab and the editor's button as the settings
+   *  have them. () -> () */
+  applySlidesSettings() {
+    const { ui, settings } = this;
+    ui.slidesTheme.value = settings.slidesTheme === "dark" ? "dark" : "light";
+    ui.slidesFont.value = settings.slidesFont ?? "";
+    ui.slidesSize.value = settings.slidesSize === null || settings.slidesSize === undefined
+      ? "" : String(settings.slidesSize);
+    const background = settings.slidesBackground || "none";
+    const custom = /^#[0-9a-f]{6}$/i.test(background);
+    ui.slidesBackgroundKind.value = custom ? "custom" : background === "theme" ? "theme" : "none";
+    if (custom) ui.slidesColor.value = background.toLowerCase();
+    ui.slidesColor.classList.toggle("pyk-hidden", !custom);
+    ui.slidesSpaces.value = ["indent", "all", "none"].includes(settings.slidesSpaces)
+      ? settings.slidesSpaces : "indent";
+    ui.slidesButton.checked = Boolean(settings.slidesButton);
+    ui.copySlides.classList.toggle("pyk-hidden", !settings.slidesButton);
+  }
+
+  /** Draws the settings' preview of Copy for slides: the sample as it
+   *  would be pasted, the latest options winning. () -> Promise<()> */
+  async previewSlides() {
+    const box = this.ui.slidesPreview;
+    const asked = (this.previewAsked ?? 0) + 1;
+    this.previewAsked = asked;
+    try {
+      const { html } = await this.highlightForSlides(SLIDES_SAMPLE, this.slidesOptions());
+      if (this.previewAsked !== asked) return;
+      box.innerHTML = html;
+      box.classList.remove("pyk-slides-unavailable");
+      box.classList.toggle("pyk-slides-dark", this.slidesOptions().theme === "dark");
+    } catch (err) {
+      if (this.previewAsked !== asked) return;
+      box.textContent = "No preview: " + err.message + ".";
+      box.classList.add("pyk-slides-unavailable");
+    }
+  }
+
+  /** The keys changed: saved, and shown in the settings, the tooltips and
+   *  the editors' actions. () -> () */
+  keysChanged() {
+    this.saveSettings();
+    this.installEditorKeys();
+    this.showKeySettings();
+  }
+
+  /** The settings' Keys tab: every command, by area, with a chip for each
+   *  of its keys with ✕ to remove it, + to record one more (Escape leaves
+   *  it), and reset for the command's defaults. () -> () */
+  showKeySettings() {
+    const { ui } = this;
+    const list = ui.keyList;
+    list.textContent = "";
+    const save = (id, specs) => {
+      this.settings = withKeys(this.settings, id, specs);
+      this.keysChanged();
+      // The focus stays on the row, for a keyboard user.
+      list.querySelector(`.pyk-key-row[data-command="${id}"] .pyk-key-add`)?.focus();
     };
     const button = (text, title, onClick) => {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = text;
       b.title = title;
+      b.setAttribute("aria-label", title);
       b.addEventListener("click", onClick);
       return b;
     };
-    for (const [action, label] of ACTIONS) {
-      const specs = keysOf(action);
-      const row = document.createElement("div");
-      row.className = "pyk-key-row";
-      row.dataset.action = action;
-      const name = document.createElement("span");
-      name.className = "pyk-key-name";
-      name.textContent = label;
-      const chips = document.createElement("span");
-      chips.className = "pyk-key-chips";
-      for (const spec of specs) {
-        const chip = document.createElement("span");
-        chip.className = "pyk-key-chip";
-        chip.textContent = showKey(spec);
-        chip.append(button("✕", `Remove ${showKey(spec)}`,
-          () => save(action, specs.filter((k) => k !== spec))));
-        chips.append(chip);
+    for (const area of AREAS) {
+      const group = document.createElement("div");
+      group.className = "pyk-key-group";
+      group.setAttribute("role", "group");
+      const heading = document.createElement("div");
+      heading.className = "pyk-key-area";
+      heading.id = `pyk-key-area-${area.toLowerCase()}`;
+      heading.textContent = area;
+      group.setAttribute("aria-labelledby", heading.id);
+      group.append(heading);
+      for (const { id, label } of COMMANDS.filter((c) => c.area === area)) {
+        const specs = keysOf(this.settings, id);
+        const row = document.createElement("div");
+        row.className = "pyk-key-row";
+        row.dataset.command = id;
+        const name = document.createElement("span");
+        name.className = "pyk-key-name";
+        name.textContent = label;
+        const chips = document.createElement("span");
+        chips.className = "pyk-key-chips";
+        for (const spec of specs) {
+          const chip = document.createElement("span");
+          chip.className = "pyk-key-chip";
+          chip.dataset.spec = spec;
+          chip.textContent = showKey(spec);
+          chip.append(button("✕", `${label}: remove ${showKey(spec)}`,
+            () => save(id, specs.filter((k) => k !== spec))));
+          chips.append(chip);
+        }
+        const add = button("+", `${label}: add a key -- click, then press it`, () => {
+          const field = document.createElement("input");
+          field.type = "text";
+          field.readOnly = true;
+          field.className = "pyk-key-field";
+          field.placeholder = "press a key";
+          field.setAttribute("aria-label", `${label}: press the key to add`);
+          field.addEventListener("keydown", (event) => {
+            if (event.key === "Tab") return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.key === "Escape") {
+              field.blur();
+              return;
+            }
+            const spec = specOf(event);
+            if (spec === null) return;
+            save(id, specs.includes(spec) ? specs : [...specs, spec]);
+          });
+          field.addEventListener("blur", () => {
+            if (field.isConnected) field.replaceWith(add);
+          });
+          add.replaceWith(field);
+          field.focus();
+        });
+        add.className = "pyk-key-add";
+        chips.append(add);
+        const reset = button("reset", `${label}: its default keys, ${showKeys(defaultKeys(id))}`,
+          () => save(id, defaultKeys(id)));
+        reset.className = "pyk-key-reset";
+        reset.disabled = isDefault(this.settings, id);
+        row.append(name, chips, reset);
+        group.append(row);
       }
-      const add = button("+", "Add a key: click, then press it", () => {
-        const field = document.createElement("input");
-        field.type = "text";
-        field.readOnly = true;
-        field.className = "pyk-key-field";
-        field.placeholder = "press a key";
-        field.addEventListener("keydown", (event) => {
-          if (event.key === "Tab") return;
-          event.preventDefault();
-          event.stopPropagation();
-          if (event.key === "Escape") {
-            field.blur();
-            return;
-          }
-          const spec = specOf(event);
-          if (spec === null) return;
-          save(action, specs.includes(spec) ? specs : [...specs, spec]);
-        });
-        field.addEventListener("blur", () => {
-          if (field.isConnected) field.replaceWith(add);
-        });
-        add.replaceWith(field);
-        field.focus();
-      });
-      add.className = "pyk-key-add";
-      chips.append(add);
-      const reset = button("reset", `${label}: its default keys, ${showKeys(DEFAULT_KEYS[action])}`,
-        () => save(action, DEFAULT_KEYS[action]));
-      reset.className = "pyk-key-reset";
-      reset.disabled = !(action in saved);
-      row.append(name, chips, reset);
-      list.append(row);
+      list.append(group);
     }
-    this.debugger?.showKeys();
+    ui.keysReset.disabled = Object.keys(this.settings.keys ?? {}).length === 0;
+    ui.slidesKeyHint.textContent = showKeys(keysOf(this.settings, "copySlides"));
   }
 
+  /** Opens the settings, on their first tab. () -> () */
   openSettings() {
     this.ui.modal.classList.remove("pyk-hidden");
-    this.ui.fontSize.focus();
+    this.showSettingsTab("appearance");
+    this.ui.settingsTabButtons[0].focus();
   }
 
   closeSettings() {
@@ -1816,12 +2116,15 @@ class Playground {
     this.ui.clearOnRun.checked = this.settings.clearOnRun;
     this.ui.autoRun.checked = this.settings.autoRun;
     this.ui.tinywebLog.checked = this.settings.tinywebLog;
+    this.ui.tinywebLogSetting.checked = this.settings.tinywebLog;
     this.ui.debugStopOnEntry.checked = Boolean(this.settings.debugStopOnEntry);
     this.ui.debugJustMyCode.checked = this.settings.debugJustMyCode !== false;
+    this.applySlidesSettings();
     for (const [key, name] of [["colSplit", "--pyk-col-split"],
                                ["outSplit", "--pyk-out-split"]]) {
       if (this.settings[key]) this.ui.root.style.setProperty(name, this.settings[key]);
     }
+    if (this.migrated) this.saveSettings();
   }
 
   saveSettings() {
@@ -1835,7 +2138,13 @@ class Playground {
       tinywebLog: this.settings.tinywebLog,
       debugStopOnEntry: this.settings.debugStopOnEntry,
       debugJustMyCode: this.settings.debugJustMyCode,
-      debugKeys: this.settings.debugKeys,
+      keys: this.settings.keys,
+      slidesTheme: this.settings.slidesTheme,
+      slidesFont: this.settings.slidesFont,
+      slidesSize: this.settings.slidesSize,
+      slidesBackground: this.settings.slidesBackground,
+      slidesSpaces: this.settings.slidesSpaces,
+      slidesButton: this.settings.slidesButton,
       colSplit: style.getPropertyValue("--pyk-col-split") || null,
       outSplit: style.getPropertyValue("--pyk-out-split") || null,
     });
@@ -1881,6 +2190,7 @@ function buildDom(host, meta, cfg) {
           <select data-r="example" title="Load an example program"></select>
           <button data-r="copyLink"
                   title="Copy a link that opens this program in the playground">Copy code as link</button>
+          <button class="pyk-hidden" data-r="copySlides">Copy for slides</button>
           <span class="pyk-spacer"></span>
           <button class="pyk-stop pyk-hidden" data-r="stopLeft"
                   title="Stop the running program">■ Stop</button>
@@ -2038,29 +2348,38 @@ function buildDom(host, meta, cfg) {
       </div>
     </div>
     <div class="pyk-modal-backdrop pyk-hidden" data-r="modal">
-      <div class="pyk-modal pyk-modal-wide" role="dialog" aria-modal="true"
-           aria-label="Playground settings">
+      <div class="pyk-modal pyk-modal-wide pyk-settings-dialog" role="dialog" aria-modal="true"
+           aria-labelledby="pyk-settings-title">
         <div class="pyk-modal-head">
-          <strong>Settings</strong>
+          <strong id="pyk-settings-title">Settings</strong>
           <span class="pyk-spacer"></span>
           <button class="pyk-icon" data-r="modalClose"
                   title="Close (Esc)" aria-label="Close">✕</button>
         </div>
+        <div class="pyk-settings-tabs" role="tablist" aria-label="Settings" data-r="settingsTabs">
+          ${SETTINGS_TABS.map(([name, title]) => `
+          <button type="button" role="tab" class="pyk-settings-tab" data-settings-tab="${name}"
+                  id="pyk-settings-tab-${name}" aria-controls="pyk-settings-${name}"
+                  aria-selected="false" tabindex="-1">${title}</button>`).join("")}
+        </div>
         <div class="pyk-modal-body pyk-settings-body">
-          <div class="pyk-settings-column">
+          <div class="pyk-settings-panel" role="tabpanel" data-settings-panel="appearance"
+               id="pyk-settings-appearance" aria-labelledby="pyk-settings-tab-appearance">
             <div class="pyk-field" data-r="themeField">
-              <label for="pyk-theme-choice">Appearance</label>
+              <label for="pyk-theme-choice">Theme</label>
               <select id="pyk-theme-choice" data-r="themeChoice">
                 <option value="system">Same as the system</option>
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
               </select>
+              <p class="pyk-hint">The ☀/☾ button in the header switches between
+                light and dark too.</p>
             </div>
             <div class="pyk-field">
-              <label>Editor font size</label>
+              <label for="pyk-font-size">Editor font size</label>
               <div class="pyk-field-row">
                 <input type="range" min="10" max="26" step="1" data-r="fontSize"
-                       aria-label="Editor font size">
+                       id="pyk-font-size">
                 <span class="pyk-value" data-r="fontValue">13px</span>
               </div>
               <p class="pyk-hint">Applies to both editors, the output panes and the REPL.</p>
@@ -2074,7 +2393,8 @@ function buildDom(host, meta, cfg) {
                 Settings are remembered in this browser.</p>
             </div>
           </div>
-          <div class="pyk-settings-column">
+          <div class="pyk-settings-panel pyk-hidden" role="tabpanel" data-settings-panel="running"
+               id="pyk-settings-running" aria-labelledby="pyk-settings-tab-running">
             <div class="pyk-field">
               <label>Running</label>
               <label class="pyk-check">
@@ -2087,16 +2407,27 @@ function buildDom(host, meta, cfg) {
             <div class="pyk-field">
               <label>Output pane</label>
               <label class="pyk-check">
-                <input type="checkbox" data-r="scrollOutput">
-                Scrollable
-              </label>
-              <label class="pyk-check">
                 <input type="checkbox" data-r="clearOnRun">
                 Clear it each time you press Run
               </label>
+              <label class="pyk-check">
+                <input type="checkbox" data-r="scrollOutput">
+                Scrollable
+              </label>
+            </div>
+            <div class="pyk-field">
+              <label>Web output</label>
+              <label class="pyk-check">
+                <input type="checkbox" data-r="tinywebLogSetting">
+                tinyweb log
+              </label>
+              <p class="pyk-hint">Shows what a tinyweb program sends its page, and
+                what the page answers, as pyk --tinyweb-log does. The Web output
+                tab has the same switch.</p>
             </div>
           </div>
-          <div class="pyk-settings-column">
+          <div class="pyk-settings-panel pyk-hidden" role="tabpanel" data-settings-panel="debugger"
+               id="pyk-settings-debugger" aria-labelledby="pyk-settings-tab-debugger">
             <div class="pyk-field">
               <label>Debugger</label>
               <label class="pyk-check">
@@ -2107,17 +2438,87 @@ function buildDom(host, meta, cfg) {
                 <input type="checkbox" data-r="debugJustMyCode">
                 Step over the standard library's code
               </label>
+              <p class="pyk-hint">With no breakpoint set, Debug stops at the first
+                statement anyway. The debugger's keys are on the Keys tab.</p>
             </div>
           </div>
-          <div class="pyk-field pyk-settings-wide">
-            <label>Debugger keys</label>
-            <div class="pyk-key-list" data-r="debugKeyList"></div>
-            <div class="pyk-field-row">
-              <button data-r="debugKeysReset">Reset all the keys</button>
+          <div class="pyk-settings-panel pyk-hidden pyk-slides-panel" role="tabpanel"
+               data-settings-panel="slides"
+               id="pyk-settings-slides" aria-labelledby="pyk-settings-tab-slides">
+            <p class="pyk-hint pyk-wide">Copy for slides copies the selection, or the whole
+              program where nothing is selected, as coloured text to paste into
+              Keynote, PowerPoint or Google Slides: from the editor's right-click
+              menu, or with <span data-r="slidesKeyHint"></span>.</p>
+            <div class="pyk-field">
+              <label for="pyk-slides-theme">Colours</label>
+              <select id="pyk-slides-theme" data-r="slidesTheme">
+                <option value="light">Light: for a light slide</option>
+                <option value="dark">Dark: for a dark slide</option>
+              </select>
             </div>
-            <p class="pyk-hint">Click + to add a key and press it; ✕ removes
-              one. The keys act where the focus is in the editor or the
-              Debug tab, and stepping's only while a program is debugged.</p>
+            <div class="pyk-field">
+              <label for="pyk-slides-font">Font</label>
+              <input type="text" id="pyk-slides-font" class="pyk-input-line" data-r="slidesFont"
+                     list="pyk-slides-fonts" spellcheck="false" placeholder="Menlo">
+              <datalist id="pyk-slides-fonts">
+                <option value="Menlo"></option><option value="Monaco"></option>
+                <option value="SF Mono"></option><option value="Courier New"></option>
+                <option value="Consolas"></option><option value="Fira Code"></option>
+                <option value="JetBrains Mono"></option><option value="Source Code Pro"></option>
+              </datalist>
+            </div>
+            <div class="pyk-field">
+              <label for="pyk-slides-size">Size in points</label>
+              <input type="number" id="pyk-slides-size" class="pyk-input-line" data-r="slidesSize"
+                     min="4" max="200" step="1" placeholder="keep the slide's">
+              <p class="pyk-hint">Blank keeps the size of the text it is pasted into.</p>
+            </div>
+            <div class="pyk-field">
+              <label for="pyk-slides-background">Background</label>
+              <div class="pyk-field-row">
+                <select id="pyk-slides-background" data-r="slidesBackgroundKind">
+                  <option value="none">None: the slide's own</option>
+                  <option value="theme">The colours' background</option>
+                  <option value="custom">A colour of my choice</option>
+                </select>
+                <input type="color" data-r="slidesColor" value="#ffffff"
+                       aria-label="Background colour" class="pyk-hidden">
+              </div>
+            </div>
+            <div class="pyk-field">
+              <label for="pyk-slides-spaces">Spaces</label>
+              <select id="pyk-slides-spaces" data-r="slidesSpaces">
+                <option value="indent">Non-breaking for the indentation</option>
+                <option value="all">Non-breaking everywhere</option>
+                <option value="none">Plain spaces</option>
+              </select>
+              <p class="pyk-hint">A PDF reader drops the spaces that start a line
+                when its text is copied; non-breaking ones are kept, so code copied
+                out of an exported slide still runs.</p>
+            </div>
+            <div class="pyk-field">
+              <label>Editor</label>
+              <label class="pyk-check">
+                <input type="checkbox" data-r="slidesButton">
+                Show a Copy for slides button above the editor
+              </label>
+            </div>
+            <div class="pyk-field pyk-wide">
+              <label>Preview</label>
+              <div class="pyk-slides-preview" data-r="slidesPreview" aria-live="polite"></div>
+            </div>
+          </div>
+          <div class="pyk-settings-panel pyk-hidden" role="tabpanel" data-settings-panel="keys"
+               id="pyk-settings-keys" aria-labelledby="pyk-settings-tab-keys">
+            <div class="pyk-key-list" data-r="keyList"></div>
+            <div class="pyk-field-row">
+              <button data-r="keysReset">Reset all the keys</button>
+            </div>
+            <p class="pyk-hint">Click + to add a key and press it (Escape leaves it);
+              ✕ removes one. Run and Copy for slides act in the editor, Run also
+              outside both editors; the debugger's start, continue and step keys act
+              anywhere in the playground, its others in the editor or the Debug tab;
+              the REPL's in its prompt.</p>
           </div>
         </div>
       </div>
@@ -2194,6 +2595,30 @@ function whyNotRunnable(target) {
     : "C compiler";
   return `${target} cannot run in a browser — there is no ${missing} here.`
     + " Use Run beside the source: that runs the program itself.";
+}
+
+/** Puts each kind of text on the clipboard by the copy a key press
+ *  makes, for a browser without ClipboardItem. Answers whether the copy
+ *  happened. {type: String} -> Bool */
+function copyByEvent(data) {
+  let done = false;
+  const listener = (event) => {
+    if (!event.clipboardData) return;
+    for (const [type, text] of Object.entries(data)) event.clipboardData.setData(type, text);
+    event.preventDefault();
+    // Monaco's own copy, of the cursor's line, is not to replace it.
+    event.stopImmediatePropagation();
+    done = true;
+  };
+  document.addEventListener("copy", listener, true);
+  try {
+    document.execCommand("copy");
+  } catch {
+    /* refused: done stays false */
+  } finally {
+    document.removeEventListener("copy", listener, true);
+  }
+  return done;
 }
 
 /* Settings live in localStorage, which is not always there to be written:

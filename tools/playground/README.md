@@ -163,25 +163,42 @@ Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
   never dragged out of existence — a zero-width editor is easy to reach and
   impossible to grab back.
 - **The Settings button** (top right) opens an in-page dialog rather than a
-  window:
-  - **Appearance**: the same as the system (the default), light or dark.
-    The ☀/☾ button in the header switches between the two as well; see
-    "Light and dark".
-  - **Font size**, 10–26 px, applied to both editors, the output panes and
-    the REPL.
-  - **Run while you type** — **off** by default. On, the source runs about
-    half a second after you stop typing, exactly as if you had pressed Run.
-    Only typing in the *source* counts: loading an example, or the generated
-    pane being rewritten by a compile, does not trigger it. Ticking the box
-    does not run anything either — the next keystroke does — so enabling it
-    can never start the compiler loading while the dialog is still open.
-  - **Scrollable** output — on by default. Off clips the pane instead, and
-    also stops it auto-following the newest line: scrolling programmatically
-    while clipped would push the start of the output out of reach.
-  - **Clear it each time you press Run** — on by default. Only *Run* clears;
-    compiling deliberately does not, so a compile error stays beside the
-    output you were comparing it against.
-  - **Reset pane sizes**.
+  window, in five tabs. It opens on **Appearance** each time, as the
+  right-hand tabs open on Run output; the arrow keys, Home and End move
+  between the tabs (a `tablist` of `tab`s, each with its `tabpanel`).
+  - **Appearance**: the theme -- the same as the system (the default),
+    light or dark; the ☀/☾ button in the header switches between the two
+    as well (see "Light and dark") -- the **font size**, 10–26 px,
+    applied to both editors, the output panes and the REPL, and **Reset
+    pane sizes**.
+  - **Running**: **Run while you type** — **off** by default. On, the
+    source runs about half a second after you stop typing, exactly as if
+    you had pressed Run. Only typing in the *source* counts: loading an
+    example, or the generated pane being rewritten by a compile, does not
+    trigger it. Ticking the box does not run anything either — the next
+    keystroke does — so enabling it can never start the compiler loading
+    while the dialog is still open. **Clear it each time you press Run** —
+    on by default. Only *Run* clears; compiling deliberately does not, so a
+    compile error stays beside the output you were comparing it against.
+    **Scrollable** output — on by default. Off clips the pane instead, and
+    also stops it auto-following the newest line: scrolling
+    programmatically while clipped would push the start of the output out
+    of reach. **tinyweb log**, the same switch as the Web output tab's.
+  - **Debugger**: whether to stop at the first statement, and whether to
+    step over the standard library's code (see "The Debug tab").
+  - **Copy for slides**: its options and a preview (see "Copy for
+    slides").
+  - **Keys**: every key the playground adds, by area -- Editor (Run, Copy
+    for slides), Debugger (its seven actions), REPL (submit, new line,
+    the entry before, the entry after, complete) -- each with its keys
+    as chips: ✕ removes one, + records the next key pressed (Escape
+    leaves it), **reset** gives the command its defaults, and **Reset all
+    the keys** every command. A key is written `Mod+Shift+;` (`assets/keys.js`):
+    Mod is Cmd on a Mac and Ctrl elsewhere, Alt is Option on a Mac, and the
+    keys are shown as the computer's keyboard names them. Each key acts
+    where it did before it could be changed, and each command's tooltip,
+    and the editor's right-click menu, name its keys as they are now.
+    Monaco's own editing keys are Monaco's and not here.
 
   There is no type-checking switch: Pyking is statically typed, so every
   compile here checks, exactly as `pyk` does, and a program the checker
@@ -193,20 +210,64 @@ Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
   could run.
 
   Close it with `Esc`, the ✕, or a click on the backdrop. Every setting, and
-  both split positions, are remembered in `localStorage`, so the layout you
-  set is the one you come back to.
-- **`Shift`+`Enter` and `Ctrl`+`Enter` run** (`Cmd`+`Enter` too, on a
-  Mac) — the same as the **▶ Run** button of whichever
+  both split positions, are remembered in `localStorage`
+  (`pyking-playground.settings`), so the layout you set is the one you come
+  back to. Settings an earlier version saved still load: its `debugKeys`,
+  the debugger's keys, are moved into `keys` and saved again so.
+- **`Shift`+`Enter` and `Ctrl`+`Enter` run** (`Cmd`+`Enter` and
+  `Ctrl`+`Enter`, on a Mac) — the same as the **▶ Run** button of whichever
   pane has focus: in the source pane it runs the program with the
   interpreter, in the generated pane it runs what is displayed. With focus anywhere else it
   runs the source. While a program runs, the same keys stop it.
-  Compiling has no key.
+  Compiling has no key. The keys can be changed in the settings.
 
   The keys are registered as a Monaco *action* of each editor, not as a
   key listener on the container: Monaco handles keys on its own hidden
   textarea first, so a listener would only fire after Monaco had already
   typed the newline. Overriding them loses nothing, since plain `Enter`
-  inserts a newline anyway.
+  inserts a newline anyway. The actions are made again whenever the
+  settings change their keys.
+
+### Copy for slides
+
+**Copy for slides** copies the editor's selection, or the whole program
+where nothing is selected, to the clipboard twice over: as HTML -- a
+`<pre>` with the colours, the font and the size inline, which Keynote,
+PowerPoint and Google Slides paste as coloured text, still text -- and
+as plain text, for Paste and Match Style. Both come from
+`PykingRuntime.highlight` (the compiler's `pyk highlight`, coloured by its
+own lexer), and the status line in the header says what was copied. It
+is always in the editor's right-click menu, beside Copy, and on
+**Alt+Shift+C** (**Option+Shift+C** on a Mac); a button for it above the
+editor, beside Copy code as link, is off by default and switched on in
+the settings.
+
+Alt+Shift+C because the keys a reader would guess are the browser's: Ctrl+Shift+C
+and Cmd+Option+C open the inspector in Chrome, Edge, Firefox and Safari.
+Monaco has no Alt+Shift+C, and on a Mac Option+Shift+C types `Ç`, which is
+no dead key, so nothing is left behind in the editor.
+
+The settings' Copy for slides tab has every option, with a live preview of
+a snippet as it would be pasted:
+
+- **Colours**: light (the default) or dark, the editor's two themes.
+- **Font**: Menlo by default; any font, a few monospaced ones offered.
+- **Size in points**: blank (the default) keeps the size of the text it is
+  pasted into.
+- **Background**: none (the default), the slide's own; the colours'
+  background; or a colour of one's choice.
+- **Spaces**: non-breaking for the indentation (the default), non-breaking
+  everywhere, or plain. A PDF reader drops the spaces that start a line
+  when text is copied out of it, so code copied out of an exported slide
+  would lose its indentation; non-breaking spaces (U+00A0) are kept, and
+  Pyking reads them as spaces.
+- **Show a Copy for slides button above the editor**.
+
+The clipboard is written with `navigator.clipboard.write` and a
+`ClipboardItem` whose two parts are promises, so the write happens within
+the key press or click, as Safari requires, while the highlighting is
+still on its way. Where there is no `ClipboardItem`, the copy a key press
+makes (`document.execCommand("copy")`) carries both parts instead.
 
 ### The editor and the language server
 
@@ -401,10 +462,10 @@ or removes a breakpoint on the cursor's line, Alt being Option on a Mac,
 where the keys are shown so. Starting, continuing and the
 stepping keys act anywhere in the playground; the rest where the focus
 is in the editor or the Debug tab.
-The stepping keys and Stop do nothing while no program is debugged. Settings gives an action
-several keys or none, and has whether to stop at
-the first statement and whether to step over the standard library's
-code. The program runs on the compiler's worker a slice at a time, so a
+The stepping keys and Stop do nothing while no program is debugged. The
+settings' Keys tab gives an action several keys or none, and their
+Debugger tab has whether to stop at the first statement and whether to
+step over the standard library's code. The program runs on the compiler's worker a slice at a time, so a
 pause reaches even a loop that never ends. A tinyweb program's page is
 on the Web output tab; a breakpoint in one of its callbacks stops when
 the event arrives, and the page's events wait while the program is
@@ -426,7 +487,8 @@ run there, exactly as at a terminal prompt.
   completes the word before the cursor elsewhere -- listing what fits,
   with types, under the prompt where it is not one name -- **Backspace** in the indentation
   removes a level, **Escape** empties the prompt, and **Up** and **Down**
-  go through the entries typed before.
+  go through the entries typed before. Enter, Shift+Enter, Tab, Up and
+  Down are the settings' to change (the Keys tab, REPL).
 - What an entry shows -- `value : Type`, a command's answer -- is in
   green, what it prints in the ordinary colour, and a refusal in red,
   in the words `pyk` uses. An entry refused for naming a function not
@@ -524,6 +586,7 @@ tools/playground/
     playground.js    the UI (ES module, exports mountPlayground)
     lsp-client.js    the source pane as a language server client
     debugger.js      the Debug tab
+    keys.js          the keys of every command, and how a key is read and shown
     share.js         a program in a link (#code=...), read and written
     js-worker.js     generated JavaScript, on its own thread
     playground.css   all styles, scoped under .pyk-playground
@@ -761,7 +824,16 @@ which `tests/test_lsp.py` runs in a Chromium over the DevTools protocol:
 an error underlined at its line, a hover showing a type, completion
 offering a name, go to definition, the outline -- and that compiling and
 running still work beside them, and that Download offers a zip holding
-the compiled program and its Makefile.
+the compiled program and its Makefile. It drives the settings too: the
+five tabs and the arrow keys between them, every setting saved and
+restored after a reload, an earlier version's `debugKeys` migrated; Copy
+for slides from the right-click menu, its key and the editor's button,
+for a selection and the whole program, with each option, read back off
+the clipboard as HTML and as plain text; and every command's keys
+changed in the Keys tab, by pressing them for real over the DevTools
+protocol, then working, then reset -- as this computer and as a Mac.
+`tests/test_playground.py` runs `tests/playground/keys.mjs`, which checks
+`assets/keys.js` under node.
 
 `tests/test_playground.py` also packs a download for each of a few
 library programs and targets as the page does

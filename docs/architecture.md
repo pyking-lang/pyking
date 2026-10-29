@@ -149,7 +149,8 @@ repl`) rather than a `--target`.
 | `src/json.ml` | JSON read and written, for the language server and a notebook's JSON. |
 | `src/notebook_format.ml` | A notebook's Markdown as structured JSON and back, character for character, and the JSON Schema it follows: `pyk notebook --to-json`, `--to-markdown`, `--json-schema`, and serving a `.json` notebook. See [notebook.md](notebook.md). |
 | `src/examples.ml` | The examples `pyk example` lists and saves and the playground offers, read from `src/examples.toml`. |
-| `src/pyk.ml` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`), plus the web commands, `pyk example`, and the stdio transports of `pyk lsp` and `pyk dap`, which run no front end of their own. |
+| `src/highlight.ml` | Pyking source coloured for a slide: cut into spans by the lexer a line at a time, classed as the playground's Monaco tokenizer classes them, coloured with its light or dark theme, and written as an HTML `<pre>` with every style inline, RTF or plain text, indentation as non-breaking spaces. `pyk highlight` (for a program or a notebook's blocks) and the browser's `pykHighlight`. In the library, since it is pure. |
+| `src/pyk.ml` | The driver: argv, stage sequencing, error reporting, and the three commands (`pyk <file>`, `repl`, `compile`), plus the web commands, `pyk example`, `pyk highlight`, and the stdio transports of `pyk lsp` and `pyk dap`, which run no front end of their own. |
 
 ## The builtins and the host boundary
 

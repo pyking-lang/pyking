@@ -9,7 +9,10 @@
       tool -- which web tool.
 
     Functions:
-      start tool port mode path -- serves the tool, or answers why not. *)
+      start tool port mode path -- serves the tool, or answers why not.
+      render_markdown markdown -- a notebook's Markdown as the page
+        renders it, under node, for `pyk highlight`.
+      notebook_stylesheet () -- the notebook page's stylesheet. *)
 
 type tool = Notebook | Playground | Help | Files
 
@@ -260,6 +263,58 @@ let notebook_test document given =
           Error "pyk notebook --mode test runs the notebook's code under node, and node was not found."
       | Unix.WEXITED status -> Ok status
       | Unix.WSIGNALED _ | Unix.WSTOPPED _ -> Ok 1)
+
+(* --- a notebook's prose, for `pyk highlight` --- *)
+
+(* What renders the prose: markdown.js's renderMarkdown, under node, as
+   the notebook's page renders it. The Markdown is read from the file
+   named second, and {html, title} is printed. *)
+let render_script =
+  "import fs from 'node:fs';\n\
+   import { pathToFileURL } from 'node:url';\n\
+   const [renderer, input] = process.argv.slice(1);\n\
+   const { renderMarkdown } = await import(pathToFileURL(renderer).href);\n\
+   const rendered = renderMarkdown(fs.readFileSync(input, 'utf8'));\n\
+   process.stdout.write(JSON.stringify({ html: rendered.html, title: rendered.title }));\n"
+
+let render_markdown markdown =
+  let refuse =
+    "--notebook whole renders the prose with the notebook's own renderer, which runs under node, and node was not found"
+  in
+  let renderer = under [ "tools"; "notebook"; "assets"; "markdown.js" ] in
+  if not (Sys.file_exists renderer) then Error (Printf.sprintf "no notebook renderer at %s" renderer)
+  else
+    let input = Filename.temp_file "pyk-highlight-" ".md" in
+    let output = Filename.temp_file "pyk-highlight-" ".json" in
+    let clean () = List.iter (fun f -> try Sys.remove f with Sys_error _ -> ()) [ input; output ] in
+    Out_channel.with_open_bin input (fun out -> Out_channel.output_string out markdown);
+    let result =
+      let out = Unix.openfile output [ Unix.O_WRONLY; Unix.O_TRUNC ] 0o600 in
+      let arguments = [| "node"; "--input-type=module"; "-e"; render_script; renderer; input |] in
+      let ran =
+        match Unix.create_process "node" arguments Unix.stdin out Unix.stderr with
+        | exception Unix.Unix_error _ -> Error refuse
+        | pid -> (
+            match snd (Unix.waitpid [] pid) with
+            | Unix.WEXITED 0 -> Ok ()
+            | Unix.WEXITED 127 -> Error refuse
+            | _ -> Error "the notebook's renderer failed under node")
+      in
+      Unix.close out;
+      let* () = ran in
+      match Json.parse (In_channel.with_open_bin output In_channel.input_all) with
+      | exception Json.Parse_error message -> Error ("the notebook's renderer answered no JSON: " ^ message)
+      | value ->
+          let field name = Option.value ~default:"" (Json.to_string_option (Json.member name value)) in
+          Ok (field "html", field "title")
+    in
+    clean ();
+    result
+
+let notebook_stylesheet () =
+  match In_channel.with_open_bin (under [ "tools"; "notebook"; "assets"; "notebook.css" ]) In_channel.input_all with
+  | text -> text
+  | exception Sys_error _ -> ""
 
 (* --- the playground --- *)
 

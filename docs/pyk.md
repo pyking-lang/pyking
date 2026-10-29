@@ -424,6 +424,23 @@ names at the same paths (`tools/packaging/packaging.py`,
 and the playground offers the same list. See [source.md](source.md),
 "examples.ml".
 
+## `pyk highlight`
+
+`pyk highlight` parses argv itself: `main` hands it everything after
+the word before `parse_args` sees any of it, since its options --
+`--theme`, `--font`, `--size`, `--background`, `--spaces`, `--html`,
+`--rtf`, `--text`, `--notebook`, `--block`, `--output-dir` -- are its
+own, and `-o` means one file. It runs no front end: the colours come
+from the lexer, line by line, in `highlight.ml`, so a program that does
+not check, or a fragment, highlights all the same. A `.pyk` file is one
+snippet; a notebook (`.md`, or `.json` read back with
+`Notebook_format.to_markdown`) is split into one file per Pyking block
+by default, or written as one `page` of every block, or `whole`, with
+its prose -- rendered for HTML by the notebook's own `markdown.js`
+under node (`Web_tools.render_markdown`), so it reads as the notebook's
+page does. Every refusal is one line, `pyk highlight: ...`, status 1.
+See [source.md](source.md), "highlight.ml".
+
 ## `pyk lsp`: the language server's transport
 
 `pyk lsp` runs no front end of its own either: `command_lsp` reads

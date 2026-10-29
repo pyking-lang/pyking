@@ -10,6 +10,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `pyk highlight FILE`: Pyking code coloured as the playground colours
+  it, for slides that keep their colours and stay text a reader can
+  copy out of the exported PDF. HTML with every style inline (the
+  default), RTF (`--rtf`) or plain text (`--text`), with `--theme
+  light|dark`, `--font` (default Menlo), `--size PT`, `--background
+  none|theme|#rrggbb`, `--spaces indent|all|none` and `-o FILE`.
+  Indentation is written as non-breaking spaces by default, so code
+  copied out of a PDF keeps its blocks. The colours come from the
+  compiler's own lexer, a line at a time, so a fragment highlights too.
+  A notebook (`.md` or `.json`) gives every pyking block, numbered from
+  1: `--notebook split` (the default) writes one file per block, `page`
+  every block in one, and `whole` the notebook with its prose rendered
+  as the notebook page renders it (HTML needs node); `--block N` picks
+  one, and `--output-dir DIR` says where split writes. The browser
+  runtime has the same as `runtime.highlight(source, options)`.
+- Pyking reads a non-breaking space (U+00A0) as a space wherever a space
+  may stand, indentation included, where it counts as one; inside a
+  string or a comment it is kept as written. So is it in the REPL and
+  the language server.
+- Playground: **Copy for slides** copies the editor's selection, or the
+  whole program, as coloured HTML and plain text, to paste into
+  Keynote, PowerPoint or Google Slides. It is in the editor's
+  right-click menu and on Alt+Shift+C (Option+Shift+C on a Mac); a
+  button above the editor can be switched on in the settings. Its
+  options -- light or dark colours, font, size, background, and spaces
+  (non-breaking for indentation by default, every space, or none) --
+  are in the settings, with a live preview.
+- Playground: every key the playground adds can be changed in the
+  settings: Run, Copy for slides, the debugger's seven actions, and the
+  REPL's submit, new line, previous, next and complete, each with a
+  reset, and all at once. Debugger keys saved before are carried over.
+- Playground: the settings are in five tabs: Appearance, Running,
+  Debugger, Copy for slides and Keys.
+- A new test suite, `highlight`, which also checks that its colours are
+  the playground's.
 - Notebook tasks take an ```` ```ignore-chars chars = " ," ```` block:
   on each line, of the answer's output or the solution's, that one of
   its patterns matches (`*` for any text), every character in `chars`

@@ -1,0 +1,17 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open nbsp.pyk
+> idle
+diagnostics $CASES/nbsp.pyk v1 []
+> hover nbsp.pyk 7:14
+{"contents": {"kind": "markdown", "value": "```pyking\ntwice: (Int) -> Int\n```\n\nDoubles a number."}, "range": {"end": {"character": 14, "line": 6}, "start": {"character": 9, "line": 6}}}
+> hover nbsp.pyk 2:6
+{"contents": {"kind": "markdown", "value": "```pyking\ndef twice: (Int) -> Int\n```"}, "range": {"end": {"character": 25, "line": 1}, "start": {"character": 0, "line": 1}}}
+> request textDocument/foldingRange {"textDocument": {"uri": "$URI(nbsp.pyk)"}}
+[{"endLine": 4, "startLine": 1}, {"endLine": 3, "kind": "comment", "startLine": 2}]
+> request textDocument/semanticTokens/full {"textDocument": {"uri": "$URI(nbsp.pyk)"}}
+{"data": [1, 4, 5, 3, 1, 0, 6, 1, 4, 1, 3, 11, 1, 4, 0, 2, 0, 6, 5, 3, 0, 9, 5, 3, 0]}
+> shutdown
+null
+> exit
+> exit status 0

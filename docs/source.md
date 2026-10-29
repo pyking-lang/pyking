@@ -74,6 +74,7 @@ and which module calls which.
 | [`dap.ml`](#dapml) | ~480 | The debug adapter: the Debug Adapter Protocol over a `debug_session.ml` session. |
 | [`json.ml`](#jsonml) | ~220 | JSON read and written. |
 | [`notebook_format.ml`](#notebook_formatml) | ~950 | A notebook's Markdown as JSON and back, character for character, and the JSON Schema the JSON follows. |
+| [`highlight.ml`](#highlightml) | ~640 | Pyking source coloured for a slide, as HTML with inline styles, RTF or text: `pyk highlight` and `pykHighlight`. |
 | [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the six commands. |
 | [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground and the notebook. |
 
@@ -144,6 +145,14 @@ imported by every other one.
   decimal one does, held to the same bound (`max_int_literal`).
 - **`string_until(pred, chars)`** — the longest prefix satisfying `pred`,
   used for numbers and identifiers.
+- **`leading_spaces chars`** — the spaces a line starts with, a
+  non-breaking space (U+00A0) counting as one: how many, the bytes they
+  take, and the rest. `lexing` reads indentation with it, and skips a
+  non-breaking space between tokens as it does a space.
+- **`indent_width line`**, **`trim line`**, **`blank line`** — the same
+  for code that looks at a line without lexing it: how far it is
+  indented, the line without spaces of either kind at its ends, and
+  whether it holds only spaces. The REPL and the language server use them.
 - **`scan_string(file, r, c, quote, chars)`** — a string literal, with
   its backslash escapes decoded.
 - **`is_digit` / `is_letter` / `is_digit_letter`** — character classes.
@@ -1946,6 +1955,7 @@ pyk compile <file>      compile it (alias: pyk c)
 pyk notebook <file.md>  serve a notebook (web_tools.ml)
 pyk playground          serve the playground (web_tools.ml)
 pyk serve [<dir>]       serve a directory's files (web_tools.ml)
+pyk highlight <file>    colour code for a slide (highlight.ml)
 ```
 
 **Design, in depth:** [pyk.md](pyk.md).
@@ -2216,6 +2226,77 @@ since it is pure.
 
 ---
 
+## `highlight.ml`
+
+**Pyking code coloured for a slide**, as text a slide program such as
+Keynote pastes and keeps as text, so a reader of the exported PDF can
+still copy it: `pyk highlight` and the browser's `pykHighlight`
+(`runtime.highlight` in `tools/webrun/assets/pyking-runtime.js`). In
+the library, since it is pure; reading files and running node for a
+whole notebook's prose are `pyk.ml`'s and `web_tools.ml`'s.
+
+The colours follow the real language because the compiler's own lexer
+cuts the source: each line is lexed on its own, after its leading
+spaces, so a selection or a fragment that does not lex as a whole --
+an `else:` without its `if`, an unclosed bracket -- still highlights.
+Where a line fails, the longest prefix that lexes is coloured (the
+prefix ending where the lexer failed, or at the space before) and the
+rest is plain. Between tokens there is only whitespace or a `#`
+comment to the end of the line. The classes, and the colours, are
+`tools/webrun/assets/pyking-monaco.js`'s, which `tests/test_highlight.py`
+reads to hold the two equal.
+
+### Data structures
+
+- **`kind`** — `Keyword | Type | Constant | Number | String | Comment |
+  Function | Builtin | Operator | Plain`: a keyword of `Lexer.keywords`;
+  a type keyword or a capitalised name; `true`/`false`; an Int or Float
+  literal; a String or Char literal; a comment; the name after `def`;
+  a name in `Builtin.names`; an operator token (`+`, `:=`, `->`, `..`,
+  `<<`, ...); and the rest -- names, brackets, `,` `:` `.`, spaces.
+- **`span`** / **`line`** — a run of text of one kind; a line's
+  indentation (a count of spaces, ordinary or U+00A0) and its spans.
+- **`options`** — `theme` (`Light | Dark`), `font` ("Menlo"), `size`
+  (`None`, or points), `background` (`No_background | Theme_background
+  | Colour "#rrggbb"`) and `spaces` (`Indent`, the default: leading
+  spaces as U+00A0 | `All` | `Ordinary`). Tabs are four spaces first.
+- **`palette`** — a theme's foreground, background and each kind's
+  colour; comments are italic.
+- **`block`** / **`piece`** — a notebook's Pyking block (numbered from
+  1, with its info string and source), and a notebook as `Prose`,
+  `Code` and `Output` (stdin, stdout, stderr) pieces, found with
+  `Notebook_format.scan`.
+
+### Main functions
+
+- **`classify source`** — the lines, as spans.
+- **`html options source`** — a `<pre style="font-family:...;
+  white-space:pre;color:...">` with a `<span style="color:...">` per
+  coloured run: no class, no stylesheet, every character outside ASCII
+  a character reference and U+00A0 `&nbsp;`.
+- **`rtf options source`** — a complete `{\rtf1 ...}` document: the
+  font (`\f0`) and Helvetica for prose (`\f1`), a colour table (the
+  text's colour first, then the background's), `\fsN` where a size is
+  given, `\cbN` for a background, a `\par` per line, U+00A0 as `\~`
+  and every other character outside ASCII as `\uN?`.
+- **`text options source`** — the source with the spaces applied.
+- **`notebook_pieces`**, **`notebook_blocks`** — a notebook's pieces,
+  and its Pyking blocks: every ```` ```pyking ```` or ```` ```pyk ````
+  block, cells, norun fragments, error cells, tasks and solutions.
+- **`rtf_document`**, **`text_document`**, **`html_snippets`** — several
+  pieces in one output; prose as plain paragraphs.
+- **`marked_markdown`**, **`fill_markers`** — a whole notebook as HTML:
+  the Markdown with each block a `<div data-pyk-piece="K">` marker,
+  rendered by the notebook's own `markdown.js` under node
+  (`Web_tools.render_markdown`), and each marker then replaced by its
+  snippet; **`html_page`** puts it in a page with `notebook.css`.
+- **`parse_theme`**, **`parse_font`**, **`parse_size`**,
+  **`parse_background`**, **`parse_spaces`**, **`options_of_json`** —
+  the options as the command line and the browser write them, with the
+  same messages, so both refuse the same values the same way.
+
+---
+
 ## `examples.ml`
 
 **The examples list**: what `pyk example` lists and saves and the
@@ -2287,6 +2368,11 @@ than the library, since it listens on a socket.
 
 ### Main functions
 
+- **`render_markdown markdown`** — a notebook's Markdown rendered by
+  `tools/notebook/assets/markdown.js` under node, as its page renders
+  it: `{html, title}`, or why not (node missing). `pyk highlight
+  --notebook whole` renders the prose with it; **`notebook_stylesheet
+  ()`** is the page's `notebook.css`.
 - **`start tool port mode path -> (int, string) result`** — the
   notebook: checks the document, then `--mode test` runs
   `tools/notebook/check.js` under node and answers its status, and any
@@ -2376,7 +2462,9 @@ page or fetched through its `pykFetchSource`, externals through
 `pykExternals`, and `release` on a second line), `pykAnalyze` (which of
 a program's modules are implemented in JavaScript, and whether it reads
 standard input or its arguments), `pykTargets`, `pykFormatHelper`,
-`pykKeywords` and `pykBuiltins`, `pykCallback` (a Pyking function
+`pykKeywords` and `pykBuiltins`, `pykHighlight` (source and its
+options as JSON in, `{html, rtf, text}` out, as `pyk highlight` writes
+them: `highlight.ml`), `pykCallback` (a Pyking function
 handed to JavaScript, called back by the id it crossed as), `pykResume`
 (a run or a callback that waits for the page -- an external that
 answered a promise, which crossed as `{"pyk_wait":n}` -- handed what the

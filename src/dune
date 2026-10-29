@@ -18,7 +18,7 @@
  (name pyking)
  (wrapped false)
  (modules targets lexer names syntax walk builtin analyses desugar_args parser splash submodules module
-   exhaustive typesystem elaborate release prune opt_tailcall interpreter completion repl_session json notebook_format scopes lsp debug_session dap examples target_python target_js_core target_js_packaging target_ocaml target_c target_java type_experiment)
+   exhaustive typesystem elaborate release prune opt_tailcall interpreter completion repl_session json notebook_format highlight scopes lsp debug_session dap examples target_python target_js_core target_js_packaging target_ocaml target_c target_java type_experiment)
  (flags
   (:standard -warn-error -a)))
 

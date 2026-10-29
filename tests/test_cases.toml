@@ -838,6 +838,13 @@ file = "fail_typecheck_inline_two_statements.pyk"
 file = "fail_typecheck_inline_then_indented.pyk"
 
 [[cases]]
+file = "nbsp_spaces.pyk"
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+
+[[cases]]
+file = "fail_typecheck_nbsp_indent.pyk"
+
+[[cases]]
 file = "fail_typecheck_def_equals_body.pyk"
 
 [[cases]]

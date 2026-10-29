@@ -1,0 +1,7 @@
+# Indented with non-breaking spaces, as code copied out of a PDF is.
+def count(n: Int) -> Int:
+    if n > 0:
+        return 1 + count(n - 1)
+    return 0
+
+print(count(3))

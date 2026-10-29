@@ -1,0 +1,6 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> . . . > 42 : Int
+> . . indented with non-breaking spaces
+> '<repl>' 1:0-1:4 Lexing error: indentation must be a multiple of 4
+  spaces
+> 

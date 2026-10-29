@@ -343,7 +343,7 @@ let doc_comment state file row =
   let rec go r acc =
     if r < 1 || r > Array.length lines then acc
     else
-      let line = String.trim lines.(r - 1) in
+      let line = Lexer.trim lines.(r - 1) in
       if String.length line >= 2 && String.sub line 0 2 = "##" then
         let body = String.sub line 2 (String.length line - 2) in
         let body = if String.length body > 0 && body.[0] = ' ' then String.sub body 1 (String.length body - 1) else body in
@@ -790,7 +790,7 @@ let doc_lines state file row =
   let rec go r acc =
     if r < 1 || r > Array.length lines then acc
     else
-      let line = String.trim lines.(r - 1) in
+      let line = Lexer.trim lines.(r - 1) in
       if String.length line >= 2 && String.sub line 0 2 = "##" then
         let body = String.sub line 2 (String.length line - 2) in
         let body = if String.length body > 0 && body.[0] = ' ' then String.sub body 1 (String.length body - 1) else body in
@@ -1285,7 +1285,7 @@ let folding_ranges state document =
           [] unit.stmts
   in
   let lines = Array.of_list (lines_of document.text) in
-  let comment k = k < Array.length lines && String.length (String.trim lines.(k)) > 0 && (String.trim lines.(k)).[0] = '#' in
+  let comment k = k < Array.length lines && String.length (Lexer.trim lines.(k)) > 0 && (Lexer.trim lines.(k)).[0] = '#' in
   let rec comments k out =
     if k >= Array.length lines then out
     else if comment k then
