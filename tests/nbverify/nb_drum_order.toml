@@ -1,0 +1,33 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_drum_order.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_drum_order_beat_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_drum_order_beat_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_drum_order_beat_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\nkick hihat\nwhat it drew differs at line 8 of tinyweb's log:\nexpected: sdelay 0.250\ngot: play \"kick1.wav\" 0.0 1.0 1.0 0.0 0 0"
+
+[[solution]]
+file = "nb_drum_order_beat_s4.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\nkick hihat\nwhat it drew differs at line 5 of tinyweb's log:\nexpected: play \"kick1.wav\" 0.0 1.0 1.0 0.0 0 0\ngot: sdelay 0.250"
+
+[[solution]]
+file = "nb_drum_order_beat_s5.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\nkick hihat\nwhat it drew differs at line 4 of tinyweb's log:\nexpected: play \"hihat1.wav\" 0.0 1.0 1.0 0.0 0 0\ngot: sdelay 0.250"
+
+[[solution]]
+file = "nb_drum_order_beat_s6.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\nkick hihat\nwhat it drew differs at line 13 of tinyweb's log:\nexpected: splash\ngot: sdelay 0.250"

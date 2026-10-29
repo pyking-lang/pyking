@@ -1,0 +1,18 @@
+# The kick a beat late: each beat holds the same number of sounds, but
+# not the same sounds. Refused.
+import io
+import text
+import tinyweb as tw
+line = io.read_line()
+kick = tw.load_sample("kick1.wav")
+snare = tw.load_sample("snare1.wav")
+hihat = tw.load_sample("hihat1.wav")
+for i in range(4):
+    if i > 0:
+        tw.sdelay(0.25)
+    if text.contains(line, "kick") and i % 2 == 1:
+        tw.play(kick)
+    if text.contains(line, "snare") and i % 2 == 1:
+        tw.play(snare)
+    if text.contains(line, "hihat"):
+        tw.play(hihat)

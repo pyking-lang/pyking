@@ -1,0 +1,17 @@
+# The solution's beat, the drums of each beat started in another order
+# and a pause after the last: accepted.
+import io
+import text
+import tinyweb as tw
+line = io.read_line()
+kick = tw.load_sample("kick1.wav")
+snare = tw.load_sample("snare1.wav")
+hihat = tw.load_sample("hihat1.wav")
+for i in range(4):
+    if text.contains(line, "hihat"):
+        tw.play(hihat)
+    if text.contains(line, "snare") and i % 2 == 1:
+        tw.play(snare)
+    if text.contains(line, "kick") and i % 2 == 0:
+        tw.play(kick)
+    tw.sdelay(0.25)

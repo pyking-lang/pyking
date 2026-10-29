@@ -1,0 +1,34 @@
+# The beat, then three pauses where the optional-last block allows one:
+# refused.
+import io
+import text
+import tinyweb as tw
+line = io.read_line()
+kick = tw.load_sample("kick1.wav")
+snare = tw.load_sample("snare1.wav")
+hihat = tw.load_sample("hihat1.wav")
+k = text.contains(line, "kick")
+s = text.contains(line, "snare")
+h = text.contains(line, "hihat")
+if k:
+    tw.play(kick)
+if h:
+    tw.play(hihat)
+tw.sdelay(0.25)
+if s:
+    tw.play(snare)
+if h:
+    tw.play(hihat)
+tw.sdelay(0.25)
+if k:
+    tw.play(kick)
+if h:
+    tw.play(hihat)
+tw.sdelay(0.25)
+if s:
+    tw.play(snare)
+if h:
+    tw.play(hihat)
+tw.sdelay(0.25)
+tw.sdelay(0.25)
+tw.sdelay(0.25)
