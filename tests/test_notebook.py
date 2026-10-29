@@ -148,9 +148,10 @@ check("the front matter's title", features.title === "Every notebook feature",
       JSON.stringify(features.title));
 check("math is noticed", features.math === true);
 const flags = (c) => Object.keys(c.attrs).filter((a) => c.attrs[a]).join("+") || "-";
-check("eighteen runnable cells, with their attributes",
+check("twenty-seven runnable cells, with their attributes",
       features.cells.map(flags).join(" ") ===
-        "- error readonly - readonly error - - - task solution practice task solution practice solution practice solution",
+        "- error readonly - readonly error - - - - task solution practice task solution practice solution practice solution "
+        + "practice solution practice solution practice solution readonly+task solution",
       features.cells.map(flags).join(" "));
 check("a cell's input from its header, and from a block before it",
       features.cells[3].stdin === "Ada\n" && features.cells[3].args === "first 'second one'"
@@ -168,11 +169,11 @@ check("features.md has no notebook problems", nb.problems.length === 0,
       JSON.stringify(nb.problems));
 check("the rules: max 12, pass 9", nb.rules?.max === 12 && nb.rules?.pass === 9,
       JSON.stringify(nb.rules));
-check("two tasks, three practices and three quizzes, in order, each numbered as its kind",
+check("three tasks, six practices and three quizzes, in order, each numbered as its kind",
       nb.items.map((i) => i.id).join(" ")
-        === "task-1 practice-1 task-2 practice-2 practice-3 quiz-1 quiz-2 quiz-3",
+        === "task-1 practice-1 task-2 practice-2 practice-3 quiz-1 quiz-2 quiz-3 practice-4 practice-5 practice-6 task-3",
       nb.items.map((i) => i.id).join(" "));
-const [ex1, ex2, ex3, counter, limited, quiz1, quiz2, quiz3] = nb.items;
+const [ex1, ex2, ex3, counter, limited, quiz1, quiz2, quiz3, doubled, dot, loosely, git] = nb.items;
 check("names: a task's and a quiz's, and none where none is given",
       ex1.name === "twice" && quiz1.name === "typed" && ex2.name === null && quiz2.name === null,
       JSON.stringify(nb.items.map((i) => i.name)));
@@ -196,6 +197,24 @@ check("task 2: a solution that is not available, and a penalty",
 check("a practice's max_calls: print at most twice",
       JSON.stringify(limited.maxCalls) === '[{"max":2,"name":"print"}]',
       JSON.stringify(limited.maxCalls));
+check("lines_per_multi_input: a test for every line",
+      JSON.stringify(doubled.tests.map((t) => t.stdin)) === '["1\\n","2\\n","3\\n"]',
+      JSON.stringify(doubled.tests.map((t) => t.stdin)));
+check("a solution with its own input saves its canvas as a picture",
+      JSON.stringify(dot.solution.picture) === '{"canvas":"canvas","file":"dot.png"}'
+      && features.cells[dot.solution.cell].stdin === "8\n" && features.cells[dot.solution.cell].args === "blue",
+      JSON.stringify(dot.solution));
+check("a practice compared loosely: a stderr test and all four blocks",
+      loosely.tests.length === 1 && loosely.tests[0].error?.text === "checked"
+      && JSON.stringify(loosely.allowed.map((r) => r.kind)) === '["number","last","any","any","chars"]'
+      && loosely.allowedParts.map((p) => p.kind).join() === "diff-allowed,optional-last,any-order,ignore-chars",
+      JSON.stringify([loosely.tests, loosely.allowed]));
+check("a read-only task submitted with git",
+      git.method === "git" && features.cells[git.cell].attrs.readonly === true,
+      JSON.stringify(git).slice(0, 300));
+check("an args block before a cell, and the other header form",
+      features.cells[7].args === 'one "two three"' && features.html.includes("def g(x)"),
+      JSON.stringify(features.cells[7]));
 check("quiz 1: one answer, from *", !quiz1.multiple && quiz1.alternatives.length === 2
       && quiz1.answers.map((a) => a.correct).join() === "true,false" && !quiz1.available,
       JSON.stringify(quiz1).slice(0, 300));
@@ -262,7 +281,7 @@ check("points less the penalty for each failure, never below 0",
 const totals = grading.summary(nb, { "task-1": { state: "solved", points: 5 },
   "quiz-1": { state: "solved", points: 2 }, "quiz-2": { state: "failed", points: 0 } });
 check("the totals: solved, points, and whether they pass",
-      totals.solved === 2 && totals.total === 8 && totals.points === 7 && totals.max === 12
+      totals.solved === 2 && totals.total === 11 && totals.points === 7 && totals.max === 12
       && totals.passed === false && totals.done === false, JSON.stringify(totals));
 
 // 1d. A task submitted with git, a solution that saves a picture,
@@ -318,6 +337,16 @@ for (const [header, problem] of [
   ["```pyking task\n```\n```optional-last\nsdelay*\n```\n", "which this task does not have"],
   ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```optional-last\n```\n",
    "an optional-last block needs at least one line"],
+  ["```ignore-chars chars = \" \"\npoint*\n```\n", "an ignore-chars block belongs under a task"],
+  ["```pyking task\n```\n```ignore-chars chars = \" \"\npoint*\n```\n", "which this task does not have"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```ignore-chars\npoint*\n```\n",
+   "an ignore-chars block says which characters to ignore"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```ignore-chars chars = \"\"\npoint*\n```\n",
+   "an ignore-chars block says which characters to ignore"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```ignore-chars chars = \" \"\n```\n",
+   "an ignore-chars block needs at least one line"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```ignore-chars chars = \" \" all\npoint*\n```\n",
+   "an ignore-chars block takes no attribute 'all'"],
   ["```any-order\nANY: x*\n```\n", "an any-order block belongs under a task"],
   ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```any-order\nplay*\n```\n",
    "starts with BETWEEN: or ANY:"],
@@ -399,6 +428,32 @@ const freed = grading.excused(order, `${wow}\n${song}\nsdelay 0.250\nx\nsdelay 1
 check("the lines excused are the reordered ones and the optional end",
       JSON.stringify([[...freed.left].sort(), [...freed.right].sort()]) === "[[0,1,4],[0,1]]",
       JSON.stringify([[...freed.left], [...freed.right]]));
+const ignoring = (...blocks) => renderMarkdown("```pyking task\n```\n```pyking solution\nprint(1)\n```\n"
+  + blocks.join("")).notebook.items[0].allowed;
+const spaced = ignoring("```ignore-chars chars = \" ,\"\npoint*\nplay*\n```\n");
+check("ignore-chars lines are rules holding their block's chars",
+      JSON.stringify(spaced.map((r) => [r.kind, r.chars])) === '[["chars"," ,"],["chars"," ,"]]',
+      JSON.stringify(spaced));
+check("a line ignore-chars matches loses every one of its chars, in any order",
+      grading.cleanLine(spaced, "point 1, 2,,") === "point12"
+      && grading.cleanLine(spaced, "other 1, 2") === "other 1, 2"
+      && grading.sameOutput("point 1, 2\nend", "point1,2\nend", spaced)
+      && grading.sameOutput("point ,1 2", "point 1,2", spaced)
+      && !grading.sameOutput("point 1, 3", "point 1,2", spaced)
+      && !grading.sameOutput("other 1, 2", "other 1,2", spaced));
+check("each side is cleaned on its own",
+      grading.sameOutput("point 1 2", "point", ignoring("```ignore-chars chars = \" 12\"\npoint *\n```\n"))
+      && grading.sameLine(spaced, "play 1, 2", "play 12"));
+const both = ignoring("```ignore-chars chars = \" \"\nx*\n```\n", "```ignore-chars chars = \";\"\nx*\ny*\n```\n");
+check("several blocks that match a line all remove their chars",
+      grading.cleanLine(both, "x 1; 2") === "x12" && grading.cleanLine(both, "y 1; 2") === "y 1 2"
+      && grading.sameOutput("x 1;2", "x1 ;2", both));
+const first = ignoring("```ignore-chars chars = \" \"\n*\n```\n", "```diff-allowed\nv=[+/-1]\n```\n",
+  "```any-order\nANY: ab*\n```\n", "```optional-last\nend\n```\n");
+check("the other rules see the lines ignore-chars has cleaned",
+      grading.sameOutput("v = 1", "v=2", first)
+      && grading.sameOutput("a b 1\nab 2\ne n d", "ab 2\na b1", first)
+      && !grading.sameOutput("v = 1", "v=3", first));
 const { lineDiff } = await import(pathToFileURL(plan.activities).href);
 const rows = lineDiff("a\nb\nc\nd", "a\nB\nc\nd\ne");
 const loose = lineDiff("v 1\nw", "v 2\nw", (x, y) => x === y || grading.allowedLine(
@@ -407,6 +462,11 @@ const loose = lineDiff("v 1\nw", "v 2\nw", (x, y) => x === y || grading.allowedL
 check("a line diff takes lines a rule allows as the same",
       loose.every((r) => r.kind === "same") && loose[0].left === "v 1" && loose[0].right === "v 2",
       JSON.stringify(loose));
+const cleaned = lineDiff("point 1, 2\nother 1, 2", "point 1,2\nother 1,2", (x, y) => grading.sameLine(spaced, x, y));
+check("a line diff takes lines ignore-chars cleans alike as the same, and no others",
+      JSON.stringify(cleaned.map((r) => [r.kind, r.left, r.right]))
+        === '[["same","point 1, 2","point 1,2"],["change","other 1, 2","other 1,2"]]',
+      JSON.stringify(cleaned));
 check("a line diff pairs what changed and keeps what is the same",
       JSON.stringify(rows.map((r) => [r.kind, r.left, r.right]))
         === '[["same","a","a"],["change","b","B"],["same","c","c"],["same","d","d"],["change",null,"e"]]',

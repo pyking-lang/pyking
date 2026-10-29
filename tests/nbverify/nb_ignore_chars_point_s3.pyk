@@ -1,0 +1,6 @@
+# A semicolon is not ignored: refused.
+import io
+x = int(io.read_line())
+y = int(io.read_line())
+print("point (" + string(x) + "; " + string(y) + ")")
+print("sum:", x + y)

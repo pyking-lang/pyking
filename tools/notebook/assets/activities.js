@@ -17,7 +17,7 @@
 //   lineDiff(a, b) -- two texts' lines side by side, what differs marked.
 
 import { escapeHTML } from "./markdown.js";
-import { allowedLine, checkQuiz, award, excused, graded, normalizeOutput, quizAward, rightAnswers,
+import { sameLine, checkQuiz, award, excused, graded, normalizeOutput, quizAward, rightAnswers,
   sameOutput, summary, overCalls } from "./tasks.js";
 
 /** How long one run of a submitted answer may take, in milliseconds. */
@@ -624,13 +624,13 @@ class TaskWidget {
 /** One output of a submission and of the solution side by side, as a
  *  table: a line only the submission wrote in red on the left, one only
  *  the solution wrote in green on the right, and a pair that differs
- *  only as a diff-allowed rule allows marked on both, as is a line an
+ *  only as a diff-allowed or ignore-chars rule allows marked on both, as is a line an
  *  optional-last or any-order rule excuses.
  *  String -> String -> String -> [Rule] -> String */
 function diffSection(title, mine, theirs, rules = []) {
   const a = normalizeOutput(mine ?? "");
   const b = normalizeOutput(theirs ?? "");
-  const rows = lineDiff(a, b, (x, y) => x === y || allowedLine(rules, x, y));
+  const rows = lineDiff(a, b, (x, y) => sameLine(rules, x, y));
   const free = excused(rules, a, b);
   const same = sameOutput(a, b, rules);
   const cell = (line, number, kind) => (line === null

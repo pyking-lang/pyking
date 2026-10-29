@@ -331,9 +331,14 @@ cuts each output into stretches at the lines a `BETWEEN:` pattern
 matches; inside a stretch, the lines an `ANY:` pattern matches may come
 in any order, but each stretch must hold the same ones as many times,
 and the other lines keep their order. Their patterns are lines as the
-output writes them, `*` standing for any text. Both apply where
-diff-allowed does, and "See result diff" marks what they excuse as an
-allowed difference.
+output writes them, `*` standing for any text. An
+**```` ```ignore-chars chars = " ," ````** block removes every
+character in `chars` (a set, in any order) from each line, on either
+side, that one of its patterns matches, before anything else compares
+them; the other blocks see the cleaned lines. Several such blocks may
+apply to one line, and each removes its own characters. All three apply
+where diff-allowed does, and "See result diff" marks what they excuse
+as an allowed difference.
 
 ````markdown
 ```optional-last
@@ -343,6 +348,10 @@ sdelay*
 ```any-order
 BETWEEN: sdelay*
 ANY: play "*
+```
+
+```ignore-chars chars = " ,"
+point*
 ```
 ````
 
@@ -480,10 +489,11 @@ for each problem, and exits with 1 if there was one:
 - a task's `method` is inline or git, a solution's `save_canvas`
   has a `file`, a .png beside the notebook, and a stdin block split by
   `lines_per_multi_input` is whole pieces, with a solution and no output
-  after it, and a diff-allowed, optional-last or any-order block is
-  under a task with a solution, each diff-allowed line holding a
-  `[+/-N]`, each any-order line `BETWEEN:` or `ANY:` and a pattern,
-  with at least one `ANY:`.
+  after it, and a diff-allowed, optional-last, any-order or
+  ignore-chars block is under a task with a solution, each diff-allowed
+  line holding a `[+/-N]`, each any-order line `BETWEEN:` or `ANY:` and
+  a pattern, with at least one `ANY:`, and each ignore-chars block
+  saying `chars = "…"`.
 
 `tests/notebook/broken.md` makes every one of these mistakes, and
 `broken.out` is what test mode says about it.

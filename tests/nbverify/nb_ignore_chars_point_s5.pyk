@@ -1,0 +1,6 @@
+# The numbers themselves are not ignored: refused.
+import io
+x = int(io.read_line())
+y = int(io.read_line())
+print("point (" + string(y) + ", " + string(x) + ")")
+print("sum:", x + y)

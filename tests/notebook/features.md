@@ -46,6 +46,12 @@ A fragment, highlighted but not runnable:
 def f(x): ...
 ```
 
+The same fragment with the other header form and fence:
+
+~~~ {.pyking .norun}
+def g(x): ...
+~~~
+
 Another language:
 
 ```python
@@ -97,6 +103,17 @@ Grace
 ```pyking
 import io
 print("hi", io.read_line())
+```
+
+And an ```` ```args ```` block right before the cell:
+
+```args
+one "two three"
+```
+
+```pyking
+import sys
+print(sys.args())
 ```
 
 An output shown as if the cell had run:
@@ -285,6 +302,96 @@ Why can static type checking be useful?
 -  False, ruling out errors statically can avoid runtime errors
 -> True, some compilers can avoid expensive runtime checks after static checking
 -  False, some errors are typically not detected statically, such as out-of-bound errors and division-by-zero errors.
+```
+
+A practice whose stdin block is split into one test for every line,
+each compared with what the solution prints on it:
+
+```pyking practice name = "doubling"
+print("Add your code here")
+```
+
+```pyking solution
+import io
+print(int(io.read_line()) * 2)
+```
+
+```stdin lines_per_multi_input = 1 visible = true
+1
+2
+3
+```
+
+A practice that draws, whose solution's canvas is saved as a picture
+and shown here:
+
+![A blue dot](dot.png)
+
+```pyking practice name = "dot"
+print("Add your code here")
+```
+
+```pyking solution stdin = "8" args = "blue" save_canvas = "canvas" file = "dot.png"
+import io
+import tinyweb as tw
+import tinyweb.color as color
+r = int(io.read_line())
+c = tw.canvas(40, 40)
+tw.circle(c, 20, 20, r, color.blue)
+```
+
+```stdin
+12
+```
+
+A practice compared loosely: the number may differ by 0.01, a last
+`done` may be left out, `a` and `b` may come in either order, spaces
+and commas do not matter on the `point` line, and what `debug` writes
+is compared too:
+
+```pyking practice name = "loose"
+print("Add your code here")
+```
+
+```pyking solution
+print("point 1, 2")
+print("area =", 3.14159)
+print("b")
+print("a")
+debug("checked")
+print("done")
+```
+
+```stderr
+checked
+```
+
+```diff-allowed
+area = [+/-0.01]
+```
+
+```optional-last
+done
+```
+
+```any-order
+ANY: a
+ANY: b
+```
+
+```ignore-chars chars = " ,"
+point*
+```
+
+A task answered somewhere else and pushed with git, not graded here,
+whose starting code cannot be edited:
+
+```pyking task name = "elsewhere" method = git readonly
+# Write this in any language you like.
+```
+
+```pyking solution
+print("graded by hand")
 ```
 
 ## Lists

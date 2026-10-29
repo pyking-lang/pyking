@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Notebook tasks take an ```` ```ignore-chars chars = " ," ```` block:
+  on each line, of the answer's output or the solution's, that one of
+  its patterns matches (`*` for any text), every character in `chars`
+  is removed before the lines are compared, and before the other rules
+  see them. Several blocks may apply to one line. In the page,
+  `--to-json` and nbverify (its `ignore_chars` param), and the result
+  diff shows lines that differ only in those characters in yellow.
 - Notebook tasks take an ```` ```optional-last ```` block, whose lines
   may end the answer's output or the solution's though the other does
   not end with them (before the `splash` that ends a tinyweb log), each
@@ -25,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A notebook cell no longer echoes the line `io.read_line` reads after
   a prompt; only what the program writes is shown under it.
+
+### Fixed
+
+- A notebook cell run right after the page opened, or right after its
+  code changed, got no standard input or arguments, since the page
+  had not yet found out that the program reads them. A run now waits
+  for that.
 
 ## [0.1.7] - 2026-10-28
 

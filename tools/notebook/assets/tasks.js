@@ -13,7 +13,8 @@
 //     cell, method, attempts, points, penalty, maxCalls, stdin, args,
 //     solution, tests, allowed, allowedParts}: `practice` true for a
 //     ```pyking practice, which gives no points; `allowed` the Rules of
-//     its diff-allowed, optional-last and any-order blocks; `method` "inline" (answered in the page) or
+//     its diff-allowed, optional-last, any-order and ignore-chars blocks;
+//     `method` "inline" (answered in the page) or
 //     "git" (not graded here); `name` the name = it was given, or null.
 //   Limit -- {max, name}: one (N,name) of a max_calls =.
 //   Solution -- {cell, line, available, picture}: `picture` {canvas,
@@ -27,12 +28,14 @@
 //     question, alternatives, multiple, onePointCorrect, answers, attempts,
 //     points, penalty, available}.
 //   Example -- {cell, line, tests}: input and output under an ordinary cell.
-//   Rule -- {kind, text, pattern, slots}: one line of a block loosening
+//   Rule -- {kind, text, pattern, slots, chars}: one line of a block loosening
 //     the comparison, `pattern` the RegExp it matches a line with. Kind
 //     "number", a diff-allowed line: its literal text with a number
 //     where each [+/-N] stands, and `slots` each one's N. Kind "last",
 //     an optional-last line; "between" and "any", an any-order block's
-//     BETWEEN: and ANY: lines. These three have a * for any text.
+//     BETWEEN: and ANY: lines; "chars", an ignore-chars line, with
+//     `chars` the characters its block's chars = removes from a line it
+//     matches. These four have a * for any text.
 //   Problem -- {line, message}.
 //
 // Functions:
@@ -40,6 +43,8 @@
 //   normalizeOutput(text) -- output as it is compared.
 //   sameOutput(a, b, rules) -- whether two outputs count as the same.
 //   allowedLine(rules, a, b) -- whether two lines differ only as a rule allows.
+//   cleanLine(rules, line) -- a line without the characters ignore-chars removes.
+//   sameLine(rules, a, b) -- whether two lines count as the same, one by one.
 //   excused(rules, a, b) -- the lines of two outputs that the optional-last
 //     and any-order rules excuse.
 //   checkQuiz(quiz, chosen) -- what a quiz answer got right and wrong.
@@ -72,6 +77,7 @@ const KNOWN = {
   "diff-allowed": [],
   "optional-last": [],
   "any-order": [],
+  "ignore-chars": ["chars"],
 };
 
 /** What the blocks of a document make, and the problems with them. Also
@@ -157,7 +163,8 @@ export function structure(parts, cells) {
           break;
         case "diff-allowed":
         case "optional-last":
-        case "any-order": {
+        case "any-order":
+        case "ignore-chars": {
           const kind = part.kind;
           if (owner?.kind !== "task") {
             problem(part, `${article(kind)} ${kind} block belongs under a task`);
@@ -270,7 +277,7 @@ function checkAttributes(part, problem) {
   const known = [...(KNOWN[kind] ?? []), ...(part.kind === "task" ? ["exercise", "task"] : [])];
   for (const name of Object.keys(part.attrs)) {
     if (!known.includes(name)) {
-      const block = kind === "pyking" ? "a pyking cell" : `a ${kind} block`;
+      const block = kind === "pyking" ? "a pyking cell" : `${article(kind)} ${kind} block`;
       problem(part, `${block} takes no attribute '${name}'`);
     }
   }
@@ -493,11 +500,16 @@ function splitTests(part, owner, problem) {
   return tests;
 }
 
-/** The rules a diff-allowed, optional-last or any-order block holds,
- *  one per line that is not blank. Part -> (..) -> [Rule] */
+/** The rules a diff-allowed, optional-last, any-order or ignore-chars
+ *  block holds, one per line that is not blank. Part -> (..) -> [Rule] */
 function readAllowed(part, problem) {
   const kind = part.kind;
-  const read = { "diff-allowed": allowedRule, "optional-last": lastRule, "any-order": orderRule }[kind];
+  if (kind === "ignore-chars" && (typeof part.attrs.chars !== "string" || part.attrs.chars === "")) {
+    problem(part, 'an ignore-chars block says which characters to ignore, as chars = " ,"');
+    return [];
+  }
+  const read = { "diff-allowed": allowedRule, "optional-last": lastRule, "any-order": orderRule,
+    "ignore-chars": (text) => charsRule(text, part.attrs.chars) }[kind];
   const rules = [];
   for (const [k, text] of part.text.split("\n").entries()) {
     if (text.trim() === "") continue;
@@ -561,6 +573,12 @@ function lastRule(text) {
   return { kind: "last", text, pattern: starPattern(text.trim()), slots: [] };
 }
 
+/** One ignore-chars line as a Rule: the characters in `chars` are
+ *  removed from a line it matches. String -> String -> Rule */
+function charsRule(text, chars) {
+  return { kind: "chars", text, pattern: starPattern(text.trim()), slots: [], chars };
+}
+
 /** One any-order line as a Rule, or why it is not one: BETWEEN: or ANY:
  *  and a pattern. String -> Rule | String */
 function orderRule(text) {
@@ -583,6 +601,27 @@ export function allowedLine(rules, a, b) {
       Math.abs(Number(x[k + 1]) - Number(y[k + 1])) <= tolerance + 1e-9)) return true;
   }
   return false;
+}
+
+/** A line without the characters the ignore-chars lines it matches
+ *  remove: every one in their chars = , wherever it stands.
+ *  [Rule] -> String -> String */
+export function cleanLine(rules, line) {
+  let ignored = "";
+  for (const rule of rules) {
+    if (rule.kind === "chars" && rule.pattern.test(line)) ignored += rule.chars;
+  }
+  return ignored ? [...line].filter((c) => !ignored.includes(c)).join("") : line;
+}
+
+/** Whether two lines count as the same, taken one by one: equal once
+ *  ignore-chars has cleaned them, or as a diff-allowed line allows.
+ *  [Rule] -> String -> String -> Bool */
+export function sameLine(rules, a, b) {
+  if (a === b) return true;
+  const x = cleanLine(rules, a);
+  const y = cleanLine(rules, b);
+  return x === y || allowedLine(rules, x, y);
 }
 
 function newTest(part, line = part.line) {
@@ -738,8 +777,9 @@ export function excused(rules, a, b) {
   return { left, right };
 }
 
-/** Compares two outputs' lines as the rules say: the lines an
- *  optional-last line matches dropped from the end of each, or from
+/** Compares two outputs' lines as the rules say: each line first
+ *  without the characters an ignore-chars line it matches removes; the
+ *  lines an optional-last line matches dropped from the end of each, or from
  *  right before the `splash` lines it ends with; then, where
  *  there are ANY: lines, each side cut into stretches at the lines a
  *  BETWEEN: line matches, the stretches compared in turn -- the cuts
@@ -747,7 +787,10 @@ export function excused(rules, a, b) {
  *  bag; otherwise line for line. A line is the same as another where a
  *  diff-allowed line allows it. Also the lines excused on each side.
  *  [Rule] -> [String] -> [String] -> {same, left, right} */
-function compareLines(rules, x, y) {
+function compareLines(rules, original, theirs) {
+  // Every other rule sees the lines ignore-chars has cleaned.
+  const x = original.map((line) => cleanLine(rules, line));
+  const y = theirs.map((line) => cleanLine(rules, line));
   const same = (p, q) => p === q || allowedLine(rules, p, q);
   const matches = (kind, line) => rules.some((rule) => rule.kind === kind && rule.pattern.test(line));
   const left = new Set();

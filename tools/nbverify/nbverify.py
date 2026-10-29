@@ -4,7 +4,8 @@ ID2202 autograder, as its `run_verifier` tests run a verifier -- the
 answer's run arrives as JSON on standard input, and whether it is
 accepted goes out as JSON on standard output. What a test is checked
 against is all in its `params`: the expected output, the tinyweb log,
-the diff-allowed, optional-last and any-order rules, a quiz's right
+the diff-allowed, optional-last, any-order and ignore-chars rules, a
+quiz's right
 answers. Nothing else is read.
 
 The same file makes those params and runs the answer:
@@ -41,7 +42,9 @@ Functions:
     same_output(a, b, rules) -- whether two outputs count as the same.
     allowed_rules(text) -- a diff-allowed block's lines as rules.
     order_rules(last, order) -- optional-last and any-order lines as rules.
+    chars_rules(pairs) -- ignore-chars lines as rules.
     task_rules(params) -- every rule a task's params hold.
+    clean_line(rules, line) -- a line without the characters ignore-chars removes.
     split_arguments(text) -- arguments as the notebook splits them.
     run_program(pyk, path, stdin, args, events) -- one run of a program.
     launch(argv) -- `run`: a program run, its trailer on stderr.
@@ -133,6 +136,7 @@ PARAMS = [
     ("diff_allowed", "list", [], "diff-allowed lines, with the solution"),
     ("optional_last", "list", [], "optional-last lines, with the solution"),
     ("any_order", "list", [], "any-order lines, with the solution"),
+    ("ignore_chars", "list", [], "[chars, pattern] pairs of ignore-chars lines, with the solution"),
     ("max_calls", "list", [], "[N, name] pairs: name written at most N times"),
     ("details", "bool", False, "the reason shows the test and both outputs"),
     ("test_stdin", "string", "", "the test's standard input, for details"),
@@ -223,10 +227,19 @@ def order_rules(last, order):
     return rules
 
 
+def chars_rules(pairs):
+    """Ignore-chars lines, each [chars, pattern], as rules of the kind
+    "chars", the slots the characters removed from a line the pattern
+    matches. [[String, String]] -> [Rule]"""
+    return [("chars", star_pattern(text.strip()), chars) for chars, text in pairs
+            if chars and text.strip()]
+
+
 def task_rules(params):
     """Every rule a task's params hold. {..} -> [Rule]"""
     return (allowed_rules(params["diff_allowed"])
-            + order_rules(params["optional_last"], params["any_order"]))
+            + order_rules(params["optional_last"], params["any_order"])
+            + chars_rules(params["ignore_chars"]))
 
 
 def allowed_line(rules, a, b):
@@ -243,6 +256,14 @@ def allowed_line(rules, a, b):
                for k, tolerance in enumerate(slots)):
             return True
     return False
+
+
+def clean_line(rules, line):
+    """A line without the characters the ignore-chars rules it matches
+    remove, wherever they stand. [Rule] -> String -> String"""
+    ignored = "".join(chars for kind, pattern, chars in rules
+                      if kind == "chars" and pattern.fullmatch(line))
+    return "".join(c for c in line if c not in ignored) if ignored else line
 
 
 def same_output(a, b, rules=()):
@@ -272,8 +293,8 @@ def kept(rules, lines):
     """The lines left once those an optional-last rule matches, and blank
     ones, are dropped from the end, or from right before the `splash`
     lines that end it, which tinyweb's inserted call writes after the
-    program's own. Each optional-last rule drops at most one line.
-    [Rule] -> [String] -> [String]"""
+    program's own, as their indices. Each optional-last rule drops at
+    most one line. [Rule] -> [String] -> [Int]"""
     unused = [pattern for kind, pattern, _ in rules if kind == "last"]
 
     def optional(k):
@@ -293,7 +314,7 @@ def kept(rules, lines):
     n = tail
     while n and optional(n - 1):
         n -= 1
-    return lines[:n] + lines[tail:end]
+    return list(range(n)) + list(range(tail, end))
 
 
 def stretches(rules, lines):
@@ -311,14 +332,19 @@ def stretches(rules, lines):
 
 def compare_lines(rules, x, y):
     """Whether two outputs' lines are the same as the rules say, as the
-    notebook's tasks.js compares them: optional-last lines dropped from
+    notebook's tasks.js compares them: each line first without the
+    characters an ignore-chars rule it matches removes, which the other
+    rules see; optional-last lines dropped from
     the end of each, or from right before its closing `splash` lines; then, where there are ANY: rules, the stretches
     compared in turn -- the lines that start them and those no ANY: rule
     matches line for line, the rest as a bag; otherwise line for line.
     [Rule] -> [String] -> [String] -> Bool"""
     def same(p, q):
         return p == q or allowed_line(rules, p, q)
-    left, right = kept(rules, x), kept(rules, y)
+    x = [clean_line(rules, line) for line in x]
+    y = [clean_line(rules, line) for line in y]
+    left = [x[i] for i in kept(rules, x)]
+    right = [y[i] for i in kept(rules, y)]
     if not any(kind == "any" for kind, _, _ in rules):
         return len(left) == len(right) and all(same(p, q) for p, q in zip(left, right))
     s, t = stretches(rules, left), stretches(rules, right)
@@ -341,25 +367,28 @@ def compare_lines(rules, x, y):
 
 
 def canonical(rules, text):
-    """An output's lines in the order the rules make them comparable:
+    """An output's lines in the order the rules make them comparable,
+    each as (the line ignore-chars has cleaned, the line as written):
     optional-last lines dropped from the end, and in each stretch the
     lines an ANY: rule matches sorted among the places they hold, the
-    others where they are. String -> [String]"""
-    lines = kept(rules, lines_of(normalize_output(text)))
+    others where they are. String -> [(String, String)]"""
+    written = lines_of(normalize_output(text))
+    clean = [clean_line(rules, line) for line in written]
+    pairs = [(clean[i], written[i]) for i in kept(rules, clean)]
     if not any(kind == "any" for kind, _, _ in rules):
-        return lines
+        return pairs
     out, stretch = [], []
 
     def flush():
-        free = iter(sorted(line for line in stretch if matches(rules, "any", line)))
-        out.extend(next(free) if matches(rules, "any", line) else line for line in stretch)
+        free = iter(sorted(p for p in stretch if matches(rules, "any", p[0])))
+        out.extend(next(free) if matches(rules, "any", p[0]) else p for p in stretch)
         stretch.clear()
-    for line in lines:
-        if matches(rules, "between", line):
+    for p in pairs:
+        if matches(rules, "between", p[0]):
             flush()
-            out.append(line)
+            out.append(p)
         else:
-            stretch.append(line)
+            stretch.append(p)
     flush()
     return out
 
@@ -439,14 +468,15 @@ def first_difference(expected, got, rules):
     """The first line two outputs differ at, numbered from 1, as
     (number, expected line, got line); a missing line is None. Where the
     rules let lines come in any order, the lines are counted in the
-    order canonical() puts them in.
+    order canonical() puts them in, and compared as ignore-chars cleans
+    them, but shown as written.
     String -> String -> [Rule] -> (Int, String?, String?)"""
     left, right = canonical(rules, expected), canonical(rules, got)
     for k in range(max(len(left), len(right))):
         a = left[k] if k < len(left) else None
         b = right[k] if k < len(right) else None
-        if a is None or b is None or not (a == b or allowed_line(rules, a, b)):
-            return k + 1, a, b
+        if a is None or b is None or not (a[0] == b[0] or allowed_line(rules, a[0], b[0])):
+            return k + 1, a and a[1], b and b[1]
     return len(left), None, None
 
 
@@ -1117,6 +1147,10 @@ def task_params(item, name, pyk):
                               compare_code=True, expected_code=ran["code"], diff_allowed=rules,
                               optional_last=lines("optional_last"),
                               any_order=lines("any_order"),
+                              ignore_chars=[[(block.get("attributes") or {}).get("chars", ""), line]
+                                            for block in item.get("ignore_chars") or []
+                                            for line in block.get("text", "").split("\n")
+                                            if line.strip()],
                               compare_stderr=case["stderr"] is not None,
                               expected_stderr=ran["stderr"])
             else:

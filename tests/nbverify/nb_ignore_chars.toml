@@ -1,0 +1,28 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_ignore_chars.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_ignore_chars_point_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_ignore_chars_point_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_ignore_chars_point_s3.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n1\n2\nexpected:\npoint (1, 2)\nsum: 3\ngot:\npoint (1; 2)\nsum: 3"
+
+[[solution]]
+file = "nb_ignore_chars_point_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n1\n2\nexpected:\npoint (1, 2)\nsum: 3\ngot:\npoint (1, 2)\nsum:3"
+
+[[solution]]
+file = "nb_ignore_chars_point_s5.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\n1\n2\nexpected:\npoint (1, 2)\nsum: 3\ngot:\npoint (2, 1)\nsum: 3"

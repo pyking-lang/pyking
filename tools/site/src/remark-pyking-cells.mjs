@@ -26,7 +26,7 @@
 const CELL_LANGUAGES = ["pyking", "pyk"];
 const INPUT_LANGUAGES = ["stdin", "args"];
 const PART_LANGUAGES = ["stdout", "stderr", "events", "quiz", "answer", "rules", "diff-allowed",
-  "optional-last", "any-order"];
+  "optional-last", "any-order", "ignore-chars"];
 import { linkTo } from "../../playground/assets/share.js";
 
 const CELL_WORDS = ["norun", "readonly", "error", "playground"];

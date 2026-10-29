@@ -40,12 +40,13 @@ type piece = Text of string | Fence of fence
 (** The languages of the blocks a notebook reads. *)
 let notebook_languages =
   [ "pyking"; "pyk"; "stdin"; "args"; "stdout"; "stderr"; "events"; "quiz"; "answer"; "rules";
-    "diff-allowed"; "optional-last"; "any-order" ]
+    "diff-allowed"; "optional-last"; "any-order"; "ignore-chars" ]
 
 (** The blocks under a task that loosen how an answer is compared: each
     block's language and the field of the task's JSON that holds them, in
     the order the fields come. *)
-let loosening = [ ("diff-allowed", "diff_allowed"); ("optional-last", "optional_last"); ("any-order", "any_order") ]
+let loosening =
+  [ ("diff-allowed", "diff_allowed"); ("optional-last", "optional_last"); ("any-order", "any_order"); ("ignore-chars", "ignore_chars") ]
 
 (** The attributes whose value is a number, and those that are true or
     false. *)
@@ -711,7 +712,7 @@ let group_json fences =
             end_owner ();
             emit (Json.Object ([ ("type", Json.String "rules") ] @ fence_fields f "text" []));
             go rest
-        | "solution" | "stdin" | "events" | "stdout" | "stderr" | "diff-allowed" | "optional-last" | "any-order" ->
+        | "solution" | "stdin" | "events" | "stdout" | "stderr" | "diff-allowed" | "optional-last" | "any-order" | "ignore-chars" ->
             if not (attach kind) then (
               end_owner ();
               emit (block_json f));
@@ -1018,8 +1019,8 @@ let order_prop =
     obj
       [
         typ "array";
-        ("description", str "The blocks after the head in the order written, where it is not solution, then each test's stdin, events, stdout and stderr, then the diff-allowed, optional-last and any-order blocks.");
-        ("items", obj [ typ "string"; ("pattern", str "^(solution|tests\\[[0-9]+\\]\\.(stdin|events|stdout|stderr)|(diff_allowed|optional_last|any_order)\\[[0-9]+\\])$") ]);
+        ("description", str "The blocks after the head in the order written, where it is not solution, then each test's stdin, events, stdout and stderr, then the diff-allowed, optional-last, any-order and ignore-chars blocks.");
+        ("items", obj [ typ "string"; ("pattern", str "^(solution|tests\\[[0-9]+\\]\\.(stdin|events|stdout|stderr)|(diff_allowed|optional_last|any_order|ignore_chars)\\[[0-9]+\\])$") ]);
       ] )
 
 let tests_prop = ("tests", obj [ typ "array"; ("items", refer "test") ])
@@ -1042,7 +1043,8 @@ let task_def kind description scored =
       ("solution", refer "solution"); tests_prop;
       ("diff_allowed", obj [ typ "array"; ("items", refer "diff_allowed") ]);
       ("optional_last", obj [ typ "array"; ("items", refer "optional_last") ]);
-      ("any_order", obj [ typ "array"; ("items", refer "any_order") ]); order_prop ]
+      ("any_order", obj [ typ "array"; ("items", refer "any_order") ]);
+      ("ignore_chars", obj [ typ "array"; ("items", refer "ignore_chars") ]); order_prop ]
 
 (** The JSON Schema every notebook's JSON follows, as text. string *)
 let schema =
@@ -1094,7 +1096,7 @@ let schema =
                          ("stdin", text_of "What it reads on standard input."); ("args", text_of "Its arguments, as one line.") ];
                      ("code", text_of "The program, each line with its newline.");
                      tests_prop; order_prop ] );
-               ("task", task_def "task" "A ```pyking task block, the starting code, with its solution, tests and diff-allowed, optional-last and any-order blocks." true);
+               ("task", task_def "task" "A ```pyking task block, the starting code, with its solution, tests and diff-allowed, optional-last, any-order and ignore-chars blocks." true);
                ("practice", task_def "practice" "A ```pyking practice block: a task that gives no points." false);
                ( "solution",
                  sub_def "A ```pyking solution block." ~required:[ "code" ]
@@ -1130,6 +1132,10 @@ let schema =
                ( "any_order",
                  sub_def "An ```any-order block: between lines matching a BETWEEN: pattern, lines matching an ANY: pattern may come in any order." ~required:[ "text" ]
                    [ attributes []; ("text", text_of "One BETWEEN: or ANY: line a line, * standing for any text.") ] );
+               ( "ignore_chars",
+                 sub_def "An ```ignore-chars block: in lines matching one of its patterns, the characters of chars are removed before comparing." ~required:[ "text" ]
+                   [ attributes [ ("chars", text_of "Every character to remove, in any order.") ];
+                     ("text", text_of "One pattern a line, * standing for any text.") ] );
                ( "quiz",
                  kind_def "quiz" "A ```quiz block and its ```answer." ~required:[ "alternatives" ]
                    [ attributes

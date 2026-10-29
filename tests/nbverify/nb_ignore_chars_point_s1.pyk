@@ -1,0 +1,6 @@
+# No spaces, commas or brackets: accepted.
+import io
+x = int(io.read_line())
+y = int(io.read_line())
+print("point" + string(x) + string(y))
+print("sum:", x + y)

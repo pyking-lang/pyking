@@ -212,8 +212,8 @@ comments and strings, as a whole name: `rect(...)`, `tw.rect(...)`,
 not. Test mode checks that the solution keeps to it.
 
 After the task, with only blank lines between, come in order: an
-optional solution, then the tests and the diff-allowed, optional-last
-and any-order blocks. The next
+optional solution, then the tests and the diff-allowed, optional-last,
+any-order and ignore-chars blocks. The next
 task, quiz, cell or any prose ends the group.
 
 **The solution**, ```` ```pyking solution ````:
@@ -284,11 +284,35 @@ click "More"
 A widget's id is what the function making it answers: the title, for
 `tw.button("More")`.
 
-**A diff-allowed block** loosens how an answer is compared with the
-solution. Each line is a pattern matched exactly, except that each
-`[+/-N]` stands for a number that may differ from the solution's by at
-most N (a decimal allowed, several on a line). It applies to what is
-printed, what `debug` writes and tinyweb's log, and needs a solution.
+**Loosening the comparison.** Four blocks under a task let an answer
+differ from the solution in ways that do not matter. Each needs a
+solution. Each applies to what is printed, what `debug` writes and
+tinyweb's log. The result diff (**See result diff**) shows what they
+excuse in yellow. A task may have any number of each. Their patterns
+are lines as the output writes them: tinyweb's log as the result diff
+shows it. In optional-last, any-order and ignore-chars patterns, `*`
+stands for any text, anywhere in the line.
+
+| Block | Lets an answer |
+|---|---|
+| ```` ```diff-allowed ```` | have numbers that differ by at most `[+/-N]` |
+| ```` ```optional-last ```` | end with lines the other side does not |
+| ```` ```any-order ```` | write lines in any order between given lines |
+| ```` ```ignore-chars chars = "…" ```` | differ in the given characters on lines that match |
+
+They are applied in this order:
+
+1. ignore-chars cleans each line.
+2. optional-last drops lines from the end.
+3. any-order compares each stretch.
+4. diff-allowed compares each pair of lines.
+
+Each step sees the lines the steps before it left.
+
+**A diff-allowed block**: each line is a pattern matched exactly, except
+that each `[+/-N]` stands for a number that may differ from the
+solution's by at most N. N may be a decimal, and a line may have
+several.
 
 ````markdown
 ```diff-allowed
@@ -298,31 +322,31 @@ area = [+/-0.01]
 ````
 
 **An optional-last block** lets an output end with lines the other
-does not: lines that one of its patterns matches are dropped from the
-end of both the answer's output and the solution's before they are
-compared, and from right before the `splash` line that ends tinyweb's
-log, which the call the compiler adds after a program that plays
-sound writes. Each of its lines drops at most one line from each
-output; to let an output end with two pauses, write `sdelay*` twice.
-**An any-order block** lets lines come in any order between
-the lines its `BETWEEN:` patterns match: each output is cut into
-stretches at those lines, and the lines an `ANY:` pattern matches may
-come in any order within their stretch, as long as each stretch holds
-the same ones, as many times. The lines that start the stretches, and
-those no `ANY:` pattern matches, must still match in order. Without a
-`BETWEEN:` line the whole output is one stretch. In both, a pattern is
-a line as the output writes it -- tinyweb's log as **See result diff**
-shows it -- with `*` standing for any text. Like diff-allowed, both
-apply to what is printed, what `debug` writes and tinyweb's log, need a
-solution, and show what they excuse in yellow in the result diff. For
-drums, where those started in one beat sound together and a pause
-after the last beat is not heard:
+does not. Before comparing, lines its patterns match are dropped from
+the end of both outputs, the answer's and the solution's. They are also
+dropped from right before the `splash` line that ends tinyweb's log.
+The compiler adds a `tinyweb.splash()` call after a program that plays
+sound, so its log always ends with that line. Each pattern line drops
+at most one line from each output. To let an output end with two
+pauses, write `sdelay*` twice. Here a pause after the last beat, which
+is not heard, may be left out:
 
 ````markdown
 ```optional-last
 sdelay*
 ```
+````
 
+**An any-order block** lets lines come in any order between the lines
+its `BETWEEN:` patterns match. Each output is cut into stretches at
+those lines. Within its stretch, a line an `ANY:` pattern matches may
+come anywhere, but both outputs' stretches must hold the same such
+lines, the same number of times. The lines that start the stretches,
+and the lines no `ANY:` pattern matches, must still match in order.
+Without a `BETWEEN:` line the whole output is one stretch. For drums,
+where the sounds started in one beat play together:
+
+````markdown
 ```any-order
 BETWEEN: sdelay*
 ANY: play "kick*
@@ -330,6 +354,28 @@ ANY: play "snare*
 ANY: play "hihat*
 ```
 ````
+
+**An ignore-chars block** says which characters do not matter in some
+lines. Its `chars` gives the characters as a set, not a string: each
+one is removed wherever it stands, in any order. Each line of the
+block is a pattern. Every output line that matches a pattern loses
+every character in `chars`, and then the lines are compared. Each side
+is cleaned on its own, the answer's lines and the solution's. A line
+that matches no pattern is compared as written. When a line matches
+patterns from several ignore-chars blocks, every block's characters are
+removed. With this block, an answer that prints `point 1,2` passes
+where the solution prints `point 1, 2`. Its tinyweb log may also
+differ in spaces and commas on `play` lines:
+
+````markdown
+```ignore-chars chars = " ,"
+point*
+play*
+```
+````
+
+To ignore a quote or a backslash, write it with a backslash inside
+the quotes: `chars = "\"\\"`.
 
 **Submit** first runs the answer in its cell, as Run does, so the
 reader sees and hears what it does; a Stop meanwhile calls the
@@ -442,10 +488,11 @@ line:
 - a task without a solution has an output to compare an answer
   with; `save_canvas` has a `file`, a `.png`; `lines_per_multi_input`
   splits into whole pieces, with a solution and no output after it; a
-  diff-allowed, optional-last or any-order block is under a task with
+  diff-allowed, optional-last, any-order or ignore-chars block is under a task with
   a solution; each diff-allowed line holds a `[+/-N]`; each any-order
   line is `BETWEEN:` or `ANY:` and a pattern, and the block has an
-  `ANY:` line.
+  `ANY:` line; an ignore-chars block has a `chars = "…"` that is not
+  empty.
 
 ## JSON
 
@@ -475,7 +522,7 @@ line and no newline. `blocks` is the document in order, each one of:
 | `markdown` | `text`: the Markdown between notebook blocks, exactly as written |
 | `rules` | `attributes` (`max`, `pass`), `text` |
 | `cell` | a ```` ```pyking ```` cell: `attributes`, `code`, and `tests` written under it |
-| `task` | `attributes`, `code` (the starting code), `solution` (`attributes`, `code`), `tests`, `diff_allowed`, `optional_last` and `any_order` (each `text`) |
+| `task` | `attributes`, `code` (the starting code), `solution` (`attributes`, `code`), `tests`, `diff_allowed`, `optional_last`, `any_order` and `ignore_chars` (each `text`; ignore-chars also `attributes.chars`) |
 | `practice` | as `task`, for a ```` ```pyking practice ```` |
 | `quiz` | `attributes`, `question`, `alternatives` (each `marker`, `*` or `[]`, and `text`), `answer` (`entries`, each `correct` and `text`) |
 | `block` | any other notebook block where it stands, belonging to nothing: `language`, `attributes`, `text` (or `code` for pyking) |
@@ -593,7 +640,7 @@ the JSON keeps how, beside the fields:
 | `close` | the closing line is not the opening fence; `null` where the block runs to the end of the file |
 | `gap` | the blank lines before a block that follows another are not one empty line |
 | `body` | a quiz's or an answer's text is not the one its fields write |
-| `order` | a task's or a cell's blocks are not in the order solution, each test's stdin, events, stdout and stderr, then the diff-allowed, optional-last and any-order blocks: a list such as `["solution", "diff_allowed[0]", "tests[0].stdin"]` |
+| `order` | a task's or a cell's blocks are not in the order solution, each test's stdin, events, stdout and stderr, then the diff-allowed, optional-last, any-order and ignore-chars blocks: a list such as `["solution", "diff_allowed[0]", "tests[0].stdin"]` |
 
 `info` and `body` are used only while they still say what the fields
 do: change an attribute or an alternative in the JSON, and that block is
@@ -606,14 +653,14 @@ The blocks are found and grouped as the page finds and groups them:
 
 - a notebook block is a fenced block at the left margin whose language
   is one of `pyking`, `pyk`, `stdin`, `args`, `stdout`, `stderr`,
-  `events`, `quiz`, `answer`, `rules`, `diff-allowed`, `optional-last`
-  and `any-order`, outside
+  `events`, `quiz`, `answer`, `rules`, `diff-allowed`, `optional-last`,
+  `any-order` and `ignore-chars`, outside
   another fenced block, an HTML block, display math and the front
   matter. Anything else, a block in a list item included, stays in a
   `markdown` block's text;
 - blocks with only blank lines between them are a group, and inside a
   group a task or a practice takes the solution, tests and
-  diff-allowed, optional-last and any-order blocks after it, a quiz the answer right after it, and a cell the stdin,
+  diff-allowed, optional-last, any-order and ignore-chars blocks after it, a quiz the answer right after it, and a cell the stdin,
   events, stdout and stderr blocks after it;
 - a block that belongs to none of them is a `block` where it stands.
   In a notebook test mode accepts there is none of these but a stdin or

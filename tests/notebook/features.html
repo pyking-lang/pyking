@@ -20,64 +20,70 @@ x := 2</code></pre></div>
 print(sq(7))</code></pre></div>
 <p>A fragment, highlighted but not runnable:</p>
 <pre class="pkn-code" data-lang="pyking" data-part="3"><code>def f(x): ...</code></pre>
+<p>The same fragment with the other header form and fence:</p>
+<pre class="pkn-code" data-lang="pyking" data-part="4"><code>def g(x): ...</code></pre>
 <p>Another language:</p>
 <pre class="pkn-code" data-lang="python"><code>print(&quot;not Pyking&quot;)</code></pre>
 <pre class="pkn-code"><code>an indented code block</code></pre>
 <h2 id="tasks-and-quizzes"><a class="pkn-anchor" href="#tasks-and-quizzes" aria-hidden="true">#</a>Tasks and quizzes</h2>
-<div class="pkn-part" data-part="4"></div>
+<div class="pkn-part" data-part="5"></div>
 <p>A cell's input can be written on its header:</p>
-<div class="pkn-cell" id="cell-4" data-cell="3" data-part="5"><pre class="pkn-cell-fallback"><code>import io
+<div class="pkn-cell" id="cell-4" data-cell="3" data-part="6"><pre class="pkn-cell-fallback"><code>import io
 import sys
 print(&quot;hello&quot;, io.read_line(), sys.args())</code></pre></div>
 <p>So can a read-only cell's, an error cell's and a fragment's:</p>
-<div class="pkn-cell" id="cell-5" data-cell="4" data-part="6"><pre class="pkn-cell-fallback"><code>import io
+<div class="pkn-cell" id="cell-5" data-cell="4" data-part="7"><pre class="pkn-cell-fallback"><code>import io
 print(int(io.read_line()) * 2)</code></pre></div>
-<div class="pkn-cell" id="cell-6" data-cell="5" data-part="7"><pre class="pkn-cell-fallback"><code>use mutation
+<div class="pkn-cell" id="cell-6" data-cell="5" data-part="8"><pre class="pkn-cell-fallback"><code>use mutation
 
 x = 1
 x := 2</code></pre></div>
-<pre class="pkn-code" data-lang="pyking" data-part="8"><code>def f(x): ...</code></pre>
+<pre class="pkn-code" data-lang="pyking" data-part="9"><code>def f(x): ...</code></pre>
 <p>The older way still works, a <code>```stdin</code> block right before the
 cell:</p>
-<div class="pkn-part" data-part="9"></div>
-<div class="pkn-cell" id="cell-7" data-cell="6" data-part="10"><pre class="pkn-cell-fallback"><code>import io
+<div class="pkn-part" data-part="10"></div>
+<div class="pkn-cell" id="cell-7" data-cell="6" data-part="11"><pre class="pkn-cell-fallback"><code>import io
 print(&quot;hi&quot;, io.read_line())</code></pre></div>
-<p>An output shown as if the cell had run:</p>
-<div class="pkn-cell" id="cell-8" data-cell="7" data-part="11"><pre class="pkn-cell-fallback"><code>print(&quot;my out&quot;)</code></pre></div>
+<p>And an <code>```args</code> block right before the cell:</p>
 <div class="pkn-part" data-part="12"></div>
+<div class="pkn-cell" id="cell-8" data-cell="7" data-part="13"><pre class="pkn-cell-fallback"><code>import sys
+print(sys.args())</code></pre></div>
+<p>An output shown as if the cell had run:</p>
+<div class="pkn-cell" id="cell-9" data-cell="8" data-part="14"><pre class="pkn-cell-fallback"><code>print(&quot;my out&quot;)</code></pre></div>
+<div class="pkn-part" data-part="15"></div>
 <p>Output checked in test mode but not shown, with the input it is read
 from, and what <code>debug</code> writes:</p>
-<div class="pkn-cell" id="cell-9" data-cell="8" data-part="13"><pre class="pkn-cell-fallback"><code>import io
+<div class="pkn-cell" id="cell-10" data-cell="9" data-part="16"><pre class="pkn-cell-fallback"><code>import io
 debug(&quot;to stderr&quot;)
 print(io.read_line())</code></pre></div>
-<div class="pkn-part" data-part="14"></div>
-<div class="pkn-part" data-part="15"></div>
-<div class="pkn-part" data-part="16"></div>
+<div class="pkn-part" data-part="17"></div>
+<div class="pkn-part" data-part="18"></div>
+<div class="pkn-part" data-part="19"></div>
 <p>Write a program that reads a line and prints it twice, then its
 arguments.</p>
-<div class="pkn-cell" id="cell-10" data-cell="9" data-part="17"><pre class="pkn-cell-fallback"><code>print(&quot;Add your code here&quot;)</code></pre></div>
-<div class="pkn-cell" id="cell-11" data-cell="10" data-part="18"><pre class="pkn-cell-fallback"><code>import io
+<div class="pkn-cell" id="cell-11" data-cell="10" data-part="20"><pre class="pkn-cell-fallback"><code>print(&quot;Add your code here&quot;)</code></pre></div>
+<div class="pkn-cell" id="cell-12" data-cell="11" data-part="21"><pre class="pkn-cell-fallback"><code>import io
 import sys
 line = io.read_line()
 print(line, &quot;/&quot;, line)
 print(&quot;args:&quot;, sys.args())</code></pre></div>
-<div class="pkn-part" data-part="19"></div>
-<div class="pkn-part" data-part="20"></div>
-<div class="pkn-part" data-part="21"></div>
 <div class="pkn-part" data-part="22"></div>
+<div class="pkn-part" data-part="23"></div>
+<div class="pkn-part" data-part="24"></div>
+<div class="pkn-part" data-part="25"></div>
 <p>A practice, worth no points, with no solution, checked against its
 stdout only:</p>
-<div class="pkn-cell" id="cell-12" data-cell="11" data-part="23"><pre class="pkn-cell-fallback"><code>print(&quot;Hello&quot;)</code></pre></div>
-<div class="pkn-part" data-part="24"></div>
+<div class="pkn-cell" id="cell-13" data-cell="12" data-part="26"><pre class="pkn-cell-fallback"><code>print(&quot;Hello&quot;)</code></pre></div>
+<div class="pkn-part" data-part="27"></div>
 <p>A task whose solution cannot be shown, losing a point for each
 failed try:</p>
-<div class="pkn-cell" id="cell-13" data-cell="12" data-part="25"><pre class="pkn-cell-fallback"><code>print(0)</code></pre></div>
-<div class="pkn-cell" id="cell-14" data-cell="13" data-part="26"><pre class="pkn-cell-fallback"><code>print(6 * 7)</code></pre></div>
+<div class="pkn-cell" id="cell-14" data-cell="13" data-part="28"><pre class="pkn-cell-fallback"><code>print(0)</code></pre></div>
+<div class="pkn-cell" id="cell-15" data-cell="14" data-part="29"><pre class="pkn-cell-fallback"><code>print(6 * 7)</code></pre></div>
 <p>A page whose button counts its clicks, clicked twice once the program's
 top level has ended:</p>
-<div class="pkn-cell" id="cell-15" data-cell="14" data-part="27"><pre class="pkn-cell-fallback"><code>import tinyweb as tw
+<div class="pkn-cell" id="cell-16" data-cell="15" data-part="30"><pre class="pkn-cell-fallback"><code>import tinyweb as tw
 tw.web_init(0)</code></pre></div>
-<div class="pkn-cell" id="cell-16" data-cell="15" data-part="28"><pre class="pkn-cell-fallback"><code>use mutation
+<div class="pkn-cell" id="cell-17" data-cell="16" data-part="31"><pre class="pkn-cell-fallback"><code>use mutation
 
 import tinyweb as tw
 var count = 0
@@ -88,24 +94,61 @@ def more():
     tw.set_text(shown, string(count))
     print(count)
 tw.button(&quot;More&quot;, on_click = more)</code></pre></div>
-<div class="pkn-part" data-part="29"></div>
-<div class="pkn-part" data-part="30"></div>
+<div class="pkn-part" data-part="32"></div>
+<div class="pkn-part" data-part="33"></div>
 <p>A practice whose answer may name <code>print</code> at most twice, outside
 comments and strings:</p>
-<div class="pkn-cell" id="cell-17" data-cell="16" data-part="31"><pre class="pkn-cell-fallback"><code># print what the solution prints, with at most two &quot;print&quot;
+<div class="pkn-cell" id="cell-18" data-cell="17" data-part="34"><pre class="pkn-cell-fallback"><code># print what the solution prints, with at most two &quot;print&quot;
 print(1)</code></pre></div>
-<div class="pkn-cell" id="cell-18" data-cell="17" data-part="32"><pre class="pkn-cell-fallback"><code>xs = [1, 2, 3]
+<div class="pkn-cell" id="cell-19" data-cell="18" data-part="35"><pre class="pkn-cell-fallback"><code>xs = [1, 2, 3]
 for x in xs:
     print(x)</code></pre></div>
 <p>Which is true of Pyking?</p>
-<div class="pkn-part" data-part="33"></div>
-<div class="pkn-part" data-part="34"></div>
-<p>Which are true of bindings?</p>
-<div class="pkn-part" data-part="35"></div>
 <div class="pkn-part" data-part="36"></div>
-<p>A quiz may hold its question, and give a point for each right answer:</p>
 <div class="pkn-part" data-part="37"></div>
+<p>Which are true of bindings?</p>
 <div class="pkn-part" data-part="38"></div>
+<div class="pkn-part" data-part="39"></div>
+<p>A quiz may hold its question, and give a point for each right answer:</p>
+<div class="pkn-part" data-part="40"></div>
+<div class="pkn-part" data-part="41"></div>
+<p>A practice whose stdin block is split into one test for every line,
+each compared with what the solution prints on it:</p>
+<div class="pkn-cell" id="cell-20" data-cell="19" data-part="42"><pre class="pkn-cell-fallback"><code>print(&quot;Add your code here&quot;)</code></pre></div>
+<div class="pkn-cell" id="cell-21" data-cell="20" data-part="43"><pre class="pkn-cell-fallback"><code>import io
+print(int(io.read_line()) * 2)</code></pre></div>
+<div class="pkn-part" data-part="44"></div>
+<p>A practice that draws, whose solution's canvas is saved as a picture
+and shown here:</p>
+<p><img src="doc/dot.png" alt="A blue dot"></p>
+<div class="pkn-cell" id="cell-22" data-cell="21" data-part="45"><pre class="pkn-cell-fallback"><code>print(&quot;Add your code here&quot;)</code></pre></div>
+<div class="pkn-cell" id="cell-23" data-cell="22" data-part="46"><pre class="pkn-cell-fallback"><code>import io
+import tinyweb as tw
+import tinyweb.color as color
+r = int(io.read_line())
+c = tw.canvas(40, 40)
+tw.circle(c, 20, 20, r, color.blue)</code></pre></div>
+<div class="pkn-part" data-part="47"></div>
+<p>A practice compared loosely: the number may differ by 0.01, a last
+<code>done</code> may be left out, <code>a</code> and <code>b</code> may come in either order, spaces
+and commas do not matter on the <code>point</code> line, and what <code>debug</code> writes
+is compared too:</p>
+<div class="pkn-cell" id="cell-24" data-cell="23" data-part="48"><pre class="pkn-cell-fallback"><code>print(&quot;Add your code here&quot;)</code></pre></div>
+<div class="pkn-cell" id="cell-25" data-cell="24" data-part="49"><pre class="pkn-cell-fallback"><code>print(&quot;point 1, 2&quot;)
+print(&quot;area =&quot;, 3.14159)
+print(&quot;b&quot;)
+print(&quot;a&quot;)
+debug(&quot;checked&quot;)
+print(&quot;done&quot;)</code></pre></div>
+<div class="pkn-part" data-part="50"></div>
+<div class="pkn-part" data-part="51"></div>
+<div class="pkn-part" data-part="52"></div>
+<div class="pkn-part" data-part="53"></div>
+<div class="pkn-part" data-part="54"></div>
+<p>A task answered somewhere else and pushed with git, not graded here,
+whose starting code cannot be edited:</p>
+<div class="pkn-cell" id="cell-26" data-cell="25" data-part="55"><pre class="pkn-cell-fallback"><code># Write this in any language you like.</code></pre></div>
+<div class="pkn-cell" id="cell-27" data-cell="26" data-part="56"><pre class="pkn-cell-fallback"><code>print(&quot;graded by hand&quot;)</code></pre></div>
 <h2 id="lists"><a class="pkn-anchor" href="#lists" aria-hidden="true">#</a>Lists</h2>
 <ul>
 <li>one</li>
