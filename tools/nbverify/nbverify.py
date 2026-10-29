@@ -4,7 +4,8 @@ ID2202 autograder, as its `run_verifier` tests run a verifier -- the
 answer's run arrives as JSON on standard input, and whether it is
 accepted goes out as JSON on standard output. What a test is checked
 against is all in its `params`: the expected output, the tinyweb log,
-the diff-allowed rules, a quiz's right answers. Nothing else is read.
+the diff-allowed, optional-last and any-order rules, a quiz's right
+answers. Nothing else is read.
 
 The same file makes those params and runs the answer:
 
@@ -39,6 +40,8 @@ Functions:
     verify_quiz(params, run) -- the verdict on a quiz's answer.
     same_output(a, b, rules) -- whether two outputs count as the same.
     allowed_rules(text) -- a diff-allowed block's lines as rules.
+    order_rules(last, order) -- optional-last and any-order lines as rules.
+    task_rules(params) -- every rule a task's params hold.
     split_arguments(text) -- arguments as the notebook splits them.
     run_program(pyk, path, stdin, args, events) -- one run of a program.
     launch(argv) -- `run`: a program run, its trailer on stderr.
@@ -128,6 +131,8 @@ PARAMS = [
     ("compare_code", "bool", False, "the exit status is compared"),
     ("expected_code", "int", 0, "the exit status it should end with"),
     ("diff_allowed", "list", [], "diff-allowed lines, with the solution"),
+    ("optional_last", "list", [], "optional-last lines, with the solution"),
+    ("any_order", "list", [], "any-order lines, with the solution"),
     ("max_calls", "list", [], "[N, name] pairs: name written at most N times"),
     ("details", "bool", False, "the reason shows the test and both outputs"),
     ("test_stdin", "string", "", "the test's standard input, for details"),
@@ -171,7 +176,8 @@ SLOT = re.compile(r"\[\s*\+\s*/\s*-\s*([0-9]+(?:\.[0-9]+)?)\s*\]")
 def allowed_rules(lines):
     """Diff-allowed lines as rules: a pattern with a number where each
     [+/-N] stands, and each slot's N. A line that is not a rule is left
-    out. [String] -> [(Pattern, [Float])]"""
+    out. A rule is (kind, pattern, slots), the kind "number" here.
+    [String] -> [(String, Pattern, [Float])]"""
     rules = []
     for text in lines:
         text = text.rstrip()
@@ -191,14 +197,44 @@ def allowed_rules(lines):
             slots.append(float(found.group(1)))
             rest = rest[found.end():]
         if not bad and slots:
-            rules.append((re.compile(pattern), slots))
+            rules.append(("number", re.compile(pattern), slots))
     return rules
+
+
+def star_pattern(text):
+    """A pattern written with * for any text, matching a whole line.
+    String -> Pattern"""
+    return re.compile(".*".join(re.escape(piece) for piece in text.split("*")), re.DOTALL)
+
+
+ORDER_LINE = re.compile(r"\s*(BETWEEN|ANY):\s*(.*)")
+
+
+def order_rules(last, order):
+    """Optional-last lines, and any-order BETWEEN: and ANY: lines, as
+    rules of the kinds "last", "between" and "any". A line that is not
+    a rule is left out. [String] -> [String] -> [Rule]"""
+    rules = [("last", star_pattern(text.strip()), []) for text in last if text.strip()]
+    for text in order:
+        found = ORDER_LINE.fullmatch(text.rstrip())
+        if found and found.group(2).strip():
+            kind = "any" if found.group(1) == "ANY" else "between"
+            rules.append((kind, star_pattern(found.group(2).strip()), []))
+    return rules
+
+
+def task_rules(params):
+    """Every rule a task's params hold. {..} -> [Rule]"""
+    return (allowed_rules(params["diff_allowed"])
+            + order_rules(params["optional_last"], params["any_order"]))
 
 
 def allowed_line(rules, a, b):
     """Whether two lines differ only in numbers a rule allows to differ.
     [Rule] -> String -> String -> Bool"""
-    for pattern, slots in rules:
+    for kind, pattern, slots in rules:
+        if kind != "number":
+            continue
         x = pattern.fullmatch(a)
         y = x and pattern.fullmatch(b)
         if not y:
@@ -217,9 +253,115 @@ def same_output(a, b, rules=()):
         return True
     if not rules:
         return False
-    left, right = x.split("\n"), y.split("\n")
-    return len(left) == len(right) and all(
-        p == q or allowed_line(rules, p, q) for p, q in zip(left, right))
+    return compare_lines(rules, lines_of(x), lines_of(y))
+
+
+def lines_of(text):
+    """The lines of a normalized output, none where it is empty.
+    String -> [String]"""
+    return text.split("\n") if text else []
+
+
+def matches(rules, kind, line):
+    """Whether a rule of the kind matches the line. [Rule] -> String ->
+    String -> Bool"""
+    return any(k == kind and pattern.fullmatch(line) for k, pattern, _ in rules)
+
+
+def kept(rules, lines):
+    """The lines left once those an optional-last rule matches, and blank
+    ones, are dropped from the end, or from right before the `splash`
+    lines that end it, which tinyweb's inserted call writes after the
+    program's own. Each optional-last rule drops at most one line.
+    [Rule] -> [String] -> [String]"""
+    unused = [pattern for kind, pattern, _ in rules if kind == "last"]
+
+    def optional(k):
+        if lines[k] == "":
+            return True
+        j = next((j for j, pattern in enumerate(unused) if pattern.fullmatch(lines[k])), None)
+        if j is None:
+            return False
+        del unused[j]
+        return True
+    end = len(lines)
+    while end and optional(end - 1):
+        end -= 1
+    tail = end
+    while tail and lines[tail - 1] == "splash":
+        tail -= 1
+    n = tail
+    while n and optional(n - 1):
+        n -= 1
+    return lines[:n] + lines[tail:end]
+
+
+def stretches(rules, lines):
+    """Lines cut at those a BETWEEN: rule matches: each stretch the line
+    that starts it (None for the first), the lines no ANY: rule matches,
+    and those one does. [Rule] -> [String] -> [(String?, [String], [String])]"""
+    out = [(None, [], [])]
+    for line in lines:
+        if matches(rules, "between", line):
+            out.append((line, [], []))
+        else:
+            out[-1][2 if matches(rules, "any", line) else 1].append(line)
+    return out
+
+
+def compare_lines(rules, x, y):
+    """Whether two outputs' lines are the same as the rules say, as the
+    notebook's tasks.js compares them: optional-last lines dropped from
+    the end of each, or from right before its closing `splash` lines; then, where there are ANY: rules, the stretches
+    compared in turn -- the lines that start them and those no ANY: rule
+    matches line for line, the rest as a bag; otherwise line for line.
+    [Rule] -> [String] -> [String] -> Bool"""
+    def same(p, q):
+        return p == q or allowed_line(rules, p, q)
+    left, right = kept(rules, x), kept(rules, y)
+    if not any(kind == "any" for kind, _, _ in rules):
+        return len(left) == len(right) and all(same(p, q) for p, q in zip(left, right))
+    s, t = stretches(rules, left), stretches(rules, right)
+    if len(s) != len(t):
+        return False
+    for (cut, fixed, free), (cut2, fixed2, free2) in zip(s, t):
+        if (cut is None) != (cut2 is None) or (cut is not None and not same(cut, cut2)):
+            return False
+        if len(fixed) != len(fixed2) or not all(same(p, q) for p, q in zip(fixed, fixed2)):
+            return False
+        unused = list(free2)
+        for line in free:
+            j = next((j for j, other in enumerate(unused) if same(line, other)), None)
+            if j is None:
+                return False
+            del unused[j]
+        if unused:
+            return False
+    return True
+
+
+def canonical(rules, text):
+    """An output's lines in the order the rules make them comparable:
+    optional-last lines dropped from the end, and in each stretch the
+    lines an ANY: rule matches sorted among the places they hold, the
+    others where they are. String -> [String]"""
+    lines = kept(rules, lines_of(normalize_output(text)))
+    if not any(kind == "any" for kind, _, _ in rules):
+        return lines
+    out, stretch = [], []
+
+    def flush():
+        free = iter(sorted(line for line in stretch if matches(rules, "any", line)))
+        out.extend(next(free) if matches(rules, "any", line) else line for line in stretch)
+        stretch.clear()
+    for line in lines:
+        if matches(rules, "between", line):
+            flush()
+            out.append(line)
+        else:
+            stretch.append(line)
+    flush()
+    return out
 
 
 def split_arguments(text):
@@ -295,9 +437,11 @@ def answer_run(data):
 
 def first_difference(expected, got, rules):
     """The first line two outputs differ at, numbered from 1, as
-    (number, expected line, got line); a missing line is None.
+    (number, expected line, got line); a missing line is None. Where the
+    rules let lines come in any order, the lines are counted in the
+    order canonical() puts them in.
     String -> String -> [Rule] -> (Int, String?, String?)"""
-    left, right = normalize_output(expected).split("\n"), normalize_output(got).split("\n")
+    left, right = canonical(rules, expected), canonical(rules, got)
     for k in range(max(len(left), len(right))):
         a = left[k] if k < len(left) else None
         b = right[k] if k < len(right) else None
@@ -319,7 +463,7 @@ def details(params, run, drawing=False):
         rows.append("events:\n" + params["test_events"].rstrip("\n"))
     if drawing:
         line, want, have = first_difference(params["expected_tinyweb"], run["tinyweb"],
-                                            allowed_rules(params["diff_allowed"]))
+                                            task_rules(params))
         rows.append(f"what it drew differs at line {line} of tinyweb's log:")
         rows.append("expected: " + (want if want is not None else "(nothing)"))
         rows.append("got: " + (have if have is not None else "(nothing)"))
@@ -401,7 +545,7 @@ def verify_task(params, run):
                     f"and may use it at most {most} time{'' if most == 1 else 's'}.")
     if not run["ok"]:
         return "Your program did not run:\n" + run["error"].rstrip()
-    rules = allowed_rules(params["diff_allowed"])
+    rules = task_rules(params)
     problem = None
     if params["compare_stdout"] and not same_output(run["stdout"], params["expected_stdout"], rules):
         problem = "The output is not what it should be."
@@ -947,8 +1091,10 @@ def task_params(item, name, pyk):
     solution = item.get("solution")
     attempts = (item.get("attributes") or {}).get("attempts")
     limits = max_calls((item.get("attributes") or {}).get("max_calls"), name)
-    rules = [line for block in item.get("diff_allowed") or []
-             for line in block.get("text", "").split("\n")]
+    def lines(key):
+        return [line for block in item.get(key) or []
+                for line in block.get("text", "").split("\n")]
+    rules = lines("diff_allowed")
     out = []
     with tempfile.TemporaryDirectory(prefix="nbverify-") as directory:
         program = os.path.join(directory, "solution.pyk")
@@ -969,6 +1115,8 @@ def task_params(item, name, pyk):
                 params.update(compare_stdout=True, expected_stdout=ran["stdout"],
                               compare_tinyweb=True, expected_tinyweb=ran["tinyweb"],
                               compare_code=True, expected_code=ran["code"], diff_allowed=rules,
+                              optional_last=lines("optional_last"),
+                              any_order=lines("any_order"),
                               compare_stderr=case["stderr"] is not None,
                               expected_stderr=ran["stderr"])
             else:

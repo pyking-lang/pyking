@@ -76,6 +76,13 @@ const STUDENT = [`(async () => { ${HELPERS}
     && $$(".pkn-io-stderr").some((b) => b.innerText.includes("to stderr")));
 
   let said = await submit(1);
+  const asks = nb.cells.find((c) => c.spec.source.includes('print("hello", io.read_line(), sys.args())'));
+  asks.setSource('import io\\nname = io.read_line("who? ")\\nprint("hi", name)\\n');
+  await asks.run();
+  for (let i = 0; i < 300 && asks.state !== "idle"; i++) await new Promise((r) => setTimeout(r, 100));
+  check("a cell shows what its program writes, not what it reads",
+    asks.ui.stdout.textContent === "who? hi Ada\\n", JSON.stringify(asks.ui.stdout.textContent));
+  asks.reset();
   check("a wrong answer uses an attempt and points to the result diff",
     said.includes("Not completely correct. Please look at the result diff to see what was "
       + "expected and what your program did.") && said.includes("2 attempts left"), said);
@@ -164,6 +171,17 @@ const SQUARE = (color, grow = "") => JSON.stringify("import tinyweb as tw\nimpor
   + `tw.rect(c, 10, 10, size, size, color.hex(0x${color.slice(1)}))\nprint(size)\n`);
 const DOUBLING = (second) => JSON.stringify("import io\na = int(io.read_line())\n"
   + `b = int(io.read_line())\nprint(a * 2, ${second})\n`);
+// Two beats of drums, each a list of the drums it plays in that order
+// where the input names them (the hihat always), and a pause after the
+// last where `rest`.
+const DRUMS = (first, second, rest) => {
+  const play = (drums) => drums.map((d) => d === "hihat" ? "tw.play(hihat)\n"
+    : `if text.contains(line, "${d}"):\n    tw.play(${d})\n`).join("");
+  return JSON.stringify("import io\nimport text\nimport tinyweb as tw\nline = io.read_line()\n"
+    + 'kick = tw.load_sample("kick1.wav")\nsnare = tw.load_sample("snare1.wav")\n'
+    + 'hihat = tw.load_sample("hihat1.wav")\n'
+    + play(first) + "tw.sdelay(0.25)\n" + play(second) + (rest ? "tw.sdelay(0.25)\n" : ""));
+};
 const DRAWING = `(async () => { ${HELPERS}
   const until = async (test, ms = 30000) => {
     for (let i = 0; i < ms / 100; i++) {
@@ -186,7 +204,7 @@ const DRAWING = `(async () => { ${HELPERS}
     /9\\s*points in total/.test($(".pkn-rules").innerText) && !/git/.test($(".pkn-rules-limits").innerText),
     $(".pkn-rules").innerText);
   const r = nb.results();
-  check("the totals leave it out, but max counts it", r.total === 2 && r.max === 9, JSON.stringify(r));
+  check("the totals leave it out, but max counts it", r.total === 3 && r.max === 9, JSON.stringify(r));
   if (nb.cfg.mode === "teacher") {
     check("a teacher sees its solution", !hidden($("[data-r=solution]", git)));
     return checks;
@@ -290,6 +308,23 @@ const DRAWING = `(async () => { ${HELPERS}
   check("one where something was sent shows the commands", /the commands each sent/.test(empty), empty);
   check("one where nothing is printed shows no standard output", !/Standard output/.test(empty), empty);
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+  // The drums: optional-last and any-order.
+  fb = await submit(4, ${DRUMS(["hihat", "kick", "snare"], ["hihat"], false)});
+  check("the snare a beat early fails", /Not completely correct/.test(fb), fb);
+  $("[data-r=diff]", task(4)).click();
+  const drums = await until(() => $(".pkn-diff")) && $(".pkn-diff");
+  const yellow = $$(".pkn-diff-line.pkn-diff-allowed", drums).map((e) => e.innerText);
+  const wrong = $$(".pkn-diff-line.pkn-diff-del, .pkn-diff-line.pkn-diff-add", drums).map((e) => e.innerText);
+  check("its diff marks the drums in another order as allowed, and the snare as wrong",
+    yellow.some((l) => l.includes("hihat1.wav")) && wrong.some((l) => l.includes("snare1.wav"))
+    && !wrong.some((l) => l.includes("hihat1.wav")),
+    JSON.stringify([yellow, wrong]));
+  check("and its commands are not said to be the same", !/commands each sent its page\\s*the same/.test(drums.innerText),
+    drums.innerText.slice(0, 600));
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  fb = await submit(4, ${DRUMS(["hihat", "kick"], ["hihat", "snare"], true)});
+  check("drums of a beat in another order, and a pause at the end, solve it", /Solved/.test(fb), fb);
   widget.lastFailure = { ...widget.lastFailure,
     answer: quiet("", []), expected: quiet("", []), problem: "Your program ended with status 1, and should end with 0." };
   widget.lastFailure.answer.exit = 1;

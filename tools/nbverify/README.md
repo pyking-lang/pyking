@@ -33,7 +33,8 @@ the autograder, for each test file:
 ```
 
 Everything the verdict needs is in the test's `params`: the expected
-output, the tinyweb log, the exit status, the diff-allowed rules, a
+output, the tinyweb log, the exit status, the diff-allowed,
+optional-last and any-order rules, a
 quiz's right answers and explanations. The verifier reads no notebook
 and runs nothing.
 
@@ -79,6 +80,8 @@ reads back into the list.
 | `compare_tinyweb`, `expected_tinyweb` | bool, string | tinyweb's log is compared with this |
 | `compare_code`, `expected_code` | bool, int | the exit status is compared with this |
 | `diff_allowed` | list, as JSON in a string | the lines of the task's diff-allowed blocks |
+| `optional_last` | list, as JSON in a string | the lines of the task's optional-last blocks |
+| `any_order` | list, as JSON in a string | the lines of the task's any-order blocks |
 | `max_calls` | list, as JSON in a string | the task's `max_calls`, as `[N, name]` pairs: the answer's source may write each name at most N times |
 | `details` | bool | the reason also shows the test and both outputs, as the page does unless `attempts = 1` |
 | `test_stdin`, `test_args`, `test_events` | string, list as JSON in a string, string | the test's input, for `details` |
@@ -234,7 +237,11 @@ and refused with the reason the page would give:
 
 Output is the same when it is the same apart from spaces at the end of a
 line and blank lines at the end, and numbers may differ where a
-diff-allowed line's `[+/-N]` allows. With `details`, the reason goes on
+diff-allowed line's `[+/-N]` allows; lines an optional-last line
+matches may end either side, each line at most one, and lines an any-order `ANY:` line matches
+may come in any order between those its `BETWEEN:` lines match, as in
+the notebook. Where they do, the first line that differs is counted
+with each stretch's `ANY:` lines sorted among the places they hold. With `details`, the reason goes on
 with the test's stdin, arguments and events, what was expected and what
 the answer printed.
 

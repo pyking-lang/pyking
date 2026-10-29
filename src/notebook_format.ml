@@ -1,8 +1,9 @@
 (** Notebooks as JSON: a notebook's Markdown read into one structured
     value -- the text between its blocks kept as it is, each task
-    with its solution, tests and diff-allowed blocks, each quiz with its
-    answer, each cell with the tests under it -- and that value written
-    back as the same Markdown, character for character. Also the JSON
+    with its solution, tests and the blocks loosening how it is
+    compared, each quiz with its answer, each cell with the tests
+    under it -- and that value written back as the same Markdown,
+    character for character. Also the JSON
     Schema such a value follows. The blocks are found and grouped as
     tools/notebook/assets/markdown.js and tasks.js find and group
     them. See docs/notebook.md ("JSON").
@@ -39,7 +40,12 @@ type piece = Text of string | Fence of fence
 (** The languages of the blocks a notebook reads. *)
 let notebook_languages =
   [ "pyking"; "pyk"; "stdin"; "args"; "stdout"; "stderr"; "events"; "quiz"; "answer"; "rules";
-    "diff-allowed" ]
+    "diff-allowed"; "optional-last"; "any-order" ]
+
+(** The blocks under a task that loosen how an answer is compared: each
+    block's language and the field of the task's JSON that holds them, in
+    the order the fields come. *)
+let loosening = [ ("diff-allowed", "diff_allowed"); ("optional-last", "optional_last"); ("any-order", "any_order") ]
 
 (** The attributes whose value is a number, and those that are true or
     false. *)
@@ -544,7 +550,7 @@ type owner = {
   task : string option;  (** "task" or "practice"; None for a cell *)
   solution : fence option;
   tests : test list;  (** the last first *)
-  allowed : fence list;  (** the last first *)
+  allowed : (string * fence) list;  (** each loosening block and its field, the last first *)
   order : string list;  (** the blocks after the head, the last first *)
 }
 
@@ -565,7 +571,10 @@ let canonical_order o =
              (fun slot -> if List.mem_assoc slot t then Some (Printf.sprintf "tests[%d].%s" k slot) else None)
              [ "stdin"; "events"; "stdout"; "stderr" ])
          tests)
-  @ List.mapi (fun k _ -> Printf.sprintf "diff_allowed[%d]" k) (List.rev o.allowed)
+  @ List.concat_map
+      (fun (_, key) ->
+        List.mapi (fun k _ -> Printf.sprintf "%s[%d]" key k) (List.filter (fun (k, _) -> k = key) (List.rev o.allowed)))
+      loosening
 
 let owner_json o =
   let drop = Option.to_list o.task in
@@ -575,8 +584,12 @@ let owner_json o =
   @ fence_fields o.head "code" drop
   @ (match o.solution with Some s -> [ ("solution", Json.Object (fence_fields s "code" [ "solution" ])) ] | None -> [])
   @ (if tests = [] && o.task = None then [] else [ ("tests", Json.List (List.map test_json tests)) ])
-  @ (if o.allowed = [] then []
-     else [ ("diff_allowed", Json.List (List.rev_map (fun f -> Json.Object (fence_fields f "text" [])) o.allowed)) ])
+  @ List.filter_map
+      (fun (_, key) ->
+        match List.filter_map (fun (k, f) -> if k = key then Some f else None) (List.rev o.allowed) with
+        | [] -> None
+        | fs -> Some (key, Json.List (List.map (fun f -> Json.Object (fence_fields f "text" [])) fs)))
+      loosening
   @ if order = canonical_order o then [] else [ ("order", Json.List (List.map (fun s -> Json.String s) order)) ]
 
 let block_json f =
@@ -641,8 +654,10 @@ let group_json fences =
           | Some o, "solution" when o.task <> None && o.solution = None && o.tests = [] ->
               owner := Some (add { o with solution = Some f } "solution");
               true
-          | Some o, "diff-allowed" when o.task <> None ->
-              owner := Some (add { o with allowed = f :: o.allowed } (Printf.sprintf "diff_allowed[%d]" (List.length o.allowed)));
+          | Some o, language when o.task <> None && List.mem_assoc language loosening ->
+              let key = List.assoc language loosening in
+              let k = List.length (List.filter (fun (k, _) -> k = key) o.allowed) in
+              owner := Some (add { o with allowed = (key, f) :: o.allowed } (Printf.sprintf "%s[%d]" key k));
               true
           | Some o, "stdin" when o.task <> None || List.exists (fun g -> List.mem g.language [ "stdout"; "stderr"; "events" ]) (Option.to_list next) ->
               let k = List.length o.tests in
@@ -696,7 +711,7 @@ let group_json fences =
             end_owner ();
             emit (Json.Object ([ ("type", Json.String "rules") ] @ fence_fields f "text" []));
             go rest
-        | "solution" | "stdin" | "events" | "stdout" | "stderr" | "diff-allowed" ->
+        | "solution" | "stdin" | "events" | "stdout" | "stderr" | "diff-allowed" | "optional-last" | "any-order" ->
             if not (attach kind) then (
               end_owner ();
               emit (block_json f));
@@ -852,10 +867,14 @@ let to_markdown value =
     in
     let tests = tests_of where value in
     let allowed =
-      match field where "diff_allowed" value with
-      | None -> []
-      | Some (Json.List items) -> List.mapi (fun k v -> io (Printf.sprintf "%s.diff_allowed[%d]" where k) v [ "diff-allowed" ]) items
-      | Some _ -> fail "%s.diff_allowed is not a list" where
+      List.concat_map
+        (fun (language, key) ->
+          match field where key value with
+          | None -> []
+          | Some (Json.List items) ->
+              List.mapi (fun k v -> (Printf.sprintf "%s[%d]" key k, io (Printf.sprintf "%s.%s[%d]" where key k) v [ language ])) items
+          | Some _ -> fail "%s.%s is not a list" where key)
+        loosening
     in
     let named =
       solution
@@ -865,7 +884,7 @@ let to_markdown value =
                let ordered = List.filter_map (fun s -> Option.map (fun t -> (s, t)) (List.assoc_opt s slots)) [ "stdin"; "events"; "stdout"; "stderr" ] in
                List.map (fun (s, t) -> (Printf.sprintf "tests[%d].%s" k s, t)) ordered)
              tests)
-      @ List.mapi (fun k t -> (Printf.sprintf "diff_allowed[%d]" k, t)) allowed
+      @ allowed
     in
     let order =
       match field where "order" value with
@@ -999,8 +1018,8 @@ let order_prop =
     obj
       [
         typ "array";
-        ("description", str "The blocks after the head in the order written, where it is not solution, then each test's stdin, events, stdout and stderr, then the diff-allowed blocks.");
-        ("items", obj [ typ "string"; ("pattern", str "^(solution|tests\\[[0-9]+\\]\\.(stdin|events|stdout|stderr)|diff_allowed\\[[0-9]+\\])$") ]);
+        ("description", str "The blocks after the head in the order written, where it is not solution, then each test's stdin, events, stdout and stderr, then the diff-allowed, optional-last and any-order blocks.");
+        ("items", obj [ typ "string"; ("pattern", str "^(solution|tests\\[[0-9]+\\]\\.(stdin|events|stdout|stderr)|(diff_allowed|optional_last|any_order)\\[[0-9]+\\])$") ]);
       ] )
 
 let tests_prop = ("tests", obj [ typ "array"; ("items", refer "test") ])
@@ -1021,7 +1040,9 @@ let task_def kind description scored =
                   ("description", str "Each (N,name): an answer may write the function's name at most N times, outside comments and strings.") ] ) ]);
       ("code", text_of "The starting code.");
       ("solution", refer "solution"); tests_prop;
-      ("diff_allowed", obj [ typ "array"; ("items", refer "diff_allowed") ]); order_prop ]
+      ("diff_allowed", obj [ typ "array"; ("items", refer "diff_allowed") ]);
+      ("optional_last", obj [ typ "array"; ("items", refer "optional_last") ]);
+      ("any_order", obj [ typ "array"; ("items", refer "any_order") ]); order_prop ]
 
 (** The JSON Schema every notebook's JSON follows, as text. string *)
 let schema =
@@ -1073,7 +1094,7 @@ let schema =
                          ("stdin", text_of "What it reads on standard input."); ("args", text_of "Its arguments, as one line.") ];
                      ("code", text_of "The program, each line with its newline.");
                      tests_prop; order_prop ] );
-               ("task", task_def "task" "A ```pyking task block, the starting code, with its solution, tests and diff-allowed blocks." true);
+               ("task", task_def "task" "A ```pyking task block, the starting code, with its solution, tests and diff-allowed, optional-last and any-order blocks." true);
                ("practice", task_def "practice" "A ```pyking practice block: a task that gives no points." false);
                ( "solution",
                  sub_def "A ```pyking solution block." ~required:[ "code" ]
@@ -1103,6 +1124,12 @@ let schema =
                ( "diff_allowed",
                  sub_def "A ```diff-allowed block: lines whose numbers may differ by [+/-N]." ~required:[ "text" ]
                    [ attributes []; ("text", text_of "One pattern a line.") ] );
+               ( "optional_last",
+                 sub_def "An ```optional-last block: lines that may end either output, though the other does not end with them." ~required:[ "text" ]
+                   [ attributes []; ("text", text_of "One pattern a line, * standing for any text.") ] );
+               ( "any_order",
+                 sub_def "An ```any-order block: between lines matching a BETWEEN: pattern, lines matching an ANY: pattern may come in any order." ~required:[ "text" ]
+                   [ attributes []; ("text", text_of "One BETWEEN: or ANY: line a line, * standing for any text.") ] );
                ( "quiz",
                  kind_def "quiz" "A ```quiz block and its ```answer." ~required:[ "alternatives" ]
                    [ attributes

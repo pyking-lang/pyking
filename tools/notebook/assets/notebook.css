@@ -314,7 +314,6 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
 /* What `debug` wrote, kept apart from what the program printed, and a
    line the program read, echoed as a terminal would show it. */
 .pkn-stdout .pkn-debug { color: var(--pkn-faint); font-style: italic; }
-.pkn-stdout .pkn-echo { color: var(--pkn-accent); }
 .pkn-stdout .pkn-failure { color: var(--pkn-bad); }
 /* What a program using tinyweb shows, above its standard output. */
 .pkn-page {

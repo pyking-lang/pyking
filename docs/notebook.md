@@ -212,7 +212,8 @@ comments and strings, as a whole name: `rect(...)`, `tw.rect(...)`,
 not. Test mode checks that the solution keeps to it.
 
 After the task, with only blank lines between, come in order: an
-optional solution, then the tests and diff-allowed blocks. The next
+optional solution, then the tests and the diff-allowed, optional-last
+and any-order blocks. The next
 task, quiz, cell or any prose ends the group.
 
 **The solution**, ```` ```pyking solution ````:
@@ -293,6 +294,40 @@ printed, what `debug` writes and tinyweb's log, and needs a solution.
 ```diff-allowed
 circle "canvas" [+/-2] [+/-2] 10 "#000000" "" 1.000 1.000
 area = [+/-0.01]
+```
+````
+
+**An optional-last block** lets an output end with lines the other
+does not: lines that one of its patterns matches are dropped from the
+end of both the answer's output and the solution's before they are
+compared, and from right before the `splash` line that ends tinyweb's
+log, which the call the compiler adds after a program that plays
+sound writes. Each of its lines drops at most one line from each
+output; to let an output end with two pauses, write `sdelay*` twice.
+**An any-order block** lets lines come in any order between
+the lines its `BETWEEN:` patterns match: each output is cut into
+stretches at those lines, and the lines an `ANY:` pattern matches may
+come in any order within their stretch, as long as each stretch holds
+the same ones, as many times. The lines that start the stretches, and
+those no `ANY:` pattern matches, must still match in order. Without a
+`BETWEEN:` line the whole output is one stretch. In both, a pattern is
+a line as the output writes it -- tinyweb's log as **See result diff**
+shows it -- with `*` standing for any text. Like diff-allowed, both
+apply to what is printed, what `debug` writes and tinyweb's log, need a
+solution, and show what they excuse in yellow in the result diff. For
+drums, where those started in one beat sound together and a pause
+after the last beat is not heard:
+
+````markdown
+```optional-last
+sdelay*
+```
+
+```any-order
+BETWEEN: sdelay*
+ANY: play "kick*
+ANY: play "snare*
+ANY: play "hihat*
 ```
 ````
 
@@ -407,8 +442,10 @@ line:
 - a task without a solution has an output to compare an answer
   with; `save_canvas` has a `file`, a `.png`; `lines_per_multi_input`
   splits into whole pieces, with a solution and no output after it; a
-  diff-allowed block is under a task with a solution, and each line
-  holds a `[+/-N]`.
+  diff-allowed, optional-last or any-order block is under a task with
+  a solution; each diff-allowed line holds a `[+/-N]`; each any-order
+  line is `BETWEEN:` or `ANY:` and a pattern, and the block has an
+  `ANY:` line.
 
 ## JSON
 
@@ -438,7 +475,7 @@ line and no newline. `blocks` is the document in order, each one of:
 | `markdown` | `text`: the Markdown between notebook blocks, exactly as written |
 | `rules` | `attributes` (`max`, `pass`), `text` |
 | `cell` | a ```` ```pyking ```` cell: `attributes`, `code`, and `tests` written under it |
-| `task` | `attributes`, `code` (the starting code), `solution` (`attributes`, `code`), `tests`, `diff_allowed` (each `text`) |
+| `task` | `attributes`, `code` (the starting code), `solution` (`attributes`, `code`), `tests`, `diff_allowed`, `optional_last` and `any_order` (each `text`) |
 | `practice` | as `task`, for a ```` ```pyking practice ```` |
 | `quiz` | `attributes`, `question`, `alternatives` (each `marker`, `*` or `[]`, and `text`), `answer` (`entries`, each `correct` and `text`) |
 | `block` | any other notebook block where it stands, belonging to nothing: `language`, `attributes`, `text` (or `code` for pyking) |
@@ -556,7 +593,7 @@ the JSON keeps how, beside the fields:
 | `close` | the closing line is not the opening fence; `null` where the block runs to the end of the file |
 | `gap` | the blank lines before a block that follows another are not one empty line |
 | `body` | a quiz's or an answer's text is not the one its fields write |
-| `order` | a task's or a cell's blocks are not in the order solution, each test's stdin, events, stdout and stderr, then the diff-allowed blocks: a list such as `["solution", "diff_allowed[0]", "tests[0].stdin"]` |
+| `order` | a task's or a cell's blocks are not in the order solution, each test's stdin, events, stdout and stderr, then the diff-allowed, optional-last and any-order blocks: a list such as `["solution", "diff_allowed[0]", "tests[0].stdin"]` |
 
 `info` and `body` are used only while they still say what the fields
 do: change an attribute or an alternative in the JSON, and that block is
@@ -569,13 +606,14 @@ The blocks are found and grouped as the page finds and groups them:
 
 - a notebook block is a fenced block at the left margin whose language
   is one of `pyking`, `pyk`, `stdin`, `args`, `stdout`, `stderr`,
-  `events`, `quiz`, `answer`, `rules` and `diff-allowed`, outside
+  `events`, `quiz`, `answer`, `rules`, `diff-allowed`, `optional-last`
+  and `any-order`, outside
   another fenced block, an HTML block, display math and the front
   matter. Anything else, a block in a list item included, stays in a
   `markdown` block's text;
 - blocks with only blank lines between them are a group, and inside a
-  group a task or a practice takes the solution, tests and diff-allowed blocks
-  after it, a quiz the answer right after it, and a cell the stdin,
+  group a task or a practice takes the solution, tests and
+  diff-allowed, optional-last and any-order blocks after it, a quiz the answer right after it, and a cell the stdin,
   events, stdout and stderr blocks after it;
 - a block that belongs to none of them is a `block` where it stands.
   In a notebook test mode accepts there is none of these but a stdin or

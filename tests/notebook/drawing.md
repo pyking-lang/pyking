@@ -74,3 +74,48 @@ Write the same program in any language you like.
 ```pyking solution
 print("graded by hand")
 ```
+
+## Drums
+
+A program reads which drums to play and plays two beats, a quarter of a
+second apart: the kick on the first, the snare on the second, the hihat
+on both. Drums of one beat may start in any order, and a pause may end
+it.
+
+```pyking practice
+import tinyweb as tw
+```
+
+```pyking solution
+import io
+import text
+import tinyweb as tw
+line = io.read_line()
+kick = tw.load_sample("kick1.wav")
+snare = tw.load_sample("snare1.wav")
+hihat = tw.load_sample("hihat1.wav")
+if text.contains(line, "kick"):
+    tw.play(kick)
+tw.play(hihat)
+tw.sdelay(0.25)
+if text.contains(line, "snare"):
+    tw.play(snare)
+tw.play(hihat)
+```
+
+```stdin visible = true
+kick snare
+```
+
+```stdin
+snare
+```
+
+```optional-last
+sdelay*
+```
+
+```any-order
+BETWEEN: sdelay*
+ANY: play "*
+```

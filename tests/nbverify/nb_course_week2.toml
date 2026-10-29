@@ -45,7 +45,7 @@ reason = "What it drew with tinyweb is not what it should be.\nwhat it drew diff
 [[solution]]
 file = "nb_course_week2_chess_s3.pyk"
 accepted = false
-reason = "What it drew with tinyweb is not what it should be.\nwhat it drew differs at line 1 of tinyweb's log:\nexpected: canvas \"canvas\" 160 160\ngot: "
+reason = "What it drew with tinyweb is not what it should be.\nwhat it drew differs at line 1 of tinyweb's log:\nexpected: canvas \"canvas\" 160 160\ngot: (nothing)"
 
 [[solution]]
 file = "nb_course_week2_coords_s1.pyk"

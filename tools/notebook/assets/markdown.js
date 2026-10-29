@@ -48,7 +48,8 @@ export const INPUT_LANGUAGES = ["stdin", "args"];
 /** The languages of the other blocks a notebook reads rather than shows
  *  as code: what a program should print, the tinyweb events it is sent,
  *  the quizzes, the rules, and the differences a task allows. */
-export const PART_LANGUAGES = ["stdout", "stderr", "events", "quiz", "answer", "rules", "diff-allowed"];
+export const PART_LANGUAGES = ["stdout", "stderr", "events", "quiz", "answer", "rules", "diff-allowed",
+  "optional-last", "any-order"];
 
 const CALLOUTS = {
   note: "Note", tip: "Tip", important: "Important",

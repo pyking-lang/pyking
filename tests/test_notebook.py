@@ -290,7 +290,7 @@ check("lines_per_multi_input splits a stdin block into tests",
       JSON.stringify([square.tests.map((t) => t.stdin), doubling.tests.map((t) => t.stdin)]));
 const drawn = grading.summary(drawing, { "task-1": { state: "solved", points: 2 } });
 check("a task submitted with git is left out of the totals",
-      drawn.total === 2 && drawn.solved === 1 && drawn.points === 2 && drawn.max === 9,
+      drawn.total === 3 && drawn.solved === 1 && drawn.points === 2 && drawn.max === 9,
       JSON.stringify(drawn));
 for (const [header, problem] of [
   ["```pyking task method = svn\n```\n", "method is inline or git, not 'svn'"],
@@ -314,6 +314,17 @@ for (const [header, problem] of [
    "holds +/- and a number"],
   ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nno slot here\n```\n",
    "needs a [+/-N]"],
+  ["```optional-last\nsdelay*\n```\n", "an optional-last block belongs under a task"],
+  ["```pyking task\n```\n```optional-last\nsdelay*\n```\n", "which this task does not have"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```optional-last\n```\n",
+   "an optional-last block needs at least one line"],
+  ["```any-order\nANY: x*\n```\n", "an any-order block belongs under a task"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```any-order\nplay*\n```\n",
+   "starts with BETWEEN: or ANY:"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```any-order\nANY:\n```\n",
+   "needs a pattern after ANY"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```any-order\nBETWEEN: sdelay*\n```\n",
+   "needs an ANY: line"],
 ]) {
   const found = renderMarkdown(header).notebook.problems.map((p) => p.message);
   check("refuses " + JSON.stringify(header.split("\n")[header.includes("solution save") ? 2 : 0]),
@@ -344,6 +355,50 @@ check("a rule's slots may be decimals, several on a line",
       && !grading.allowedLine(decimals, "x = 1.5, y = 2", "x = -1.72, y = 2")
       && !grading.allowedLine(decimals, "x = 1.5, y = 2", "x = 1.5, y = 2.6"),
       JSON.stringify(decimals.map((r) => r.slots)));
+const drums = renderMarkdown("```pyking task\n```\n```pyking solution\nprint(1)\n```\n"
+  + "```optional-last\nsdelay*\nsplash\n```\n```any-order\nBETWEEN: sdelay*\nANY: play \"song*\n"
+  + "ANY: play \"wow*\n```\n").notebook;
+const order = drums.items[0].allowed;
+check("optional-last and any-order lines are rules of their kinds",
+      drums.problems.length === 0 && JSON.stringify(order.map((r) => r.kind))
+        === '["last","last","between","any","any"]', JSON.stringify([drums.problems, order]));
+const beats = (...beats) => beats.map((b) => b.join("\n")).filter(Boolean).join("\nsdelay 0.250\n");
+const song = 'play "song.wav" 0.0 1.0 1.0 0.0 0 0';
+const wow = 'play "wow.wav" 0.0 1.0 1.0 0.0 0 0';
+check("lines an optional-last line matches may end either side",
+      grading.sameOutput("a\nsdelay 1.0", "a", order)
+      && grading.sameOutput("a\nsplash", "a\nsdelay 0.5\n\n", order)
+      && grading.sameOutput("a\nsdelay 0.250\nsplash", "a\nsplash", order.slice(0, 1))
+      && !grading.sameOutput("a\nsdelay 0.250\nb\nsplash", "a\nb\nsplash", order.slice(0, 1))
+      && !grading.sameOutput("sdelay 0.250\na", "a", order)
+      && !grading.sameOutput("a\nsdelay 0.250\nb", "a\nb", order));
+const twice = renderMarkdown("```pyking task\n```\n```pyking solution\nprint(1)\n```\n"
+  + "```optional-last\nsdelay*\nsdelay*\n```\n").notebook.items[0].allowed;
+check("each optional-last line drops at most one line from each side",
+      !grading.sameOutput("a\nsdelay 0.250\nsdelay 1.0", "a", order.slice(0, 1))
+      && !grading.sameOutput("a\nsdelay 0.25\nsdelay 0.25\nsdelay 0.25\nsplash", "a\nsplash", order)
+      && grading.sameOutput("a\nsdelay 0.25\nsdelay 0.25\nsplash", "a\nsdelay 1\nsplash", twice)
+      && !grading.sameOutput("a\nsdelay 0.25\nsdelay 0.25\nsdelay 0.25\nsplash", "a\nsplash", twice));
+check("ANY lines may come in any order between BETWEEN lines",
+      grading.sameOutput(beats([song, wow], [wow, song]), beats([wow, song], [song, wow]), order)
+      && grading.sameOutput(beats([song, wow, song]), beats([song, song, wow]), order));
+check("but each stretch holds the same ones, as many times",
+      !grading.sameOutput(beats([song, wow], [wow]), beats([song], [wow, wow]), order)
+      && !grading.sameOutput(beats([song, song]), beats([song]), order)
+      && !grading.sameOutput(beats([song], [wow]), beats([song, wow]), order));
+check("other lines keep their order, and a * stands for any text",
+      grading.sameOutput(`x\n${song}\ny\n${wow}`, `x\n${wow}\ny\n${song}`, order)
+      && !grading.sameOutput(`y\n${song}\nx`, `x\n${song}\ny`, order)
+      && !grading.sameOutput('play "other.wav"\nplay "x"', 'play "x"\nplay "other.wav"', order));
+const tolerant = renderMarkdown("```pyking task\n```\n```pyking solution\nprint(1)\n```\n"
+  + "```any-order\nANY: tone*\n```\n```diff-allowed\ntone [+/-1]\n```\n").notebook.items[0].allowed;
+check("diff-allowed holds inside any-order",
+      grading.sameOutput("tone 10\ntone 20", "tone 21\ntone 9", tolerant)
+      && !grading.sameOutput("tone 10\ntone 20", "tone 22\ntone 9", tolerant));
+const freed = grading.excused(order, `${wow}\n${song}\nsdelay 0.250\nx\nsdelay 1`, `${song}\n${wow}\nsdelay 0.250\ny`);
+check("the lines excused are the reordered ones and the optional end",
+      JSON.stringify([[...freed.left].sort(), [...freed.right].sort()]) === "[[0,1,4],[0,1]]",
+      JSON.stringify([[...freed.left], [...freed.right]]));
 const { lineDiff } = await import(pathToFileURL(plan.activities).href);
 const rows = lineDiff("a\nb\nc\nd", "a\nB\nc\nd\ne");
 const loose = lineDiff("v 1\nw", "v 2\nw", (x, y) => x === y || grading.allowedLine(

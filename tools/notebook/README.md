@@ -53,7 +53,9 @@ whose program reads standard input (`io.read_line`, `io.read`,
 `io.is_eof`) shows a **stdin** field above its code, and one reading
 `sys.args()` an **args** field -- only such a cell, asked of the
 compiler as the cell is edited. What the program reads is that text, one
-line at a time, and each line it reads is echoed under the cell; the
+line at a time; only what it writes is shown under the cell, not what
+it reads (a prompt `io.read_line` writes is shown, the line after it
+not). The
 arguments are split at spaces, with quotes keeping a space inside one.
 `sys.exit` ends the run, and a status other than 0 is shown.
 
@@ -319,6 +321,31 @@ circle "canvas" 75 0 [+/-2] "#000000" "" 1.000 1.000
 ```
 ````
 
+An **```` ```optional-last ````** block lets either side end with lines
+the other does not: lines one of its patterns matches are dropped from
+the end of both before they are compared (or from before the `splash`
+line that ends a tinyweb log). Each pattern drops at most one line
+from each side, so a block with one `sdelay*` excuses one trailing
+pause, not several. An **```` ```any-order ````** block
+cuts each output into stretches at the lines a `BETWEEN:` pattern
+matches; inside a stretch, the lines an `ANY:` pattern matches may come
+in any order, but each stretch must hold the same ones as many times,
+and the other lines keep their order. Their patterns are lines as the
+output writes them, `*` standing for any text. Both apply where
+diff-allowed does, and "See result diff" marks what they excuse as an
+allowed difference.
+
+````markdown
+```optional-last
+sdelay*
+```
+
+```any-order
+BETWEEN: sdelay*
+ANY: play "*
+```
+````
+
 A task with **`method = git`** is answered somewhere else and
 pushed with git: the page shows "Please submit via your git account"
 in place of the code box and Submit, and grades nothing. Its points are
@@ -453,8 +480,10 @@ for each problem, and exits with 1 if there was one:
 - a task's `method` is inline or git, a solution's `save_canvas`
   has a `file`, a .png beside the notebook, and a stdin block split by
   `lines_per_multi_input` is whole pieces, with a solution and no output
-  after it, and a diff-allowed block is under a task with a
-  solution, each line holding a `[+/-N]`.
+  after it, and a diff-allowed, optional-last or any-order block is
+  under a task with a solution, each diff-allowed line holding a
+  `[+/-N]`, each any-order line `BETWEEN:` or `ANY:` and a pattern,
+  with at least one `ANY:`.
 
 `tests/notebook/broken.md` makes every one of these mistakes, and
 `broken.out` is what test mode says about it.

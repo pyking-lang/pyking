@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Added
+
+- Notebook tasks take an ```` ```optional-last ```` block, whose lines
+  may end the answer's output or the solution's though the other does
+  not end with them (before the `splash` that ends a tinyweb log), each
+  line at most once, and
+  an ```` ```any-order ```` block, whose `ANY:` lines may come in any
+  order between the lines its `BETWEEN:` lines match. Their patterns are written as the output writes a line, with
+  `*` for any text: `sdelay*`, `play "kick*`. Like diff-allowed, they
+  apply to what is printed, what `debug` writes and tinyweb's log, in
+  the page, `--to-json` and nbverify, and the result diff shows what
+  they excuse in yellow.
+
+### Changed
+
+- A notebook cell no longer echoes the line `io.read_line` reads after
+  a prompt; only what the program writes is shown under it.
+
 ## [0.1.7] - 2026-10-28
 
 ### Added

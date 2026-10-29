@@ -1,8 +1,9 @@
 (** Notebooks as JSON: a notebook's Markdown read into one structured
     value -- the text between its blocks kept as it is, each task
-    with its solution, tests and diff-allowed blocks, each quiz with its
-    answer, each cell with the tests under it -- and that value written
-    back as the same Markdown, character for character. Also the JSON
+    with its solution, tests and the blocks loosening how it is
+    compared, each quiz with its answer, each cell with the tests
+    under it -- and that value written back as the same Markdown,
+    character for character. Also the JSON
     Schema such a value follows. See docs/notebook.md ("JSON").
 
     Data structures:

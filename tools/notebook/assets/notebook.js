@@ -374,7 +374,6 @@ class Cells {
           cell.write(text, "pkn-debug");
           console.log(text.replace(/\n$/, ""));
         },
-        onInput: (text) => cell.write(text, "pkn-echo"),
         // A program using a library that needs a page shows it under the
         // cell, and goes on running there after this run has answered.
         onPage: (module, data) => cell.page(module, data),
@@ -1055,7 +1054,8 @@ class Cell {
   }
 
   /** Appends what the program wrote -- marked with `kind` where it is a
-   *  `debug` line or a line the program read. String -> String? -> () */
+   *  `debug` line or a failure. What it reads is not shown.
+   *  String -> String? -> () */
   write(text, kind = null) {
     if (this.outputSize >= OUTPUT_LIMIT) return;
     this.ui.output.classList.remove("pkn-hidden");
