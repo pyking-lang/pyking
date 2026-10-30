@@ -181,6 +181,24 @@ file = "fail_typecheck_loop_break_operand.pyk"
 file = "fail_typecheck_loop_unreachable.pyk"
 
 [[cases]]
+file = "fail_typecheck_loop_continue_operand.pyk"
+
+[[cases]]
+file = "fail_typecheck_loop_break_value_type.pyk"
+
+[[cases]]
+file = "fail_typecheck_loop_continue_value_type.pyk"
+
+[[cases]]
+file = "fail_typecheck_loop_break_value_outside.pyk"
+
+[[cases]]
+file = "fail_typecheck_loop_break_value_unreachable.pyk"
+
+[[cases]]
+file = "fail_typecheck_loop_break_value_line.pyk"
+
+[[cases]]
 file = "fail_typecheck_list_elements.pyk"
 
 [[cases]]
@@ -306,6 +324,13 @@ file = "loop_early_return.pyk"
 
 [[cases]]
 file = "loop_unit.pyk"
+
+[[cases]]
+file = "loop_break_value.pyk"
+
+[[cases]]
+file = "loop_break_value_lists.pyk"
+excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
 
 [[cases]]
 file = "match_int_simple.pyk"
@@ -639,6 +664,10 @@ file = "typecheck_loop_value.pyk"
 file = "typecheck_loop_unit_value.pyk"
 
 [[cases]]
+file = "typecheck_loop_break_value.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
 file = "typecheck_tco_accumulator.pyk"
 also = ["python12_notail", "pyking_notail"]
 
@@ -954,6 +983,10 @@ file = "typecheck_noann_loop_nested.pyk"
 
 [[cases]]
 file = "typecheck_noann_loop_tuple.pyk"
+
+[[cases]]
+file = "typecheck_noann_loop_break_value.pyk"
+also = ["pyking_rerun", "pyking_nosugar"]
 
 [[cases]]
 file = "typecheck_noann_map_fold.pyk"

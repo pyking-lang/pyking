@@ -1822,11 +1822,17 @@ and stmt ctx st scope s =
   | SLoop _ ->
       let loop_stmts, _, _, st = loop ctx st scope s in
       (loop_stmts, scope, st)
-  | SBreak _ -> (
+  | SBreak (_, value, _) -> (
+      (* The loop is worth what its locals hold, so a value written is
+         put there first. *)
+      let given, st = jump_value ctx st scope value in
       match List.rev scope.loops with
-      | l :: _ when scope.in_switch -> ([ JBreak (Some l.label) ], scope, st)
-      | _ -> ([ JBreak None ], scope, st))
-  | SContinue _ -> ([ JContinue ], scope, st)
+      | l :: _ when scope.in_switch -> (given @ [ JBreak (Some l.label) ], scope, st)
+      | _ -> (given @ [ JBreak None ], scope, st))
+  | SContinue (_, value, _) ->
+      (* The next turn starts from those same locals. *)
+      let given, st = jump_value ctx st scope value in
+      (given @ [ JContinue ], scope, st)
   | SIf (_, c, then_body, else_body, _) ->
       let cond, st = expr ctx st scope c in
       let t_stmts, _, st = stmts ctx st scope then_body in
@@ -2149,6 +2155,27 @@ and loop ctx st scope s =
           let body_stmts, st = tail_block ctx st inner fin body in
           (setup @ [ JWhile (label, None, turn_decls @ body_stmts) ], value, acc_t, st))
   | _ -> ([], None, TTuple (no_info, [], 0), st)
+
+(** The statements a `break x`/`continue x` puts x into the innermost
+    loop's locals with, as the end of a turn would. Nothing for a bare
+    one. ctx -> state -> scope -> expr option -> ([jstmt], state) *)
+and jump_value ctx st scope value =
+  match (value, List.rev scope.loops) with
+  | Some e, l :: _ ->
+      let t =
+        match type_of ctx scope e with
+        | TUnknown _ when List.length l.slots > 1 ->
+            TTuple (no_info, List.map snd l.slots, 0)
+        | t -> t
+      in
+      if is_unit t then
+        let effects, st = effect_of ctx st scope e in
+        let after, st = finished ctx st (Turn l) t null_expr in
+        (effects @ after, st)
+      else
+        let v, st = expr ctx st scope e in
+        finished ctx st (Turn l) t v
+  | _ -> ([], st)
 
 (** The names a loop's accumulator binds, in order. assign_target ->
     [string] *)

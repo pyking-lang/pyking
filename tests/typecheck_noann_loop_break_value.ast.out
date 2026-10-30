@@ -1,0 +1,16 @@
+def count_up(limit:Int) -> Int:
+    return loop n: Int = 0:
+        if n >= limit:
+            break n * 2
+        continue n + 1
+def pick(flag:Bool, yes:a, no:a) -> a:
+    return loop chosen: a = no:
+        if flag:
+            break yes
+        break chosen
+def step_pair(a:Int, b:Int, rounds:Int) -> (Int, Int, Int):
+    return loop (x, y, k): (Int, Int, Int) = (a, b, 0) while k < rounds:
+        continue (y, x + y, k + 1)
+print(count_up(5))
+print(pick(true, "yes", "no"), pick(false, 1, 2))
+print(step_pair(0, 1, 10))

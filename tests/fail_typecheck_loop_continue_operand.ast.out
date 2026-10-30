@@ -1,0 +1,4 @@
+'tests/fail_typecheck_loop_continue_operand.pyk' 11:17-11:18 Parsing
+  error: this loop carries nothing, so 'continue' takes no value: give
+  the loop an accumulator ('loop acc = ...') for 'continue' to give
+  one

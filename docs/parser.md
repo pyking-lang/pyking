@@ -302,6 +302,13 @@ sense, "not parsing":
   `analyses.ml` for the same reason `check_value_stmt` is: it needs
   only the tree's shape, never what a name means. Being here, it also
   holds even though the type checker replaced the name analysis entirely.
+  The walk also carries whether that loop has an accumulator, so a
+  `break x`/`continue x` in a loop carrying nothing is refused here too
+  (`no_value_here`): there is nowhere for the value to go.
+- **`parse_jump_value`** — the value of a `break`/`continue` is whatever
+  follows it on its own line, read by `parse_tuple_or_expr` so a bare
+  tuple works as it does in a loop header. A token on the next line, or
+  an indent/dedent, means there is none.
 - **`check_reachable`** — nothing may be written after a `break` or a
   `continue` in the same block, since nothing there can run. It is
   applied as each block is built, comparing the statement just parsed

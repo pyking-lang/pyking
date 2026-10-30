@@ -450,6 +450,9 @@ type kont =
          accumulator for the next turn. This replaces itself rather than
          stacking, which is what lets a loop run for ever in constant
          memory. *)
+  | KJump of stmt * loop
+      (* the value a `break`/`continue` carries has arrived: the loop
+         ends worth it, or goes round with it as the accumulator *)
   | KReturnTo of frame
 
 (** One Pyking call in progress. Pyking's call stack, held in the
@@ -1683,7 +1686,7 @@ and step_stmt state stmt =
       | Some _, None -> start_loop state loop
       | Some _, Some init ->
           { state with control = CEval init; kont = Some (KStartLoop loop) })
-  | SBreak (info, _) | SContinue (info, _) -> (
+  | SBreak (info, value, _) | SContinue (info, value, _) -> (
       match state.loops with
       | None ->
           let keyword =
@@ -1696,9 +1699,15 @@ and step_stmt state stmt =
          way round, since what comes next may be the end of a `for`'s
          list rather than another turn. *)
       | Some loop -> (
-          match stmt with
-          | SBreak _ -> leave state loop loop.accumulator
-          | _ -> begin_turn state loop))
+          match value with
+          | Some e ->
+              (* A value written: it is what the loop is worth, or what
+                 the next turn starts with, once it has arrived. *)
+              { state with control = CEval e; kont = Some (KJump (stmt, loop)) }
+          | None -> (
+              match stmt with
+              | SBreak _ -> leave state loop loop.accumulator
+              | _ -> begin_turn state loop)))
   | SReturn (info, e, _) -> (
       match state.stack with
       | None -> failed state info "'return' outside a function"
@@ -1860,6 +1869,10 @@ and step_apply state value =
          turn starts from unit again. *)
       if loop_target loop = None then begin_turn state loop
       else begin_turn state { loop with accumulator = value }
+  | Some (KJump (stmt, loop)) -> (
+      match stmt with
+      | SBreak _ -> leave state loop value
+      | _ -> begin_turn state { loop with accumulator = value })
   | Some (KNegate (node, env, rest)) -> (
       match apply_unary node value with
       | answer -> { state with control = CApply answer; env; kont = rest }

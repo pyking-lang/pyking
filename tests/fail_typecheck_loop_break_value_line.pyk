@@ -1,0 +1,12 @@
+# What follows `break` on its line is its value, and one value only.
+#
+# `break x y` is not a value followed by something else: a second
+# statement on the same line is refused, exactly as anywhere else.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+total = loop acc = 0:
+    if acc > 3:
+        break acc print(acc)
+    acc + 1

@@ -1,10 +1,11 @@
 # Case 1 -- leaving a loop.
 #
 # `loop:` and `loop acc = ...:` have no ending of their own: a `break`
-# is the only way out. It takes no operand, because there is nothing
-# left to say -- the loop is worth the accumulator the turn it stops on
-# started with, and worth unit where it carries none. A loop with no
-# `break` at all never ends, which is allowed.
+# is the only way out. Written bare, as here, it says nothing more --
+# the loop is worth the accumulator the turn it stops on started with,
+# and worth unit where it carries none (`break x` gives the value
+# instead: typecheck_loop_break_value.pyk). A loop with no `break` at
+# all never ends, which is allowed.
 
 use mutation
 

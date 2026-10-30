@@ -860,6 +860,9 @@ let rec is_irrefutable pattern =
       them (see `captured_names`).
     loop_names -- names the nearest enclosing loop rebinds each turn, or
       None outside a loop.
+    accumulator -- the Python variable the nearest enclosing loop keeps
+      its accumulator in, which a `break x`/`continue x` assigns; None
+      outside a loop or in one carrying nothing.
     depth -- how many Python function scopes deep this is; 0 is the
       module.
     mutables -- each `var` in scope, and the depth its declaration sits
@@ -875,6 +878,7 @@ type scope = {
   shadowed : StringSet.t;
   captured : StringSet.t;
   loop_names : StringSet.t option;
+  accumulator : pytarget option;
   depth : int;
   mutables : int SMap.t;
   used : StringSet.t;
@@ -888,6 +892,7 @@ let empty_scope =
     shadowed = StringSet.empty;
     captured = StringSet.empty;
     loop_names = None;
+    accumulator = None;
     depth = 0;
     mutables = SMap.empty;
     used = StringSet.empty;
@@ -912,6 +917,7 @@ let function_scope scope shadowed captured =
     shadowed;
     captured;
     loop_names = None;
+    accumulator = None;
     depth = scope.depth + 1;
     mutables = scope.mutables;
     used = StringSet.empty;
@@ -1219,6 +1225,8 @@ and free_in_stmt s bound free =
         | None -> free_in_nested body inner free
       in
       (bound, free)
+  | SBreak (_, Some e, _) | SContinue (_, Some e, _) ->
+      (bound, free_in_expr e bound free)
   | SBreak _ | SContinue _ -> (bound, free)
   | SIf (_, cond, then_body, else_body, _) ->
       let free = free_in_expr cond bound free in
@@ -3022,11 +3030,17 @@ and translate_stmt s scope gen =
   | SLoop _ ->
       let py_stmts, _, scope, gen = translate_loop s scope gen in
       (py_stmts, scope, gen)
-  | SBreak (info, _) ->
+  | SBreak (info, value, _) ->
       (* Python's own: the accumulator variable is left holding what this
-         turn started with, which is what the loop is worth. *)
-      ([ PyBreak info ], scope, gen)
-  | SContinue (info, _) -> ([ PyContinue info ], scope, gen)
+         turn started with, which is what the loop is worth -- or is
+         given the value written first. *)
+      let assign, gen = jump_value value scope gen in
+      (assign @ [ PyBreak info ], scope, gen)
+  | SContinue (info, value, _) ->
+      (* The next turn starts from the accumulator variable, so a value
+         written is put there first. *)
+      let assign, gen = jump_value value scope gen in
+      (assign @ [ PyContinue info ], scope, gen)
   | SIf (info, cond, then_body, else_body, _) ->
       let py_cond, gen = translate_expr cond scope gen in
       let py_then, _, gen = translate_stmts then_body (block_scope scope) gen in
@@ -3347,6 +3361,16 @@ and translate_value_case (MatchCase (info, pattern, guard, body, _)) py_target s
   let py_body, gen = translate_value_block body py_target arm_scope gen in
   (match_case ?guard info py_pattern py_body, gen)
 
+(** The assignment a `break x`/`continue x` makes before it jumps: x
+    into the variable holding the loop's accumulator. Nothing for a bare
+    one. expr option -> scope -> gen -> ([pystmt], gen) *)
+and jump_value value scope gen =
+  match (value, scope.accumulator) with
+  | Some e, Some target ->
+      let py_expr, gen = translate_expr e scope gen in
+      ([ PyAssign (expr_info e, target, py_expr) ], gen)
+  | _ -> ([], gen)
+
 (** Translates a loop into Python's own `while True`/`for` over a
     mutable accumulator variable (docs/target_python.md, "loop"): the
     initializer becomes the variable's first value and every tail of the
@@ -3373,9 +3397,14 @@ and translate_loop s scope gen =
             ( [ PyAssign (info, py_target, py_init) ],
               Some py_target,
               target_as_expr py_target,
-              body_scope,
+              { body_scope with accumulator = Some py_target },
               gen )
-        | _ -> ([], None, PyTuple (info, []), body_scope, gen)
+        | _ ->
+            ( [],
+              None,
+              PyTuple (info, []),
+              { body_scope with accumulator = None },
+              gen )
       in
       (* The iteration clause decides which Python loop this is. A `for`
          binds its element in the body's scope, where Python's own `for`

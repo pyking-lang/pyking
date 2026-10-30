@@ -234,8 +234,10 @@ and stmt =
       (* [loop target[: type] = init] [for n in e | while c] : body.
          Every loop in the language is this one node with different
          halves written. *)
-  | SBreak of info * int (* break *)
-  | SContinue of info * int (* continue *)
+  | SBreak of info * expr option * int
+      (* break [value]: the value is what the loop is worth *)
+  | SContinue of info * expr option * int
+      (* continue [value]: the value is the next turn's accumulator *)
   | SIf of info * expr * stmt list * stmt list option * int
       (* if cond: then_body [else: else_body] *)
   | SFunctionDef of
@@ -470,8 +472,8 @@ let stmt_info s =
   | SReturnStmt (i, _, _) -> i
   | SExprStmt (i, _, _) -> i
   | SLoop (i, _, _, _, _, _, _) -> i
-  | SBreak (i, _) -> i
-  | SContinue (i, _) -> i
+  | SBreak (i, _, _) -> i
+  | SContinue (i, _, _) -> i
   | SIf (i, _, _, _, _) -> i
   | SFunctionDef (i, _, _, _, _, _, _, _, _) -> i
   | SFunctionSig (i, _, _, _, _) -> i
@@ -490,8 +492,8 @@ let stmt_sym s =
   | SReturnStmt (_, _, s) -> s
   | SExprStmt (_, _, s) -> s
   | SLoop (_, _, _, _, _, _, s) -> s
-  | SBreak (_, s) -> s
-  | SContinue (_, s) -> s
+  | SBreak (_, _, s) -> s
+  | SContinue (_, _, s) -> s
   | SIf (_, _, _, _, s) -> s
   | SFunctionDef (_, _, _, _, _, s, _, _, _) -> s
   | SFunctionSig (_, _, _, s, _) -> s
@@ -1111,6 +1113,11 @@ let strip s =
   let e = last n in
   if e <= b then "" else String.sub s b (e - b)
 
+(** The value a `break`/`continue` carries, as written after its keyword,
+    or nothing. config -> expr option -> string *)
+let jump_value cfg value =
+  match value with None -> "" | Some e -> " " ^ pprint_expr cfg e 0
+
 (** Formats one statement, indented to level. A multi-line statement's
     symbol (under --symbols) goes on its header line.
     config -> stmt -> int -> string *)
@@ -1176,8 +1183,8 @@ and pprint_stmt_body cfg s level =
       String.concat "\n"
         ((pad ^ header ^ ":")
         :: List.map (fun st -> pprint_stmt cfg st (level + 1)) body)
-  | SBreak (_, _) -> pad ^ "break"
-  | SContinue (_, _) -> pad ^ "continue"
+  | SBreak (_, value, _) -> pad ^ "break" ^ jump_value cfg value
+  | SContinue (_, value, _) -> pad ^ "continue" ^ jump_value cfg value
   | SIf (_, cond, then_body, else_body, _) ->
       let lines =
         (pad ^ "if " ^ pprint_expr cfg cond 0 ^ ":")

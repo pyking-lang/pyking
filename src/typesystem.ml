@@ -1280,6 +1280,18 @@ let carry_error acc_type actual store =
   Printf.sprintf "this loop carries %s, but its body ends in %s" (printed mine)
     (printed theirs)
 
+(** The message for a `break`/`continue` whose value is not the
+    accumulator the loop carries. string -> typ -> typ -> store -> string *)
+let jump_error keyword acc_type actual store =
+  let together = displayed (t_tuple builtin_info [ acc_type; actual ]) store in
+  let mine, theirs =
+    match together with
+    | TTuple (_, [ mine; theirs ], _) -> (mine, theirs)
+    | _ -> (acc_type, actual)
+  in
+  Printf.sprintf "this loop carries %s, but this '%s' gives it %s"
+    (printed mine) keyword (printed theirs)
+
 (* --- where a block is left --- *)
 
 (** Whether one statement says what happens next on every path through
@@ -2707,24 +2719,25 @@ and check_stmt statement env return_type acc_type store =
         | _ -> store
       in
       (Some (zonk accumulator store), env, store)
-  | SBreak (info, _) ->
+  | SBreak (info, value, _) ->
       (* A `break` ends the loop, which is then worth the accumulator
-         this turn started with -- so there is nothing to check. The
-         statement supplies *nothing*: it never falls through, so no
-         value arrives after it. That is None rather than a type, and it
-         is what lets a branch that breaks sit beside one that ends in
-         the next accumulator: `agree` keeps the other branch's
-         answer. *)
+         this turn started with -- or, with a value written, that value,
+         held to the accumulator's type. The statement supplies
+         *nothing*: it never falls through, so no value arrives after
+         it. That is None rather than a type, and it is what lets a
+         branch that breaks sit beside one that ends in the next
+         accumulator: `agree` keeps the other branch's answer. *)
       if acc_type = None then
         raise (Type_error (info, "'break' outside a loop"));
-      (None, env, store)
-  | SContinue (info, _) ->
+      (None, env, check_jump_value "break" value env acc_type store)
+  | SContinue (info, value, _) ->
       (* `continue` starts the next turn with the accumulator unchanged,
-         which is that type whatever it is. Nothing arrives after it
-         either, so it supplies nothing too. *)
+         which is that type whatever it is -- or with the value written,
+         which must be that type. Nothing arrives after it either, so it
+         supplies nothing too. *)
       if acc_type = None then
         raise (Type_error (info, "'continue' outside a loop"));
-      (None, env, store)
+      (None, env, check_jump_value "continue" value env acc_type store)
   | SMatch (info, subject, cases, sym) ->
       (* Every arm is a branch, and they must agree on one type the way
          an `if`'s two do -- one value leaves a `match` however many ways
@@ -2837,6 +2850,20 @@ and field_default info name field_type field env store =
   demand given field_type info
     (Printf.sprintf "the field '%s', used before its default is reached," field)
     after
+
+(** store with the value a `break`/`continue` carries held to the
+    accumulator of the loop it belongs to. Nothing to check without one.
+    string -> expr option -> env -> typ option -> store -> store *)
+and check_jump_value keyword value env acc_type store =
+  match (value, acc_type) with
+  | None, _ | _, None -> store
+  | Some e, Some accumulator -> (
+      let actual, store = check_expr e env store in
+      match unify accumulator actual store with
+      | Some store -> store
+      | None ->
+          raise
+            (Type_error (expr_info e, jump_error keyword accumulator actual store)))
 
 (** One pass over a loop body: what it supplies -- the accumulator the
     next turn carries -- and the store. A `return` written in the body

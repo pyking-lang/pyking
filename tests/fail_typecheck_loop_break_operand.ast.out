@@ -1,3 +1,3 @@
-'tests/fail_typecheck_loop_break_operand.pyk' 13:14-13:20 Parsing
-  error: each statement must start on a new line. In this case,
-  'break' and 'x * 10' are seen as two different statements
+'tests/fail_typecheck_loop_break_operand.pyk' 12:10-12:12 Parsing
+  error: this loop carries nothing, so 'break' takes no value: give
+  the loop an accumulator ('loop acc = ...') for 'break' to give one

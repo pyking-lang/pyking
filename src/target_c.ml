@@ -1953,6 +1953,24 @@ and finished ctx st scope fin t (v : cexpr) =
             :: List.mapi (fun i (name, _) -> CLine (Printf.sprintf "%s = %s.a%d;" name held i)) slots,
             st ))
 
+(** The statements a `break x`/`continue x` puts x into the innermost
+    loop's slots with, as the end of a turn would. Nothing for a bare
+    one. ctx -> state -> scope -> expr option -> ([cstmt], state) *)
+and jump_value ctx st scope value =
+  match (value, List.rev scope.loops) with
+  | Some e, slots :: _ ->
+      let t =
+        match type_of ctx scope e with
+        | TUnknown _ when List.length slots > 1 ->
+            TTuple (no_info, List.map snd slots, 0)
+        | t -> t
+      in
+      let v, st = expr ctx st scope e in
+      let pre, st = flush st in
+      let given, st = finished ctx st scope (`Turn slots) t v in
+      (pre @ given, st)
+  | _ -> ([], st)
+
 (** Statements an expression needed run first, in front of what it was
     used in. state -> ([cstmt], state) *)
 and flush st = (st.pre, { st with pre = [] })
@@ -2133,8 +2151,15 @@ and stmt ctx st scope s =
   | SLoop _ ->
       let loop_stmts, _, _, st = loop ctx st scope s in
       (loop_stmts, scope, st)
-  | SBreak _ -> ([ CBreak ], scope, st)
-  | SContinue _ -> ([ CContinue ], scope, st)
+  | SBreak (_, value, _) ->
+      (* The loop is worth what its slots hold, so a value written is put
+         there first. *)
+      let given, st = jump_value ctx st scope value in
+      (given @ [ CBreak ], scope, st)
+  | SContinue (_, value, _) ->
+      (* The next turn starts from those same slots. *)
+      let given, st = jump_value ctx st scope value in
+      (given @ [ CContinue ], scope, st)
   | SIf (_, c, then_body, else_body, _) ->
       let cond, st = expr ctx st scope c in
       let pre, st = flush st in

@@ -102,6 +102,20 @@ def factorial(n: Int) -> Int:
 print(factorial(10))
 ```
 
+`break` and `continue` may also say what the loop carries from then on:
+`break x` stops the loop with `x`, and `continue x` starts the next turn
+with `x`.
+
+```pyking
+def first_negative(xs: [Int]) -> Int:
+    return loop found = 0 for x in xs:
+        if x < 0:
+            break x
+        found
+
+print(first_negative([3, -2, 5]))
+```
+
 ## Lists, tuples and pattern matching
 
 `match` takes values apart. A list pattern `[first] + rest` matches a

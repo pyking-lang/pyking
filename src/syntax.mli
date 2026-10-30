@@ -247,8 +247,10 @@ and stmt =
       (* [loop target[: type] = init] [for n in e | while c] : body.
          Every loop in the language is this one node with different
          halves written. *)
-  | SBreak of info * int (* break *)
-  | SContinue of info * int (* continue *)
+  | SBreak of info * expr option * int
+      (* break [value]: the value is what the loop is worth *)
+  | SContinue of info * expr option * int
+      (* continue [value]: the value is the next turn's accumulator *)
   | SIf of info * expr * stmt list * stmt list option * int
       (* if cond: then_body [else: else_body] *)
   | SFunctionDef of

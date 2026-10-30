@@ -1,0 +1,2 @@
+'tests/fail_typecheck_loop_break_value_type.pyk' 11:14-11:20 Type
+  error: this loop carries Int, but this 'break' gives it String

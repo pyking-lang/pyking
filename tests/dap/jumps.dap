@@ -1,0 +1,24 @@
+# `continue x` and `break x`: a breakpoint on each stops before the
+# value is worked out, the value can be evaluated there, and stepping
+# on goes where the jump goes -- the next turn, or past the loop.
+launch jumps.pyk
+break jumps.pyk 3 5
+configure
+wait stopped
+stack
+scopes 1
+variables Environment
+evaluate 1 acc + 100
+next
+wait stopped
+stack
+continue
+wait stopped
+stack
+evaluate 1 acc * 2
+next
+wait stopped
+stack
+continue
+wait terminated
+disconnect

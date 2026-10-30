@@ -353,7 +353,8 @@ let res =
 The three ways a body can say what happens next map one to one: the
 body's last expression becomes `tmp1 e`, `continue` becomes `tmp1 x`,
 and `break` becomes `x` -- the accumulator this turn was called with,
-which is what the loop is worth. A loop carrying several values takes a
+which is what the loop is worth. With a value, `continue v` becomes
+`tmp1 v` and `break v` becomes `v`. A loop carrying several values takes a
 tuple pattern parameter, `let rec tmp1 (x, y) = …`, and a `loop:`
 carrying nothing takes a unit one.
 

@@ -444,6 +444,13 @@ and parameter (Param (i, name, type_, default, s)) qmap work =
     stmt -> resolution IntMap.t -> work -> (stmt, work) *)
 and statement s qmap work =
   let go e work = expression e qmap work in
+  let jump_value value work =
+    match value with
+    | None -> (None, work)
+    | Some e ->
+        let e, work = go e work in
+        (Some e, work)
+  in
   let block stmts work = statements stmts qmap work in
   match s with
   | SLet (i, target, e, type_, sym, public, _) ->
@@ -467,7 +474,13 @@ and statement s qmap work =
   | SExprStmt (i, e, sym) ->
       let e, work = go e work in
       (SExprStmt (i, e, sym), work)
-  | SBreak _ | SContinue _ | SDatatype _ -> (s, work)
+  | SBreak (i, value, sym) ->
+      let value, work = jump_value value work in
+      (SBreak (i, value, sym), work)
+  | SContinue (i, value, sym) ->
+      let value, work = jump_value value work in
+      (SContinue (i, value, sym), work)
+  | SDatatype _ -> (s, work)
   | SImport (i, module_, name, selected, fields, sym) ->
       (* What a module exports is renamed with everything else, and an
          import names it by the name the output uses. *)

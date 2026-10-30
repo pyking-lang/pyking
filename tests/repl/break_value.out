@@ -1,0 +1,12 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> . . . . > 600 : Int
+> . . (4, 6) : (Int, Int)
+> . . '<repl>' 2:10-2:11 Parsing error: this loop carries nothing, so
+  'break' takes no value: give the loop an accumulator ('loop acc =
+  ...') for 'break' to give one
+> . . '<repl>' 2:10-2:11 Type error: this loop carries String, but this
+  'break' gives it Int
+> . . '<repl>' 2:12-2:13 Parsing error: each statement must start on a new
+  line. In this case, 'break x' and 'x' are seen as two different
+  statements
+> 

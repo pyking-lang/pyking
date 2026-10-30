@@ -1,0 +1,13 @@
+# `break x` with no loop to break out of.
+#
+# A value does not change where a `break` may stand: it still belongs to
+# the innermost loop it is written in, and may not reach out of a `def`
+# to find one.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+total = loop acc = 0:
+    def give_up() -> Int:
+        break acc
+    acc + 1

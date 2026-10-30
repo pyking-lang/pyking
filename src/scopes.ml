@@ -275,6 +275,7 @@ and resolve_stmt ctx env stmt found =
         | None -> (inner, found)
       in
       (env, resolve_block ctx inner body (i.row2, i.col2) found)
+  | SBreak (_, Some e, _) | SContinue (_, Some e, _) -> (env, resolve_expr ctx env e found)
   | SBreak _ | SContinue _ | SFunctionSig _ | SDatatype _ -> (env, found)
   | SIf (i, c, then_, else_, _) ->
       let found = resolve_expr ctx env c found in

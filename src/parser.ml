@@ -1648,8 +1648,12 @@ and parse_statement eof tokens =
          same node, and so the same `break`/`continue`. *)
       parse_loop_tail eof i None None None tokens
   | TokLoop i :: rest -> parse_loop_stmt eof i rest
-  | TokBreak i :: rest -> (SBreak (i, 0), rest)
-  | TokContinue i :: rest -> (SContinue (i, 0), rest)
+  | TokBreak i :: rest ->
+      let info, value, rest = parse_jump_value eof i rest in
+      (SBreak (info, value, 0), rest)
+  | TokContinue i :: rest ->
+      let info, value, rest = parse_jump_value eof i rest in
+      (SContinue (info, value, 0), rest)
   | TokMatch i :: rest -> parse_match_stmt eof i rest
   | TokDatatype i :: _ ->
       raise
@@ -1952,6 +1956,18 @@ and fixed_list pattern =
 and list_prefix pattern =
   match pattern with PList (_, prefix, _, _, _) -> prefix | _ -> []
 
+(** The value a `break`/`continue` at i carries: whatever is written
+    after it on its own line, a bare tuple as in a loop header, or none.
+    Answers the statement's whole span with it.
+    info -> info -> [token] -> (info, expr option, [token]) *)
+and parse_jump_value eof i tokens =
+  match tokens with
+  | (TokIndent _ | TokDedent _) :: _ | [] -> (i, None, tokens)
+  | next :: _ when (token_info next).row1 <> i.row2 -> (i, None, tokens)
+  | _ ->
+      let e, rest = parse_tuple_or_expr eof tokens in
+      (combine_info i (expr_info e), Some e, rest)
+
 (** Whether stmt always leaves the block it is in, so nothing after it
     can run. Only `break`/`continue` count -- a `return` after which
     more is written is legal Pyking. stmt -> bool *)
@@ -1981,32 +1997,50 @@ and check_reachable previous current =
               loop, so nothing written after it in the same block runs"
              (statement_text previous) ))
 
-(** Raises Parse_error for a 'break'/'continue' outside a loop body.
-    `held` is whether a loop they would belong to is open, and `crossed`
-    names the construct that cut them off from it, for the message.
-    [stmt] -> bool -> string option -> () *)
-and check_loop_context stmts held crossed =
+(** Raises Parse_error for a 'break'/'continue' outside a loop body, or
+    for one carrying a value out of a loop that carries nothing.
+    `held` is whether a loop they would belong to is open, `carries`
+    whether that loop has an accumulator, and `crossed` names the
+    construct that cut them off from it, for the message.
+    [stmt] -> bool -> bool -> string option -> () *)
+and check_loop_context stmts held ?(carries = false) crossed =
   List.iter
     (fun stmt ->
       match stmt with
-      | SBreak (i, _) | SContinue (i, _) ->
-          if not held then no_loop_here stmt i crossed
-      | SLoop (_, _, _, _, _, body, _) -> check_loop_context body true None
+      | SBreak (i, value, _) | SContinue (i, value, _) -> (
+          if not held then no_loop_here stmt i crossed;
+          match value with
+          | Some e when not carries -> no_value_here stmt e
+          | _ -> ())
+      | SLoop (_, target, _, _, _, body, _) ->
+          check_loop_context body true ~carries:(target <> None) None
       | SFunctionDef (_, _, _, body, _, _, _, _, _) ->
           check_loop_context body false (if held then Some "def" else crossed)
       | SIf (_, _, then_body, else_body, _) ->
-          check_loop_context then_body held crossed;
+          check_loop_context then_body held ~carries crossed;
           (match else_body with
           | None -> ()
-          | Some body -> check_loop_context body held crossed)
+          | Some body -> check_loop_context body held ~carries crossed)
       | SMatch (_, _, cases, _) ->
           List.iter
-            (fun c -> check_loop_context (case_body c) held crossed)
+            (fun c -> check_loop_context (case_body c) held ~carries crossed)
             cases
       | SLetStmt (_, _, inner, _, _, _) | SReturnStmt (_, inner, _) ->
-          check_loop_context [ inner ] held crossed
+          check_loop_context [ inner ] held ~carries crossed
       | _ -> ())
     stmts
+
+(** Raises the Parse_error for a 'break'/'continue' giving the value e to
+    a loop with no accumulator to put it in. stmt -> expr -> () *)
+and no_value_here stmt e =
+  let keyword = match stmt with SBreak _ -> "break" | _ -> "continue" in
+  raise
+    (Parse_error
+       ( expr_info e,
+         Printf.sprintf
+           "this loop carries nothing, so '%s' takes no value: give the loop \
+            an accumulator ('loop acc = ...') for '%s' to give one"
+           keyword keyword ))
 
 (** Raises the Parse_error for a 'break'/'continue' with no loop of its
     own. stmt -> info -> string option -> () *)

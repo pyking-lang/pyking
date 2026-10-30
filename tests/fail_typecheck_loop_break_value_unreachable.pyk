@@ -1,0 +1,13 @@
+# A statement written after `continue x`.
+#
+# A `continue` that carries a value leaves the turn just as a bare one
+# does, so nothing after it in the same block can run.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+total = loop acc = 0 for x in [1, 2, 3]:
+    if x == 2:
+        continue acc * 10
+        print("never")
+    acc + x

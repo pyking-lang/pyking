@@ -1,15 +1,12 @@
-# `break` with an operand.
+# `break` with a value, out of a loop that carries nothing.
 #
-# A loop is worth the accumulator it stopped with, so there is nothing
-# for a `break` to say and it takes no operand. What follows one here is
-# read as a statement of its own, and a statement starts a line of its
-# own -- which is what the parser says.
+# `break x` makes x what the loop is worth, and a loop is worth its
+# accumulator -- so a value needs an accumulator to be. A `loop:` with
+# none written carries nothing, and the parser says so rather than
+# letting the value be silently thrown away.
 #
 # This program is expected to FAIL. Its `.ast.out` holds the error
 # message, not a program's output.
 
-counted = loop x = 1:
-    if x > 3:
-        break x * 10
-    else:
-        x + 1
+loop:
+    break 10

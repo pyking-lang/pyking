@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `break x` and `continue x`: a jump may carry the accumulator it
+  leaves with. `break x` ends the loop worth `x`, and `continue x`
+  starts the next turn with `x` (and, on the last turn of a
+  `for`/`while`, leaves the loop worth `x`). The value has the
+  accumulator's type (`this loop carries Int, but this 'break' gives it
+  String`) and is written like the header's initializer, so a tuple
+  needs no parentheses (`break n, acc`). A loop carrying nothing --
+  `loop:`, or a plain `for`/`while` -- takes no value (`this loop
+  carries nothing, so 'break' takes no value`). A bare `break` and
+  `continue` work as before. On every target, in the REPL, the language
+  server and the debugger.
 - `pyk highlight FILE`: Pyking code coloured as the playground colours
   it, for slides that keep their colours and stay text a reader can
   copy out of the exported PDF. HTML with every style inline (the
@@ -70,6 +81,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- JavaScript (node, web): a loop with both a `while` clause and a
+  function written in its body failed with "is not defined", since the
+  test read the accumulator before the turn had declared it. The test
+  is now asked inside the turn.
 - A notebook cell run right after the page opened, or right after its
   code changed, got no standard input or arguments, since the page
   had not yet found out that the program reads them. A run now waits

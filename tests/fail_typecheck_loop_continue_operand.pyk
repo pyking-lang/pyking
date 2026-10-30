@@ -1,0 +1,12 @@
+# `continue` with a value, in a `for` that carries nothing.
+#
+# A plain `for` is a loop with no accumulator written, so there is no
+# next accumulator for `continue x` to give it.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+for x in [1, 2, 3]:
+    if x == 2:
+        continue x
+    print(x)

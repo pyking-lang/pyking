@@ -1,0 +1,18 @@
+counted = loop x = 1:
+    if x > 5:
+        break x * 100
+    x + 1
+
+counted
+loop n, acc = 0, 0 while n < 4:
+    continue n + 1, acc + n
+
+loop:
+    break 3
+
+loop s = "a":
+    break 1
+
+loop x = 0:
+    break x x
+

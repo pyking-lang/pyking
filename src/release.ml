@@ -131,8 +131,9 @@ and rewrite tmap statement =
   | SReturn (i, e, s) -> SReturn (i, go e, s)
   | SReturnStmt (i, inner, s) -> SReturnStmt (i, rewrite tmap inner, s)
   | SExprStmt (i, e, s) -> SExprStmt (i, go e, s)
-  | SBreak _ | SContinue _ | SFunctionSig _ | SImport _ | SDatatype _ ->
-      statement
+  | SBreak (i, value, s) -> SBreak (i, Option.map go value, s)
+  | SContinue (i, value, s) -> SContinue (i, Option.map go value, s)
+  | SFunctionSig _ | SImport _ | SDatatype _ -> statement
   | SLoop (i, target, init, t, iterate, body, s) ->
       let iterate =
         match iterate with

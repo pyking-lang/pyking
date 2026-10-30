@@ -137,7 +137,9 @@ let children n =
       option_of (fun t -> NType t) type_ @ option_of (fun e -> NExpr e) default
   | NStmt s -> (
       match s with
-      | SBreak _ | SContinue _ | SImport _ -> []
+      | SBreak (_, value, _) | SContinue (_, value, _) ->
+          option_of (fun e -> NExpr e) value
+      | SImport _ -> []
       | SLet (_, target, e, annotation, _, _, _) ->
           [ NTarget target; NExpr e ] @ option_of (fun t -> NType t) annotation
       | SLetStmt (_, target, inner, annotation, _, _) ->

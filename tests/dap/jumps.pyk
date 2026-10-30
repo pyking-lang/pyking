@@ -1,0 +1,8 @@
+total = loop acc, i = 0, 0 while i < 10:
+    if i == 2:
+        continue acc + 100, i + 1
+    if acc > 100:
+        break acc * 2, i
+    acc + i, i + 1
+
+print(total)

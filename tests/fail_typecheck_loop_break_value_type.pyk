@@ -1,0 +1,12 @@
+# `break x` giving a value of the wrong type.
+#
+# The loop is worth what the `break` gives, and a loop has one type --
+# its accumulator's -- so the value must be an Int here.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+counted = loop x = 1:
+    if x > 3:
+        break "done"
+    x + 1

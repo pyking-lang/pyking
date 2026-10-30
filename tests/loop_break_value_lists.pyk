@@ -1,0 +1,148 @@
+# `break x` and `continue x` with lists, strings, `match` and closures.
+#
+# The value a jump carries is held to the accumulator's type exactly as
+# what a body ends in is, so it may be anything the accumulator may be:
+# a list, a String, a tuple of them, a value a `def` in the body
+# captured.
+
+# `break x` in a `for`: the first element over a limit, or -1.
+def first_over(xs:[Int], limit:Int) -> Int:
+    return loop found = 0 - 1 for x in xs:
+        if x > limit:
+            break x
+        found
+
+print(first_over([1, 5, 9, 12], 6))     # 9
+print(first_over([1, 2], 6))            # -1
+
+
+# `continue x` in a `for` replaces this turn's accumulator; when the list
+# then runs out, the loop is worth what the last `continue` gave.
+def keep_last_even(xs:[Int]) -> Int:
+    return loop last = 0 for x in xs:
+        if x % 2 == 0:
+            continue x
+        last
+
+print(keep_last_even([1, 4, 7, 6, 9]))  # 6
+print(keep_last_even([2, 3, 4]))        # 4
+
+
+# A list accumulator that starts out empty: what the `break` gives is
+# what says which list it is.
+def until_negative(xs:[Int]) -> [Int]:
+    return loop seen = [] for x in xs:
+        if x < 0:
+            break seen + [0]
+        seen + [x]
+
+print(until_negative([3, 1, 0 - 2, 5]))  # [3, 1, 0]
+print(until_negative([3, 1]))            # [3, 1]
+
+
+# A String accumulator, with `continue x` and `break x` in the arms of a
+# `match` that ends the body.
+def describe(xs:[Int]) -> String:
+    return loop said = "" for x in xs:
+        match x:
+            case 0:
+                break said + "stop"
+            case 1:
+                continue said + "one;"
+            case _:
+                said + "many;"
+
+print(describe([1, 5, 1]))              # one;many;one;
+print(describe([5, 0, 1]))              # many;stop
+
+
+# A `match` ending the body, a jump in each arm but the last: a bare
+# `continue` keeps the accumulator, `continue x` replaces it.
+def tally(words:[String]) -> (Int, String):
+    return loop count, last = 0, "" for w in words:
+        match w:
+            case "skip":
+                continue
+            case "reset":
+                continue 0, "reset"
+            case _:
+                (count + 1, w)
+
+print(tally(["a", "skip", "b"]))         # (2, "b")
+print(tally(["a", "reset", "c"]))        # (1, "c")
+
+
+# A jump in a `for` over a String walks its characters.
+def first_vowel(word:String) -> Char:
+    return loop found = '-' for c in word:
+        if c == 'a' or c == 'e' or c == 'i' or c == 'o' or c == 'u':
+            break c
+        found
+
+print(first_vowel("rhythm"))            # -
+print(first_vowel("strength"))          # e
+
+
+# A `def` written in the body captures this turn's accumulator; the
+# value a `continue` gives is what the next turn's function sees.
+def makers(n:Int) -> [Int]:
+    funcs = loop made, i = [], 0 while i < n:
+        def scaled(k:Int) -> Int:
+            return k * i
+        if i == 1:
+            continue made + [scaled], i + 2
+        made + [scaled], i + 1
+    fs, _ = funcs
+    return [f(10) for f in fs]
+
+print(makers(4))                        # [0, 10, 30]
+
+
+# The value may be any expression: a call, a comprehension, a lambda's
+# result.
+def squares_until(limit:Int) -> [Int]:
+    return loop found = []:
+        n = len(found) + 1
+        if n * n > limit:
+            break [k * k for k in found]
+        found + [n]
+
+print(squares_until(30))                # [1, 4, 9, 16, 25]
+
+applied = loop x = 1:
+    if x > 5:
+        break (lam y. y * 3)(x)
+    x + 2
+
+print(applied)                          # 21
+
+
+# A `return` beside a `break x`: the `return` leaves the function, the
+# `break` only the loop.
+def find_pair(xs:[Int], total:Int) -> (Int, Int):
+    best = loop found = (0, 0) for x in xs:
+        if x == total:
+            return (x, 0)
+        if x * 2 == total:
+            break (x, x)
+        found
+    return best
+
+print(find_pair([1, 3, 9], 6))          # (3, 3)
+print(find_pair([1, 6, 3], 6))          # (6, 0)
+print(find_pair([1, 2], 6))             # (0, 0)
+
+
+# Nested `for` loops: each jump belongs to its own loop.
+def grid_hits(rows:[[Int]]) -> [Int]:
+    return loop hits = [] for row in rows:
+        first = loop at, i = 0 - 1, 0 for v in row:
+            if v == 1:
+                break i, i
+            at, i + 1
+        hit, _ = first
+        if hit < 0:
+            continue hits
+        hits + [hit]
+
+print(grid_hits([[0, 1], [0, 0], [1, 0, 1]]))   # [1, 0]

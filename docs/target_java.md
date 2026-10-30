@@ -217,7 +217,9 @@ parameters, so `all r. ((a) -> r) -> r` is one interface for every `a`.
 
 ## Loops and `match`
 
-A loop's accumulator is a local, assigned at the end of each turn; a
+A loop's accumulator is a local, assigned at the end of each turn -- and
+by a `break x`/`continue x` just before it jumps, so the loop is worth
+`x` or the next turn starts from it; a
 `for` is Java's enhanced `for`; `while c` is Java's `while`. A constant
 condition is wrapped in `PykRuntime.truth`, since javac refuses the body
 of `while (false)`.

@@ -1,0 +1,14 @@
+# What a jump carries is an ordinary expression to the editor.
+def first_over(xs: [Int], limit: Int) -> Int:
+    return loop found = 0 - 1 for x in xs:
+        if x > limit:
+            break x * limit
+        continue found
+
+
+pair = loop n, acc = 3, 0:
+    if n == 0:
+        break n, acc
+    n - 1, acc + n
+
+print(first_over([1, 9], 5), pair)

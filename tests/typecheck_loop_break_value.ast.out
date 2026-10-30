@@ -1,0 +1,26 @@
+def clamp_sum(limit:Int, count:Int) -> Int:
+    (total, _): (Int, Int) = loop total: (Int, Int) = (0, 1):
+        (t, i): (Int, Int) = total
+        if i > count:
+            break
+        else if t + i > limit:
+            break (limit, i)
+        continue (t + i, i + 1)
+    return total
+def first_long(words:(String, String, String)) -> String:
+    (a, b, c): (String, String, String) = words
+    return loop picked: String = "":
+        if len(a) > 3:
+            break a
+        else if len(b) > 3:
+            break b
+        else:
+            break c
+def halve_until(x:Float, floor:Float) -> Float:
+    return loop f: Float = x while f > floor:
+        if f / 2.0 < floor:
+            break floor
+        continue f / 2.0
+print(clamp_sum(100, 4), clamp_sum(5, 10))
+print(first_long(("ab", "abcd", "x")), first_long(("a", "b", "c")))
+print(halve_until(10.0, 1.0))

@@ -2620,9 +2620,15 @@ and loop_last ctx acc statement this =
       let inner, acc = loop ctx acc statement false in
       (again this inner, acc)
   (* A `break` leaves with the accumulator this turn started with, which
-     is what the loop is worth (PYKING.md, "Leaving a loop"). *)
-  | SBreak _ -> (this.loop_accumulator, acc)
-  | SContinue _ -> (again this this.loop_accumulator, acc)
+     is what the loop is worth (PYKING.md, "Leaving a loop") -- or with
+     the value written after it, and a `continue` goes round with that
+     value in the same way. *)
+  | SBreak (_, None, _) -> (this.loop_accumulator, acc)
+  | SBreak (_, Some e, _) -> expr ctx acc e
+  | SContinue (_, None, _) -> (again this this.loop_accumulator, acc)
+  | SContinue (_, Some e, _) ->
+      let value, acc = expr ctx acc e in
+      (again this value, acc)
   | SIf (_, cond, then_body, else_body, _) -> (
       match else_body with
       | Some else_body ->

@@ -148,9 +148,10 @@ restriction of it, but these are genuinely new.
   so a loop needs no mutable variable to add something up. A loop is
   *worth* the accumulator it stopped with -- which makes it usable as a
   bound value -- or unit where it carries none. `break` ends it and
-  `continue` starts the next turn early; neither takes an operand, since
-  the accumulator has already said everything there is to say. See
-  "`loop` loops" below.
+  `continue` starts the next turn early. Python's take no operand;
+  Pyking's may take one, the accumulator they leave with: `break x`
+  makes the loop worth `x`, and `continue x` starts the next turn with
+  `x`. See "`loop` loops" below.
 - **`..`/`..name` list-pattern rest markers**: Python spells "match the
   rest of a list" as `*_`/`*name`; Pyking spells it `..`/`..name`, and it
   may appear anywhere in the pattern — start, middle, or end — not just
@@ -287,8 +288,9 @@ Statements:
 - `for`/`in` loops
 - `while` loops
 - `loop` loops, which carry an accumulator from turn to turn and are
-  worth it when they stop, with `break` and `continue` (neither taking
-  an operand) -- Pyking extension
+  worth it when they stop, with `break` and `continue`, each of which
+  may give the accumulator it leaves with (`break x`, `continue x`) --
+  Pyking extension
 - `if`/`else` statements, chained with `else if` — spelled as two
   keywords; Pyking has no `elif`
 - `match`/`case` pattern matching, including tuple patterns
@@ -478,8 +480,10 @@ loop_stmt   = ( "loop" , accumulator , [ iteration ]
 accumulator = target , [ ":" , type ] , "=" , tuple_or_expr ;
 iteration   = "for" , ident , "in" , expr | "while" , expr ;
 
-break_stmt    = "break" ;
-continue_stmt = "continue" ;
+(* The value, written on the `break`/`continue` line itself, is the
+   accumulator the jump leaves with. *)
+break_stmt    = "break" , [ tuple_or_expr ] ;
+continue_stmt = "continue" , [ tuple_or_expr ] ;
 
 if_stmt     = "if" , expr , ":" , block ,
               { "else" , "if" , expr , ":" , block } ,
@@ -682,6 +686,21 @@ Notes that don't fall out of the grammar alone:
   A `return` is deliberately not part of that second rule: statements
   after one are legal Pyking, and a branch that returns is an ordinary
   way to leave a body early.
+
+  Third, a `break x`/`continue x` gives the loop it belongs to an
+  accumulator, so the loop must have one to give: a value is refused in
+  a `loop:` with none written, and in a plain `for`/`while`:
+
+  ```
+  'prog.pyk' 2:10-2:12 Parsing error: this loop carries nothing, so
+    'break' takes no value: give the loop an accumulator ('loop acc =
+    ...') for 'break' to give one
+  ```
+
+  The value is whatever follows the keyword on its own line, a bare
+  tuple included (`break n, acc`), exactly as a loop header's
+  initializer is written. A second thing after it on the line is two
+  statements on one line, refused as such.
 - A `loop_stmt` is a `value_stmt`, so a loop may be bound with `=` or
   returned with `return`, exactly as a value-form `if`/`match` may. It
   needs none of the rules those two obey -- every loop has an
@@ -2537,15 +2556,25 @@ def total(xs:[Int]) -> Int:
 A loop carrying nothing asks nothing of its body: there is no next
 accumulator for it to give, so it may end in any type at all.
 
-**Leaving a loop.** `break` ends the loop. It takes no operand: the
-loop is worth the accumulator the turn it stopped on started with, so
-there is nothing left to say. `continue` is the other way round -- it
-starts the next turn at once, with that same accumulator unchanged --
-and takes no operand for the same reason.
+**Leaving a loop.** `break` ends the loop. Written bare, the loop is
+worth the accumulator the turn it stopped on started with. `continue`
+is the other way round -- it starts the next turn at once, with that
+same accumulator unchanged.
+
+Either may instead say what the accumulator is from then on: `break x`
+ends the loop worth `x`, and `continue x` starts the next turn with
+`x`, just as a body ending in `x` would. `x` is held to the
+accumulator's type, as what the body ends in is. A loop that carries
+nothing has no accumulator for a value to be, so there both are written
+bare.
 
 **What a loop is worth.** One rule:
 
 > the accumulator it stopped with, if one is written; else `()`.
+
+A `break x` stops it with `x`; a `continue x` on the last turn of a
+`for`/`while` leaves it with `x` too, since that is what the next turn
+would have started with.
 
 However it stops -- on a `break`, or by a `for`/`while` running out of
 turns -- the answer is the same, so a loop that can stop both ways
@@ -2611,6 +2640,45 @@ def total_positive(xs:[Int]) -> Int:
 
 print(total_positive([1, 0 - 5, 2]))    # 3
 ```
+
+**A jump may carry the accumulator.** `break x` stops the loop worth
+`x`, and `continue x` goes round with `x` as the next turn's
+accumulator -- so a loop can stop with something other than what the
+turn started with, or go round early with a new value, without arranging
+for the body to end in it. The value is written the way the header's
+initializer is, a tuple with or without its parentheses:
+
+```pyking
+def first_over(xs:[Int], limit:Int) -> Int:
+    return loop found = 0 - 1 for x in xs:
+        if x > limit:
+            break x         # the loop is worth this element
+        found
+
+
+def saturating_sum(xs:[Int]) -> Int:
+    return loop acc = 0 for x in xs:
+        if acc + x > 10:
+            continue 10     # the next turn starts from 10
+        acc + x
+
+
+steps, last = loop steps, n = 0, 6:
+    if n == 1:
+        break steps, n
+    else if n % 2 == 0:
+        continue steps + 1, n / 2
+    steps + 1, 3 * n + 1
+
+
+print(first_over([1, 5, 9, 12], 6))      # 9
+print(saturating_sum([3, 4, 5, 6]))      # 10
+print(steps, last)                       # 8 1
+```
+
+The value must have the accumulator's type (`this loop carries Int,
+but this 'break' gives it String`), and a loop that carries nothing --
+`loop:`, or a plain `for`/`while` -- takes none.
 
 **A loop is worth its accumulator**, so it stands wherever a value-form
 `if`/`match` does -- bound with `=`, returned with `return`, or left as
@@ -4223,6 +4291,15 @@ decides, exactly as it does in an `if` one of whose branches returns. A
 body all of whose paths jump is asked for nothing at all. A `return`
 written in a loop body leaves the *function*, so what it gives is one
 of the function's answers like any other `return`.
+
+A `break x` or `continue x` still supplies nothing where it stands, but
+its value is held to the accumulator's type, exactly as what the body
+ends in is -- it is the loop's value, or the next turn's accumulator:
+
+```
+'prog.pyk' 11:14-11:20 Type error: this loop carries Int, but this
+  'break' gives it String
+```
 
 A `loop:` with no accumulator carries unit, is worth unit, and discards
 whatever its body ends in -- so its body's last statement may be of any

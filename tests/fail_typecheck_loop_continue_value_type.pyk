@@ -1,0 +1,13 @@
+# `continue x` giving the next turn something it cannot take.
+#
+# The accumulator is a pair, so the value `continue` gives the next turn
+# must be a pair of the same types too.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def walk(n:Int) -> (Int, String):
+    return loop i, said = 0, "" while i < n:
+        if i == 2:
+            continue i + 1
+        i + 1, said + "x"

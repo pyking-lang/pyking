@@ -1,0 +1,3 @@
+'tests/fail_typecheck_loop_break_value_line.pyk' 11:18-11:28 Parsing
+  error: each statement must start on a new line. In this case, 'break
+  acc' and 'print(acc)' are seen as two different statements

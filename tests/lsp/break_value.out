@@ -1,0 +1,35 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open break_value.pyk
+> idle
+diagnostics $CASES/break_value.pyk v1 []
+> hover break_value.pyk 5:19
+{"contents": {"kind": "markdown", "value": "```pyking\nx: Int\n```"}, "range": {"end": {"character": 19, "line": 4}, "start": {"character": 18, "line": 4}}}
+> hover break_value.pyk 5:23
+{"contents": {"kind": "markdown", "value": "```pyking\nlimit: Int\n```"}, "range": {"end": {"character": 27, "line": 4}, "start": {"character": 22, "line": 4}}}
+> hover break_value.pyk 6:18
+{"contents": {"kind": "markdown", "value": "```pyking\nfound: Int\n```"}, "range": {"end": {"character": 22, "line": 5}, "start": {"character": 17, "line": 5}}}
+> hover break_value.pyk 11:19
+{"contents": {"kind": "markdown", "value": "```pyking\nacc: Int\n```"}, "range": {"end": {"character": 20, "line": 10}, "start": {"character": 17, "line": 10}}}
+> definition break_value.pyk 5:19
+{"range": {"end": {"character": 35, "line": 2}, "start": {"character": 34, "line": 2}}, "uri": "$CASES/break_value.pyk"}
+> definition break_value.pyk 6:18
+{"range": {"end": {"character": 21, "line": 2}, "start": {"character": 16, "line": 2}}, "uri": "$CASES/break_value.pyk"}
+> definition break_value.pyk 11:16
+{"range": {"end": {"character": 13, "line": 8}, "start": {"character": 12, "line": 8}}, "uri": "$CASES/break_value.pyk"}
+> request textDocument/references {"textDocument": {"uri": "$URI(break_value.pyk)"}, "position": {"line": 2, "character": 34}, "context": {"includeDeclaration": true}}
+[{"range": {"end": {"character": 35, "line": 2}, "start": {"character": 34, "line": 2}}, "uri": "$CASES/break_value.pyk"}, {"range": {"end": {"character": 12, "line": 3}, "start": {"character": 11, "line": 3}}, "uri": "$CASES/break_value.pyk"}, {"range": {"end": {"character": 19, "line": 4}, "start": {"character": 18, "line": 4}}, "uri": "$CASES/break_value.pyk"}]
+> request textDocument/rename {"textDocument": {"uri": "$URI(break_value.pyk)"}, "position": {"line": 8, "character": 15}, "newName": "total"}
+{"changes": {"$CASES/break_value.pyk": [{"newText": "total", "range": {"end": {"character": 18, "line": 8}, "start": {"character": 15, "line": 8}}}, {"newText": "total", "range": {"end": {"character": 20, "line": 10}, "start": {"character": 17, "line": 10}}}, {"newText": "total", "range": {"end": {"character": 14, "line": 11}, "start": {"character": 11, "line": 11}}}]}}
+> request textDocument/semanticTokens/full {"textDocument": {"uri": "$URI(break_value.pyk)"}}
+{"data": [1, 4, 10, 3, 1, 0, 11, 2, 4, 1, 0, 11, 5, 4, 1, 1, 16, 5, 5, 3, 0, 18, 1, 5, 3, 0, 5, 2, 4, 0, 1, 11, 1, 5, 2, 0, 4, 5, 4, 0, 1, 18, 1, 5, 2, 0, 4, 5, 4, 0, 1, 17, 5, 5, 2, 3, 0, 4, 5, 3, 0, 12, 1, 5, 3, 0, 3, 3, 5, 3, 1, 7, 1, 5, 2, 1, 14, 1, 5, 2, 0, 3, 3, 5, 2, 1, 4, 1, 5, 2, 0, 7, 3, 5, 2, 0, 6, 1, 5, 2, 2, 0, 5, 3, 4, 0, 6, 10, 3, 0, 0, 23, 4, 5, 2]}
+> change break_value.pyk
+> idle
+diagnostics $CASES/break_value.pyk v2 [{"code": "Type error", "message": "this loop carries Int, but this 'break' gives it String", "range": {"end": {"character": 20, "line": 2}, "start": {"character": 14, "line": 2}}, "severity": 1, "source": "pyking"}]
+> change break_value.pyk
+> idle
+diagnostics $CASES/break_value.pyk v3 [{"code": "Parsing error", "message": "this loop carries nothing, so 'continue' takes no value: give the loop an accumulator ('loop acc = ...') for 'continue' to give one", "range": {"end": {"character": 14, "line": 1}, "start": {"character": 13, "line": 1}}, "severity": 1, "source": "pyking"}]
+> shutdown
+null
+> exit
+> exit status 0

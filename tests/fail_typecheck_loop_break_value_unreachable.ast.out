@@ -1,0 +1,4 @@
+'tests/fail_typecheck_loop_break_value_unreachable.pyk' 12:8-12:22
+  Parsing error: this statement cannot be reached: 'continue acc * 10'
+  has already left the loop, so nothing written after it in the same
+  block runs

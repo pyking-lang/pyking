@@ -306,7 +306,9 @@ this turn started with, the environment the loop is written in, and the
 continuation the loop's own value goes to. A `break` delivers that
 accumulator there -- which is what the loop is worth, and what a
 `for`/`while` running out of turns delivers too (`finish`); `continue`
-starts the next turn with it instead.
+starts the next turn with it instead. A `break x`/`continue x` evaluates
+`x` first, with `KJump` waiting for it: the loop then leaves with that
+value, or starts its next turn with it as the accumulator.
 
 The turn itself is where the shape matters. `turn` binds the
 accumulator afresh in the loop's own environment and enters the body

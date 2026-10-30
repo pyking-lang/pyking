@@ -250,8 +250,10 @@ The groups:
   `SFunctionDef`, `SFunctionSig`, `SMatch`, `SImport`, `SDatatype`
   (with its `constructor`s and each one's `field`s). `SLoop` carries
   its accumulator as a `target`/`init` pair, both absent for the bare
-  `loop:`; `SBreak` and `SContinue` carry nothing but their span, since
-  a loop is worth the accumulator it stopped with.
+  `loop:`; `SBreak` and `SContinue` carry their span and an optional
+  value, the `x` of `break x`/`continue x` -- the accumulator the jump
+  leaves with. A bare one has none, since a loop is worth the
+  accumulator it stopped with.
 - **Single-constructor records** — `param`, `list_rest`, `match_case`
   (pattern, guard, body), `constructor`, `field`, and `datatype`
   (canonical name, parameters, constructors with their fields' names and
@@ -811,6 +813,9 @@ OCaml-style near the top of the file):
   expression compare without any of them being a special case: a
   `return` supplies the function's type, and a `break`/`continue`
   supplies nothing at all, since neither reaches the end of its block.
+  A value one carries is held to the accumulator's type by
+  **`check_jump_value`** (**`jump_error`** is the refusal), since it is
+  the loop's value or the next turn's accumulator.
   `SVar` and `SMutate` supply unit: a
   `var` has its initializer's type, whatever it is, and a `:=` must give
   the type the declaration fixed. Neither says anything about
@@ -1338,7 +1343,9 @@ three are design rather than accident:
   back here — so a turn costs no continuation chain however many turns
   there are, and a loop that never ends never grows. `leave` delivers
   the loop's value where the loop statement stood -- the accumulator
-  this turn started with, which is what a `break` leaves with too.
+  this turn started with, which is what a bare `break` leaves with too.
+  A `break x`/`continue x` first evaluates `x` with **`KJump`** waiting,
+  which then leaves with it or starts the next turn with it.
   `finish` is the other end: a loop that ran out of turns is worth
   that same accumulator.
 - **`bind_target(env, target, value)`** — binds one name, or takes a
@@ -1851,7 +1858,8 @@ refused).
   Pyking evaluates left to right and OCaml does not promise to.
 - **`_Translator.loop`** — a `loop` as a local recursive function
   applied at once: the accumulator is its parameter, `continue` is a
-  tail call, `break` is the value it returns. A `for` clause carries
+  tail call, `break` is the value it returns -- `continue x` is the tail
+  call with `x`, and `break x` returns `x`. A `for` clause carries
   what is left of the sequence as a second parameter, and running out of
   it leaves the loop with the accumulator; a `while` clause asks its
   test with the accumulator in scope, and a turn not taken leaves the

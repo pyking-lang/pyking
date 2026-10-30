@@ -144,6 +144,11 @@ type scope = {
   (* What each name a module was imported under actually names, so that
      a qualified name can be asked which half provides it. *)
   module_aliases : (string * string) list;
+  (* The variable the nearest enclosing loop carries its accumulator in,
+     which a `break x`/`continue x` assigns before it jumps; None outside
+     a loop or in one carrying nothing. A `break` cannot cross a `def`,
+     so a function body never reads the one around it. *)
+  accumulator : jstarget option;
 }
 
 (** A scope for a nested block: it sees the enclosing names, and what it
@@ -1185,12 +1190,15 @@ and translate_stmt s scope =
   | SLoop _ ->
       let js_stmts, _, scope = translate_loop s scope in
       (js_stmts, scope)
-  | SBreak (info, _) ->
+  | SBreak (info, value, _) ->
       (* JavaScript's own: the variable the loop carries is left holding
-         what this turn started with, which is what the loop is
-         worth. *)
-      ([ JsBreak info ], scope)
-  | SContinue (info, _) -> ([ JsContinue info ], scope)
+         what this turn started with, which is what the loop is worth --
+         or is given the value written first. *)
+      (jump_value value scope @ [ JsBreak info ], scope)
+  | SContinue (info, value, _) ->
+      (* The next turn starts from that same variable, so a value written
+         is put there first. *)
+      (jump_value value scope @ [ JsContinue info ], scope)
   | SIf (info, cond, then_body, else_body, _) ->
       let js_then, _ = translate_stmts then_body (block_scope scope) in
       let js_else =
@@ -1289,6 +1297,14 @@ and translate_stmt s scope =
       (own_name @ functions, scope)
   | s -> unsupported (stmt_info s) (stmt_kind_name s)
 
+(** The assignment a `break x`/`continue x` makes before it jumps: x
+    into the variable carrying the loop's accumulator. Nothing for a
+    bare one. expr option -> scope -> [jsstmt] *)
+and jump_value value scope =
+  match (value, scope.accumulator) with
+  | Some e, Some target -> [ JsAssign (expr_info e, target, translate_expr e scope) ]
+  | _ -> []
+
 (** Translates a loop into `while (true)` over a `let` accumulator
     (docs/target_js.md, "loop"): the initializer is the accumulator's
     first value and every tail of the body assigns the next one, so the
@@ -1356,14 +1372,26 @@ and translate_loop s scope =
             (Some js_name, Some js_sequence, body_scope)
         | _ -> (None, None, body_scope)
       in
-      let js_body = per_turn @ translate_loop_block body carried body_scope in
+      let body_scope = { body_scope with accumulator = carried } in
+      let js_body = translate_loop_block body carried body_scope in
       let loop =
         match iterate with
         | Some (ForIn _) ->
-            JsForOf (info, Option.get js_name, Option.get js_sequence, js_body)
+            JsForOf
+              (info, Option.get js_name, Option.get js_sequence, per_turn @ js_body)
+        | Some (WhileTest (_, condition, _)) when per_turn <> [] ->
+            (* The accumulator the test reads is the `const` declared
+               inside the body, so the test is asked there, after it. *)
+            let test = translate_expr condition body_scope in
+            JsWhile
+              ( info,
+                JsBool (info, true),
+                per_turn
+                @ [ JsIf (info, JsUnary (info, "!", test), [ JsBreak info ], None) ]
+                @ js_body )
         | Some (WhileTest (_, condition, _)) ->
             JsWhile (info, translate_expr condition body_scope, js_body)
-        | None -> JsWhile (info, JsBool (info, true), js_body)
+        | None -> JsWhile (info, JsBool (info, true), per_turn @ js_body)
       in
       (setup @ [ loop ], value, scope)
   | s -> ([], JsArray (stmt_info s, []), scope)
@@ -1452,6 +1480,7 @@ let translate_program ?(taken = []) ?(external_fields = []) ?(externals = [])
         external_fields;
         externals;
         own_module = own;
+        accumulator = None;
         own_external =
           Option.value (List.assoc_opt own external_fields) ~default:[];
         module_aliases =

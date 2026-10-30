@@ -1011,7 +1011,10 @@ and rewrite signatures scope taken statement =
       let _, inner, _ = rewrite signatures scope taken inner in
       ([], SReturnStmt (i, inner, s), scope)
   | SExprStmt (i, e, s) -> ([], SExprStmt (i, go e, s), scope)
-  | SBreak _ | SContinue _ | SFunctionSig _ -> ([], statement, scope)
+  | SBreak (i, value, s) -> ([], SBreak (i, Option.map go value, s), scope)
+  | SContinue (i, value, s) ->
+      ([], SContinue (i, Option.map go value, s), scope)
+  | SFunctionSig _ -> ([], statement, scope)
   | SDatatype (i, name, params, constructors, s, public) ->
       (* A field's default is a generated def, exactly as a parameter's
          is, written just before the datatype. *)

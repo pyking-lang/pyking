@@ -775,12 +775,14 @@ and sym_stmt counter st =
       let body, counter = map_fold sym_stmt counter body in
       let s, counter = assign s counter in
       (SLoop (i, target, init, type_, iterate, body, s), counter)
-  | SBreak (i, s) ->
+  | SBreak (i, value, s) ->
+      let value, counter = map_option sym_expr counter value in
       let s, counter = assign s counter in
-      (SBreak (i, s), counter)
-  | SContinue (i, s) ->
+      (SBreak (i, value, s), counter)
+  | SContinue (i, value, s) ->
+      let value, counter = map_option sym_expr counter value in
       let s, counter = assign s counter in
-      (SContinue (i, s), counter)
+      (SContinue (i, value, s), counter)
   | SIf (i, cond, then_body, else_body, s) ->
       let cond, counter = sym_expr counter cond in
       let then_body, counter = map_fold sym_stmt counter then_body in
@@ -960,7 +962,8 @@ and high_stmt st =
             high_option high_loop_iter iterate;
             high_list high_stmt body;
           ]
-    | SBreak (_, _) | SContinue (_, _) -> 0
+    | SBreak (_, value, _) | SContinue (_, value, _) ->
+        high_option high_expr value
     | SIf (_, cond, then_body, else_body, _) ->
         List.fold_left max 0
           [

@@ -404,8 +404,10 @@ print(x, show())                   print(x2, show())      → two 1
 
 A `loop` is Python's `while True` over one variable holding the
 accumulator: the initializer gives it its first value, every tail of the
-body assigns the next one, and `break`/`continue` are Python's own,
-operand and all -- they have none.
+body assigns the next one, and `break`/`continue` are Python's own. A
+`break x` or `continue x` assigns `x` to that variable first
+(`x = …` then `break`), which is all it takes: the loop is worth what
+the variable holds, and the next turn starts from it.
 
 ```pyking                          # generated Python
 res = loop x = 5:                  x = 5

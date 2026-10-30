@@ -309,8 +309,10 @@ always was.
 
 A `loop` is `while (true)` over a `let` holding the accumulator: the
 initializer gives it its first value, every tail of the body assigns the
-next one, and `break`/`continue` are JavaScript's own, operand and all
-— they have none.
+next one, and `break`/`continue` are JavaScript's own. A `break x` or
+`continue x` assigns `x` to that `let` first (`x = …; break;`), which is
+all it takes: the loop is worth what the `let` holds, and the next turn
+starts from it.
 
 ```pyking                          // generated JavaScript
 res = loop x = 5:                  let x = 5;
@@ -363,7 +365,11 @@ loop i, made = 0, []:              while (true) {
 ```
 
 A loop with no function in its body keeps the plain `let`, so ordinary
-output stays ordinary. A `for … of` header needs none of this:
+output stays ordinary. A `while` clause on a loop with a carrier is
+asked inside the body, after the per-turn `const` it reads
+(`while (true) { const [i, made] = tmp1; if (!(i < n)) { break; } … }`),
+since the accumulator's own name exists only there. A `break x`/`continue
+x` assigns the carrier. A `for … of` header needs none of this:
 JavaScript already gives each iteration its own binding for the element.
 
 A **lambda** in the body is the same case and gets the same answer:

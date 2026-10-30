@@ -1,0 +1,3 @@
+'tests/fail_typecheck_loop_continue_value_type.pyk' 12:21-12:26 Type
+  error: this loop carries (Int, String), but this 'continue' gives it
+  Int
