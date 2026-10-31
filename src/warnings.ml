@@ -95,7 +95,7 @@ let description = function
   | Shadowed_update ->
       "A name bound with '=' inside a block, never used, while the same \
        name is bound outside the block: an update written as a new \
-       binding. Says how to make it a variable instead."
+       binding."
   | Unused_pattern_var ->
       "A name a 'case' pattern binds that its arm never uses."
   | Unused_parameter ->
@@ -651,9 +651,8 @@ let check ?(qmap = IntMap.empty) ?(toplevel_used = false) ?(public = []) ?(displ
               (Printf.sprintf
                  "%s Did you try to update %s as a variable? Name %s is bound on line %d, but is \
                   not defined as a mutable variable. The declaration on line %d is shadowing %s, \
-                  and then never used in the scope. To update it, declare it with 'var %s = ...' \
-                  (after 'use mutation') and write '%s := ...'."
-                 unused shown shown (line outer.span) (line b.span) shown shown shown)
+                  and then never used in the scope."
+                 unused shown shown (line outer.span) (line b.span) shown)
         | _ -> say Unused_binding b.span unused)
     | RVariable ->
         say Unused_var b.span

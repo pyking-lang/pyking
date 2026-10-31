@@ -26,8 +26,8 @@ name the compiler made up (a default parameter's definition,
 
 `shadowed-update` is the one with something to *say*: `x = 10` in an `if`
 inside a scope that already has an `x` is what an update written
-without `var`/`:=` looks like, so the warning names both lines and says
-how to make it a variable. It takes the unused binding's place: where
+without `var`/`:=` looks like, so the warning names both lines and asks
+whether an update was meant. It takes the unused binding's place: where
 it is on, that binding is reported once, as this; where it is off, the
 binding is still an `unused-binding`.
 

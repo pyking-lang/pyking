@@ -1,6 +1,6 @@
 # The binding that shadows a name from an enclosing block and is never
-# used: what writing `x = ...` for an update looks like. The warning says
-# so, and how to write the update instead.
+# used: what writing `x = ...` for an update looks like. The warning asks
+# whether an update was meant.
 
 x = 5
 if true:

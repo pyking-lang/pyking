@@ -2,7 +2,7 @@
 {"body": {"exceptionBreakpointFilters": [{"default": true, "filter": "uncaught", "label": "Runtime errors"}], "supportsConditionalBreakpoints": true, "supportsConfigurationDoneRequest": true, "supportsEvaluateForHovers": true, "supportsHitConditionalBreakpoints": true, "supportsLogPoints": true, "supportsSetVariable": true, "supportsTerminateRequest": true}, "command": "initialize", "success": true, "type": "response"}
 {"body": {}, "command": "launch", "success": true, "type": "response"}
 {"body": {"category": "stderr", "output": "'$CASES/warnings.pyk' 2:4-2:10 Warning: Function 'helper' is defined but never used. [-Wunused-function]\n"}, "event": "output", "type": "event"}
-{"body": {"category": "stderr", "output": "'$CASES/warnings.pyk' 6:4-6:9 Warning: Unused binding 'total', bound on line 6: it is never used in its scope. Did you try to update total as a variable? Name total is bound on line 1, but is not defined as a mutable variable. The declaration on line 6 is shadowing total, and then never used in the scope. To update it, declare it with 'var total = ...' (after 'use mutation') and write 'total := ...'. [-Wshadowed-update]\n"}, "event": "output", "type": "event"}
+{"body": {"category": "stderr", "output": "'$CASES/warnings.pyk' 6:4-6:9 Warning: Unused binding 'total', bound on line 6: it is never used in its scope. Did you try to update total as a variable? Name total is bound on line 1, but is not defined as a mutable variable. The declaration on line 6 is shadowing total, and then never used in the scope. [-Wshadowed-update]\n"}, "event": "output", "type": "event"}
 {"body": {}, "event": "initialized", "type": "event"}
 > configure
 {"body": {}, "command": "configurationDone", "success": true, "type": "response"}

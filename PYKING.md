@@ -180,7 +180,7 @@ restriction of it, but these are genuinely new.
 - **Warnings**: a name bound and never used is reported before the
   program runs, and so is an `=` in a block that shadows a name from
   outside it and is never used -- an update written as a new binding,
-  which the warning says how to write as a `var`. GCC's flags say which
+  which the warning asks about. GCC's flags say which
   are reported and which stop the program: `-Wall`, `-Werror`,
   `-Wno-unused-function`. See "Warnings".
 - **Arbitrary, refutable patterns in list comprehensions**:
@@ -5025,8 +5025,7 @@ print("done")
   never used in its scope. Did you try to update x as a variable? Name
   x is bound on line 1, but is not defined as a mutable variable. The
   declaration on line 3 is shadowing x, and then never used in the
-  scope. To update it, declare it with 'var x = ...' (after 'use
-  mutation') and write 'x := ...'. [-Wshadowed-update]
+  scope. [-Wshadowed-update]
 'prog.pyk' 5:4-5:10 Warning: Function 'helper' is defined but never
   used. [-Wunused-function]
 done
@@ -5037,7 +5036,8 @@ a *new* binding of `x` for that block -- `=` never updates (see
 "Immutable bindings") -- so the `x` outside is still 5 after it. Where
 such a binding shadows a name from an enclosing block and is then never
 used, an update is almost certainly what was meant, and the warning
-says how to write one: a `var`, updated with `:=`.
+asks whether it was. An update is written with a `var` and `:=` (see
+"Mutable variables").
 
 ### What is reported
 

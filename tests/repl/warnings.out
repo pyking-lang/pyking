@@ -6,9 +6,7 @@ Pyking REPL.  :help for commands, :quit to leave.
   is never used in its scope. Did you try to update total as a
   variable? Name total is bound on line 1, but is not defined as a
   mutable variable. The declaration on line 2 is shadowing total, and
-  then never used in the scope. To update it, declare it with 'var
-  total = ...' (after 'use mutation') and write 'total := ...'.
-  [-Wshadowed-update]
+  then never used in the scope. [-Wshadowed-update]
 > . . > . . . . '<repl>' 2:8-2:13 Warning: Function 'inner' is defined but never used.
   [-Wunused-function]
 > > 
