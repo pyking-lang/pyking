@@ -28,11 +28,22 @@ export default defineConfig({
       favicon: "/site/favicon.svg",
       logo: { src: "./src/assets/logo.svg", alt: "Pyking" },
       customCss: ["./src/styles/site.css"],
-      // Dark until a visitor picks a theme: Starlight's own script, which
-      // runs after this one, reads the choice stored here. Choosing Auto
-      // stores "", so only a visitor who never chose gets dark.
       head: [
+        // Every section kept open as the reader left it: blocking, so it
+        // decides what the page is before anything is drawn (shell.js).
+        {
+          tag: "script",
+          attrs: {
+            src: prefix + "/site/shell.js",
+            "data-base": prefix,
+            "data-sections": JSON.stringify(SECTIONS.map((s) =>
+              ({ key: s.prefix.replace(/\//g, ""), label: s.label, prefix: s.prefix }))),
+          },
+        },
         { tag: "script", attrs: { type: "module", src: prefix + "/site/cells.js" } },
+        // Dark until a visitor picks a theme: Starlight's own script, which
+        // runs after this one, reads the choice stored here. Choosing Auto
+        // stores "", so only a visitor who never chose gets dark.
         {
           tag: "script",
           content: "try { if (localStorage.getItem('starlight-theme') === null) " +

@@ -16,31 +16,35 @@ const runtime = import.meta.env.BASE_URL.replace(/\/?$/, "/") + "runtime/";
 }}>
   <div id="playground" class="pyking-playground not-content" data-runtime={runtime}></div>
   <script is:inline type="module">
-    const host = document.getElementById("playground");
-    const theme = () => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
-    const runtime = new URL(host.dataset.runtime, location.href).href;
-    const style = document.createElement("link");
-    style.rel = "stylesheet";
-    style.href = runtime + "assets/playground.css";
-    document.head.append(style);
-    try {
-      const { mountPlayground } = await import(runtime + "assets/playground.js");
-      window.pykingPlayground = await mountPlayground(host, {
-        base: runtime + "assets",
-        pykingURL: runtime + "pyking/",
-        examplesURL: runtime + "examples/",
-        webrunURL: runtime + "webrun/",
-        vendorURL: runtime + "vendor/",
-        notebookURL: runtime + "notebook/",
-        helpURL: runtime + "help/",
-        // The site's own light/dark switch decides the playground's too.
-        theme: theme(),
-      });
-      new MutationObserver(() => window.pykingPlayground.setTheme(theme()))
-        .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    } catch (err) {
-      host.textContent = "Could not start the playground: " + err.message;
-      console.error(err);
+    // The page that is the shell around the site's sections shows the
+    // playground in a frame of its own (shell.js), so starts none here.
+    if (!document.documentElement.classList.contains("pyking-shell")) {
+      const host = document.getElementById("playground");
+      const theme = () => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
+      const runtime = new URL(host.dataset.runtime, location.href).href;
+      const style = document.createElement("link");
+      style.rel = "stylesheet";
+      style.href = runtime + "assets/playground.css";
+      document.head.append(style);
+      try {
+        const { mountPlayground } = await import(runtime + "assets/playground.js");
+        window.pykingPlayground = await mountPlayground(host, {
+          base: runtime + "assets",
+          pykingURL: runtime + "pyking/",
+          examplesURL: runtime + "examples/",
+          webrunURL: runtime + "webrun/",
+          vendorURL: runtime + "vendor/",
+          notebookURL: runtime + "notebook/",
+          helpURL: runtime + "help/",
+          // The site's own light/dark switch decides the playground's too.
+          theme: theme(),
+        });
+        new MutationObserver(() => window.pykingPlayground.setTheme(theme()))
+          .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+      } catch (err) {
+        host.textContent = "Could not start the playground: " + err.message;
+        console.error(err);
+      }
     }
   </script>
 </StarlightPage>

@@ -13,7 +13,9 @@ tools/webrun/
     web.js               loading Ace, Monaco, KaTeX and the compiler (ES module)
     pyking-runtime.js    the compiler as an object: PykingRuntime, JsRunner
     pyking-worker.js     the compiler on a thread of its own
-    pages.js             PageHost: where a library that needs a page shows it
+    pages.js             PageHost: where a library that needs a page shows
+                         it, held while a `pyking:visibility` event says the
+                         page is hidden
     pyking-mode.js       the Ace mode for Pyking
     pyking-monaco.js     the Monaco language and themes for Pyking
   vendor/                Ace, KaTeX and Monaco, downloaded by `make vendor`

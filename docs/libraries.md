@@ -503,6 +503,17 @@ show its page; `tools/tinyweb/embed_page.py` writes them in, and
 `tests/test_tinyweb.py` fails when a copy is stale. The same script
 copies the page's style block into `tinyweb_external_browser.js`.
 
+**A page out of sight is held.** `mountPage` answers `{receive,
+setHidden, freeze, close}`. `setHidden(true)` holds the page as the
+splash screen does -- the commands, the frames, the events and the
+clock -- and suspends its sound; `setHidden(false)` lets the clock go on
+from where it stopped, resumes the sound unless the program paused it
+with `sound.pause`, and carries out what was held. `pages.js` calls it
+when its window hears a `pyking:visibility` event, which the website
+sends a section it hides (`tools/site/README.md`, "Every section kept
+open"), so a program in the playground waits for the reader to come
+back rather than playing to no one.
+
 **The server.** Every native implementation serves the same thing:
 
 | request | answer |

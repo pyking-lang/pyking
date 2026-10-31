@@ -28,6 +28,22 @@ import { packFiles, zip } from "./download.js";
 
 const STORAGE_KEY = "pyking-playground.settings";
 
+/** Where the playground keeps what it is in the middle of -- the program,
+ *  the example and target chosen, the tab showing, the output, the input
+ *  a run was given and the REPL's history -- for the rest of the browser
+ *  tab's life: in sessionStorage, so going to another page of the site
+ *  and back, or reloading, finds it as it was, and a new tab starts
+ *  afresh. */
+const STATE_KEY = "pyking-playground.state";
+
+/** How much of the output pane is kept with the state, in characters of
+ *  its HTML; more than this is not kept at all. */
+const STATE_OUTPUT_LIMIT = 200000;
+
+/** How long the state waits after a change before it is saved, in
+ *  milliseconds. Leaving the page saves it at once. */
+const STATE_DELAY = 300;
+
 /** What the settings dialog starts from, before anything saved is layered
  *  over it. The two output switches default on: a pane you cannot scroll
  *  loses what it cannot show, and output that accumulates across runs is
@@ -134,6 +150,10 @@ const DEFAULTS = {
   // Whether the page's own URL may hold a program, `#code=...`
   // (share.js), which then opens in the editor in place of an example.
   readLink: true,
+  // Whether what the playground is in the middle of is kept for the rest
+  // of the browser tab's life, and found again when the page is opened
+  // again in it (STATE_KEY).
+  keepState: true,
 };
 
 export async function mountPlayground(host, options = {}) {
@@ -317,8 +337,14 @@ class Playground {
     // No src/examples.toml beside the tools: nothing to offer.
     if (!this.meta.examples.length) ui.example.classList.add("pyk-hidden");
     const linked = this.cfg.readLink ? sourceFromHash(location.hash) : null;
+    // What the playground was in the middle of when this browser tab left
+    // it -- for another page of the site, say -- unless a link brings a
+    // program of its own.
+    const kept = this.cfg.keepState && linked === null ? loadState() : null;
     if (linked !== null) {
       this.openLinked(linked);
+    } else if (kept) {
+      this.restoreState(kept);
     } else if (this.meta.examples.length) {
       await this.loadExample(this.cfg.initialExample ?? this.meta.examples[0].file,
                              { silent: true });
@@ -334,6 +360,8 @@ class Playground {
       });
     }
     this.onTargetChange();
+    if (kept) this.restoreTab(kept);
+    if (this.cfg.keepState) this.keepStateUpdated();
     // Hover, definition, outline, completion and diagnostics, from the
     // language server in the compiler's worker -- where the bundle has one.
     this.lsp = new LspClient(monaco, this.runtime, this.left, {
@@ -348,8 +376,89 @@ class Playground {
     this.lspStarted = this.lsp.start().catch(() => false);
     // The compiler was loaded before the editors were made (mountPlayground).
     this.status("ready", "ready");
-    this.note("Press Run to run the program. Compiled code compiles it for a "
-              + "target, and the REPL runs Pyking an entry at a time.");
+    if (!kept) {
+      this.note("Press Run to run the program. Compiled code compiles it for a "
+                + "target, and the REPL runs Pyking an entry at a time.");
+    }
+  }
+
+  // -- the state kept while the browser tab lives -------------------------
+
+  /** What the playground is in the middle of, as STATE_KEY keeps it.
+   *  () -> {...} */
+  captureState() {
+    const { ui } = this;
+    const output = ui.output.innerHTML;
+    return {
+      source: this.left.getValue(),
+      example: ui.example.value,
+      target: ui.target.value,
+      tab: this.tab,
+      view: this.left.saveViewState(),
+      output: output.length <= STATE_OUTPUT_LIMIT ? output : "",
+      input: this.input,
+      replHistory: this.replHistory.slice(-200),
+    };
+  }
+
+  /** Puts back what `captureState` kept: the program, where the editor
+   *  was in it, the example and target chosen, the output, the input and
+   *  the REPL's history. The tab is shown once the page is ready
+   *  (`restoreTab`). {...} -> () */
+  restoreState(kept) {
+    const { ui } = this;
+    this.setSource(typeof kept.source === "string" ? kept.source : "");
+    if (kept.view) {
+      try {
+        this.left.restoreViewState(kept.view);
+      } catch {
+        /* a view of another Monaco: the start of the program will do */
+      }
+    }
+    const offered = (select, value) => [...select.options].some((o) => o.value === value);
+    ui.example.value = offered(ui.example, kept.example) ? kept.example : "";
+    if (offered(ui.target, kept.target)) ui.target.value = kept.target;
+    if (typeof kept.output === "string") ui.output.innerHTML = kept.output;
+    if (kept.input && typeof kept.input.stdin === "string" && typeof kept.input.args === "string") {
+      this.input = { stdin: kept.input.stdin, args: kept.input.args };
+    }
+    if (Array.isArray(kept.replHistory)) {
+      this.replHistory = kept.replHistory.filter((entry) => typeof entry === "string");
+      this.replAt = this.replHistory.length;
+    }
+  }
+
+  /** Shows the tab that was showing, unless it showed something that
+   *  ended with the page -- a program's page, a debugged program -- when
+   *  the Run output tab stands for it. {...} -> () */
+  restoreTab(kept) {
+    const tab = ["compiled", "repl", "help"].includes(kept.tab) ? kept.tab : "run";
+    if (tab !== this.tab) this.showTab(tab);
+  }
+
+  /** Saves the state whenever it changes, a moment later, and at once when
+   *  the page is left or hidden. () -> () */
+  keepStateUpdated() {
+    const save = () => {
+      clearTimeout(this.stateTimer);
+      this.stateTimer = null;
+      saveState(this.captureState());
+    };
+    this.saveStateSoon = () => {
+      clearTimeout(this.stateTimer);
+      this.stateTimer = setTimeout(save, STATE_DELAY);
+    };
+    this.left.onDidChangeModelContent(() => this.saveStateSoon());
+    this.left.onDidChangeCursorPosition(() => this.saveStateSoon());
+    this.ui.target.addEventListener("change", () => this.saveStateSoon());
+    this.ui.example.addEventListener("change", () => this.saveStateSoon());
+    new MutationObserver(() => this.saveStateSoon())
+      .observe(this.ui.output, { childList: true, characterData: true, subtree: true });
+    window.addEventListener("pagehide", save);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") save();
+    });
+    save();
   }
 
   // -- the editors' keys ------------------------------------------------
@@ -768,6 +877,7 @@ class Playground {
     if (name === "compiled") this.right.layout();
     if (name === "repl") this.openRepl();
     if (name === "help") this.openHelp();
+    this.saveStateSoon?.();
   }
 
   /** Mounts the help in the Help tab, the first time it is opened: the
@@ -903,6 +1013,7 @@ class Playground {
       return null;
     }
     this.input = { stdin: ui.inputStdin.value, args: ui.inputArgs.value };
+    this.saveStateSoon?.();
     return {
       stdin: analysis.stdin ? this.input.stdin : "",
       args: analysis.args ? splitArguments(this.input.args) : [],
@@ -1597,6 +1708,7 @@ class Playground {
     this.replEcho(text);
     if (text.trim() !== "" && this.replHistory[this.replHistory.length - 1] !== text) {
       this.replHistory.push(text);
+      this.saveStateSoon?.();
     }
     this.replAt = this.replHistory.length;
     this.replDraft = "";
@@ -2791,6 +2903,25 @@ function loadSettings() {
     return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
   } catch {
     return {};
+  }
+}
+
+/** What STATE_KEY holds for this browser tab, or null. () -> {...}? */
+function loadState() {
+  try {
+    const kept = JSON.parse(sessionStorage.getItem(STATE_KEY));
+    return kept && typeof kept === "object" && typeof kept.source === "string" ? kept : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keeps the state for the rest of the browser tab's life. {...} -> () */
+function saveState(state) {
+  try {
+    sessionStorage.setItem(STATE_KEY, JSON.stringify(state));
+  } catch {
+    /* not fatal: the playground simply starts afresh next time */
   }
 }
 

@@ -6,6 +6,17 @@
 // chose, hands it each batch, and sends back
 // what the renderer reports. Nothing here knows any one library: see
 // docs/libraries.md, "A library that needs a page".
+//
+// The page this runs in may be out of sight while its program goes on:
+// the website keeps each of its sections open and shows one
+// (tools/site/public/site/shell.js), and tells a section's window when it
+// is hidden or shown again with a `pyking:visibility` event, whose
+// `detail.hidden` says which. A host that is not silent hands that to
+// each renderer's `setHidden`, which holds the page -- its clock, its
+// frames, its sound -- until it is shown again.
+
+/** The name of the event that says a page is hidden or shown again. */
+export const VISIBILITY_EVENT = "pyking:visibility";
 
 export class PageHost {
   /** element: where the pages go. libURL: the standard library's URL.
@@ -17,6 +28,18 @@ export class PageHost {
     this.libURL = libURL.endsWith("/") ? libURL : libURL + "/";
     this.send = send;
     this.pages = new Map();
+    this.hidden = false;
+    if (!silent) {
+      this.onVisibility = (event) => this.setHidden(!!event.detail?.hidden);
+      window.addEventListener(VISIBILITY_EVENT, this.onVisibility);
+    }
+  }
+
+  /** Holds every page while it is out of sight, and lets each go on when
+   *  it is shown again; a page mounted meanwhile starts held. Bool -> () */
+  setHidden(hidden) {
+    this.hidden = hidden;
+    for (const page of this.pages.values()) page.then((p) => p?.setHidden?.(hidden));
   }
 
   /** Whether any library has shown anything here. () -> Bool */
@@ -36,6 +59,10 @@ export class PageHost {
         .then((library) => library.mountPage(
           this.element, (event) => this.send(module, event),
           { activated: true, silent: this.silent }))
+        .then((page) => {
+          if (this.hidden) page?.setHidden?.(true);
+          return page;
+        })
         .catch((error) => {
           console.error(`cannot show ${module}'s page: ${error.message}`);
           return null;
@@ -54,5 +81,7 @@ export class PageHost {
   close() {
     for (const page of this.pages.values()) page.then((p) => p?.close());
     this.pages.clear();
+    if (this.onVisibility) window.removeEventListener(VISIBILITY_EVENT, this.onVisibility);
+    this.onVisibility = null;
   }
 }

@@ -66,6 +66,7 @@ tools/site/
                             favicon, public/site/favicon.svg)
   src/pages/playground.astro      the playground page
   src/styles/site.css       the site's own styles
+  public/site/shell.js      keeps each section open as it was left
   public/site/cells.js      makes a page's cells runnable
   build/                    staged by site.py (gitignored)
 ```
@@ -105,6 +106,59 @@ tools/site/
 `site.py stage` does only the first step. `site.py dev` stages, then
 starts Astro's dev server over `build/`. It stages once, so restart it
 after editing `sitesrc/` or `lib/`.
+
+## Every section kept open
+
+The header's sections -- the start page, Install, Getting started,
+Documentation, Libraries and the Playground -- are each a page of their
+own, and the reader can leave one in the middle of something: a program
+running in the playground, a REPL session, the debugger stopped on a
+line, a library page scrolled halfway down. Going to another section
+does not throw that away. `public/site/shell.js` makes the window the
+reader opened a **shell**: it keeps one frame per section, opened the
+first time its section is, and shows one at a time. A section's tab
+shows its frame again exactly as it was left, since its page was never
+closed.
+
+`astro.config.mjs` loads it first in every page's head, as a blocking
+script, with the site's base and the sections of `src/sections.mjs` as
+data attributes, so it decides what the page is before anything is
+drawn:
+
+- **The shell** is the page the reader opened in a window of its own.
+  Its `<html>` gets `pyking-shell`, which hides its own content; it
+  loads the same address in its section's frame. `cells.js` and the
+  playground page start nothing in it.
+- **A section** is a page in one of the shell's frames (`pyking-framed`),
+  drawn exactly as on its own, header and all. A link to another
+  section is handed to the shell: a section's tab, or the logo, shows
+  that section as it was left, and any other link shows that page of
+  it. A link within the section is followed in its frame, a link to
+  another site replaces the whole window, and one with a `target`, a
+  modifier key or `download` is left to the browser. A theme picked in
+  one section is every section's.
+- **A plain page** is anything else: a page in another site's frame,
+  the 404 page, and any page opened with `?noshell`, which is how to
+  look at one on its own.
+
+The address bar and the title follow the section shown. Showing another
+section is an entry in the shell's history and a page a frame goes to
+is one in that frame's, so Back goes back the way the reader came,
+between sections and within one. A reload opens the section in the
+address bar afresh; the playground then finds its program and output
+again in sessionStorage (`tools/playground/README.md`).
+
+A section that is hidden goes on running -- a compile, a REPL entry --
+but is told so: its window gets a `pyking:visibility` event,
+`detail.hidden` true, and false when it is shown again. A tinyweb page
+there holds its frames, its clock and its sound until it is shown
+(`tools/webrun/assets/pages.js`), so a program picks up where the reader
+left it rather than playing to no one.
+
+`tests/test_site.py` checks that every page loads the shell first, and
+drives it in Chromium with `tests/site/shell.mjs`, which serves pages of
+its own, one per section, under a base path. The playground's side --
+a tinyweb page held while hidden -- is in `tests/lsp/playground.mjs`.
 
 ## Writing a page
 

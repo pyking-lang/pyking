@@ -7,7 +7,8 @@
 // right-hand tabs, the REPL (entries, Tab completion, the environment, Copy from editor,
 // Stop), the Debug tab (breakpoints, stepping, the panes, a tinyweb
 // callback), the light and dark themes, a link holding a program (Copy
-// code as link, then the link opened in the same tab), the settings'
+// code as link, then the link opened in the same tab), a tinyweb page
+// held while the website shows another section, the settings'
 // tabs, every setting saved and restored and an earlier version's
 // migrated, Copy for slides (the right-click menu, its key, the editor's
 // button, each option, read back off the clipboard), and every command's
@@ -560,6 +561,78 @@ const WARNINGS = `(async () => { ${HELPERS}
   $("[data-r=warningsDefaults]").click();
   $("[data-r=modalClose]").click();
   await source("print(41 + 1)\\n");
+  return checks;
+})()`;
+
+// The playground out of sight: the website showing another of its
+// sections tells the page with a `pyking:visibility` event
+// (tools/site/public/site/shell.js), and a tinyweb page then holds its
+// frames and its clock until it is shown again.
+const HIDDEN = `(async () => { ${HELPERS}
+  await source("use mutation\\nimport tinyweb as tw\\ntw.web_init(0)\\nvar frames = 0\\n"
+    + "_c = tw.canvas(100, 100)\\ndef frame(t: Float):\\n    frames := frames + 1\\n"
+    + "    if frames % 5 == 0:\\n        print(\\"frame\\", frames, t)\\ntw.on_frame(frame)\\n");
+  $("[data-r=runLeft]").click();
+  const frames = () => [...output().matchAll(/frame (\\d+) ([\\d.]+)/g)]
+    .map((m) => [Number(m[1]), Number(m[2])]);
+  check("a program drawing every frame runs", await until(() => frames().length >= 3, 30000), output());
+  const visibility = (hidden) =>
+    window.dispatchEvent(new CustomEvent("pyking:visibility", { detail: { hidden } }));
+  visibility(true);
+  await sleep(300);
+  const before = frames();
+  await sleep(1500);
+  const held = frames();
+  check("hidden, the page asks for no frames", held.length === before.length,
+    before.length + " then " + held.length);
+  visibility(false);
+  check("shown again, it goes on", await until(() => frames().length >= held.length + 3, 10000),
+    output().slice(-200));
+  const [, last] = held[held.length - 1];
+  const [, next] = frames()[held.length];
+  check("with its clock going on from where it was held", next - last < 0.5,
+    last + " then " + next);
+  app.stopRun();
+  await until(() => !app.running);
+  return checks;
+})()`;
+
+// What the playground is in the middle of, kept for the browser tab: a
+// program typed in, run, a target and a tab chosen -- and then the page
+// left and opened again.
+const STATE = `(async () => { ${HELPERS}
+  await source("# kept\\nprint(40 + 2)\\n");
+  app.left.setPosition({ lineNumber: 2, column: 7 });
+  $("[data-r=runLeft]").click();
+  check("the program runs", await until(() => /42\\n[\\s\\S]*finished/.test(output()), 30000), output());
+  const target = $("[data-r=target]");
+  target.value = "c99";
+  target.dispatchEvent(new Event("change"));
+  $("[data-r=tabCompiled]").click();
+  await sleep(600);
+  const kept = JSON.parse(sessionStorage.getItem("pyking-playground.state"));
+  check("the state is kept for the browser tab", kept?.source === "# kept\\nprint(40 + 2)\\n"
+    && kept.target === "c99" && kept.tab === "compiled" && kept.output.includes("42"),
+    JSON.stringify(kept).slice(0, 300));
+  return checks;
+})()`;
+
+const STATE_RESTORED = `(async () => { ${HELPERS}
+  check("the program is found again", app.left.getValue() === "# kept\\nprint(40 + 2)\\n",
+    app.left.getValue());
+  check("where the cursor was", app.left.getPosition().lineNumber === 2
+    && app.left.getPosition().column === 7, JSON.stringify(app.left.getPosition()));
+  check("with the target and the tab", $("[data-r=target]").value === "c99"
+    && $(".pyk-tab.active")?.dataset.tab === "compiled",
+    $("[data-r=target]").value + " " + $(".pyk-tab.active")?.dataset.tab);
+  check("and the output", /42\\n[\\s\\S]*finished/.test(output()), output());
+  return checks;
+})()`;
+
+// A link's program, opened with state kept: the link's wins.
+const STATE_LINKED = `(async () => { ${HELPERS}
+  check("a link's program is opened in place of what was kept",
+    app.left.getValue() === "print(\\"linked\\")\\n", app.left.getValue());
   return checks;
 })()`;
 
@@ -1414,11 +1487,21 @@ try {
   };
   for (const [name, script] of [["the page", PAGE], ["the language server", LSP], ["the warnings", WARNINGS],
                                 ["the tabs", TABS], ["the REPL", REPL], ["the debugger", DEBUG],
-                                ["the themes", THEME], ["a link", LINK],
+                                ["the themes", THEME], ["a link", LINK], ["the page hidden", HIDDEN],
                                 ["the settings' tabs", SETTINGS], ["every setting saved", SETTINGS_SET]]) {
     await phase(name, script);
   }
   const KEY = '"pyking-playground.settings"';
+  await evaluate("history.replaceState(null, '', location.pathname + location.search)");
+  await phase("the state kept", STATE);
+  await reload();
+  await phase("the state found again", STATE_RESTORED);
+  // print("linked"), as a link holds it.
+  await evaluate("history.replaceState(null, '', location.pathname + location.search"
+    + " + '#code=cHJpbnQoImxpbmtlZCIpCg')");
+  await reload();
+  await phase("a link, with the state kept", STATE_LINKED);
+  await evaluate("history.replaceState(null, '', location.pathname + location.search)");
   await reload();
   await phase("every setting restored", SETTINGS_RESTORED);
   await evaluate(`localStorage.setItem(${KEY}, JSON.stringify({ fontSize: 15, `

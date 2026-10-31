@@ -122,6 +122,29 @@ link to what is in the editor. The website's front page has one: its
 (`tools/site/README.md`, "Writing a page"). An embedding page that does
 not want its own address read passes `readLink: false`.
 
+### What it is in the middle of, kept
+
+On the website, going to another section and back never leaves the
+playground at all: the site keeps it open, hidden, and shows it again as
+it was -- compiled code, a program's page, the REPL session, the
+debugger stopped on a line (`tools/site/README.md`, "Every section kept
+open"). While it is hidden a program's tinyweb page holds its frames,
+clock and sound (`pyking:visibility`, `tools/webrun/assets/pages.js`).
+
+Leaving the page itself -- a reload, or the playground on its own,
+`pyk playground` -- and coming back finds it as it was too, as far as it
+can be written down: the program in the editor and where the
+cursor was in it, the example and the target chosen, the tab showing,
+the output, the input the last run was given and the REPL's history.
+They are kept in `sessionStorage` (`pyking-playground.state`), saved a
+moment after each change and at once when the page is left or hidden, so
+they last as long as the browser tab and a reload keeps them too; a new
+tab starts afresh with the first example. A tab that showed something
+that ended with the page -- a program's page, a debugged program -- comes
+back as Run output, and a REPL session starts again with its history.
+A link's program is opened in place of what was kept. An embedding page
+that wants none of it passes `keepState: false`.
+
 Run switches to Web output for a program that imports `tinyweb`, and to
 Run output for any other -- unless Web output is showing, where it stays.
 Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
@@ -689,6 +712,7 @@ there so you can take either one.
     initialTarget: "c23",
     initialExample: "use_args.pyk", // the first example by default
     readLink: true,               // open a #code=... link's program (the default)
+    keepState: true,              // keep the program and the rest for the tab (the default)
     theme: "light",               // omit to let the viewer choose
   });
 </script>
@@ -842,7 +866,10 @@ which `tests/test_lsp.py` runs in a Chromium over the DevTools protocol:
 an error underlined at its line, a hover showing a type, completion
 offering a name, go to definition, the outline -- and that compiling and
 running still work beside them, and that Download offers a zip holding
-the compiled program and its Makefile. It checks the warnings: underlined
+the compiled program and its Makefile. It checks that the page keeps
+what it is in the middle of -- a program typed in and run, a target and
+a tab chosen -- across a reload, and that a link's program wins over it.
+It checks the warnings: underlined
 as warnings, written before a run's output, and every control of the
 Warnings tab -- a warning turned off, -Werror underlining and refusing,
 all on, all off, the defaults -- with the command line each stands for.

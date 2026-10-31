@@ -11,7 +11,7 @@ None of it needs Astro, which `make website` installs on first use and
 FILE`), the reference for what a program means; the page runs the same
 compiler as JavaScript, which tests/test_notebook.py covers.
 
-Nine parts:
+Ten parts:
 
   docs      lib/ through tools/help/libdoc.py: nothing undocumented or
             documented wrongly -- every parameter in order, a Returns
@@ -44,6 +44,12 @@ Nine parts:
             the language reference and the library pages: an `error`
             block must be refused, every other must run, with its
             ```stdin and ```args.
+  shell     every page loads tools/site/public/site/shell.js first, with
+            the sections, and the shell's page starts no playground and
+            no cells; then tests/site/shell.mjs drives the shell in
+            Chromium, on pages of its own: each section kept open as it
+            was left, links, Back, the theme, plain pages. Skipped, and
+            said so, where there is no Chromium.
 
 Usage: python3 tests/test_site.py [--compiler CMD]
 
@@ -59,6 +65,7 @@ Functions:
     check_publish() -- the publish part.
     blocks(text) -- the runnable Pyking blocks of a Markdown page.
     check_cells(compiler) -- the cells part.
+    check_shell() -- the shell part.
     main(argv) -- the command-line entry point.
 """
 
@@ -93,6 +100,7 @@ _spec.loader.exec_module(publish)
 
 SOURCES = REPO / "sitesrc"
 PLUGIN = REPO / "tools" / "site" / "src" / "remark-pyking-cells.mjs"
+SHELL_DRIVER = HERE / "site" / "shell.mjs"
 MARKDOWN = REPO / "tools" / "notebook" / "assets" / "markdown.js"
 DEFAULT_COMPILER = str(REPO / "pyk")
 TIMEOUT = 60
@@ -492,6 +500,46 @@ def check_cells(compiler):
     return results, count
 
 
+def check_shell():
+    """The shell that keeps every section open (shell.js): that the site
+    loads it first in every page, telling it the sections; that the
+    shell's own page starts no playground and no cells; and the shell in
+    Chromium (tests/site/shell.mjs), on pages of its own.
+    () -> [(String, String?)]"""
+    site = REPO / "tools" / "site"
+    config = (site / "astro.config.mjs").read_text()
+    shell_at = config.find('"/site/shell.js"')
+    results = [
+        ("every page loads shell.js first, with the base and the sections",
+         None if 0 <= shell_at < config.find('"/site/cells.js"')
+         and '"data-sections": JSON.stringify(SECTIONS' in config
+         and '"data-base": prefix' in config
+         else "astro.config.mjs's head does not start with shell.js"),
+        ("the shell's own page starts no playground",
+         None if 'classList.contains("pyking-shell")'
+         in (site / "src" / "pages" / "playground.astro").read_text()
+         else "playground.astro mounts the playground in the shell"),
+        ("the shell's own page mounts no cells",
+         None if 'classList.contains("pyking-shell")'
+         in (site / "public" / "site" / "cells.js").read_text()
+         else "cells.js mounts the cells in the shell"),
+    ]
+    chromium = suite.find_chromium()
+    if chromium is None:
+        print("site: the shell in Chromium skipped (no Chromium found)")
+        return results
+    try:
+        ran = suite.run_with_progress(["node", str(SHELL_DRIVER), chromium],
+                                      "the shell in Chromium", 300)
+        found = json.loads(ran.stdout)
+    except (json.JSONDecodeError, subprocess.TimeoutExpired) as error:
+        return results + [("the shell in Chromium", f"the driver did not answer: {error}")]
+    results += [(f"the shell: {failure}", failure) for failure in found["failures"]]
+    results += [("the shell", None)] * (found["checks"] - len(found["failures"]))
+    print(f"site: the shell in Chromium, {found['checks']} checks.")
+    return results
+
+
 def main(argv):
     """Runs every part and reports it. [String] -> Int"""
     compiler = DEFAULT_COMPILER
@@ -503,7 +551,7 @@ def main(argv):
     cells, count = check_cells(compiler)
     results = (check_docs() + check_exports(compiler) + check_copies() + check_plugin()
                + check_notebook() + check_examples(compiler) + check_sidebar()
-               + check_runtime() + check_publish() + cells)
+               + check_runtime() + check_publish() + cells + check_shell())
     failed = 0
     for name, detail in results:
         if detail is None:

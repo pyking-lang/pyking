@@ -109,6 +109,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The website threw away whatever a section was in the middle of when
+  another section was opened: the playground's program, compiled code,
+  page, REPL session and debugger, and the library page being read and
+  where it was scrolled to. Every section -- the start page, Install,
+  Getting started, Documentation, Libraries, the Playground -- is now
+  kept open as it was left, and its tab in the header shows it again
+  exactly so (`tools/site/public/site/shell.js`); the address bar, the
+  title, Back and the theme follow. A tinyweb program's page in a
+  hidden section holds its frames, clock and sound until it is shown
+  again. A page opened with `?noshell` is a page on its own.
+- The playground also keeps what can be written down -- the program,
+  where the cursor was, the example, target and tab chosen, the output,
+  the last run's input and the REPL's history -- for as long as the
+  browser tab lives, and finds it again after a reload, on the website
+  and in `pyk playground`. A `#code=` link's program still opens in its
+  place.
 - JavaScript (node, web): a loop with both a `while` clause and a
   function written in its body failed with "is not defined", since the
   test read the accumulator before the turn had declared it. The test
