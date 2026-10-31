@@ -397,13 +397,14 @@ print("graded by hand")
 A practice compared only as far as its first four pauses: every run
 that checks it stops once tinyweb's log has had four `sdelay` lines,
 so a beat that goes on for long -- or forever -- is compared by its
-start:
+start. Submit plays the answer in its cell first, for the reader to
+hear, since its solution says `run_on_submit = true`:
 
 ```pyking practice name = "start"
 import tinyweb as tw
 ```
 
-```pyking solution
+```pyking solution run_on_submit = true
 import tinyweb as tw
 kick = tw.load_sample("kick1.wav")
 for i in range(100):

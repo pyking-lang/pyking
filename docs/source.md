@@ -2239,7 +2239,7 @@ since it is pure.
 - **`value`** — an attribute's value, typed: `VString`, `VNumber`
   (`max`, `pass`, `attempts`, `points`, `penalty`,
   `lines_per_multi_input`, `events`) or `VBool` (`available`, `visible`,
-  `one_point_correct`, and a bare word).
+  `one_point_correct`, `run_on_submit`, and a bare word).
 - **`fence`** — one notebook block as written: `language`, `attrs`,
   the raw `info` after the marker, the `marker`, the `body` (each line
   with its newline), the closing line (`None` at the end of the text),

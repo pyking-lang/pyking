@@ -53,7 +53,7 @@ let loosening =
     false. *)
 let number_keys = [ "max"; "pass"; "attempts"; "points"; "penalty"; "lines_per_multi_input"; "events" ]
 
-let bool_keys = [ "available"; "visible"; "one_point_correct" ]
+let bool_keys = [ "available"; "visible"; "one_point_correct"; "run_on_submit" ]
 
 (** The words written bare, standing for themselves. *)
 let flag_keys = [ "task"; "practice"; "exercise"; "solution"; "norun"; "readonly"; "error"; "playground" ]
@@ -1105,6 +1105,7 @@ let schema =
                  sub_def "A ```pyking solution block." ~required:[ "code" ]
                    [ attributes
                        [ ("available", boolean "A student may ask to see it."); ("readonly", boolean "Cannot be edited.");
+                         ("run_on_submit", boolean "Submit runs the answer in its cell, to be seen, before checking it quietly.");
                          ("stdin", text_of "What it reads when it runs on its own."); ("args", text_of "Its arguments when it runs on its own.");
                          ("save_canvas", text_of "The tinyweb canvas saved as a picture."); ("file", text_of "The .png it is saved as.") ];
                      ("code", text_of "The solution.") ] );

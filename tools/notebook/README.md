@@ -268,6 +268,11 @@ and side by side what each printed and what each sent its page, a line
 only the submission wrote in red and one only the solution wrote in
 green.
 
+**Submit** checks the answer quietly against the solution. Where the
+solution says **`run_on_submit = true`** it first runs the answer in its
+cell, as Run does, so the reader sees and hears it; without it
+(`false`, the default) nothing is shown running.
+
 **Show a solution** shows the solution under the task, at any time,
 where it says `available = true`; without it the solution is never shown
 in student mode. A solved task turns green, with a check mark.
@@ -358,7 +363,8 @@ point*
 A **```` ```compare-until events = 60 ````** block says how far a task
 is compared, for a program that never ends, such as a beat played
 forever. Its lines are patterns of tinyweb's log, `*` standing for any
-text. Every run checking the task -- Submit's run in the cell, the quiet
+text. Every run checking the task -- Submit's run in the cell (with
+`run_on_submit = true`), the quiet
 runs of the answer and the solution, test mode, nbverify -- stops
 right after the log has had `events` lines matching any of them, and
 what it printed, drew and wrote with `debug` up to there is compared;

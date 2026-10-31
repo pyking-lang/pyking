@@ -216,8 +216,9 @@ const DRAWING = `(async () => { ${HELPERS}
 
   const diff = () => $("[data-r=diff]", task(1));
   check("no diff to see before a Submit", hidden(diff()));
-  // The wrong answer also plays a tone and waits. Submit runs it in its
-  // cell first, as Run does, which waits; checking it then does not,
+  // The wrong answer also plays a tone and waits. Its solution says
+  // run_on_submit = true, so Submit runs it in its cell first, as Run
+  // does, which waits; checking it then does not,
   // and its picture in the diff makes no sound.
   const squareCell = nb.cells.filter((c) => c.spec.attrs.task)[0];
   squareCell.setSource(${SQUARE("#0000ff", " + 1\ntw.sound.tone(440.0)\ntw.sdelay(6.0)")});

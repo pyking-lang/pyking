@@ -221,6 +221,7 @@ task, quiz, cell or any prose ends the group.
 | Solution header | Means | Default |
 |---|---|---|
 | `available = true` | a student may ask to see it | `false` |
+| `run_on_submit = true` | Submit runs the answer in its cell first, for the reader to see and hear, before checking it | `false`: Submit only checks it, quietly |
 | `readonly` | cannot be edited where shown | editable |
 | `stdin = "…"`, `args = "…"` | its input when it runs on its own | the task's |
 | `save_canvas = "c"`, `file = "x.png"` | the tinyweb canvas `c` it draws is saved as `x.png` beside the notebook and shown wherever the prose names that image | none |
@@ -384,7 +385,7 @@ of it is compared. Each line of the block is a pattern, written as
 tinyweb's log writes a line, with `*` for any text, and `events` says
 how many log lines matching any of the patterns a run may write. Every
 run that checks the task stops right after the line that makes that
-many: Submit's run in the cell, the quiet runs of the answer and the
+many: Submit's run in the cell (with `run_on_submit = true`), the quiet runs of the answer and the
 solution, test mode and nbverify. What the run printed, drew and wrote
 with `debug` up to there is compared, and a run stopped this way
 counts as having ended with status 0. A run that ends before it gets
@@ -408,12 +409,13 @@ play "snare*
 ```
 ````
 
-**Submit** first runs the answer in its cell, as Run does, so the
-reader sees and hears what it does; a Stop meanwhile calls the
-submission off and uses no attempt. Once that run has finished, it
-runs the answer quietly on every test, and the solution on the same
-input where there is one, with a limit of ten seconds a run (or as
-far as a compare-until block says, above). These
+**Submit** runs the answer quietly on every test, and the solution on
+the same input where there is one, with a limit of ten seconds a run
+(or as far as a compare-until block says, above). Where the solution
+says `run_on_submit = true`, Submit first runs the answer in its cell,
+as Run does, so the reader sees and hears what it does, and checks it
+once that run has finished; a Stop meanwhile calls the submission off
+and uses no attempt. Without it nothing is shown running. The quiet
 runs show nothing and play nothing, and tinyweb's `sdelay` does not
 wait in them: its clock only moves on. With a
 solution the answer must print the same, draw the same (tinyweb's log),
@@ -567,7 +569,7 @@ Every `text` and `code` is the block's lines, each with its newline, so
 `"16\n"` is a block holding the line `16`. `attributes` holds the
 header's attributes in the order written, typed: `max`, `pass`,
 `attempts`, `points`, `penalty` and `lines_per_multi_input` are numbers,
-`available`, `visible` and `one_point_correct` booleans, a bare word
+`available`, `visible`, `one_point_correct` and `run_on_submit` booleans, a bare word
 (`readonly`, `norun`, `error`, `playground`) is `true`, and every other
 value a string, `max_calls` as written (`"(2,rect) (1,circle)"`). The
 word `task`, `practice` or `solution` that says what a pyking block is

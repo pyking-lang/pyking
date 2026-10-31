@@ -22,8 +22,10 @@
 //     the task stops once tinyweb's log has had `events` lines that one
 //     of `rules` (kind "until") matches; what came before is compared.
 //   Limit -- {max, name}: one (N,name) of a max_calls =.
-//   Solution -- {cell, line, available, picture}: `picture` {canvas,
-//     file} where the solution's canvas is saved as a picture, or null.
+//   Solution -- {cell, line, available, runOnSubmit, picture}: `picture`
+//     {canvas, file} where the solution's canvas is saved as a picture, or
+//     null; `runOnSubmit` true where Submit runs the answer in its cell,
+//     for the reader to see, before checking it (run_on_submit = true).
 //   Test -- {line, stdin, args, events, input, eventsPart, output, error}:
 //     one input and what it should print; `input`, `eventsPart`, `output`
 //     and `error` are the blocks, `events` the tinyweb events delivered
@@ -71,7 +73,8 @@ const KNOWN = {
   task: ["task", "name", "attempts", "points", "penalty", "stdin", "args", "readonly", "method",
     "max_calls"],
   practice: ["practice", "name", "attempts", "stdin", "args", "readonly", "method", "max_calls"],
-  solution: ["solution", "available", "readonly", "stdin", "args", "save_canvas", "file"],
+  solution: ["solution", "available", "readonly", "stdin", "args", "save_canvas", "file",
+    "run_on_submit"],
   // `playground` is the website's (tools/site/src/remark-pyking-cells.mjs).
   pyking: ["norun", "readonly", "error", "stdin", "args", "playground"],
   stdin: ["args", "visible", "lines_per_multi_input"],
@@ -143,6 +146,8 @@ export function structure(parts, cells) {
               cell: part.cell, line: part.line,
               // A student is shown it only where it says so.
               available: flag(part, "available", false, problem),
+              // Submit shows the answer running only where it says so.
+              runOnSubmit: flag(part, "run_on_submit", false, problem),
               picture: readPicture(part, problem),
             };
             // Run on its own, a solution reads what the task does.

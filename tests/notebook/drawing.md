@@ -21,7 +21,7 @@ this:
 print("Add your code here")
 ```
 
-```pyking solution stdin = "40" save_canvas = "canvas" file = "square.png"
+```pyking solution stdin = "40" save_canvas = "canvas" file = "square.png" run_on_submit = true
 import tinyweb as tw
 import tinyweb.color as color
 import io

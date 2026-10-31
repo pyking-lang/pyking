@@ -91,6 +91,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   see them. Several blocks may apply to one line. In the page,
   `--to-json` and nbverify (its `ignore_chars` param), and the result
   diff shows lines that differ only in those characters in yellow.
+- A notebook solution takes `run_on_submit = true`, which makes Submit
+  run the answer in its cell first, for the reader to see and hear,
+  before checking it. Without it (`false`, the default) Submit only
+  checks the answer quietly, where before it always ran it in its cell
+  first. In `pyk notebook --to-json` and its schema too.
 - Notebook tasks take a ```` ```compare-until events = N ```` block,
   for a program that never ends, such as a beat played forever. Its
   lines are patterns of tinyweb's log (`sdelay*`), and every run that

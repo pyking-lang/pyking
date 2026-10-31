@@ -210,6 +210,10 @@ check("a practice compared loosely: a stderr test and all four blocks",
       && loosely.allowedParts.map((p) => p.kind).join() === "diff-allowed,optional-last,any-order,ignore-chars",
       JSON.stringify([loosely.tests, loosely.allowed]));
 const start = features.notebook.items.find((item) => item.name === "start");
+check("a solution's run_on_submit, false where it is not given",
+      start?.solution?.runOnSubmit === true && ex1.solution?.runOnSubmit === false
+      && loosely.solution?.runOnSubmit === false,
+      JSON.stringify(nb.items.map((i) => i.solution?.runOnSubmit)));
 check("a practice compared as far as its compare-until says",
       start?.until?.events === 4 && start.until.rules.map((r) => r.text).join() === "sdelay*"
       && start.allowedParts.map((p) => p.kind).join() === "compare-until",
