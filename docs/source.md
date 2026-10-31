@@ -2224,8 +2224,8 @@ out for reading, for a notebook's JSON.
 Markdown between the notebook's blocks is kept as written, and the
 blocks are found and grouped as `tools/notebook/assets/markdown.js` and
 `tasks.js` find and group them: a task or a practice with its solution,
-tests and diff-allowed, optional-last, any-order and ignore-chars
-blocks, a quiz
+tests and diff-allowed, optional-last, any-order, ignore-chars and
+compare-until blocks, a quiz
 with its answer, a cell with the
 tests under it. A block is written back from its fields in one
 canonical layout, and how the source wrote it where that differs -- the
@@ -2238,7 +2238,7 @@ since it is pure.
 
 - **`value`** — an attribute's value, typed: `VString`, `VNumber`
   (`max`, `pass`, `attempts`, `points`, `penalty`,
-  `lines_per_multi_input`) or `VBool` (`available`, `visible`,
+  `lines_per_multi_input`, `events`) or `VBool` (`available`, `visible`,
   `one_point_correct`, and a bare word).
 - **`fence`** — one notebook block as written: `language`, `attrs`,
   the raw `info` after the marker, the `marker`, the `body` (each line
@@ -2247,7 +2247,7 @@ since it is pure.
 - **`piece`** — `Text` between blocks, or a `Fence`.
 - **`owner`** — a task, a practice or a cell as it is grouped: its
   head, which of the three it is, the solution, the tests (each a list of slot and block), the diff-allowed,
-  optional-last, any-order and ignore-chars blocks (each with the JSON field it goes
+  optional-last, any-order, ignore-chars and compare-until blocks (each with the JSON field it goes
   in, as `loosening` pairs them), and the order they were written in.
 
 ### Main functions

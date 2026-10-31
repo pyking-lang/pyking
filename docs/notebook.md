@@ -377,11 +377,43 @@ play*
 To ignore a quote or a backslash, write it with a backslash inside
 the quotes: `chars = "\"\\"`.
 
+**Comparing only the start.** A program that plays a beat forever never
+finishes, so it cannot be compared whole. A
+```` ```compare-until events = N ```` block under a task says how much
+of it is compared. Each line of the block is a pattern, written as
+tinyweb's log writes a line, with `*` for any text, and `events` says
+how many log lines matching any of the patterns a run may write. Every
+run that checks the task stops right after the line that makes that
+many: Submit's run in the cell, the quiet runs of the answer and the
+solution, test mode and nbverify. What the run printed, drew and wrote
+with `debug` up to there is compared, and a run stopped this way
+counts as having ended with status 0. A run that ends before it gets
+that far is compared whole. The cell says "stopped after N events, as
+far as the task compares". A task has at most one such block, and it
+needs no solution. Here the first sixty pauses of a beat are compared:
+
+````markdown
+```compare-until events = 60
+sdelay*
+```
+````
+
+With several lines, a log line matching any of them counts, and the
+count is one for all of them:
+
+````markdown
+```compare-until events = 16
+play "kick*
+play "snare*
+```
+````
+
 **Submit** first runs the answer in its cell, as Run does, so the
 reader sees and hears what it does; a Stop meanwhile calls the
 submission off and uses no attempt. Once that run has finished, it
 runs the answer quietly on every test, and the solution on the same
-input where there is one, with a limit of ten seconds a run. These
+input where there is one, with a limit of ten seconds a run (or as
+far as a compare-until block says, above). These
 runs show nothing and play nothing, and tinyweb's `sdelay` does not
 wait in them: its clock only moves on. With a
 solution the answer must print the same, draw the same (tinyweb's log),

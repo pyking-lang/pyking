@@ -41,7 +41,11 @@
 // and the log is what it would be. `run` may
 // also carry `tinywebEvents`, the lines of an events file, delivered to
 // tinyweb once the program's top level has ended and before `run`
-// answers.
+// answers, and `tinywebUntil`, {events, patterns} -- a notebook task's
+// compare-until block, each pattern a RegExp's source -- which ends the
+// run once tinyweb's log has had `events` lines its patterns match. A run
+// that ends so answers `until: true` and no `exit`, and a callback that
+// ends it sends {type: "until"} in place of `exit`.
 //
 // `debug` debugs a program instead of running it; see "the debugger"
 // below.
@@ -90,7 +94,8 @@ self.pykOnPrint = (text) => stdout(text);
 self.pykOnDebug = (text) => debugOut(text);
 self.pykOnShow = (text) => self.postMessage({ type: "show", text });
 self.pykOnError = (text) => self.postMessage({ type: "failure", text });
-self.pykOnExit = (code) => self.postMessage({ type: "exit", code });
+self.pykOnExit = (code) => self.postMessage(self.pykTinywebUntil?.reached
+  ? { type: "until" } : { type: "exit", code });
 // A warning the check of a program found, one line as `pyk` prints it.
 self.pykOnWarning = (text) => self.postMessage({ type: "warning", text });
 
@@ -291,6 +296,9 @@ function tinywebLog(on) {
 
 function run(message) {
   tinywebLog(message.tinywebLog === "separate" ? "separate" : Boolean(message.tinywebLog));
+  self.pykTinywebUntil = message.tinywebUntil
+    ? { events: message.tinywebUntil.events, patterns: message.tinywebUntil.patterns }
+    : null;
   const analysis = analyze(message);
   if (!analysis.ok) return analysis;
   const mine = own(message);
@@ -317,7 +325,16 @@ function run(message) {
         await replay(message.tinywebEvents);
       }
       return result;
-    });
+    })
+    .then(untilReached);
+}
+
+/** A run's answer, with `until` in place of the `exit` a compare-until
+ *  limit ended it with. Object -> Object */
+function untilReached(result) {
+  if (!self.pykTinywebUntil?.reached || !result?.ok) return result;
+  const { exit, ...rest } = result;
+  return { ...rest, until: true };
 }
 
 // --- the debugger ---
@@ -385,6 +402,7 @@ function debugStart(message) {
   if (debug !== null) self.pykDebugStop();
   debug = null;
   tinywebLog(message.tinywebLog === "separate" ? "separate" : Boolean(message.tinywebLog));
+  self.pykTinywebUntil = null;
   const analysis = analyze(message);
   if (!analysis.ok) return analysis;
   const mine = own(message);

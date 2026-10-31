@@ -45,7 +45,7 @@ and runs nothing.
 | `nbverify.py` | reads one run on standard input and prints the verdict |
 | `nbverify.py paramschema` | prints the `[test.options.verifier_param_schema]` table for `config.toml` |
 | `nbverify.py paramdata BOOK [--name NAME] [--case N \| --output-dir DIR] [--program FILE] [--pyk PYK]` | prints or writes each test's `[test.options]` |
-| `nbverify.py run [--pyk PYK] [--events TEXT] [-L DIR] FILE [-- ARGS]` | runs an answer the way a test does |
+| `nbverify.py run [--pyk PYK] [--events TEXT] [--until N --until-match P...] [-L DIR] FILE [-- ARGS]` | runs an answer the way a test does |
 | `nbverify.py try [--pyk PYK] [-L DIR] [--json] FILE` | runs an answer on the test whose `[test.options]` is on standard input, and prints the verdict, or with `--json` the run |
 | `nbverify.py --help`, `--version` | the help; `nbverify <version>` |
 
@@ -139,6 +139,12 @@ The test's command. It runs `FILE` with pyk, standard input and output
 its own, tinyweb writing its log to a temporary file
 (`PYKING_TINYWEB_LOG`) and delivering `--events` once the top level has
 ended (`PYKING_TINYWEB_EVENTS`), and ends with the program's status.
+For a task with a ```` ```compare-until ```` block the test's command
+carries `--until N` and a `--until-match PATTERN` for each of its
+lines: the program is stopped, with status 0, right after tinyweb's log
+has had N lines a pattern matches (`PYKING_TINYWEB_UNTIL`), and
+`paramdata` runs the solution the same way, so the two are compared
+as far as the block says.
 After what the program wrote to standard error it writes a line
 `--- nbverify run ---` and one line of JSON:
 

@@ -355,6 +355,25 @@ point*
 ```
 ````
 
+A **```` ```compare-until events = 60 ````** block says how far a task
+is compared, for a program that never ends, such as a beat played
+forever. Its lines are patterns of tinyweb's log, `*` standing for any
+text. Every run checking the task -- Submit's run in the cell, the quiet
+runs of the answer and the solution, test mode, nbverify -- stops
+right after the log has had `events` lines matching any of them, and
+what it printed, drew and wrote with `debug` up to there is compared;
+a run stopped so ended with status 0. One block a task. The worker
+takes it as the run's `tinywebUntil`, `{events, patterns}`
+(`tasks.js` `untilLimit`), and `tinyweb_external_interpreter.js` ends
+the run as `sys.exit(0)` would; `pyk` takes it as
+`PYKING_TINYWEB_UNTIL`, a file (docs/libraries.md).
+
+````markdown
+```compare-until events = 60
+sdelay*
+```
+````
+
 A task with **`method = git`** is answered somewhere else and
 pushed with git: the page shows "Please submit via your git account"
 in place of the code box and Submit, and grades nothing. Its points are

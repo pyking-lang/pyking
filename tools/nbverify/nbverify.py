@@ -15,8 +15,8 @@ The same file makes those params and runs the answer:
     nbverify.py paramdata BOOK [--name NAME] [--case N | --output-dir DIR]
                 [--program FILE] [--pyk PYK]
                                      each test's [test.options]
-    nbverify.py run [--pyk PYK] [--events TEXT] FILE [-- ARGS]
-                                     run an answer the way a test does
+    nbverify.py run [--pyk PYK] [--events TEXT] [--until N --until-match P...]
+                FILE [-- ARGS]       run an answer the way a test does
     nbverify.py try [--pyk PYK] [-L DIR] [--json] FILE
                                      run and verify an answer on one test
                                      (its [test.options] on stdin)
@@ -76,8 +76,12 @@ Usage: nbverify.py                    verify one run: JSON on standard input
        nbverify.py paramdata BOOK [--name NAME] [--case N | --output-dir DIR]
                    [--program FILE] [--pyk PYK]
                                       print or write each test's [test.options]
-       nbverify.py run [--pyk PYK] [--events TEXT] [-L DIR] FILE [-- ARGS]
-                                      run an answer as a test runs it
+       nbverify.py run [--pyk PYK] [--events TEXT] [--until N --until-match P...]
+                   [-L DIR] FILE [-- ARGS]
+                                      run an answer as a test runs it;
+                                      --until stops it once tinyweb's log
+                                      has had N lines a --until-match
+                                      pattern matches (compare-until)
        nbverify.py try [--pyk PYK] [-L DIR] [--json] FILE
                                       run an answer on the test whose
                                       [test.options] is on standard input,
@@ -682,12 +686,14 @@ def find_pyk(given=None):
     return pyk
 
 
-def run_program(pyk, path, stdin, args, events="", libs=(), stream=False):
+def run_program(pyk, path, stdin, args, events="", libs=(), stream=False, until=None):
     """One run of a Pyking program with pyk: tinyweb writing its log, and
     delivering `events` once the top level has ended. With `stream`,
-    standard input and output are this process's own.
+    standard input and output are this process's own. `until`, a task's
+    compare-until as (N, [pattern]), ends the run with status 0 once the
+    log has had N lines a pattern matches ($PYKING_TINYWEB_UNTIL).
     String -> String -> String? -> [String] -> String -> [String] -> Bool ->
-    {stdout, stderr, tinyweb, code, ok, error}"""
+    (Int, [String])? -> {stdout, stderr, tinyweb, code, ok, error}"""
     with tempfile.TemporaryDirectory(prefix="nbverify-") as directory:
         log = os.path.join(directory, "tinyweb.log")
         env = dict(os.environ)
@@ -698,6 +704,12 @@ def run_program(pyk, path, stdin, args, events="", libs=(), stream=False):
             with open(events_file, "w", encoding="utf-8") as f:
                 f.write(events if events.endswith("\n") else events + "\n")
             env["PYKING_TINYWEB_EVENTS"] = events_file
+        env.pop("PYKING_TINYWEB_UNTIL", None)
+        if until:
+            until_file = os.path.join(directory, "until.txt")
+            with open(until_file, "w", encoding="utf-8") as f:
+                f.write("\n".join([str(until[0])] + list(until[1])) + "\n")
+            env["PYKING_TINYWEB_UNTIL"] = until_file
         command = [pyk] + [f"-L{lib}" for lib in libs] + [path, "--"] + list(args)
         try:
             ran = subprocess.run(
@@ -727,11 +739,15 @@ def run_program(pyk, path, stdin, args, events="", libs=(), stream=False):
 
 
 def run_arguments(command, argv):
-    """A `run` or `try` command line: --pyk, --events (`run` only) and -L,
-    the program, and what follows it, a `--` in front dropped.
-    String -> [String] -> (String?, String, [String], String, [String])"""
+    """A `run` or `try` command line: --pyk, --events, --until and
+    --until-match (`run` only) and -L, the program, and what follows it, a
+    `--` in front dropped; the compare-until as (N, [pattern]), or None.
+    String -> [String] ->
+    (String?, String, [String], String, [String], (Int, [String])?)"""
     pyk, events, libs, rest = None, "", [], list(argv)
-    flags = ("--pyk", "--events", "-L") if command == "run" else ("--pyk", "-L")
+    most, matches = None, []
+    flags = (("--pyk", "--events", "--until", "--until-match", "-L") if command == "run"
+             else ("--pyk", "-L"))
     while rest and rest[0].startswith("-") and rest[0] != "--":
         flag = rest.pop(0)
         if flag in flags and rest:
@@ -740,6 +756,12 @@ def run_arguments(command, argv):
                 pyk = value
             elif flag == "--events":
                 events = value
+            elif flag == "--until":
+                if not value.isdigit() or int(value) < 1:
+                    raise Refusal(f"{command}: --until is a number of events, from 1, not {value!r}")
+                most = int(value)
+            elif flag == "--until-match":
+                matches.append(value)
             else:
                 libs.append(value)
         elif flag.startswith("-L") and len(flag) > 2:
@@ -751,7 +773,9 @@ def run_arguments(command, argv):
     path, args = rest[0], rest[1:]
     if args and args[0] == "--":
         args = args[1:]
-    return pyk, events, libs, path, args
+    if (most is None) != (not matches):
+        raise Refusal(f"{command}: --until and --until-match come together")
+    return pyk, events, libs, path, args, (most, matches) if most else None
 
 
 def launch(argv):
@@ -760,9 +784,9 @@ def launch(argv):
     line of JSON: its status, what debug wrote, its error, the tinyweb
     log and the program's source. Exits with the program's status.
     [String] -> Int"""
-    pyk, events, libs, path, args = run_arguments("run", argv)
+    pyk, events, libs, path, args, until = run_arguments("run", argv)
     sys.stdout.flush()
-    ran = run_program(find_pyk(pyk), path, None, args, events, libs, stream=True)
+    ran = run_program(find_pyk(pyk), path, None, args, events, libs, stream=True, until=until)
     written = ran["stderr"] + ran["error"]
     sys.stderr.write(written)
     if written and not written.endswith("\n"):
@@ -951,7 +975,7 @@ def attempt(argv):
     if as_json:
         argv = list(argv)
         argv.remove("--json")
-    pyk, _, libs, path, rest = run_arguments("try", argv)
+    pyk, _, libs, path, rest, _ = run_arguments("try", argv)
     if rest:
         raise Refusal("try: the program's arguments come from the test, not the command line")
     if not os.path.exists(path):
@@ -970,8 +994,8 @@ def attempt(argv):
         raise Refusal("try: the test's stdin is not a string")
     if not isinstance(params, dict):
         raise Refusal("try: the test has no verifier_params")
-    _, events, _, _, program_args = run_arguments("run", args[1:])
-    command = ["run"] + (["--events", events] if events else []) + [path]
+    _, events, _, _, program_args, until = run_arguments("run", args[1:])
+    command = ["run"] + (["--events", events] if events else []) + until_flags(until) + [path]
     command += ["--"] + program_args if program_args else []
     own = [sys.executable, os.path.abspath(__file__), "run", "--pyk", find_pyk(pyk)]
     own += [f"-L{lib}" for lib in libs] + command[1:]
@@ -1121,6 +1145,7 @@ def task_params(item, name, pyk):
     solution = item.get("solution")
     attempts = (item.get("attributes") or {}).get("attempts")
     limits = max_calls((item.get("attributes") or {}).get("max_calls"), name)
+    until = compare_until(item, name)
     def lines(key):
         return [line for block in item.get(key) or []
                 for line in block.get("text", "").split("\n")]
@@ -1138,7 +1163,8 @@ def task_params(item, name, pyk):
                           test_stdin=case["stdin"], test_args=args,
                           test_events=case["events"])
             if solution:
-                ran = run_program(find_pyk(pyk), program, case["stdin"], args, case["events"])
+                ran = run_program(find_pyk(pyk), program, case["stdin"], args, case["events"],
+                                  until=until)
                 if not ran["ok"]:
                     raise Refusal(f"the solution of {name!r} does not run on test {k + 1}:\n"
                                   + ran["error"].rstrip())
@@ -1161,7 +1187,8 @@ def task_params(item, name, pyk):
                               expected_stdout=case["stdout"] or "",
                               compare_stderr=case["stderr"] is not None,
                               expected_stderr=case["stderr"] or "")
-            out.append(({"stdin": case["stdin"], "args": args, "events": case["events"]}, params))
+            out.append(({"stdin": case["stdin"], "args": args, "events": case["events"],
+                         "until": until}, params))
     return out
 
 
@@ -1190,12 +1217,42 @@ def toml_value(value):
     return text.replace("\x7f", "\\u007f")
 
 
+def until_flags(until):
+    """A compare-until (N, [pattern]) as `run`'s flags; none where there
+    is none. (Int, [String])? -> [String]"""
+    if not until:
+        return []
+    flags = ["--until", str(until[0])]
+    for pattern in until[1]:
+        flags += ["--until-match", pattern]
+    return flags
+
+
+def compare_until(item, name):
+    """A task's compare-until block as (N, [pattern]), or None where it
+    has none. {..} -> String -> (Int, [String])?"""
+    blocks = item.get("compare_until") or []
+    if not blocks:
+        return None
+    if len(blocks) > 1:
+        raise Refusal(f"{name!r} has {len(blocks)} compare-until blocks, and a task has one")
+    events = (blocks[0].get("attributes") or {}).get("events")
+    patterns = [line.strip() for line in blocks[0].get("text", "").split("\n") if line.strip()]
+    if not isinstance(events, (int, float)) or isinstance(events, bool) \
+            or int(events) != events or events < 1:
+        raise Refusal(f"{name!r} has a compare-until block whose events = is not a number from 1")
+    if not patterns:
+        raise Refusal(f"{name!r} has a compare-until block with no pattern")
+    return int(events), patterns
+
+
 def test_toml(run, params, program, title):
     """One test's [test.options], as TOML. {..} -> {..} -> String -> String ->
     String"""
     command = ["run"]
     if run["events"]:
         command += ["--events", run["events"]]
+    command += until_flags(run.get("until"))
     command += [program]
     if run["args"]:
         command += ["--"] + run["args"]

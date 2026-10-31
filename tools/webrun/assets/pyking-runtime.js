@@ -40,6 +40,7 @@ export class PykingRuntime {
     // The -W flags every check reports with (`setWarnings`).
     this.warnings = [];
     this.onExit = null;            // likewise, for a `sys.exit`
+    this.onUntil = null;           // likewise, for a compare-until limit reached
     this.onEnd = null;             // called when a live run is let go
     this.onDebugger = null;        // where a debugged program is, as it changes
     // Whether a program is being debugged, which keeps its callbacks and
@@ -112,6 +113,7 @@ export class PykingRuntime {
     if (message.type === "failure") return this.onFailure?.(message.text);
     if (message.type === "warning") return this.onWarning?.(message.text);
     if (message.type === "exit") return this.onExit?.(message.code);
+    if (message.type === "until") return this.onUntil?.();
     if (message.type === "debugger") {
       if (message.state === "ended") this._debugging = false;
       return this.onDebugger?.(message);
@@ -271,16 +273,21 @@ export class PykingRuntime {
    *  `onTinyweb`, a line at a time, for a check run whose page no one
    *  sees: tinyweb's `sdelay` then waits for no page, and only moves its
    *  clock on. `tinywebEvents` is the lines of an
-   *  events file, delivered once the top level has ended.
+   *  events file, delivered once the top level has ended. `tinywebUntil`,
+   *  {events, patterns}, ends the run once tinyweb's log has had `events`
+   *  lines the patterns (RegExp sources) match -- a notebook task's
+   *  compare-until block -- and `onUntil` is called where a callback
+   *  the page made reached it.
    *
-   *  Resolves to {ok:true, exit?} -- `exit` being the status `sys.exit`
-   *  ended the run with -- or to a refusal in `compile`'s own shape,
+   *  Resolves to {ok:true, exit?, until?} -- `exit` being the status `sys.exit`
+   *  ended the run with, `until` true where tinywebUntil ended it -- or
+   *  to a refusal in `compile`'s own shape,
    *  {ok:false, text, info?}, since running compiles first and a program
    *  that does not check is refused the same way either way. */
   async runProgram(source, {
-    onOutput, onDebug, onTinyweb, onInput, onPage, onFailure, onExit, onEnd, onWarning,
+    onOutput, onDebug, onTinyweb, onInput, onPage, onFailure, onExit, onEnd, onWarning, onUntil,
     name = "playground.pyk", stdin = "", args = [], release = false, tinywebLog = false,
-    tinywebEvents = "",
+    tinywebEvents = "", tinywebUntil = null,
   } = {}) {
     this._require();
     this.endLive();
@@ -292,9 +299,11 @@ export class PykingRuntime {
     this.onPage = onPage || null;
     this.onFailure = onFailure || null;
     this.onExit = onExit || null;
+    this.onUntil = onUntil || null;
     this._live = false;
     try {
-      return await this._send("run", { source, name, stdin, args, release, tinywebLog, tinywebEvents });
+      return await this._send("run",
+        { source, name, stdin, args, release, tinywebLog, tinywebEvents, tinywebUntil });
     } finally {
       // A program that sent its page something goes on after answering
       // -- the page calls back the functions it gave it -- so it keeps

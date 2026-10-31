@@ -1,0 +1,23 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_compare_until.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_compare_until_loop_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_compare_until_loop_s2.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_compare_until_loop_s3.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\nkick\nwhat it drew differs at line 3 of tinyweb's log:\nexpected: sdelay 0.500\ngot: sdelay 0.250"
+
+[[solution]]
+file = "nb_compare_until_loop_s4.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\nkick\nexpected:\nbeat 1\nbeat 2\nbeat 3\nbeat 4\nbeat 5\nbeat 6\nbeat 7\nbeat 8\ngot:\nbeat 1\nbeat 2\nbeat 3\nbeat 4\nbeat 5\nbeat 6"

@@ -58,8 +58,8 @@ const COUNTER = JSON.stringify('use mutation\nimport tinyweb as tw\nvar n = 0\nt
 
 const STUDENT = [`(async () => { ${HELPERS}
   let r = nb.results();
-  check("eleven open items, worth 12 with 9 to pass",
-    r.total === 11 && r.solved === 0 && r.max === 12 && r.pass === 9, JSON.stringify(r));
+  check("twelve open items, worth 12 with 9 to pass",
+    r.total === 12 && r.solved === 0 && r.max === 12 && r.pass === 9, JSON.stringify(r));
   check("the rules show max and pass", /12\\s*points/.test($(".pkn-rules").innerText)
     && /Required passing score:\\s*9/.test($(".pkn-rules").innerText), $(".pkn-rules")?.innerText);
   check("a progress bar at the top and at the end", $$(".pkn-progress").length === 2);
@@ -356,7 +356,7 @@ const TEACHER = [`(async () => { ${HELPERS}
   check("the checks ran", nb.checked !== undefined && nb.checked.length === 0,
     JSON.stringify(nb.checked));
   check("a check under every task, quiz, cell and the rules",
-    reports.length === 12 + nb.cells.filter((c) => !c.spec.attrs.task && !c.spec.attrs.practice
+    reports.length === 13 + nb.cells.filter((c) => !c.spec.attrs.task && !c.spec.attrs.practice
       && !c.spec.attrs.solution).length + 1,
     reports.length);
   check("each of them says no problems, in green",

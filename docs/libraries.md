@@ -503,6 +503,19 @@ show its page; `tools/tinyweb/embed_page.py` writes them in, and
 `tests/test_tinyweb.py` fails when a copy is stale. The same script
 copies the page's style block into `tinyweb_external_browser.js`.
 
+**Stopping after enough events.** A notebook task's
+```` ```compare-until ```` block (docs/notebook.md) stops every run that
+checks it once tinyweb's log has had a number of lines matching its
+patterns. Where the interpreter runs in a browser, the worker hands
+`tinyweb_external_interpreter.js` the limit as `pykTinywebUntil`; under
+`pyk`, `tinyweb_external.ml` reads it from the file
+`PYKING_TINYWEB_UNTIL` names, beside `PYKING_TINYWEB_LOG`: the number on
+its first line, a pattern (`*` for any text) on each line after. Both
+end the program with status 0 right after the line that makes the
+count, as `sys.exit(0)` would, and send nothing more. Only the
+interpreter's two implementations read it, since only the interpreter
+checks a notebook's answers.
+
 **A page out of sight is held.** `mountPage` answers `{receive,
 setHidden, freeze, close}`. `setHidden(true)` holds the page as the
 splash screen does -- the commands, the frames, the events and the

@@ -1,0 +1,9 @@
+# Ten beats and then an end: the first eight are all that is compared,
+# so accepted.
+import io
+import tinyweb as tw
+drum = tw.load_sample(io.read_line() + "1.wav")
+for n in range(1, 11):
+    print("beat", n)
+    tw.play(drum)
+    tw.sdelay(0.5)

@@ -148,10 +148,10 @@ check("the front matter's title", features.title === "Every notebook feature",
       JSON.stringify(features.title));
 check("math is noticed", features.math === true);
 const flags = (c) => Object.keys(c.attrs).filter((a) => c.attrs[a]).join("+") || "-";
-check("twenty-seven runnable cells, with their attributes",
+check("twenty-nine runnable cells, with their attributes",
       features.cells.map(flags).join(" ") ===
         "- error readonly - readonly error - - - - task solution practice task solution practice solution practice solution "
-        + "practice solution practice solution practice solution readonly+task solution",
+        + "practice solution practice solution practice solution readonly+task solution practice solution",
       features.cells.map(flags).join(" "));
 check("a cell's input from its header, and from a block before it",
       features.cells[3].stdin === "Ada\n" && features.cells[3].args === "first 'second one'"
@@ -169,9 +169,9 @@ check("features.md has no notebook problems", nb.problems.length === 0,
       JSON.stringify(nb.problems));
 check("the rules: max 12, pass 9", nb.rules?.max === 12 && nb.rules?.pass === 9,
       JSON.stringify(nb.rules));
-check("three tasks, six practices and three quizzes, in order, each numbered as its kind",
+check("three tasks, seven practices and three quizzes, in order, each numbered as its kind",
       nb.items.map((i) => i.id).join(" ")
-        === "task-1 practice-1 task-2 practice-2 practice-3 quiz-1 quiz-2 quiz-3 practice-4 practice-5 practice-6 task-3",
+        === "task-1 practice-1 task-2 practice-2 practice-3 quiz-1 quiz-2 quiz-3 practice-4 practice-5 practice-6 task-3 practice-7",
       nb.items.map((i) => i.id).join(" "));
 const [ex1, ex2, ex3, counter, limited, quiz1, quiz2, quiz3, doubled, dot, loosely, git] = nb.items;
 check("names: a task's and a quiz's, and none where none is given",
@@ -209,6 +209,11 @@ check("a practice compared loosely: a stderr test and all four blocks",
       && JSON.stringify(loosely.allowed.map((r) => r.kind)) === '["number","last","any","any","chars"]'
       && loosely.allowedParts.map((p) => p.kind).join() === "diff-allowed,optional-last,any-order,ignore-chars",
       JSON.stringify([loosely.tests, loosely.allowed]));
+const start = features.notebook.items.find((item) => item.name === "start");
+check("a practice compared as far as its compare-until says",
+      start?.until?.events === 4 && start.until.rules.map((r) => r.text).join() === "sdelay*"
+      && start.allowedParts.map((p) => p.kind).join() === "compare-until",
+      JSON.stringify(start?.until));
 check("a read-only task submitted with git",
       git.method === "git" && features.cells[git.cell].attrs.readonly === true,
       JSON.stringify(git).slice(0, 300));
@@ -281,7 +286,7 @@ check("points less the penalty for each failure, never below 0",
 const totals = grading.summary(nb, { "task-1": { state: "solved", points: 5 },
   "quiz-1": { state: "solved", points: 2 }, "quiz-2": { state: "failed", points: 0 } });
 check("the totals: solved, points, and whether they pass",
-      totals.solved === 2 && totals.total === 11 && totals.points === 7 && totals.max === 12
+      totals.solved === 2 && totals.total === 12 && totals.points === 7 && totals.max === 12
       && totals.passed === false && totals.done === false, JSON.stringify(totals));
 
 // 1d. A task submitted with git, a solution that saves a picture,
@@ -347,6 +352,17 @@ for (const [header, problem] of [
    "an ignore-chars block needs at least one line"],
   ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```ignore-chars chars = \" \" all\npoint*\n```\n",
    "an ignore-chars block takes no attribute 'all'"],
+  ["```compare-until events = 8\nsdelay*\n```\n", "a compare-until block belongs under a task"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```compare-until\nsdelay*\n```\n",
+   "says how many events to compare, as events = 60"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```compare-until events = 0\nsdelay*\n```\n",
+   "events is a whole number of at least 1, not '0'"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```compare-until events = 3\n```\n",
+   "a compare-until block needs at least one line"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```compare-until events = 3\nsdelay*\n```\n"
+   + "```compare-until events = 4\nsdelay*\n```\n", "a task has one compare-until block, and this is a second"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```compare-until events = 3 chars = \"x\"\nsdelay*\n```\n",
+   "a compare-until block takes no attribute 'chars'"],
   ["```any-order\nANY: x*\n```\n", "an any-order block belongs under a task"],
   ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```any-order\nplay*\n```\n",
    "starts with BETWEEN: or ANY:"],
@@ -401,6 +417,20 @@ check("lines an optional-last line matches may end either side",
       && !grading.sameOutput("a\nsdelay 0.250\nb\nsplash", "a\nb\nsplash", order.slice(0, 1))
       && !grading.sameOutput("sdelay 0.250\na", "a", order)
       && !grading.sameOutput("a\nsdelay 0.250\nb", "a\nb", order));
+const until = renderMarkdown("```pyking task\n```\n```pyking solution\nprint(1)\n```\n"
+  + "```compare-until events = 60\nsdelay*\nplay \"kick*\n```\n").notebook;
+const limit = grading.untilLimit(until.items[0]);
+check("a compare-until block is the task's limit, not a rule loosening the comparison",
+      until.problems.length === 0 && until.items[0].allowed.length === 0
+      && until.items[0].allowedParts.map((p) => p.kind).join() === "compare-until"
+      && limit.events === 60 && limit.patterns.length === 2,
+      JSON.stringify([until.problems, limit]));
+check("its patterns match log lines whole, * standing for any text",
+      new RegExp(limit.patterns[0]).test("sdelay 0.250")
+      && new RegExp(limit.patterns[1]).test('play "kick1.wav" 0.0 1.0 1.0 0.0 0 0')
+      && !new RegExp(limit.patterns[0]).test("> sdelay 1")
+      && grading.untilLimit(drums.items[0]) === null,
+      JSON.stringify(limit.patterns));
 const twice = renderMarkdown("```pyking task\n```\n```pyking solution\nprint(1)\n```\n"
   + "```optional-last\nsdelay*\nsdelay*\n```\n").notebook.items[0].allowed;
 check("each optional-last line drops at most one line from each side",

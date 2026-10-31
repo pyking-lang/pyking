@@ -49,7 +49,7 @@ export const INPUT_LANGUAGES = ["stdin", "args"];
  *  as code: what a program should print, the tinyweb events it is sent,
  *  the quizzes, the rules, and the differences a task allows. */
 export const PART_LANGUAGES = ["stdout", "stderr", "events", "quiz", "answer", "rules", "diff-allowed",
-  "optional-last", "any-order", "ignore-chars"];
+  "optional-last", "any-order", "ignore-chars", "compare-until"];
 
 const CALLOUTS = {
   note: "Note", tip: "Tip", important: "Important",

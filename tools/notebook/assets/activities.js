@@ -18,7 +18,7 @@
 
 import { escapeHTML } from "./markdown.js";
 import { sameLine, checkQuiz, award, excused, graded, normalizeOutput, quizAward, rightAnswers,
-  sameOutput, summary, overCalls } from "./tasks.js";
+  sameOutput, summary, overCalls, untilLimit } from "./tasks.js";
 
 /** How long one run of a submitted answer may take, in milliseconds. */
 const SUBMIT_TIMEOUT = 10000;
@@ -461,7 +461,7 @@ class TaskWidget {
     const { cells } = this.a;
     const generation = cells.generation;
     try {
-      await this.cell.run();
+      await this.cell.run(untilLimit(item));
     } catch {
       // What went wrong is shown in the cell; the checks below say so too.
     }
@@ -537,6 +537,7 @@ class TaskWidget {
       timeout: SUBMIT_TIMEOUT,
       tinyweb: true,
       events: events ?? "",
+      until: untilLimit(this.item),
     });
   }
 

@@ -394,6 +394,28 @@ whose starting code cannot be edited:
 print("graded by hand")
 ```
 
+A practice compared only as far as its first four pauses: every run
+that checks it stops once tinyweb's log has had four `sdelay` lines,
+so a beat that goes on for long -- or forever -- is compared by its
+start:
+
+```pyking practice name = "start"
+import tinyweb as tw
+```
+
+```pyking solution
+import tinyweb as tw
+kick = tw.load_sample("kick1.wav")
+for i in range(100):
+    print("beat", i + 1)
+    tw.play(kick)
+    tw.sdelay(0.5)
+```
+
+```compare-until events = 4
+sdelay*
+```
+
 ## Lists
 
 - one

@@ -1,0 +1,11 @@
+# Another loop, written with a condition that never fails: accepted.
+use mutation
+import io
+import tinyweb as tw
+drum = tw.load_sample(io.read_line() + "1.wav")
+var n = 1
+while n > 0:
+    print("beat", n)
+    tw.play(drum)
+    tw.sdelay(0.5)
+    n := n + 1

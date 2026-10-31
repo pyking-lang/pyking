@@ -91,6 +91,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   see them. Several blocks may apply to one line. In the page,
   `--to-json` and nbverify (its `ignore_chars` param), and the result
   diff shows lines that differ only in those characters in yellow.
+- Notebook tasks take a ```` ```compare-until events = N ```` block,
+  for a program that never ends, such as a beat played forever. Its
+  lines are patterns of tinyweb's log (`sdelay*`), and every run that
+  checks the task -- Submit's run in the cell, the quiet runs of the
+  answer and the solution, test mode and nbverify -- stops right after
+  the log has had N lines matching any of them. What it printed, drew
+  and wrote up to there is compared, as a run that ended with status
+  0. In `pyk notebook --to-json` and its schema (`compare_until`), and
+  in nbverify (`run --until N --until-match PATTERN`).
 - Notebook tasks take an ```` ```optional-last ```` block, whose lines
   may end the answer's output or the solution's though the other does
   not end with them (before the `splash` that ends a tinyweb log), each

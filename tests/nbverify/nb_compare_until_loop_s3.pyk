@@ -1,0 +1,11 @@
+# Four beats a second: refused at the first pause.
+use mutation
+import io
+import tinyweb as tw
+drum = tw.load_sample(io.read_line() + "1.wav")
+var n = 0
+while true:
+    n := n + 1
+    print("beat", n)
+    tw.play(drum)
+    tw.sdelay(0.25)

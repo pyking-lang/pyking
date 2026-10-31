@@ -351,18 +351,20 @@ class Cells {
   // -- running -----------------------------------------------------------
 
   /** Queues a cell to run; cells run one at a time, in the order asked.
-   *  Cell -> Promise */
-  enqueue(cell) {
+   *  `until` is a task's compare-until limit (tasks.js `untilLimit`), which
+   *  Submit's run of the answer stops at. Cell -> {events, patterns}? -> Promise */
+  enqueue(cell, until = null) {
     const generation = this.generation;
     cell.setState("queued");
     this.queue = this.queue.then(async () => {
       if (generation !== this.generation) return cell.setState("idle");
-      await this.execute(cell);
+      await this.execute(cell, until);
     });
     return this.queue;
   }
 
-  async execute(cell) {
+  async execute(cell, until = null) {
+    let stopped = false;           // whether `until` has ended the program
     this.running = cell;
     cell.begin();
     this.status("busy", `running cell ${cell.spec.index + 1}`);
@@ -386,8 +388,20 @@ class Cells {
         onFailure: (text) => cell.write(text.trimEnd() + "\n", "pkn-failure"),
         onExit: (code) => cell.write(`exited with status ${code}\n`, "pkn-failure"),
         onEnd: () => cell.host?.freeze(),
+        // A callback the page made reached the limit: the program is over.
+        onUntil: () => {
+          if (!stopped) cell.write(`stopped after ${until.events} events, as far as the task compares\n`, "pkn-debug");
+          stopped = true;
+          cell.host?.freeze();
+        },
+        tinywebUntil: until,
         ...input,
       });
+      if (result.until) {
+        result.until = until.events;
+        stopped = true;
+        cell.host?.freeze();
+      }
       cell.finish(result, ++this.executions, performance.now() - started);
       this.status("ready", "ready");
     } catch (err) {
@@ -406,10 +420,13 @@ class Cells {
    *  it is checked against -- in the same queue as the cells, and answers
    *  what it printed. A run longer than `timeout` is stopped. With
    *  `tinyweb`, also tinyweb's log and what the program sent its page,
-   *  each batch as [module, data].
-   *  String -> {name, stdin, args, timeout, tinyweb} ->
-   *  Promise<{ok, text?, stdout, stderr, exit, timedOut?, tinyweb?, page?}> */
-  capture(source, { name = "check.pyk", stdin = "", args = [], timeout = 10000, tinyweb = false, events = "" } = {}) {
+   *  each batch as [module, data]. `until`, a task's compare-until limit,
+   *  ends the run once tinyweb's log has had that many matching lines;
+   *  it then answers `until` true and ended with status 0.
+   *  String -> {name, stdin, args, timeout, tinyweb, events, until} ->
+   *  Promise<{ok, text?, stdout, stderr, exit, timedOut?, tinyweb?, page?, until?}> */
+  capture(source, { name = "check.pyk", stdin = "", args = [], timeout = 10000, tinyweb = false, events = "",
+    until = null } = {}) {
     const generation = this.generation;
     const job = this.queue.then(async () => {
       if (generation !== this.generation) return { ok: false, text: "stopped", stdout: "", stderr: "" };
@@ -427,6 +444,7 @@ class Cells {
         const drawing = tinyweb ? {
           tinywebLog: "separate",
           tinywebEvents: events,
+          tinywebUntil: until,
           onTinyweb: (text) => { log += text; },
           onPage: (module, data) => { page.push([module, data]); },
         } : {};
@@ -647,9 +665,9 @@ class Notebook extends Cells {
   /** Runs what test mode checks, in this page's worker, and shows each
    *  problem under the element it is about. () -> Promise */
   async check() {
-    const run = (source, name, stdin, args, events = "") =>
+    const run = (source, name, stdin, args, events = "", until = null) =>
       this.capture(source, { name, stdin, args: this.web.splitArguments(args ?? ""),
-        tinyweb: events !== "", events });
+        tinyweb: events !== "" || until !== null, events, until });
     const { problems } = await checkNotebook(this.doc, run);
     this.activities[0].showChecks(problems);
     this.checked = problems;
@@ -1016,11 +1034,13 @@ class Cell {
     if (!this.editor && this.notebook.editorsReady) this.attachEditor();
   }
 
-  run() {
+  /** Runs the cell; `until` is a task's compare-until limit, which
+   *  Submit's run of an answer stops at. {events, patterns}? -> Promise */
+  run(until = null) {
     this.ensureEditor();
     if (!this.editor) return Promise.resolve();
     if (this.state === "queued" || this.state === "running") return Promise.resolve();
-    return this.notebook.enqueue(this);
+    return this.notebook.enqueue(this, until);
   }
 
   reset() {
@@ -1103,6 +1123,9 @@ class Cell {
     const expectError = this.spec.attrs.error;
     if (result.ok && result.exit && !expectError) {
       this.result("pkn-error", `exited with status ${result.exit} after ${formatTime(elapsed)}`);
+    } else if (result.ok && result.until && !expectError) {
+      this.result("pkn-ok", `${ICON.ok} stopped after ${result.until} events, as far as the task `
+        + `compares, in ${formatTime(elapsed)}`);
     } else if (result.ok && !expectError) {
       this.result("pkn-ok", `${ICON.ok} ran in ${formatTime(elapsed)}`);
     } else if (result.ok) {

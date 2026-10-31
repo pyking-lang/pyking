@@ -21,6 +21,13 @@
    - neither: the first call says `web_init` is missing, and the program
      ends with status 1.
 
+   With $PYKING_TINYWEB_LOG set, $PYKING_TINYWEB_UNTIL may name a file
+   holding a number on its first line and a pattern on each line after
+   it, `*` standing for any text: once the log has had that many lines
+   one of the patterns matches, the program ends with status 0, right
+   after the line. It is how tools/nbverify checks a notebook task with
+   a compare-until block.
+
    What runs once the top level has ended is `after_program`: a compiled
    program runs it from `at_exit`, and the interpreter, which sets
    `hosted`, runs it itself. `descriptors` and `handle` are how the REPL
@@ -2350,6 +2357,42 @@ let event_line event =
   | Some other -> other
   | None -> ""
 
+(* $PYKING_TINYWEB_UNTIL: how many matching lines the log may have, and
+   the patterns, or None. *)
+let until =
+  match log_file, Stdlib.Sys.getenv_opt "PYKING_TINYWEB_UNTIL" with
+  | Some _, Some path when Stdlib.Sys.file_exists path -> (
+      let channel = Stdlib.open_in_bin path in
+      let rec lines acc =
+        match Stdlib.input_line channel with
+        | line -> lines (line :: acc)
+        | exception End_of_file -> List.rev acc
+      in
+      let all = lines [] in
+      Stdlib.close_in channel;
+      let trim line = String.trim line in
+      match all with
+      | first :: patterns -> (
+          match int_of_string_opt (trim first) with
+          | Some n when n >= 1 ->
+              Some (n, List.filter (fun p -> p <> "") (List.map trim patterns))
+          | _ -> None)
+      | [] -> None)
+  | _ -> None
+
+(* Whether a line is what a pattern says, `*` standing for any text.
+   string -> string -> bool *)
+let star_match pattern line =
+  let p = String.length pattern and l = String.length line in
+  let rec go i j =
+    if i = p then j = l
+    else if pattern.[i] = '*' then go (i + 1) j || (j < l && go i (j + 1))
+    else j < l && pattern.[i] = line.[j] && go (i + 1) (j + 1)
+  in
+  go 0 0
+
+let until_seen = ref 0
+
 let write_log line =
   match log_file with
   | None -> ()
@@ -2743,6 +2786,18 @@ let merge_reports text =
 let after_registered = ref false
 let running_after = ref false
 
+(* A line written to the log, counted where $PYKING_TINYWEB_UNTIL says
+   which lines count: the one that makes the count ends the program,
+   with status 0 and nothing delivered after it. string -> unit *)
+let count_until line =
+  match until with
+  | Some (most, patterns) when List.exists (fun p -> star_match p line) patterns ->
+      incr until_seen;
+      if !until_seen >= most then (
+        running_after := true;
+        Stdlib.exit 0)
+  | _ -> ()
+
 let rec after_program () =
   if not !running_after then (
     running_after := true;
@@ -2916,7 +2971,11 @@ and send command =
   if trace && command.op <> "frame_done" && command.op <> "event_done" then
     prerr_endline (log_line command);
   match log_file with
-  | Some _ -> if command.op <> "frame_done" && command.op <> "event_done" then write_log (log_line command)
+  | Some _ ->
+      if command.op <> "frame_done" && command.op <> "event_done" then (
+        let line = log_line command in
+        write_log line;
+        count_until line)
   | None ->
       history := kept !history command;
       pending := !pending @ [ command ];

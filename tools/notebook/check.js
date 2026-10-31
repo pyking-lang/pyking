@@ -17,7 +17,7 @@
 // Functions:
 //   main(argv) -- checks one document.
 //   boot(bundle, lib) -- the compiler worker, loaded under node.
-//   execute(ask, source, name, stdin, args) -- runs one program.
+//   execute(ask, source, name, stdin, args, events, until) -- runs one program.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -86,11 +86,13 @@ export async function boot(bundle, lib) {
 }
 
 /** Runs one program, delivering the tinyweb `events` once its top level
- *  has ended: {ok, text?, stdout, stderr, exit}.
- *  Function -> String -> String -> String -> String -> String? -> Promise<{...}> */
-export async function execute(ask, source, name, stdin, args, events = "") {
+ *  has ended, and ending it where a compare-until limit (`until`) says:
+ *  {ok, text?, stdout, stderr, exit}.
+ *  Function -> String -> String -> String -> String -> String? ->
+ *  {events, patterns}? -> Promise<{...}> */
+export async function execute(ask, source, name, stdin, args, events = "", until = null) {
   const ran = await ask({ type: "run", source, name, stdin, args: splitArguments(args ?? ""),
-    tinywebEvents: events ?? "" });
+    tinywebEvents: events ?? "", tinywebUntil: until });
   const value = ran.answer?.value;
   if (ran.answer?.type !== "result") {
     return { ok: false, text: ran.answer?.message ?? "no answer", stdout: ran.stdout, stderr: ran.stderr };
@@ -119,7 +121,8 @@ export async function main(argv) {
     process.stderr.write(`${file}: the compiler did not start: ${err.message}\n`);
     return 1;
   }
-  const run = (source, name, stdin, args, events) => execute(ask, source, name, stdin, args, events);
+  const run = (source, name, stdin, args, events, until) =>
+    execute(ask, source, name, stdin, args, events, until);
   const { problems } = await checkNotebook(doc, run);
 
   for (const p of problems) process.stdout.write(`${file}:${p.line}: ${p.message}\n`);

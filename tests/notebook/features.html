@@ -149,6 +149,18 @@ print(&quot;done&quot;)</code></pre></div>
 whose starting code cannot be edited:</p>
 <div class="pkn-cell" id="cell-26" data-cell="25" data-part="55"><pre class="pkn-cell-fallback"><code># Write this in any language you like.</code></pre></div>
 <div class="pkn-cell" id="cell-27" data-cell="26" data-part="56"><pre class="pkn-cell-fallback"><code>print(&quot;graded by hand&quot;)</code></pre></div>
+<p>A practice compared only as far as its first four pauses: every run
+that checks it stops once tinyweb's log has had four <code>sdelay</code> lines,
+so a beat that goes on for long -- or forever -- is compared by its
+start:</p>
+<div class="pkn-cell" id="cell-28" data-cell="27" data-part="57"><pre class="pkn-cell-fallback"><code>import tinyweb as tw</code></pre></div>
+<div class="pkn-cell" id="cell-29" data-cell="28" data-part="58"><pre class="pkn-cell-fallback"><code>import tinyweb as tw
+kick = tw.load_sample(&quot;kick1.wav&quot;)
+for i in range(100):
+    print(&quot;beat&quot;, i + 1)
+    tw.play(kick)
+    tw.sdelay(0.5)</code></pre></div>
+<div class="pkn-part" data-part="59"></div>
 <h2 id="lists"><a class="pkn-anchor" href="#lists" aria-hidden="true">#</a>Lists</h2>
 <ul>
 <li>one</li>
