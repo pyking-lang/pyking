@@ -457,7 +457,10 @@ playground's REPL tab alike: `Repl_session.completions session line col`
 answers where the word starts and every name that fits, each with its
 type. After `m.` it offers what the module the session imported as `m`
 exports (`session.sigmaps`, found through the imports in
-`session.written`); at the start of a line beginning `:`, the
+`session.written`); after `import` or `from`, only module names -- the
+standard library's (`Completion.library_modules`, listed from `lib/`
+when the compiler is built) and those the session imported; at the
+start of a line beginning `:`, the
 meta-commands, those only a terminal has only there; elsewhere what the
 session has bound, the modules it imported, the builtins and the
 keywords. What a pass made up -- a default's helper, an overload's

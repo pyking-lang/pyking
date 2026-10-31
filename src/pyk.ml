@@ -2061,7 +2061,11 @@ let command_lsp options =
               List.iter send out;
               loop state pending false)
   in
-  let state = Lsp.create ~warnings:(warning_config options) disk (library_path options) Version.version in
+  let list_dir directory =
+    try List.sort compare (Array.to_list (Sys.readdir (if directory = "" then "." else directory)))
+    with Sys_error _ -> []
+  in
+  let state = Lsp.create ~warnings:(warning_config options) ~list_dir disk (library_path options) Version.version in
   let status = try loop state "" false with error -> note "!!!" (Printexc.to_string error); 1 in
   Option.iter close_out log;
   status

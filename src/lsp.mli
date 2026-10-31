@@ -23,9 +23,13 @@ type state
 (** A server that has seen nothing: files are read from `sources` where
     no document is open, libraries are looked for in `libs`, and
     `version` is what `initialize` reports; `warnings` is what it reports
-    until an editor's settings say otherwise.
-    Warnings.config? -> Module.sources -> [Module.lib_entry] -> string -> state *)
-val create : ?warnings:Warnings.config -> Module.sources -> Module.lib_entry list -> string -> state
+    until an editor's settings say otherwise. `list_dir` lists a
+    directory, for the modules completion offers after `import`; by
+    default it lists nothing, as in the browser.
+    Warnings.config? -> (string -> [string])? -> Module.sources ->
+    [Module.lib_entry] -> string -> state *)
+val create :
+  ?warnings:Warnings.config -> ?list_dir:(string -> string list) -> Module.sources -> Module.lib_entry list -> string -> state
 
 (** One JSON-RPC message received, as text, and the messages to send
     back, each as text: a request's response, and a log message where

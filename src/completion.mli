@@ -9,6 +9,9 @@
       qualifier line col -- the `m` of an `m.` before the cursor, dotted
         where a submodule is named, as in `m.sub.`.
       hidden name -- whether a pass made the name up.
+      module_position line col -- whether a module's name is written
+        there: after `import`, or right after `from`.
+      library_modules -- the standard library's modules.
       matching prefix candidates -- the candidates starting with prefix.
       common_prefix names -- what every name starts with. *)
 
@@ -33,3 +36,12 @@ val matching : string -> (string * string option) list -> (string * string optio
 
 (** The longest text every name starts with. [string] -> string *)
 val common_prefix : string list -> string
+
+(** Whether the cursor is where a module's name is written: in the list
+    after `import`, or the one word after `from` -- not after `as`, nor
+    after `from m import`. string -> int -> bool *)
+val module_position : string -> int -> bool
+
+(** The standard library's modules, read from lib/ when the compiler was
+    built. [string] *)
+val library_modules : string list

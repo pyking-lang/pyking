@@ -17,10 +17,23 @@
 (library
  (name pyking)
  (wrapped false)
- (modules targets lexer names suggest syntax walk builtin analyses desugar_args parser splash submodules module
+ (modules targets library_modules lexer names suggest syntax walk builtin analyses desugar_args parser splash submodules module
    exhaustive typesystem elaborate warnings release prune opt_tailcall interpreter completion repl_session json notebook_format highlight scopes lsp debug_session dap examples target_python target_js_core target_js_packaging target_ocaml target_c target_java type_experiment)
  (flags
   (:standard -warn-error -a)))
+
+;; library_modules.ml lists the standard library's modules -- each
+;; folder of lib/ holding <name>.pyk or <name>_external.pyk -- so that
+;; completion after `import` can offer them where no directory can be
+;; read, as in the browser.
+(rule
+ (targets library_modules.ml)
+ (deps (glob_files_rec ../lib/**.pyk))
+ (action
+  (with-stdout-to
+   library_modules.ml
+   (system
+    "printf '(* The standard library modules, from lib/ (src/dune). *)\nlet names = [\n'; for d in ../lib/*/; do n=$(basename \"$d\"); if [ -f \"$d$n.pyk\" ] || [ -f \"$d${n}_external.pyk\" ]; then printf '  \"%s\";\n' \"$n\"; fi; done; printf ']\n'"))))
 
 ;; version.ml is generated from the VERSION file at the root, so the
 ;; number is written in one place and `pyk --version` cannot disagree

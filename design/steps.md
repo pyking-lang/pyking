@@ -951,6 +951,12 @@ returning `""`.
 
 ## Step 11 -- `use mutation`: arrays, mutable maps, compound assignment
 
+**Superseded by [mutation.md](mutation.md)** (October 2026), which plans
+arrays, mutable structs, `Dict`, slices and `use pointers` in full and
+decides several things differently: arrays are fixed size and made by
+`array(...)`, and `var struct` gives mutable records. Where the two
+disagree, mutation.md is the plan.
+
 Everything in this step is refused without `use mutation`.
 
 ### Compound assignment

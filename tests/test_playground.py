@@ -256,6 +256,14 @@ replCheck("Tab at the start offers the commands a page has",
 complete = offered(2, ":l");
 replCheck("and not one only a terminal has", complete.items.some((i) => i.label === ":ls")
           && !complete.items.some((i) => i.label === ":load"), JSON.stringify(complete));
+complete = offered(8, "import i");
+replCheck("Tab after import offers only modules",
+          JSON.stringify(complete.items.map((i) => i.label)) === JSON.stringify(["io"])
+          && complete.items[0].detail === "module", JSON.stringify(complete));
+complete = offered(7, "from ti");
+replCheck("and so does Tab after from",
+          JSON.stringify(complete.items.map((i) => i.label)) === JSON.stringify(["time", "tinyweb"]),
+          JSON.stringify(complete));
 answer = submit("import math");
 complete = offered(9, "math.flo");
 replCheck("Tab after an imported module's name offers what it exports",

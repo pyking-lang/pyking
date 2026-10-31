@@ -70,6 +70,10 @@ external external_call : string -> string -> string -> string = "pyk_external"
 external file_exists : string -> string = "pyk_file_exists"
 external file_read : string -> string = "pyk_file_read"
 
+(* The names in a directory, one per line, where the page can list one
+   (`pykListDir`); "" where it cannot. *)
+external list_dir : string -> string = "pyk_list_dir"
+
 (* A file of the standard library by its path under lib/, or "" where
    the page supplies none. *)
 external library_file : string -> string = "pyk_library_file"
@@ -1258,8 +1262,9 @@ let lsp_state =
     if String.length name > 0 && name.[0] = '/' then String.sub name 1 (String.length name - 1)
     else name
   in
+  let list_dir directory = List.filter (( <> ) "") (String.split_on_char '\n' (list_dir directory)) in
   ref
-    (Lsp.create
+    (Lsp.create ~list_dir
        Module.
          {
            exists = (fun name -> file_exists (strip name) = "1");

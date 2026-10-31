@@ -867,6 +867,9 @@ let completions ?(terminal = false) session line col =
   in
   let candidates =
     match module_ with
+    | None when Completion.module_position line col ->
+        List.map (fun name -> (name, Some "module"))
+          (Completion.library_modules @ List.map snd imported)
     | Some m -> (
         match List.assoc_opt m imported with
         | None -> []

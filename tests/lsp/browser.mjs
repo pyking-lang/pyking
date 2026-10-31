@@ -31,6 +31,17 @@ globalThis.pykFetchSource = (name) => {
   return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
 };
 
+// A directory, listed as `pyk lsp` lists one, so that completion after
+// `import` offers the same modules here.
+globalThis.pykListDir = (name) => {
+  for (const candidate of [name || ".", path.join(directory, name)]) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+      return fs.readdirSync(candidate).sort();
+    }
+  }
+  return [];
+};
+
 (0, eval)(fs.readFileSync(bundle, "utf8"));
 
 const steps = JSON.parse(fs.readFileSync(0, "utf8"));

@@ -1,0 +1,3 @@
+# A module beside imports_main.pyk, which completion after `import`
+# offers along with the standard library's.
+public def twice(n): n * 2

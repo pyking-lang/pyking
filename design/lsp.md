@@ -99,7 +99,7 @@ the same with a timer. `"diagnostics": "save"` does not mark on change.
 | `textDocument/hover` | the type the checker recorded (`tmap`) for the smallest expression, binding, parameter or definition under the cursor, printed as Pyking; for a name, the `##` comment above its definition. Inside a top-level `def` with nothing to show, a note: nothing calls the function, so its types are not inferred, or the program has a type error |
 | `textDocument/definition` | where a name is bound: in the file, in a module it imports, in the standard library. Builtins have none |
 | `textDocument/documentSymbol` | the `def`s (with their nested ones), the top-level bindings and the imports |
-| `textDocument/completion` | keywords, builtins, the names in scope where the cursor is, and after `m.` the names module `m` exports, with their types, and its submodules; after `m.sub.` that submodule's |
+| `textDocument/completion` | keywords, builtins, the names in scope where the cursor is, and after `m.` the names module `m` exports, with their types, and its submodules; after `m.sub.` that submodule's; after `import` or `from`, only modules: the standard library's, those in the library directories and beside the document (read through `list_dir`, which in the browser is the page's `pykListDir` where it has one), and those the program reaches |
 
 The protocol: `initialize`, `initialized`, `shutdown`, `exit`,
 `textDocument/didOpen`, `didChange` (full text), `didSave`, `didClose`,

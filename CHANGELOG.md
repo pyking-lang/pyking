@@ -132,6 +132,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rule, `src/suggest.ml`, decides what is close for the parser, the
   checker and the language server's quick fix.
 
+- Completion after `import` and `from` offers only modules -- the
+  standard library's, those in the library directories and the files
+  beside the program -- in the editor, the playground and the REPL,
+  rather than every keyword and name containing what was typed.
+
 ### Changed
 
 - A notebook cell no longer echoes the line `io.read_line` reads after
@@ -139,6 +144,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- In the playground, hovering over an error showed its message twice,
+  with a line between: Run marked the error the language server had
+  already marked. Run's marker now steps aside where the language
+  server has one.
 - The website threw away whatever a section was in the middle of when
   another section was opened: the playground's program, compiled code,
   page, REPL session and debugger, and the library page being read and

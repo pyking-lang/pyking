@@ -61,6 +61,7 @@ type phase = Fresh | Running | Shut_down | Exited of int
    what was last published for each, and the phase. *)
 type state = {
   base : Module.sources;
+  list_dir : string -> string list;
   libs : Module.lib_entry list;
   server_version : string;
   settings : settings;
@@ -70,9 +71,10 @@ type state = {
   phase : phase;
 }
 
-let create ?(warnings = Warnings.default) base libs server_version =
+let create ?(warnings = Warnings.default) ?(list_dir = fun _ -> []) base libs server_version =
   {
     base;
+    list_dir;
     libs;
     server_version;
     settings = { lib_path = []; on_save = false; warnings };
@@ -661,12 +663,49 @@ let submodule_items sigmap dotted path =
   in
   distinct (List.map (fun sub -> item sub 9 (Some "submodule")) subs @ own @ members)
 
-(** What may be written at a position of a document: after `m.`, what
-    module m exports; elsewhere the names in scope there, the keywords
-    and the builtins. state -> document -> Json.t -> (state, Json.t) *)
+(** The modules a document may import: the standard library's, those in
+    every library directory, the files beside it, and every module its
+    program already reaches -- not its own. A directory is read through
+    the server's `list_dir`, which reads nothing in the browser, where
+    the standard library's list is all there is.
+    state -> document -> analysis -> [string] *)
+let importable state document analysis =
+  let module_of file =
+    let base = Filename.remove_extension file in
+    let ext = "_external" in
+    let n = String.length base and k = String.length ext in
+    if Filename.extension file <> ".pyk" then None
+    else if n > k && String.sub base (n - k) k = ext then Some (String.sub base 0 (n - k))
+    else Some base
+  in
+  let in_libraries =
+    List.concat_map
+      (fun directory ->
+        List.filter
+          (fun name ->
+            let folder = Module.join directory name in
+            state.base.exists (Module.join folder (name ^ ".pyk"))
+            || state.base.exists (Module.join folder (name ^ Module.external_extension)))
+          (state.list_dir directory))
+      (List.map (fun (l : Module.lib_entry) -> l.lib_directory) state.libs @ state.settings.lib_path)
+  in
+  let beside = List.filter_map module_of (state.list_dir (Module.dirname document.path)) in
+  let reached = List.map (fun (u : Module.t) -> u.name) analysis.units in
+  let own = Option.value ~default:"" (module_of (Filename.basename document.path)) in
+  List.sort_uniq compare (Completion.library_modules @ in_libraries @ beside @ reached)
+  |> List.filter (fun name -> name <> own && name <> "")
+
+(** What may be written at a position of a document: after `import` or
+    `from`, the modules it may import; after `m.`, what module m
+    exports; elsewhere the names in scope there, the keywords and the
+    builtins. state -> document -> Json.t -> (state, Json.t) *)
 let completion state document pos =
   let state, analysis = analysis_of state document in
   let row, col = row_col document.text pos in
+  if Completion.module_position (line_at document.text row) col then
+    let items = List.map (fun name -> item name 9 (Some "module")) (importable state document analysis) in
+    (state, Json.Object [ ("isIncomplete", Json.Bool false); ("items", Json.List items) ])
+  else
   let found = Option.map (fun (u, _) -> resolve analysis.units u) (own_unit analysis document) in
   let scope_names =
     match found with None -> SMap.empty | Some found -> names_at found row col

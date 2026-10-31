@@ -288,6 +288,16 @@ const LSP = `(async () => { ${HELPERS}
     && markers()[0].severity === monaco.MarkerSeverity.Error,
     JSON.stringify(markers()));
 
+  // Run refuses the same program and marks the same place: a hover
+  // must list the error once, so only one marker is there.
+  $("[data-r=runLeft]").click();
+  await until(() => output().includes("Type error"));
+  await sleep(300);
+  const all = () => monaco.editor.getModelMarkers({ resource: app.left.getModel().uri })
+    .filter((m) => m.startLineNumber === 4);
+  check("Run's error and the language server's are one marker", all().length === 1,
+    JSON.stringify(all()));
+
   await source("def f(a: Int) -> Int:\\n    return a\\n\\nprint(f(1))\\n");
   check("and the underline goes once it is fixed",
     await until(() => markers().length === 0), JSON.stringify(markers()));
@@ -342,6 +352,19 @@ const LSP = `(async () => { ${HELPERS}
     .map((r) => r.textContent).find((t) => t.includes("total")));
   check("completion offers a name in scope", offered,
     $$(".suggest-widget .monaco-list-row").map((r) => r.textContent).join(" | "));
+  app.left.trigger("test", "hideSuggestWidget", null);
+
+  // After import, only the modules there are to import.
+  await source("\\n");
+  at(1, 1);
+  app.left.trigger("keyboard", "type", { text: "import i" });
+  await sleep(500);
+  app.left.trigger("test", "editor.action.triggerSuggest", null);
+  const rows = () => $$(".suggest-widget .monaco-list-row").map((r) => r.textContent);
+  await until(() => rows().some((t) => t.includes("io")));
+  check("after import, completion offers modules only",
+    rows().some((t) => t.includes("io")) && !rows().some((t) => /\\bimport\\b|\\bif\\b|\\bint\\b/.test(t)),
+    rows().join(" | "));
   app.left.trigger("test", "hideSuggestWidget", null);
   return checks;
 })()`;

@@ -9,6 +9,9 @@
       qualifier line col -- the `m` of an `m.` before the cursor, dotted
         where a submodule is named, as in `m.sub.`.
       hidden name -- whether a pass made the name up.
+      module_position line col -- whether a module's name is written
+        there: after `import`, or right after `from`.
+      library_modules -- the standard library's modules.
       matching prefix candidates -- the candidates starting with prefix.
       common_prefix names -- what every name starts with. *)
 
@@ -58,6 +61,30 @@ let hidden name = Desugar_args.generated_name name || Elaborate.generated_name n
 (** Whether s starts with prefix. string -> string -> bool *)
 let starts_with prefix s =
   String.length s >= String.length prefix && String.sub s 0 (String.length prefix) = prefix
+
+(** Whether the cursor is where a module's name is written: in the list
+    after `import` (`import io, ma`), or the one word after `from`
+    (`from ti`) -- not after `as`, nor after `from m import`, where the
+    names written are the module's own. string -> int -> bool *)
+let module_position line col =
+  let before = String.sub line 0 (max 0 (min col (String.length line))) in
+  let rec skip s i = if i < String.length s && (s.[i] = ' ' || s.[i] = '\t') then skip s (i + 1) else i in
+  let text = let i = skip before 0 in String.sub before i (String.length before - i) in
+  let after keyword =
+    let k = String.length keyword in
+    if String.length text > k && String.sub text 0 k = keyword && (text.[k] = ' ' || text.[k] = '\t') then
+      let i = skip text k in
+      Some (String.sub text i (String.length text - i))
+    else None
+  in
+  let name s = String.for_all (fun c -> word_char c || c = '.') s in
+  match after "import" with
+  | Some rest -> List.for_all (fun part -> name (String.trim part)) (String.split_on_char ',' rest)
+  | None -> ( match after "from" with Some rest -> name rest | None -> false)
+
+(** The standard library's modules, read from lib/ when the compiler
+    was built (src/dune). [string] *)
+let library_modules = Library_modules.names
 
 (** The candidates whose name starts with prefix, each once, in
     alphabetical order, leaving out hidden names.

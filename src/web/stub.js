@@ -286,6 +286,17 @@ function pyk_file_read(name) {
   return pyk_utf8_of_text(text);
 }
 
+// The names in a directory, one per line, for the modules completion
+// offers after `import`: asked of `pykListDir` where the page has one,
+// and empty where it has none -- the playground's, whose standard
+// library the compiler lists itself.
+//Provides: pyk_list_dir
+//Requires: pyk_utf8_of_text, pyk_text_of_utf8
+function pyk_list_dir(name) {
+  var names = globalThis.pykListDir ? globalThis.pykListDir(pyk_text_of_utf8(name)) : null;
+  return pyk_utf8_of_text(Array.isArray(names) ? names.join("\n") : "");
+}
+
 //Provides: pyk_source
 function pyk_source(name) {
   var files = globalThis.pykSources || (globalThis.pykSources = {});

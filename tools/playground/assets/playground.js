@@ -17,7 +17,7 @@ import {
   JsRunner, LANGUAGE, PageHost, createRuntime, ensureMonaco, fetchJSON,
   splitArguments, themeFor,
 } from "../webrun/web.js";
-import { LspClient } from "./lsp-client.js";
+import { LspClient, MARKER_OWNER } from "./lsp-client.js";
 import { Debugger } from "./debugger.js";
 import {
   AREAS, COMMANDS, defaultKeys, isDefault, isKey, keysOf, migrateSettings, monacoKey,
@@ -374,6 +374,12 @@ class Playground {
       },
     });
     this.lspStarted = this.lsp.start().catch(() => false);
+    // A refused Run's marker steps aside while the language server marks
+    // the same place, so a hover shows the error once.
+    monaco.editor.onDidChangeMarkers((uris) => {
+      const model = this.left.getModel();
+      if (uris.some((uri) => uri.toString() === model.uri.toString())) this.showCompileMarker();
+    });
     // The compiler was loaded before the editors were made (mountPlayground).
     this.status("ready", "ready");
     if (!kept) {
@@ -1350,14 +1356,37 @@ class Playground {
       startLineNumber: info.row1, startColumn: info.col1 + 1,
       endLineNumber: info.row2, endColumn: Math.max(info.col2 + 1, info.col1 + 2),
     };
-    monaco.editor.setModelMarkers(this.left.getModel(), COMPILE_MARKERS, [{
-      ...range, severity: monaco.MarkerSeverity.Error, message,
-    }]);
+    this.compileMarker = { ...range, severity: monaco.MarkerSeverity.Error, message };
+    this.compileShown = null;
+    this.showCompileMarker();
     this.left.revealLineInCenterIfOutsideViewport(info.row1);
   }
 
+  /** Shows the refused Run's marker, unless the language server has one
+   *  starting at the same place: Monaco's hover lists every marker under
+   *  the pointer, so the two would say the same error twice. The
+   *  language server's then stays the only one, and goes when the error
+   *  is fixed. Sets the markers only when that answer changes, since
+   *  setting them is itself a change of markers. () -> () */
+  showCompileMarker() {
+    const { monaco } = this;
+    const model = this.left.getModel();
+    const marker = this.compileMarker;
+    if (marker && monaco.editor.getModelMarkers({ owner: MARKER_OWNER, resource: model.uri })
+      .some((m) => m.startLineNumber === marker.startLineNumber
+        && m.startColumn === marker.startColumn)) {
+      this.compileMarker = null;
+    }
+    const shown = !!this.compileMarker;
+    if (shown === this.compileShown) return;
+    this.compileShown = shown;
+    monaco.editor.setModelMarkers(model, COMPILE_MARKERS, shown ? [marker] : []);
+  }
+
   clearError() {
-    this.monaco.editor.setModelMarkers(this.left.getModel(), COMPILE_MARKERS, []);
+    this.compileMarker = null;
+    this.compileShown = null;
+    this.showCompileMarker();
   }
 
   // -- misc -------------------------------------------------------------
