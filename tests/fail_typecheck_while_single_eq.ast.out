@@ -1,0 +1,3 @@
+'tests/fail_typecheck_while_single_eq.pyk' 7:8-7:9 Parsing error:
+  expected ':' after loop header, not '=': did you mean '=='? A single
+  '=' binds a name; '==' compares two values

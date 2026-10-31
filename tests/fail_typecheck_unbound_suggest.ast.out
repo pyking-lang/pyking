@@ -1,0 +1,2 @@
+'tests/fail_typecheck_unbound_suggest.pyk' 8:23-8:27 Name error:
+  unbound name 'nmae': did you mean 'name'?

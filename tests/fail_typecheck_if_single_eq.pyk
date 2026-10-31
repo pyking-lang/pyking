@@ -1,0 +1,10 @@
+# `=` where `==` was meant, in an `if` condition: the error asks whether
+# '==' was meant rather than only that a ':' is missing.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+loop i = 0:
+    if i = 5:
+        break
+    continue i + 1

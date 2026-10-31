@@ -1,0 +1,7 @@
+# A lone name before an expression that is no keyword's misspelling: the
+# error says how to call it, and names the builtin it is close to.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+prnt "hello"

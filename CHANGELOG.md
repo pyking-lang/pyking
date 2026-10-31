@@ -116,6 +116,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the page, `--to-json` and nbverify, and the result diff shows what
   they excuse in yellow.
 
+- Error messages say what was most likely meant. An unbound name close
+  to one in scope or to a keyword names it (`unbound name 'nmae': did
+  you mean 'name'?`, `did you mean the keyword 'break'?`), and so does
+  an unknown constructor (`True`: `Did you mean the keyword 'true'?`).
+  A misspelled keyword before an expression (`returns name + "!"`) is
+  no longer only "each statement must start on a new line": it says
+  `'returns' is not a keyword: did you mean 'return'?`, and a lone name
+  before an expression is told how to call it (`prnt "hi"`: `Did you
+  mean 'print'? To call it, write print("hi")`). `=` in an `if`,
+  `else if` or `while` condition asks `did you mean '=='?`. A loop
+  carrying a value whose body ends in an `if` with no `else` points at
+  that `if` and says the body can reach its end without a `continue` or
+  a `break`, rather than that the body ends in `()`. One edit-distance
+  rule, `src/suggest.ml`, decides what is close for the parser, the
+  checker and the language server's quick fix.
+
 ### Changed
 
 - A notebook cell no longer echoes the line `io.read_line` reads after

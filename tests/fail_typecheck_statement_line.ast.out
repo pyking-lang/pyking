@@ -1,3 +1,4 @@
-'tests/fail_typecheck_statement_line.pyk' 21:6-21:7 Parsing error:
+'tests/fail_typecheck_statement_line.pyk' 21:0-21:5 Parsing error:
   each statement must start on a new line. In this case, 'print' and
-  'h' are seen as two different statements
+  'h' are seen as two different statements. To call 'print', write
+  print(h)

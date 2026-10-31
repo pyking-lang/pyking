@@ -906,10 +906,11 @@ let undefined_name error =
         String.sub message (String.length unbound_prefix)
           (String.length message - String.length unbound_prefix)
       in
+      (* The name ends at its closing quote; a "did you mean" may follow. *)
       Some
-        (if String.length rest > 0 && rest.[String.length rest - 1] = '\'' then
-           String.sub rest 0 (String.length rest - 1)
-         else rest)
+        (match String.index_opt rest '\'' with
+        | Some close -> String.sub rest 0 close
+        | None -> rest)
   | _ -> None
 
 (** Whether stmts include a def. [stmt] -> bool *)

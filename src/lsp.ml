@@ -1423,26 +1423,7 @@ let semantic_tokens state document =
 
 (** How many single-character edits make one name another.
     string -> string -> int *)
-let distance a b =
-  let m = String.length b in
-  (* One row of the table per character of `a`, each made from the one
-     before it. *)
-  let next row i =
-    let _, out =
-      List.fold_left
-        (fun (left, out) j ->
-          let above = List.nth row j and diagonal = List.nth row (j - 1) in
-          let cell = min (min (above + 1) (left + 1)) (diagonal + if a.[i - 1] = b.[j - 1] then 0 else 1) in
-          (cell, out @ [ cell ]))
-        (i, [ i ])
-        (List.init m (fun j -> j + 1))
-    in
-    out
-  in
-  let last =
-    List.fold_left next (List.init (m + 1) (fun j -> j)) (List.init (String.length a) (fun i -> i + 1))
-  in
-  List.nth last m
+let distance = Suggest.distance
 
 (** The fixes the error a document has offers, where the request's range
     meets it: the spelling Pyking has for one it no longer has (`+` for

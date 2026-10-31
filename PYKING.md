@@ -4961,6 +4961,35 @@ is:
 'prog.pyk' 14:16-14:23 Name error: unbound name 'missing'
 ```
 
+**Did you mean.** Where a name that is not in scope is close to one
+that is, or to a keyword, the message names it: `unbound name 'nmae':
+did you mean 'name'?`, `unbound name 'braek': did you mean the keyword
+'break'?`, and for an uppercase name, which is read as a constructor,
+`unknown constructor 'True': ... Did you mean the keyword 'true'?`.
+Close means a few single-character edits -- one inserted, removed or
+changed, or two neighbours swapped -- none in a one-letter name, one in
+a name of up to three letters, and two or more the longer it is.
+
+Three mistakes that would otherwise be reported as something else are
+named for what they are:
+
+- **A misspelled keyword before an expression.** `returns x` is a name
+  followed by a second statement on the same line, so it breaks the
+  one-statement-per-line rule; the message says `'returns' is not a
+  keyword: did you mean 'return'?`. A lone name that is no keyword's
+  misspelling is told how a call is written instead: `prnt "hi"` gets
+  `Did you mean 'print'? To call it, write print("hi")`.
+- **`=` in a condition.** `if i = 5:`, `while i = 5:` and `else if i =
+  5:` get `did you mean '=='? A single '=' binds a name; '==' compares
+  two values`.
+- **A loop body that ends in an `if` with no `else`.** The body of a
+  loop carrying a value must give the next turn that value on every
+  path; an `if` with no `else` at its end has a path that does not, and
+  the message points at that `if`: `this loop carries Float, but its
+  body can reach its end without a 'continue' or a 'break': this 'if'
+  has no 'else', so when its condition is false nothing says what the
+  loop does next`.
+
 **Mutability is not a type.** A `var` may hold any type, and the checker
 says only that each `:=` gives the type its declaration fixed; *which* names may be written to is a separate question, and
 one a type cannot answer — the same `Int` is a `var` in one scope and an

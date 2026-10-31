@@ -1,0 +1,6 @@
+'tests/fail_typecheck_loop_open_if_nested.pyk' 11:8-11:21 Type error:
+  this loop carries Int, but its body can reach its end without a
+  'continue' or a 'break': this 'if' has no 'else', so when its
+  condition is false nothing says what the loop does next. Add an
+  'else' that continues or breaks, or a 'continue' or a 'break' after
+  the 'if'

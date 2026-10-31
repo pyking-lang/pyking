@@ -1,0 +1,8 @@
+# `=` where `==` was meant, in a `while` condition.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+var i = 0
+while i = 3:
+    i := i + 1

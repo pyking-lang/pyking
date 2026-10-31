@@ -1,0 +1,10 @@
+# `=` where `==` was meant, in an `else if` condition.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+n = 4
+if n == 3:
+    print("three")
+else if n = 4:
+    print("four")

@@ -1,0 +1,10 @@
+# An unbound name close to one in scope: the error names the one it was
+# most likely meant to be.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+def greet(name):
+    return "Hello, " + nmae
+
+print(greet("Ada"))

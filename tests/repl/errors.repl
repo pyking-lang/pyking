@@ -3,3 +3,7 @@ y = nosuchname
 import io_external
 :type
 :ls
+count = 3
+print(cuont)
+retrun count
+if count = 3: print(1)

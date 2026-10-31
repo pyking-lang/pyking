@@ -1142,6 +1142,27 @@ string of its own.
 
 ---
 
+## `suggest.ml`
+
+**"Did you mean": the name a misspelled one was most likely meant to
+be.**
+
+One rule for every message that offers one, so they never disagree
+about what is close: the parser's for a misspelled keyword before an
+expression (`returns x`), the checker's for an unbound name and an
+unknown constructor, and the language server's "Change to" quick fix.
+
+### Main functions
+
+- **`distance a b`** -- the edits that make `a` into `b`: a character
+  inserted, removed or changed, or two neighbours swapped.
+- **`near name`** -- how many edits a name may be from what it meant:
+  none for one letter, one up to three, `2 + length / 8` beyond.
+- **`closest name candidates`** -- the candidates near `name`, closest
+  first; a difference of case alone counts as closest.
+
+---
+
 ## `elaborate.ml`
 
 **Overloading and implicits, removed after the type checker.**

@@ -1,0 +1,5 @@
+'tests/fail_typecheck_misspelled_keyword.pyk' 10:4-10:11 Parsing
+  error: 'returns' is not a keyword: did you mean 'return'? As
+  written, 'returns' is a name and 'name + ", age " + x + "\n"' a
+  second statement on the same line, and each statement must start on
+  a new line

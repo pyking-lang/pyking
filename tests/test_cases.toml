@@ -244,6 +244,36 @@ file = "fail_typecheck_string_plus.pyk"
 file = "fail_typecheck_unbound_name.pyk"
 
 [[cases]]
+file = "fail_typecheck_misspelled_keyword.pyk"
+
+[[cases]]
+file = "fail_typecheck_misspelled_builtin_call.pyk"
+
+[[cases]]
+file = "fail_typecheck_if_single_eq.pyk"
+
+[[cases]]
+file = "fail_typecheck_while_single_eq.pyk"
+
+[[cases]]
+file = "fail_typecheck_elif_single_eq.pyk"
+
+[[cases]]
+file = "fail_typecheck_loop_open_if.pyk"
+
+[[cases]]
+file = "fail_typecheck_loop_open_if_nested.pyk"
+
+[[cases]]
+file = "fail_typecheck_unbound_suggest.pyk"
+
+[[cases]]
+file = "fail_typecheck_unbound_suggest_keyword.pyk"
+
+[[cases]]
+file = "fail_typecheck_constructor_true.pyk"
+
+[[cases]]
 file = "for_complex.pyk"
 
 [[cases]]

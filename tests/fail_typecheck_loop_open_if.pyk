@@ -1,0 +1,15 @@
+# A loop body that ends in an `if` with no `else`: when the condition is
+# false nothing says what the next turn carries. The error points at the
+# `if` and says so, rather than that the body ends in ().
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+start = 1.0
+step = 0.5
+stop = 3.0
+
+loop x = start:
+    print(x)
+    if x <= stop:
+        continue x + step

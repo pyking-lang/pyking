@@ -1,0 +1,8 @@
+# `True` for `true`: an uppercase name is a constructor, and the error
+# names the keyword it is close to.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+done = True
+print(done)

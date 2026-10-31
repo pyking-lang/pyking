@@ -46,6 +46,19 @@ let combine_info start end_ =
 let here eof tokens =
   match tokens with t :: _ -> token_info t | [] -> eof
 
+(** The Parse_error for a condition not followed by what ends it. A
+    single `=` there is a comparison written with the binding's sign, so
+    the message says so. info -> [token] -> string -> exn *)
+let after_condition eof tokens message =
+  match tokens with
+  | TokEq i :: _ ->
+      Parse_error
+        ( i,
+          message
+          ^ ", not '=': did you mean '=='? A single '=' binds a name; '==' \
+             compares two values" )
+  | _ -> Parse_error (here eof tokens, message)
+
 (* The right-hand side of a binding's '=': an expression, or a statement
    in value form -- an if/match, or a loop. The two are told apart by
    the constructor, so no caller has to ask which it got. *)
@@ -641,9 +654,7 @@ and parse_if_stmt_tail eof if_info cond colon_info tokens =
           let if_info = combine_info if_info (stmt_info nested) in
           (SIf (if_info, cond, then_body, Some [ nested ], 0), rest)
       | _ ->
-          raise
-            (Parse_error
-               (here eof rest, "expected ':' after 'else if' condition")))
+          raise (after_condition eof rest "expected ':' after 'else if' condition"))
   | TokElse _ :: TokColon else_colon :: rest ->
       let else_body, rest = parse_block eof rest else_colon in
       let if_info = combine_info if_info (block_end_info if_info else_body) in
@@ -1102,9 +1113,7 @@ and parse_block eof tokens header_info =
             let stmt, rest = parse_statement eof rest in
             (match collected with
             | previous :: _ ->
-                check_own_line (stmt_info previous) (stmt_info stmt) "statement"
-                  (fun () -> statement_text previous)
-                  (fun () -> statement_text stmt);
+                check_own_statement previous stmt;
                 check_reachable previous stmt
             | [] -> ());
             block rest (stmt :: collected)
@@ -1456,7 +1465,7 @@ and parse_loop_tail eof loop_info target annotation init tokens =
             body,
             0 ),
         rest )
-  | _ -> raise (Parse_error (here eof rest, "expected ':' after loop header"))
+  | _ -> raise (after_condition eof rest "expected ':' after loop header")
 
 (** Parses a loop's iteration clause, or answers None where the loop
     takes another turn unconditionally.
@@ -1516,9 +1525,7 @@ and parse_bound_value eof tokens =
           let e, rest = parse_tuple_tail eof e rest in
           (BExpr e, rest)
       | _ ->
-          raise
-            (Parse_error
-               (here eof rest, "expected ':' or 'then' after if condition")))
+          raise (after_condition eof rest "expected ':' or 'then' after if condition"))
   | _ ->
       let e, rest = parse_tuple_or_expr eof tokens in
       (BExpr e, rest)
@@ -1682,9 +1689,7 @@ and parse_statement eof tokens =
           let e, rest = parse_tuple_tail eof e rest in
           (SExprStmt (expr_info e, e, 0), rest)
       | _ ->
-          raise
-            (Parse_error
-               (here eof rest, "expected ':' or 'then' after if condition")))
+          raise (after_condition eof rest "expected ':' or 'then' after if condition"))
   | TokVar i :: TokIdent (_, name) :: TokEq _ :: rest ->
       let value, rest = parse_bound_value eof rest in
       let e = expect_expr_value value "a 'var' declaration" in
@@ -2078,6 +2083,65 @@ and check_own_line previous current what describe_previous describe_current =
              "each %s must start on a new line. In this case, '%s' and '%s' \
               are seen as two different %ss"
              what (describe_previous ()) (describe_current ()) what ))
+
+(* The keywords a statement starts with and an expression follows on
+   the same line: what a lone name before an expression was most likely
+   meant to be, misspelled (`returns x`, `retrun x`). *)
+and leading_keywords =
+  [ "return"; "break"; "continue"; "if"; "while"; "for"; "loop"; "match";
+    "var"; "def"; "import"; "from"; "use"; "datatype"; "struct"; "public";
+    "implicit"; "let"; "lam"; "not" ]
+
+(** check_own_line for two statements. Where the first is a lone name,
+    the second is what a keyword or a call would have taken, so the
+    message says which: the keyword the name is a misspelling of, or the
+    parentheses a call needs. stmt -> stmt -> () *)
+and check_own_statement previous current =
+  match previous with
+  | SExprStmt (_, EVar (name_info, name, _), _)
+    when (stmt_info current).row1 <= name_info.row2 -> (
+      let second = statement_text current in
+      let as_written =
+        Printf.sprintf
+          "As written, '%s' is a name and '%s' a second statement on the \
+           same line, and each statement must start on a new line"
+          name second
+      in
+      let keyword =
+        if String.length name < 3 then []
+        else Suggest.closest name leading_keywords
+      in
+      match keyword with
+      | meant :: _ ->
+          raise
+            (Parse_error
+               ( name_info,
+                 Printf.sprintf "'%s' is not a keyword: did you mean '%s'? %s"
+                   name meant as_written ))
+      | [] ->
+          let builtin =
+            if List.mem name Builtin.names then []
+            else Suggest.closest name Builtin.names
+          in
+          let call =
+            match builtin with
+            | meant :: _ ->
+                Printf.sprintf ". Did you mean '%s'? To call it, write %s(%s)"
+                  meant meant second
+            | [] ->
+                Printf.sprintf ". To call '%s', write %s(%s)" name name second
+          in
+          raise
+            (Parse_error
+               ( name_info,
+                 Printf.sprintf
+                   "each statement must start on a new line. In this case, \
+                    '%s' and '%s' are seen as two different statements%s"
+                   name second call )))
+  | _ ->
+      check_own_line (stmt_info previous) (stmt_info current) "statement"
+        (fun () -> statement_text previous)
+        (fun () -> statement_text current)
 
 (** Raises Parse_error if the next token continues the construct on the
     line its block just ended on. A block written there ends its line,
@@ -2885,9 +2949,7 @@ let parse_with enabled tokens =
         let group, rest = parse_top_statement eof rest in
         (match (collected, group) with
         | previous :: _, first :: _ ->
-            check_own_line (stmt_info previous) (stmt_info first) "statement"
-              (fun () -> statement_text previous)
-              (fun () -> statement_text first);
+            check_own_statement previous first;
             check_reachable previous first
         | _ -> ());
         statements rest (List.rev_append group collected)

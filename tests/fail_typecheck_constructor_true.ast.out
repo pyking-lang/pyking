@@ -1,0 +1,4 @@
+'tests/fail_typecheck_constructor_true.pyk' 7:7-7:11 Name error:
+  unknown constructor 'True': a name starting with an uppercase letter
+  is a constructor, and no datatype declared or imported here has one
+  of that name. Did you mean the keyword 'true'?

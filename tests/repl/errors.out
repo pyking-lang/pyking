@@ -6,4 +6,13 @@ Pyking REPL.  :help for commands, :quit to leave.
   imported by the module's own name 'io'
 > usage: :type <expression>
 > no bindings yet
+> > '<repl>' 1:6-1:11 Name error: unbound name 'cuont': did you mean
+  'count'?
+> '<repl>' 1:0-1:6 Parsing error: 'retrun' is not a keyword: did you
+  mean 'return'? As written, 'retrun' is a name and 'count' a second
+  statement on the same line, and each statement must start on a new
+  line
+> '<repl>' 1:9-1:10 Parsing error: expected ':' or 'then' after if
+  condition, not '=': did you mean '=='? A single '=' binds a name;
+  '==' compares two values
 > 

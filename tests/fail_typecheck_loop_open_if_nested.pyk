@@ -1,0 +1,12 @@
+# The `if` with no `else` a loop body falls through may be inside a
+# branch of another: the error points at the inner one.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+loop n = 0:
+    if n > 10:
+        break
+    else:
+        if n % 2 == 0:
+            continue n + 1

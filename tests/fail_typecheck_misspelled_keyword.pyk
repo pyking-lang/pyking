@@ -1,0 +1,12 @@
+# A misspelled keyword before an expression: `returns` is a name, so the
+# line holds two statements, and the error says which keyword the name
+# is close to rather than only that statements need lines of their own.
+#
+# This program is expected to FAIL type checking. Its `.out` holds the
+# error message, not a program's output.
+
+def make(name, age = 10):
+    x = string(age)
+    returns name + ", age " + x + "\n"
+
+print(make("Harbez", 23))

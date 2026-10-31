@@ -1,0 +1,4 @@
+'tests/fail_typecheck_misspelled_builtin_call.pyk' 7:0-7:4 Parsing
+  error: each statement must start on a new line. In this case, 'prnt'
+  and '"hello"' are seen as two different statements. Did you mean
+  'print'? To call it, write print("hello")

@@ -1280,6 +1280,34 @@ let carry_error acc_type actual store =
   Printf.sprintf "this loop carries %s, but its body ends in %s" (printed mine)
     (printed theirs)
 
+(** The `if` with no `else` a loop body's end falls through, where that
+    is why the body ends in no accumulator: the `if` and its condition,
+    since that is what the message is about. [stmt] -> info option *)
+let rec open_if stmts =
+  match List.rev stmts with
+  | SIf (info, cond, _, None, _) :: _ ->
+      let c = expr_info cond in
+      Some { info with row2 = c.row2; col2 = c.col2 }
+  | SIf (_, _, then_body, Some else_body, _) :: _ -> (
+      match open_if then_body with
+      | Some info -> Some info
+      | None -> open_if else_body)
+  | SMatch (_, _, cases, _) :: _ ->
+      List.find_map (fun (MatchCase (_, _, _, body, _)) -> open_if body) cases
+  | _ -> None
+
+(** The message for a loop body whose end an `if` with no `else` falls
+    through: on that path nothing gives the next turn its accumulator.
+    typ -> store -> string *)
+let open_if_error acc_type store =
+  Printf.sprintf
+    "this loop carries %s, but its body can reach its end without a \
+     'continue' or a 'break': this 'if' has no 'else', so when its \
+     condition is false nothing says what the loop does next. Add an \
+     'else' that continues or breaks, or a 'continue' or a 'break' after \
+     the 'if'"
+    (printed (displayed acc_type store))
+
 (** The message for a `break`/`continue` whose value is not the
     accumulator the loop carries. string -> typ -> typ -> store -> string *)
 let jump_error keyword acc_type actual store =
@@ -1327,6 +1355,31 @@ and ends_every_path stmts =
     env -> string -> typ -> env *)
 let bind ?(implicit = false) env name type_ =
   SMap.add name { btype = type_; bimplicit = implicit } env
+
+(** The message for a name not in scope, naming the name in scope or
+    the keyword it is most likely a misspelling of, where one is close
+    (Suggest.closest). A name the compiler made up, or an overloaded
+    definition's qualified one, is never offered.
+    env -> string -> string *)
+let unbound_message env name =
+  let names =
+    SMap.fold
+      (fun n _ out ->
+        if Names.is_qualified n || Desugar_args.generated_name n then out
+        else n :: out)
+      env []
+  in
+  let keywords =
+    List.filter
+      (fun k -> not (List.mem k Lexer.reserved_words || SMap.mem k env))
+      Lexer.keywords
+  in
+  match Suggest.closest name (names @ keywords) with
+  | meant :: _ when List.mem meant keywords ->
+      Printf.sprintf "unbound name '%s': did you mean the keyword '%s'?" name
+        meant
+  | meant :: _ -> Printf.sprintf "unbound name '%s': did you mean '%s'?" name meant
+  | [] -> Printf.sprintf "unbound name '%s'" name
 
 (** The type a name denotes, or None where it is not in scope.
     env -> string -> typ? *)
@@ -1551,14 +1604,23 @@ let declare_datatypes stmts store =
 let constructor_use info spelled name store =
   match SMap.find_opt spelled store.constructors with
   | None ->
+      (* `True` for `true` is the likely one: the Bools are keywords. *)
+      let known = SMap.fold (fun c _ out -> c :: out) store.constructors [] in
+      let meant =
+        match Suggest.closest spelled (known @ [ "true"; "false" ]) with
+        | ("true" | "false") as k :: _ ->
+            Printf.sprintf ". Did you mean the keyword '%s'?" k
+        | c :: _ -> Printf.sprintf ". Did you mean '%s'?" c
+        | [] -> ""
+      in
       raise
         (Analyses.Analysis_error
            ( info,
              Printf.sprintf
                "unknown constructor '%s': a name starting with an uppercase \
                 letter is a constructor, and no datatype declared or imported \
-                here has one of that name"
-               spelled ))
+                here has one of that name%s"
+               spelled meant ))
   | Some canonical ->
       let (Datatype (_, params, constructors)) =
         SMap.find canonical store.datatypes
@@ -2590,8 +2652,7 @@ and check_stmt statement env return_type acc_type store =
       match type_of env name with
       | None ->
           raise
-            (Analyses.Analysis_error
-               (info, Printf.sprintf "unbound name '%s'" name))
+            (Analyses.Analysis_error (info, unbound_message env name))
       | Some declared -> (
           let actual, store = check_expr e env store in
           match satisfies declared (Some actual) store with
@@ -2709,12 +2770,18 @@ and check_stmt statement env return_type acc_type store =
         | Some _, Some supplied_type_ ->
             let last = List.nth body (List.length body - 1) in
             let both, store = agree (Some accumulator) supplied store in
-            if both = None then
-              raise
-                (Type_error
-                   ( stmt_info last,
-                     carry_error (zonk accumulator store)
-                       (zonk supplied_type_ store) store ));
+            if both = None then (
+              match open_if body with
+              | Some if_info ->
+                  raise
+                    (Type_error
+                       (if_info, open_if_error (zonk accumulator store) store))
+              | None ->
+                  raise
+                    (Type_error
+                       ( stmt_info last,
+                         carry_error (zonk accumulator store)
+                           (zonk supplied_type_ store) store )));
             store
         | _ -> store
       in
@@ -2969,8 +3036,7 @@ and expr_type e env store =
                    ))
           | None ->
               raise
-                (Analyses.Analysis_error
-                   (info, Printf.sprintf "unbound name '%s'" name)))
+                (Analyses.Analysis_error (info, unbound_message env name)))
       | Some (TBuiltin (_, builtin, _)) ->
           raise
             (Type_error
