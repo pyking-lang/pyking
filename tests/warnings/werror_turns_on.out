@@ -1,0 +1,3 @@
+'werror_turns_on.pyk' 5:6-5:7 Error: Unused parameter 'x' of 'f', on
+  line 5: the body never uses it. [-Werror=unused-parameter]
+exit 1

@@ -1,0 +1,4 @@
+# pyk: -Wunused-everything
+# A flag naming no warning is refused, naming the ones there are.
+
+print("never run")

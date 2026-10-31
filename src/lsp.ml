@@ -17,14 +17,15 @@
       create sources libs version -- a server that has seen nothing.
       handle state text -- one message received, and what to send back.
       idle state -- the diagnostics of every document due to be checked.
-      exit_code state -- the status to exit with, once `exit` arrived. *)
+      exit_code state -- the status to exit with, once `exit` arrived.
+      with_warnings state config -- the server reporting other warnings. *)
 
 open Syntax
 open Scopes
 
-(* What the editor configured: more library directories and whether to
-   check only on save. *)
-type settings = { lib_path : string list; on_save : bool }
+(* What the editor configured: more library directories, whether to
+   check only on save, and which warnings to report. *)
+type settings = { lib_path : string list; on_save : bool; warnings : Warnings.config }
 
 (* One open file: its URI and path, its text and version as the editor
    last sent them, and whether it is due to be checked. *)
@@ -46,6 +47,9 @@ type analysis = {
   typed : (Module.t list * (string * typ IntMap.t) list) option;
   problem : problem option;
   internal : string option;
+  resolved : Typesystem.resolution IntMap.t option;
+      (* what the checker settled in the document's own module, where
+         its check got through: what its warnings are worked out from *)
 }
 
 (* Where the protocol is: before initialize, running, after shutdown, and
@@ -66,12 +70,12 @@ type state = {
   phase : phase;
 }
 
-let create base libs server_version =
+let create ?(warnings = Warnings.default) base libs server_version =
   {
     base;
     libs;
     server_version;
-    settings = { lib_path = []; on_save = false };
+    settings = { lib_path = []; on_save = false; warnings };
     documents = [];
     analyses = [];
     published = [];
@@ -262,7 +266,9 @@ let analyse state document previous =
   let kept =
     match previous with
     | Some a -> a
-    | None -> { checked_version = -1; units = []; tmaps = []; sigmaps = []; typed = None; problem = None; internal = None }
+    | None ->
+        { checked_version = -1; units = []; tmaps = []; sigmaps = []; typed = None; problem = None; internal = None;
+          resolved = None }
   in
   (* Where this check did not reach the document's own module, its types
      come from the last check that did: stale, but each node there still
@@ -272,7 +278,10 @@ let analyse state document previous =
     else match kept.typed with Some t -> Some t | None -> Some (units, tmaps)
   in
   let failed error units tmaps sigmaps =
-    let base = { checked_version = document.version; units; tmaps; sigmaps; typed = typed units tmaps; problem = None; internal = None } in
+    let base =
+      { checked_version = document.version; units; tmaps; sigmaps; typed = typed units tmaps; problem = None;
+        internal = None; resolved = None }
+    in
     match describe error with
     | Some (at, kind, message) -> { base with problem = Some { at; kind; message } }
     | None -> { base with internal = Some (Printexc.to_string error) }
@@ -280,28 +289,29 @@ let analyse state document previous =
   match Module.load ~from:(sources state) ~libs ~splash:false document.path with
   | exception error -> failed error kept.units kept.tmaps kept.sigmaps
   | units ->
-      let rec check units_left tmaps sigmaps =
+      let rec check units_left tmaps sigmaps resolved =
         match units_left with
         | [] ->
             { checked_version = document.version; units; tmaps; sigmaps; typed = Some (units, tmaps);
-              problem = None; internal = None }
+              problem = None; internal = None; resolved }
         | (unit : Module.t) :: rest ->
             if unit.is_external then
-              check rest tmaps (sigmaps @ [ (unit.name, Module.external_sigmap unit.declarations) ])
+              check rest tmaps (sigmaps @ [ (unit.name, Module.external_sigmap unit.declarations) ]) resolved
             else (
               match
                 let declared = Module.external_signatures unit.declarations in
-                let tmap, _ =
+                let tmap, qmap =
                   Typesystem.type_check ~declared unit.stmts (Module.sigmaps_for unit sigmaps)
                 in
                 Analyses.analyze_mutability unit.stmts;
-                (tmap, Module.module_sigmap unit.name unit.stmts unit.declarations tmap)
+                (tmap, qmap, Module.module_sigmap unit.name unit.stmts unit.declarations tmap)
               with
               | exception error -> failed error units tmaps sigmaps
-              | tmap, sigmap ->
-                  check rest (tmaps @ [ (unit.path, tmap) ]) (sigmaps @ [ (unit.name, sigmap) ]))
+              | tmap, qmap, sigmap ->
+                  let resolved = if unit.path = document.path then Some qmap else resolved in
+                  check rest (tmaps @ [ (unit.path, tmap) ]) (sigmaps @ [ (unit.name, sigmap) ]) resolved)
       in
-      check units [] []
+      check units [] [] None
 
 (** The analysis of a document as it is now, checking it if it changed.
     state -> document -> (state, analysis) *)
@@ -360,6 +370,21 @@ let own_unit analysis document =
   List.find_opt (fun (u : Module.t) -> u.path = document.path) analysis.units
   |> Option.map (fun (u : Module.t) ->
          (u, Option.value ~default:IntMap.empty (List.assoc_opt u.path analysis.tmaps)))
+
+(** The warnings in a document's own module, as the editor's settings
+    ask for them; none where its check did not get through.
+    state -> document -> analysis -> [Warnings.warning] *)
+let warnings_of state document analysis =
+  match (analysis.resolved, own_unit analysis document) with
+  | Some qmap, Some (unit, _) when analysis.problem = None && analysis.internal = None ->
+      let display name =
+        match List.find_opt (fun (_, plain) -> plain = name) unit.dotted with
+        | Some (dotted, _) -> dotted
+        | None -> name
+      in
+      Warnings.check ~qmap ~public:(List.map fst unit.publics) ~display state.settings.warnings unit.tokens
+        unit.stmts
+  | _ -> []
 
 (** A type as Pyking writes it. typ -> string *)
 let show_type t = pprint_type default_config t
@@ -1554,7 +1579,44 @@ let code_actions state document range_ =
         else []
       in
       (state, Json.List (swaps @ features @ names @ annotation))
-  | _ -> (state, Json.List [])
+  | _ ->
+      (* A name a warning says is never used: the same name with `_` in
+         front, which no warning reports. *)
+      let fixes =
+        List.filter_map
+          (fun (w : Warnings.warning) ->
+            let name = String.concat "" (List.filteri (fun i _ -> i = 1) (String.split_on_char '\'' w.message)) in
+            if w.at.row1 <= r2 && w.at.row2 >= r1 && w.at.file = document.path
+               && not (String.contains name ':' || String.contains name '.')
+            then
+              Some
+                (Json.Object
+                   [
+                     ("title", Json.String (Printf.sprintf "Rename '%s' to '_%s', saying it is not used" name name));
+                     ("kind", Json.String "quickfix");
+                     ( "edit",
+                       Json.Object
+                         [
+                           ( "changes",
+                             Json.Object
+                               [
+                                 ( document.uri,
+                                   Json.List
+                                     [
+                                       Json.Object
+                                         [
+                                           ( "range",
+                                             range document.text { w.at with row2 = w.at.row1; col2 = w.at.col1 } );
+                                           ("newText", Json.String "_");
+                                         ];
+                                     ] );
+                               ] );
+                         ] );
+                   ])
+            else None)
+          (warnings_of state document analysis)
+      in
+      (state, Json.List fixes)
 
 (* --- diagnostics --- *)
 
@@ -1587,7 +1649,7 @@ let import_reaching units (unit : Module.t) file =
 
 (** The diagnostics of a document: the first error the front end raised,
     placed in the document, or at the import that reaches the module it
-    is in. state -> document -> analysis -> [Json.t] *)
+    is in; or, where there is none, every warning it has. state -> document -> analysis -> [Json.t] *)
 let diagnostics state document analysis =
   let diagnostic range_ severity code message =
     Json.Object
@@ -1613,7 +1675,15 @@ let diagnostics state document analysis =
       [ diagnostic (range document.text at) 1 p.kind (Printf.sprintf "%s: %s" where p.message) ]
   | None, Some internal ->
       [ diagnostic (range document.text start) 2 "internal" ("pyk lsp could not check this file: " ^ internal) ]
-  | None, None -> []
+  | None, None ->
+      (* A name never used is marked unnecessary as well, which an editor
+         shows by fading it. *)
+      List.map
+        (fun (w : Warnings.warning) ->
+          match diagnostic (range document.text w.at) (if w.error then 1 else 2) ("-W" ^ Warnings.name w.kind) w.message with
+          | Json.Object fields -> Json.Object (fields @ [ ("tags", Json.List [ Json.Number 1. ]) ])
+          | other -> other)
+        (warnings_of state document analysis)
 
 (** A publishDiagnostics notification for a document. string -> int ->
     [Json.t] -> Json.t *)
@@ -1658,8 +1728,8 @@ let log_message message =
     [ ("jsonrpc", Json.String "2.0"); ("method", Json.String "window/logMessage");
       ("params", Json.Object [ ("type", Json.Number 1.); ("message", Json.String message) ]) ]
 
-(** Settings with what an editor sent applied: `libPath` and
-    `diagnostics`, at the top or under `pyking`. settings -> Json.t ->
+(** Settings with what an editor sent applied: `libPath`,
+    `diagnostics` and `warnings`, at the top or under `pyking`. settings -> Json.t ->
     settings *)
 let configure settings value =
   let value = match Json.member "pyking" value with Json.Null -> value | inner -> inner in
@@ -1675,7 +1745,24 @@ let configure settings value =
     | Json.String "change" -> false
     | _ -> settings.on_save
   in
-  { lib_path; on_save }
+  (* `warnings` is -W flags, as a list or one string, applied to the
+     defaults: what was set before is replaced, so an editor sends the
+     whole of what it wants. A flag naming no warning is passed over. *)
+  let warnings =
+    let flags =
+      match Json.member "warnings" value with
+      | Json.List items -> Some (List.filter_map Json.to_string_option items)
+      | Json.String s -> Some (List.filter (( <> ) "") (String.split_on_char ' ' s))
+      | _ -> None
+    in
+    match flags with
+    | None -> settings.warnings
+    | Some flags ->
+        List.fold_left
+          (fun config f -> match Warnings.flag config f with Ok c -> c | Error _ -> config)
+          Warnings.default flags
+  in
+  { lib_path; on_save; warnings }
 
 (** What the server can do, for `initialize`. state -> Json.t *)
 let capabilities state =
@@ -1851,3 +1938,5 @@ let handle state text =
             | state -> (state, [])
             | exception error ->
                 (state, [ reply (log_message ("pyk lsp: " ^ method_ ^ ": " ^ Printexc.to_string error)) ]))
+
+let with_warnings state warnings = all_due { state with settings = { state.settings with warnings } }

@@ -1,0 +1,54 @@
+Usage error: 'unused-everything' names no warning: the warnings are
+  unused-binding, unused-function, unused-var, shadowed-update,
+  unused-pattern-var, unused-parameter, unused-loop-var, and 'all'
+Usage: pyk [options] <filename> [-- args]   run it with the interpreter
+       pyk repl                             start the REPL
+       pyk compile [options] <filename>     compile it (alias: pyk c)
+       pyk notebook [--port N] [--mode M] <file.md>
+                                            open a notebook in the browser
+       pyk playground [--port N]            open the playground
+       pyk pykhelp [--port N]               open the help in the browser
+       pyk serve [--port N] [<dir>|<file>]  serve a directory's files
+       pyk lsp [--stdio] [--log FILE]       the language server, for editors
+       pyk dap [--stdio] [--log FILE]       the debug adapter, for editors
+       pyk example [<name>]                 list the examples, or save one
+       pyk highlight <file> [options]       colour code for slides: HTML, RTF
+                                            or text
+
+Options:
+  -t, --target <name>   compile for <name> (default: python); with
+                        `pyk <filename>`, compile for it and run it
+  -o, --output <file>   name the executable (default: the source's
+                        name); what is generated goes in build/ beside
+                        it
+  -L, --lib-path <dir>  a directory of libraries to import from; repeat
+                        for several
+  --stdout              print the generated code instead of writing it
+  --run                 build and run what was compiled, with the
+                        target's own commands
+  --release             compile in release mode: every call to debug()
+                        is removed, and print() is kept
+  -W<name>, -Wno-<name> turn one warning on or off; -Wall turns every
+                        one on and -w every one off (`pyk --help` lists
+                        them)
+  -Werror[=<name>]      make every warning an error, or just that one;
+                        -Wno-error[=<name>] undoes it
+  --use <feature>       with the REPL, turn a feature on from the start,
+                        as a 'use' line would: mutation or objects
+  --tinyweb-log         with the interpreter or the REPL, print what a
+                        program sends its tinyweb page, and what the page
+                        answers, on stderr as the page runs
+  --port <n>            serve the notebook, the playground, the help
+                        or a directory on port <n>
+  --mode <mode>         the notebook for a student (the default) or a
+                        teacher, or test: check it instead of serving it
+  --                    everything after it is the program's own
+                        arguments, read by sys.args()
+  --version             print the version and exit
+  --help                this, in full: the rest of the flags, what each
+                        command does, and what each target writes
+
+Targets:
+python, node, web, iweb, c, java, ocaml, pyking -- each its family's
+  default version; `pyk --help` lists the versions.
+exit 1

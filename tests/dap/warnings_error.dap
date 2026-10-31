@@ -1,0 +1,5 @@
+# Under -Werror a warning refuses the launch, as it refuses to run the
+# program.
+flags -Werror=unused-function
+launch warnings.pyk
+disconnect

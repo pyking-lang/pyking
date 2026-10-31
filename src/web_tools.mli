@@ -22,9 +22,11 @@ type tool = Notebook | Playground | Help | Files
     notebook opening the document `path` -- Markdown, or a notebook's
     JSON, served as the Markdown it stands for -- in `mode` (student,
     teacher or test, which runs it under node instead), or the directory
-    `path` (by default the current one). Answers the exit status, or why it could
-    not start. tool -> int? -> string? -> string? -> (int, string) result *)
-val start : tool -> int option -> string option -> string option -> (int, string) result
+    `path` (by default the current one). `warnings` is the -W flags the
+    notebook's page checks each block with. Answers the exit status, or
+    why it could not start.
+    [string]? -> tool -> int? -> string? -> string? -> (int, string) result *)
+val start : ?warnings:string list -> tool -> int option -> string option -> string option -> (int, string) result
 
 (** A notebook's Markdown rendered as the notebook's page renders it --
     tools/notebook/assets/markdown.js's renderMarkdown, run under node

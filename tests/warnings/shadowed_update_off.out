@@ -1,0 +1,6 @@
+'shadowed_update_off.pyk' 5:0-5:1 Warning: Unused binding 'x', bound
+  on line 5: it is never used in its scope. [-Wunused-binding]
+'shadowed_update_off.pyk' 7:4-7:5 Warning: Unused binding 'x', bound
+  on line 7: it is never used in its scope. [-Wunused-binding]
+done
+exit 0

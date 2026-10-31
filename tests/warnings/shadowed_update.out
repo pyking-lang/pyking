@@ -1,0 +1,20 @@
+'shadowed_update.pyk' 5:0-5:1 Warning: Unused binding 'x', bound on
+  line 5: it is never used in its scope. [-Wunused-binding]
+'shadowed_update.pyk' 7:4-7:5 Warning: Unused binding 'x', bound on
+  line 7: it is never used in its scope. Did you try to update x as a
+  variable? Name x is bound on line 5, but is not defined as a mutable
+  variable. The declaration on line 7 is shadowing x, and then never
+  used in the scope. To update it, declare it with 'var x = ...'
+  (after 'use mutation') and write 'x := ...'. [-Wshadowed-update]
+'shadowed_update.pyk' 12:8-12:11 Warning: Unused binding 'sum', bound
+  on line 12: it is never used in its scope. Did you try to update sum
+  as a variable? Name sum is bound on line 10, but is not defined as a
+  mutable variable. The declaration on line 12 is shadowing sum, and
+  then never used in the scope. To update it, declare it with 'var sum
+  = ...' (after 'use mutation') and write 'sum := ...'.
+  [-Wshadowed-update]
+'shadowed_update.pyk' 18:0-18:5 Warning: Unused binding 'count', bound
+  on line 18: it is never used in its scope. [-Wunused-binding]
+2
+0
+exit 0

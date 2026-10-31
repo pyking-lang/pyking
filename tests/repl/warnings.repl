@@ -1,0 +1,18 @@
+total = 10
+def area(w: Int, h: Int) -> Int:
+    scratch = w * 2
+    return w * h
+
+area(2, 3)
+if total > 5:
+    total = 20
+
+def helper() -> Int:
+    return 1
+
+def outer() -> Int:
+    def inner() -> Int:
+        return 2
+    return 3
+
+_ignored = 4

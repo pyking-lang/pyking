@@ -1,0 +1,16 @@
+# The module modules_main.pyk imports: `greet` and `spare` are public,
+# `helper` is used, and `forgotten` and `hidden` are its own and unused.
+
+public def greet(who: String) -> String:
+    return helper() + who
+
+public def spare(n: Int) -> Int:
+    return n
+
+def helper() -> String:
+    return "hello, "
+
+def forgotten() -> Int:
+    return 0
+
+hidden = 1

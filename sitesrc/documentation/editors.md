@@ -15,7 +15,11 @@ The server gives:
 
 - **Diagnostics**: the first error in a file, from lexing, parsing, the
   module system, names, types or mutability. An error in an imported
-  module is shown at the `import` that reaches it.
+  module is shown at the `import` that reaches it. In a file with no
+  error, its warnings: a name bound and never used, and an `=` that
+  shadows a name from outside its block (see "Options and settings").
+- **Quick fixes** for a warning: `_` put in front of a name that is
+  never used.
 - **Hover**: the type of the expression, binding, parameter or
   definition under the cursor, and for a name, the `##` comment above
   its definition. Types are inferred where a function is called, so
@@ -53,7 +57,7 @@ so an unsaved change is seen by every file that imports it.
 ## Options and settings
 
 ```sh
-pyk lsp [--stdio] [-L DIR]... [--log FILE]
+pyk lsp [--stdio] [-L DIR]... [--log FILE] [-W...]
 ```
 
 - `--stdio` uses standard input and output. It is the only transport and
@@ -64,19 +68,28 @@ pyk lsp [--stdio] [-L DIR]... [--log FILE]
   to `FILE`. Use it when an editor's setup does not work: standard
   output carries only the protocol, and editors often hide standard
   error.
+- `-Wall`, `-Wno-unused-binding`, `-Werror` and `pyk`'s other -W flags
+  say which warnings are shown until the editor's `warnings` setting
+  says otherwise.
 
-An editor can send two settings, as `initializationOptions` or as the
+An editor can send three settings, as `initializationOptions` or as the
 `pyking` section of its workspace configuration:
 
 | setting | default | meaning |
 |---|---|---|
 | `libPath` | `[]` | more library directories, searched after `-L` |
 | `diagnostics` | `"change"` | `"change"`: check as you type, once typing pauses; `"save"`: check only when a file is opened or saved |
+| `warnings` | `[]` | which warnings are shown, as `pyk`'s flags: `["-Wall"]`, `["-Wno-unused-function", "-Werror"]`; empty is the defaults |
+
+A warning -- a name bound and never used, say -- is shown as a warning
+and the name faded, with a quick fix that puts `_` in front of it; one
+the `warnings` setting makes an error is shown as an error. `pyk lsp
+-Wall` says what is shown until an editor sends the setting.
 
 ## The debugger
 
 ```sh
-pyk dap [--stdio] [--log FILE]
+pyk dap [--stdio] [--log FILE] [-W...]
 ```
 
 `pyk dap` runs a program with the interpreter, as `pyk <file>` does, and
@@ -96,6 +109,7 @@ request says what to run:
 | `justMyCode` | `true` | step over the code of the standard library and of `-L` libraries |
 | `libPath` | `[]` | more library directories, searched after `-L` |
 | `release` | `false` | debug the program as `--release` compiles it, every `debug()` removed |
+| `warnings` | `[]` | `pyk`'s -W flags for the program's check, after those `pyk dap` was started with; its warnings are written to the debug console, and one made an error stops the launch |
 
 A breakpoint stops at the first statement starting on its line or after
 it, and may have a condition (a Bool expression), a hit count (`3` for
@@ -135,6 +149,7 @@ them, and starts `pyk lsp --stdio`. Its settings:
   "pyking.server.args": ["lsp"],
   "pyking.libPath": [],
   "pyking.diagnostics": "change",
+  "pyking.warnings": [],
   "pyking.trace.server": "off"
 }
 ```

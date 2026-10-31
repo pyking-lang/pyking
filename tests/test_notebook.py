@@ -532,7 +532,8 @@ const ask = async (message) => {
   const text = (type) =>
     replies.filter((reply) => reply.type === type).map((reply) => reply.text).join("");
   const answer = replies.find((reply) => reply.id === id);
-  return { answer, printed: text("stdout"), debugged: text("debug"), read: text("stdin") };
+  return { answer, printed: text("stdout"), debugged: text("debug"), read: text("stdin"),
+           warned: text("warning") };
 };
 
 const booted = await ask({ type: "init", pykingURL: "http://test/pyking/", libURL });
@@ -541,7 +542,8 @@ check("the worker boots", booted.answer?.type === "result",
 const words = (await ask({ type: "words" })).answer?.value ?? {};
 check("the worker answers the word lists",
       words.keywords?.includes("def") && words.builtins?.includes("print")
-      && words.targets?.includes("pyking") && words.formatHelper?.includes("pykFormat"),
+      && words.targets?.includes("pyking") && words.formatHelper?.includes("pykFormat")
+      && words.warnings?.some((w) => w.name === "unused-binding" && w.on === true),
       JSON.stringify(words).slice(0, 160));
 
 let cells = 0;
@@ -595,6 +597,25 @@ check("it reads stdin and its arguments",
 check("what it read is echoed", ran.read === "Ada\n", JSON.stringify(ran.read));
 check("its debug line is marked apart", ran.debugged === "read Ada\n",
       JSON.stringify(ran.debugged));
+
+// 4a. Warnings: a run's arrive as `warning` messages, apart from what it
+//     printed and its debug lines, and the flags a request carries are
+//     the ones its check uses -- an error among them refusing the run.
+const unused = "def helper() -> Int:\n    return 1\n\nprint(\"ran\")\n";
+let warned = await ask({ type: "run", source: unused, name: "unused.pyk" });
+check("a run's warnings arrive apart from its output",
+      warned.answer?.value?.ok && warned.printed === "ran\n" && warned.debugged === ""
+      && warned.warned === "'unused.pyk' 1:4-1:10 Warning: Function 'helper' is defined but never used. [-Wunused-function]\n",
+      JSON.stringify(warned));
+warned = await ask({ type: "run", source: unused, name: "unused.pyk", warnings: ["-w"] });
+check("the flags a request carries are the ones its check uses",
+      warned.answer?.value?.ok && warned.warned === "" && warned.printed === "ran\n", JSON.stringify(warned));
+warned = await ask({ type: "run", source: unused, name: "unused.pyk", warnings: ["-Werror"] });
+check("and a warning made an error refuses the run",
+      warned.answer?.value?.ok === false && warned.answer.value.stage === "Warning"
+      && warned.answer.value.text.includes("[-Werror=unused-function]") && warned.printed === "",
+      JSON.stringify(warned));
+await ask({ type: "words", warnings: [] });
 
 // 4b. tinyweb's log kept apart from debug, as a submission is compared.
 const drew = await ask({ type: "run", name: "drew.pyk", tinywebLog: "separate",
@@ -829,7 +850,22 @@ def check_server(compiler):
             status, body = fetch(port, "/notebook.json")
             check("notebook.json says teacher mode, and to watch the file",
                   status == 200 and json.loads(body).get("mode") == "teacher"
-                  and json.loads(body).get("watch") is True, body[:80])
+                  and json.loads(body).get("watch") is True
+                  and json.loads(body).get("warnings") == [], body[:120])
+        finally:
+            stop(process)
+
+    port = free_port()
+    process, printed = start(
+        compiler, ["notebook", "-Wall", "-Werror=unused-function", "--port", str(port), str(FEATURES)],
+        environment)
+    check("`pyk notebook -Wall` starts", process is not None, printed)
+    if process is not None:
+        try:
+            status, body = fetch(port, "/notebook.json")
+            check("notebook.json carries the -W flags, for the page's runs",
+                  status == 200
+                  and json.loads(body).get("warnings") == ["-Wall", "-Werror=unused-function"], body[:160])
         finally:
             stop(process)
 
@@ -941,6 +977,13 @@ def check_server(compiler):
             ["notebook", str(REPO / "Makefile")], "is not a Markdown file")
     refused("an unknown mode is refused", ["notebook", "--mode", "exam", str(FEATURES)],
             "--mode is student, teacher or test")
+    refused("-W flags are refused in test mode, which shows no warning",
+            ["notebook", "--mode", "test", "-Wall", str(FEATURES)],
+            "they are not for --mode test")
+    refused("and by a command that checks no program",
+            ["playground", "-Wall"], "-W and -w say which warnings a program is checked with")
+    refused("a flag naming no warning is refused",
+            ["notebook", "-Wsomething", str(FEATURES)], "'something' names no warning")
     refused("--mode test with a port is refused",
             ["notebook", "--mode", "test", "--port", "8000", str(FEATURES)],
             "takes no --port")

@@ -488,8 +488,11 @@ def check_editors():
           settings.get("pyking.server.path", {}).get("default") == "pyk"
           and settings.get("pyking.server.args", {}).get("default") == ["lsp"],
           json.dumps({k: v.get("default") for k, v in settings.items()}))
-    check("it offers the libPath and diagnostics settings",
-          "pyking.libPath" in settings and "pyking.diagnostics" in settings)
+    check("it offers the libPath, diagnostics and warnings settings",
+          "pyking.libPath" in settings and "pyking.diagnostics" in settings
+          and settings.get("pyking.warnings", {}).get("default") == [])
+    check("and sends the warnings setting to the server",
+          'warnings: config.get("warnings", [])' in (VSCODE / "extension.js").read_text())
     grammar = json.loads((VSCODE / "syntaxes" / "pyking.tmLanguage.json").read_text())
     words = set(re.findall(r"[a-z_A-Z]+", json.dumps(grammar)))
     missing = sorted(lexer_keywords() - words)

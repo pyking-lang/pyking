@@ -36,6 +36,9 @@ export class PykingRuntime {
     this.onInput = null;           // likewise, for a line the program read
     this.onPage = null;            // likewise, for what a program sends its page
     this.onFailure = null;         // a failure after the run has answered
+    this.onWarning = null;         // a warning a check found, while it runs
+    // The -W flags every check reports with (`setWarnings`).
+    this.warnings = [];
     this.onExit = null;            // likewise, for a `sys.exit`
     this.onEnd = null;             // called when a live run is let go
     this.onDebugger = null;        // where a debugged program is, as it changes
@@ -107,6 +110,7 @@ export class PykingRuntime {
       return this.onPage?.(message.module, message.data);
     }
     if (message.type === "failure") return this.onFailure?.(message.text);
+    if (message.type === "warning") return this.onWarning?.(message.text);
     if (message.type === "exit") return this.onExit?.(message.code);
     if (message.type === "debugger") {
       if (message.state === "ended") this._debugging = false;
@@ -123,7 +127,7 @@ export class PykingRuntime {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ id, type, ...payload });
+      this.worker.postMessage({ id, type, warnings: this.warnings, ...payload });
     });
   }
 
@@ -134,15 +138,30 @@ export class PykingRuntime {
    *
    *  Pyking is statically typed, so a program that does not check is
    *  refused here whatever target was asked for -- there is no flag. */
-  async compile(source, target, name = "playground.pyk") {
+  async compile(source, target, name = "playground.pyk", { onWarning } = {}) {
     this._require();
     await this._checkStamp();
-    return this._send("compile", { source, target, name });
+    this.onWarning = onWarning || null;
+    try {
+      return await this._send("compile", { source, target, name });
+    } finally {
+      this.onWarning = null;
+    }
   }
 
-  /** The compiler's own word lists and targets, and the source of the
-   *  JavaScript value formatter: {keywords, builtins, targets,
-   *  formatHelper}. Asked once and remembered, since they cannot change
+  /** Which warnings every later check reports -- a run, a compile, the
+   *  REPL's entries and the language server's diagnostics: -W flags, as
+   *  `pyk` takes them (`-Wall`, `-Wno-unused-var`, `-Werror`, ...), applied
+   *  to the defaults in order. What a run or a compile finds arrives at
+   *  its `onWarning`, a line at a time as `pyk` prints it. [String] -> () */
+  setWarnings(flags) {
+    this.warnings = [...flags];
+  }
+
+  /** The compiler's own word lists and targets, the source of the
+   *  JavaScript value formatter, and every warning a check can report:
+   *  {keywords, builtins, targets, formatHelper, warnings}, each warning
+   *  {name, on, description} -- `on` whether it is on by default. Asked once and remembered, since they cannot change
    *  without the compiler changing. */
   async words() {
     this._require();
@@ -245,7 +264,8 @@ export class PykingRuntime {
    *  here, whatever a target can or cannot compile. `onOutput` is called
    *  with each piece of output as it is written, so output produced
    *  before a hang is not lost; `onDebug` with each `debug` line, and
-   *  `onInput` with each line the program read. `stdin` is what the
+   *  `onInput` with each line the program read, and `onWarning` with each
+   *  warning its check found (`setWarnings`). `stdin` is what the
    *  program reads, and `args` what `sys.args()` answers. `tinywebLog`
    *  true sends tinyweb's log to `onDebug`, and "separate" to
    *  `onTinyweb`, a line at a time, for a check run whose page no one
@@ -258,12 +278,13 @@ export class PykingRuntime {
    *  {ok:false, text, info?}, since running compiles first and a program
    *  that does not check is refused the same way either way. */
   async runProgram(source, {
-    onOutput, onDebug, onTinyweb, onInput, onPage, onFailure, onExit, onEnd,
+    onOutput, onDebug, onTinyweb, onInput, onPage, onFailure, onExit, onEnd, onWarning,
     name = "playground.pyk", stdin = "", args = [], release = false, tinywebLog = false,
     tinywebEvents = "",
   } = {}) {
     this._require();
     this.endLive();
+    this.onWarning = onWarning || null;
     this.onOutput = onOutput || null;
     this.onDebug = onDebug || null;
     this.onTinyweb = onTinyweb || null;
@@ -295,12 +316,13 @@ export class PykingRuntime {
    *  refusal in `compile`'s shape. `debug(action, payload)` then asks
    *  it something, and `debugStop()` ends it. */
   async debugProgram(source, {
-    onOutput, onDebug, onInput, onPage, onFailure, onExit, onEnd, onDebugger,
+    onOutput, onDebug, onInput, onPage, onFailure, onExit, onEnd, onDebugger, onWarning,
     name = "playground.pyk", stdin = "", args = [], release = false, tinywebLog = false,
     stopOnEntry = false, justMyCode = true, breakpoints = [],
   } = {}) {
     this._require();
     this.endLive();
+    this.onWarning = onWarning || null;
     this.onOutput = onOutput || null;
     this.onDebug = onDebug || null;
     this.onInput = onInput || null;
@@ -348,7 +370,8 @@ export class PykingRuntime {
    *  page decides what Enter does; `replSubmit(text, handlers)` runs one
    *  entry -- Pyking or a `:` command -- calling `onOutput` with what it
    *  prints, `onShow` with what it shows and `onDebug` with its `debug`
-   *  lines, and resolves to {errors, pending, bindings, exit?}, `pending`
+   *  lines, and resolves to {errors, warnings, pending, bindings, exit?},
+   *  `warnings` being the lines of the entry's warnings, `pending`
    *  being text to put back in the prompt and `bindings` null where they
    *  did not change. A page gives the REPL a runtime of its own, so a
    *  stop ends the session and nothing else. */
@@ -409,6 +432,7 @@ export class PykingRuntime {
 
   _detach() {
     this._live = false;
+    this.onWarning = null;
     this.onOutput = null;
     this.onDebug = null;
     this.onTinyweb = null;

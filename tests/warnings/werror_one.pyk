@@ -1,0 +1,9 @@
+# pyk: -Werror=unused-function
+# -Werror=<name> makes one warning an error, and leaves the others
+# warnings.
+
+def helper() -> Int:
+    return 1
+
+value = 2
+print("never printed")

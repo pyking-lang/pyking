@@ -35,7 +35,7 @@ server is part of it.
 ### Options
 
 ```
-pyk lsp [--stdio] [-L DIR]... [--log FILE]
+pyk lsp [--stdio] [-L DIR]... [--log FILE] [-W...]
 ```
 
 - `--stdio` -- talk over standard input and output. It is the only
@@ -46,6 +46,9 @@ pyk lsp [--stdio] [-L DIR]... [--log FILE]
 - `--log FILE` -- every message in and out, and any internal error, is
   appended to FILE. For debugging an editor's setup: standard output
   carries nothing but the protocol, and standard error is often hidden.
+- `-W<name>`, `-Wall`, `-Werror`, ... -- which warnings are reported
+  until an editor's `warnings` setting says otherwise (see
+  docs/warnings.md).
 
 Settings an editor may send, in `initializationOptions` or as the
 `pyking` section of `workspace/didChangeConfiguration`:
@@ -54,6 +57,14 @@ Settings an editor may send, in `initializationOptions` or as the
 |---|---|---|
 | `libPath` | `[]` | more library directories, searched after `-L` |
 | `diagnostics` | `"change"` | `"change"`: check as you type, once typing pauses; `"save"`: check only on open and save |
+| `warnings` | `[]` | which warnings are reported, as -W flags applied to the defaults: a list (`["-Wall", "-Werror=unused-function"]`) or one string of them. Each time it is sent it replaces what was sent before; a flag naming no warning is passed over |
+
+Where a document's check gets through, its warnings are its
+diagnostics: severity 2, or 1 for one a `-Werror` made an error, with
+the flag (`-Wunused-binding`) as the code and the `Unnecessary` tag, so
+an editor fades the name. A code action on one puts `_` in front of the
+name, which no warning reports. Where the check stops at an error, that
+error is the only diagnostic.
 
 ### Positions
 

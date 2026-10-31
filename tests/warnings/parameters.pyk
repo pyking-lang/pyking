@@ -1,0 +1,20 @@
+# pyk: -Wunused-parameter
+# -Wunused-parameter reports a parameter a function's or a lambda's body
+# never uses. An implicit parameter passed on to a call that asks for it
+# is used; a parameter starting with `_` is never reported.
+
+def add(a: Int, b: Int, c: Int) -> Int:
+    return a + b
+
+def keep(_ignored: Int) -> Int:
+    return 1
+
+def show(x: Int, implicit fmt: (Int) -> String) -> String:
+    fmt(x)
+
+def relay(x: Int, implicit fmt: (Int) -> String) -> String:
+    show(x)
+
+implicit def fmt(n: Int) -> String: string(n)
+
+print(add(1, 2, 3), keep(4), relay(5), (lam (p, q). p)(6, 7))

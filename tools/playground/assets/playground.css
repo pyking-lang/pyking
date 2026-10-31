@@ -216,6 +216,8 @@
    line the program read, echoed as a terminal would show it. */
 .pyk-output .debug { color: var(--pyk-dim); font-style: italic; }
 .pyk-output .input { color: var(--pyk-accent); }
+/* A warning the check found, before what the program printed. */
+.pyk-output .warn { color: var(--pyk-warn); }
 .pyk-input-text, .pyk-input-line {
   width: 100%;
   box-sizing: border-box;
@@ -332,6 +334,7 @@
 .pyk-repl-log .err { color: var(--pyk-bad); }
 .pyk-repl-log .note { color: var(--pyk-dim); }
 .pyk-repl-log .debug { color: var(--pyk-dim); font-style: italic; }
+.pyk-repl-log .warn { color: var(--pyk-warn); }
 .pyk-repl-line { display: flex; align-items: flex-start; }
 .pyk-repl-line .prompt { flex: none; white-space: pre; }
 .pyk-playground .pyk-repl-input {
@@ -478,8 +481,8 @@
 }
 .pyk-hint { font-size: .78rem; color: var(--pyk-dim); margin: 0; }
 
-/* The settings dialog: five tabs -- Appearance, Running, Debugger, Copy
-   for slides and Keys -- above one panel. The panel keeps one height, so
+/* The settings dialog: six tabs -- Appearance, Running, Warnings,
+   Debugger, Copy for slides and Keys -- above one panel. The panel keeps one height, so
    moving between the tabs does not make the dialog jump; a tab with more
    than fits scrolls. The tabs scroll sideways on a phone. */
 .pyk-modal.pyk-modal-wide { max-width: min(52rem, calc(100% - 2rem)); width: 52rem; }
@@ -529,6 +532,25 @@
   background: repeating-conic-gradient(#2a2c2f 0% 25%, #1d1f21 0% 50%) 0 0 / 16px 16px;
 }
 .pyk-slides-preview.pyk-slides-unavailable { background: var(--pyk-sunken); color: var(--pyk-dim); }
+/* Warnings: a row per warning -- whether it is on, its flag, whether it
+   is an error, and below them what it reports. */
+.pyk-warning-list { display: grid; gap: .7rem; }
+.pyk-warning {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+  gap: .2rem .6rem;
+}
+.pyk-warning > input { accent-color: var(--pyk-accent); margin: 0; }
+.pyk-warning-flag { font-size: .86rem; color: var(--pyk-dim); cursor: pointer; }
+.pyk-warning-flag code, .pyk-warnings-panel code, .pyk-warning-error code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .82rem;
+  color: var(--pyk-text);
+}
+.pyk-warning-error { font-size: .8rem; }
+.pyk-warning .pyk-hint { grid-column: 2 / -1; }
+@media (max-width: 760px) {
+  .pyk-warning { grid-template-columns: auto minmax(0, 1fr); }
+  .pyk-warning-error { grid-column: 2; }
+}
 @media (max-width: 760px) {
   .pyk-slides-panel { grid-template-columns: minmax(0, 1fr); }
   .pyk-settings-body { height: auto; }
@@ -604,6 +626,7 @@
 .pyk-debug-console-pane[open] { flex: 1 0 10rem; display: flex; flex-direction: column; }
 .pyk-debug-console { flex: 1 1 auto; min-height: 5rem; max-height: none; }
 .pyk-debug-console .log { color: var(--pyk-warn); }
+.pyk-debug-console .warn { color: var(--pyk-warn); }
 .pyk-debug-console .echo { color: var(--pyk-accent); }
 .pyk-debug-console .value { color: var(--pyk-repl-value); }
 .pyk-debug-input { width: 100%; box-sizing: border-box; }

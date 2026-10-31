@@ -163,7 +163,7 @@ Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
   never dragged out of existence — a zero-width editor is easy to reach and
   impossible to grab back.
 - **The Settings button** (top right) opens an in-page dialog rather than a
-  window, in five tabs. It opens on **Appearance** each time, as the
+  window, in six tabs. It opens on **Appearance** each time, as the
   right-hand tabs open on Run output; the arrow keys, Home and End move
   between the tabs (a `tablist` of `tab`s, each with its `tabpanel`).
   - **Appearance**: the theme -- the same as the system (the default),
@@ -184,6 +184,24 @@ Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
     also stops it auto-following the newest line: scrolling
     programmatically while clipped would push the start of the output out
     of reach. **tinyweb log**, the same switch as the Web output tab's.
+  - **Warnings**: which warnings the compiler reports about a program
+    that checks but may still be wrong -- a name bound and never used,
+    and an `=` that shadows a name from outside its block (see PYKING.md,
+    "Warnings"). One row per warning: a checkbox turning it on, its
+    flag as `pyk` takes it (`-Wunused-binding`), whether it is on by
+    default, an **as an error** checkbox (`-Werror=unused-binding`), and
+    what it reports. Below them **Every warning that is on is an error**
+    (`-Werror`), **Turn them all on** (`-Wall`), **Turn them all off**
+    (`-w`) and **Back to the defaults**, and the command line the
+    settings stand for, `pyk -Wno-unused-binding -Werror playground.pyk`.
+    A change is in force at once: the runtime hands the flags to the
+    worker with every request (`setWarnings`), so a run, a compile, the
+    REPL tab and the underlines under the source all follow it, and the
+    language server is asked for its diagnostics again. A run's
+    warnings are written to the output in the warning colour before
+    what the program prints, a compile's to the Compiled code tab's, an
+    entry's to the REPL's and a debugged program's to the Debug tab's
+    console; one made an error refuses the program there.
   - **Debugger**: whether to stop at the first statement, and whether to
     step over the standard library's code (see "The Debug tab").
   - **Copy for slides**: its options and a preview (see "Copy for
@@ -824,8 +842,12 @@ which `tests/test_lsp.py` runs in a Chromium over the DevTools protocol:
 an error underlined at its line, a hover showing a type, completion
 offering a name, go to definition, the outline -- and that compiling and
 running still work beside them, and that Download offers a zip holding
-the compiled program and its Makefile. It drives the settings too: the
-five tabs and the arrow keys between them, every setting saved and
+the compiled program and its Makefile. It checks the warnings: underlined
+as warnings, written before a run's output, and every control of the
+Warnings tab -- a warning turned off, -Werror underlining and refusing,
+all on, all off, the defaults -- with the command line each stands for.
+It drives the settings too: the
+six tabs and the arrow keys between them, every setting saved and
 restored after a reload, an earlier version's `debugKeys` migrated; Copy
 for slides from the right-click menu, its key and the editor's button,
 for a selection and the whole program, with each option, read back off

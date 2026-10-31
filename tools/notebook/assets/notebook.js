@@ -62,6 +62,7 @@ const DEFAULTS = {
   save: null,             // {url, root}: where a picture a solution makes is saved
   runtime: null,          // a PykingRuntime to share; default: one of its own
   watch: false,           // reload the page when the document at url changes
+  warnings: [],           // the -W flags a cell's run is checked with, as pyk takes them
 };
 
 // How often a watched document is fetched again, in milliseconds.
@@ -221,6 +222,7 @@ class Cells {
     this.ui = {};
     this.runtime = cfg.runtime
       ?? web.createRuntime({ webrun: cfg.webrunURL, pyking: cfg.pykingURL });
+    this.runtime.setWarnings?.(cfg.warnings ?? []);
     this.cells = [];
     this.queue = Promise.resolve();
     this.generation = 0;       // bumped by Stop, which cancels what is queued
@@ -371,6 +373,9 @@ class Cells {
       const result = await this.runtime.runProgram(cell.source(), {
         name: cell.name(),
         onOutput: (text) => cell.write(text),
+        // What the cell's check found -- a name never used -- above what
+        // it printed. An answer being checked (`capture`) shows none.
+        onWarning: (text) => cell.write(text, "pkn-warning"),
         onDebug: (text) => {
           cell.write(text, "pkn-debug");
           console.log(text.replace(/\n$/, ""));

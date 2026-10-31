@@ -1,0 +1,20 @@
+# A definition reached through overload resolution or an implicit
+# argument is used, though its own name is never written there, and one
+# overload resolution never reaches is not; a default parameter's
+# generated definition is never reported.
+
+def int::twice(x: Int) -> Int: x * 2
+def string::twice(x: String) -> String: x + x
+def float::twice(x: Float) -> Float: x * 2.0
+
+def show(x: Int, implicit fmt: (Int) -> String) -> String:
+    fmt(x)
+
+def scaled(x: Int, by: Int = 3) -> Int:
+    x * by
+
+def main() -> ():
+    implicit def fmt(n: Int) -> String: "<" + string(n) + ">"
+    print(twice(21), twice("ab"), show(5), scaled(2))
+
+main()

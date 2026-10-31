@@ -1,0 +1,8 @@
+'wall.pyk' 5:4-5:10 Warning: Unused binding 'unused', bound on line 5:
+  it is never used in its scope. [-Wunused-binding]
+'wall.pyk' 7:17-7:18 Warning: Unused pattern variable 'b', bound on
+  line 7: its case never uses it. [-Wunused-pattern-var]
+'wall.pyk' 10:4-10:5 Warning: Unused loop variable 'i', bound on line
+  10: the loop never uses it. [-Wunused-loop-var]
+1
+exit 0

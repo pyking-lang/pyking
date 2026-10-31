@@ -24,6 +24,7 @@
 
     Functions:
       prepare release units -- a program loaded by Module.load, checked.
+      warnings session -- the warnings its program's own modules have.
       create program host -- a session about to run a program.
       set_breakpoints t file specs -- the breakpoints of one file.
       resume t command -- the session told to go on, or to pause.
@@ -68,6 +69,7 @@ type program = {
   sources : source list;
   units : (string * stmt list * stmt list) list;
   highest : int;
+  warned : Warnings.warning list;
 }
 
 (** The symbols of every binding in stmts written `implicit`.
@@ -88,12 +90,14 @@ let implicit_symbols stmts =
     `pyk <file>` runs it, keeping beside what runs what the checker saw.
     `release` removes every call to `debug` first. Raises the front
     end's own errors. bool? -> [Module.t] -> program *)
-let prepare ?(release = false) (loaded : Module.t list) =
+let prepare ?(release = false) ?(warnings = Warnings.default) ?(own = fun (_ : Module.t) -> false)
+    (loaded : Module.t list) =
   let highest =
     List.fold_left
       (fun highest (unit : Module.t) -> max highest (Analyses.highest_sym unit.stmts))
       0 loaded
   in
+  let warned = ref [] in
   let _, highest, sources, units =
     List.fold_left
       (fun (sigmaps, highest, sources, units) (unit : Module.t) ->
@@ -107,6 +111,15 @@ let prepare ?(release = false) (loaded : Module.t list) =
           let imported = Module.sigmaps_for unit sigmaps in
           let tmap, qmap = Typesystem.type_check ~declared unit.stmts imported in
           Analyses.analyze_mutability unit.stmts;
+          if own unit then
+            warned :=
+              !warned
+              @ Warnings.check ~qmap ~public:(List.map fst unit.publics)
+                  ~display:(fun name ->
+                    match List.find_opt (fun (_, plain) -> plain = name) unit.dotted with
+                    | Some (written, _) -> written
+                    | None -> name)
+                  warnings unit.tokens unit.stmts;
           let sigmap = Module.module_sigmap unit.name unit.stmts unit.declarations tmap in
           let elaborated, running_types = Elaborate.program qmap tmap unit.stmts in
           let elaborated =
@@ -133,7 +146,11 @@ let prepare ?(release = false) (loaded : Module.t list) =
             @ [ (unit.name, Analyses.apply_signatures optimized, unit.declarations) ] ))
       ([], highest, [], []) loaded
   in
-  { sources; units; highest }
+  (* A program a -Werror made a warning an error in is not run, and so
+     not debugged either. *)
+  if Warnings.has_error !warned then
+    raise (Warnings.Refused (List.filter (fun (w : Warnings.warning) -> w.error) !warned));
+  { sources; units; highest; warned = !warned }
 
 (* --- the session --- *)
 
@@ -1084,3 +1101,5 @@ let set_variable t reference name text =
                   let t, v = variable_of t name value vtype true in
                   (t, Ok v)))
       | _ -> (t, Error ("'" ^ name ^ "' is not a var, so it cannot be given a new value")))
+
+let warnings session = session.program.warned

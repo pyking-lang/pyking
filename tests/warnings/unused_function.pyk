@@ -1,0 +1,43 @@
+# Unused functions, on by default. A function is used where something
+# that runs calls it or passes it on; one that only calls itself, or a
+# group that only call one another, is reported, and so is one never
+# called at all. A function used only by an unused one is not reported
+# as well: the unused one is the one to look at.
+
+def never(n: Int) -> Int:
+    return helper(n)
+
+def helper(n: Int) -> Int:
+    return n + 1
+
+def countdown(n: Int) -> Int:
+    if n == 0:
+        return 0
+    return countdown(n - 1)
+
+def ping(n: Int) -> Int:
+    if n == 0:
+        return 0
+    return pong(n - 1)
+
+def pong(n: Int) -> Int:
+    return ping(n)
+
+def outer() -> Int:
+    def inner() -> Int:
+        return 1
+    def spare() -> Int:
+        return 2
+    return inner()
+
+def double(n: Int) -> Int:
+    return n * 2
+
+def apply_to(f: (Int) -> Int, n: Int) -> Int:
+    return f(n)
+
+def _private_helper() -> Int:
+    return 0
+
+# Passed on as a value, a function is used.
+print(apply_to(double, 3), outer())

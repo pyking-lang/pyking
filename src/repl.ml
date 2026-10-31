@@ -663,6 +663,9 @@ let make_reader idle =
 
 (* --- the terminal session --- *)
 
+(* How a warning an entry has is printed: what `start` was told. *)
+let show_warning = ref prerr_endline
+
 (** The session's host in a terminal: lines to standard output, and a
     module implemented in a target language reached through its OCaml
     plugin (plugin_host.ml), loaded as it is imported. Repl_session.host *)
@@ -695,6 +698,7 @@ let terminal_host =
         in
         Plugin_host.load (plugins added);
         Plugin_host.externals (plugins all));
+    warn = (fun line -> !show_warning line);
     from = None;
   }
 
@@ -739,7 +743,9 @@ let quit_commands = [ ":quit"; ":q" ]
 
 (** Runs the REPL loop until end of input or `:quit`. `format_error` is
     the driver's (pyk.ml). (exn -> string option) -> int *)
-let start ?read ?session ?(libs = []) ?(features = []) format_error =
+let start ?read ?session ?(libs = []) ?(features = []) ?(warnings = Warnings.default) ?(warning = prerr_endline)
+    format_error =
+  show_warning := warning;
   let report error =
     match format_error error with
     | Some text -> prerr_endline text
@@ -794,4 +800,4 @@ let start ?read ?session ?(libs = []) ?(features = []) format_error =
   let session =
     match session with Some session -> session | None -> new_session ~libs terminal_host
   in
-  loop (with_features session features) ""
+  loop (with_warnings (with_features session features) warnings) ""

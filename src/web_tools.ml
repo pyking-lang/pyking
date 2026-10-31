@@ -200,7 +200,7 @@ let save_picture directory path bytes =
     also tells the page to reload when the document changes and where it
     saves a picture, and save/, where it does.
     string -> string -> Web_server.site *)
-let notebook_site document mode =
+let notebook_site ?(warnings = []) document mode =
   let assets = under [ "tools"; "notebook"; "assets" ] in
   let index = Filename.concat assets "index.html" in
   (* A .json notebook is served as the Markdown it stands for, worked out
@@ -217,6 +217,7 @@ let notebook_site document mode =
       [
         ("document", json_string shown);
         ("mode", json_string mode);
+        ("warnings", json_array (List.map json_string warnings));
         ("watch", "true");
         ("save", json_string "save/");
       ]
@@ -414,7 +415,7 @@ let serve ?page site title port lines =
   let chosen = Option.value ~default:Web_server.default_port port in
   Result.map (fun () -> 0) (Web_server.serve ?page site title chosen (port <> None) lines)
 
-let start tool port mode path =
+let start ?(warnings = []) tool port mode path =
   match tool with
   | Files ->
       (* A file is served from its directory, and the link printed is
@@ -455,5 +456,5 @@ let start tool port mode path =
         if mode = "test" then notebook_test document given
         else
           let* () = check_vendor "pyk notebook" in
-          serve (notebook_site document mode) "Pyking notebook" port
+          serve (notebook_site ~warnings document mode) "Pyking notebook" port
             [ Printf.sprintf "Notebook: %s (%s mode)" document mode; "" ]

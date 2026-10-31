@@ -1,0 +1,7 @@
+'unused_var.pyk' 6:4-6:14 Warning: Unused variable 'never_read',
+  declared on line 6: it is never read. [-Wunused-var]
+'unused_var.pyk' 7:4-7:16 Warning: Unused variable 'only_written',
+  declared on line 7: it is updated with ':=' but never read.
+  [-Wunused-var]
+2
+exit 0

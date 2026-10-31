@@ -1,0 +1,6 @@
+# pyk: compile -t python --stdout -Werror=unused-binding
+# `pyk compile` checks for warnings as running does, and one made an
+# error refuses the program before anything is written.
+
+value = 2
+print("never compiled")

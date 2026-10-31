@@ -103,7 +103,8 @@ progress("the bundle is loaded; its entry points");
 for (const name of ["pykCompile", "pykRun", "pykRunProgram", "pykAnalyze",
                     "pykTargets", "pykFormatHelper", "pykKeywords",
                     "pykBuiltins", "pykReplStart", "pykReplLine",
-                    "pykReplImports", "pykReplSubmit", "pykReplComplete"]) {
+                    "pykReplImports", "pykReplSubmit", "pykReplComplete",
+                    "pykSetWarnings", "pykWarnings"]) {
   check("entry point " + name, typeof globalThis[name] === "function",
         "not registered on the global object");
 }
@@ -295,6 +296,74 @@ answer = submit("x => x");
 replCheck("the old lambda is refused by name",
           answer.errors.length === 1 && answer.errors[0].includes("lam x. x + 1"),
           JSON.stringify(answer));
+
+// 5b. Warnings: every one the settings list (pykWarnings); what a run, a
+//     compile and the REPL report, to `pykOnWarning` or in the answer;
+//     and -W flags set by pykSetWarnings, an error among them refusing
+//     the program.
+progress("warnings");
+const warned = [];
+globalThis.pykOnWarning = (line) => warned.push(line.replace(/\n$/, ""));
+const warnCheck = (label, ok, detail) => check("warnings: " + label, ok, detail);
+const kinds = JSON.parse(pykWarnings());
+warnCheck("pykWarnings lists every warning, with its default and what it means",
+          kinds.length === 7
+            && kinds.some((k) => k.name === "unused-binding" && k.on)
+            && kinds.some((k) => k.name === "unused-pattern-var" && !k.on)
+            && kinds.every((k) => typeof k.description === "string" && k.description.length > 0),
+          JSON.stringify(kinds).slice(0, 300));
+const unused = 'x = 5\nif true:\n    x = 10\n\ndef helper() -> Int:\n    return 1\n\nprint("ran")\n';
+printed.length = 0;
+let res = JSON.parse(pykRun("w.pyk\n" + unused));
+warnCheck("a run reports them before it runs",
+          res.ok && warned.length === 3 && warned[0].startsWith("'w.pyk' 1:0-1:1 Warning: Unused binding 'x'")
+            && warned[1].includes("Did you try to update x as a variable?")
+            && warned[2].includes("Function 'helper' is defined but never used. [-Wunused-function]")
+            && printed.join("") === "ran\n",
+          JSON.stringify([res, warned, printed]));
+warned.length = 0;
+res = JSON.parse(pykCompile(unused, "python14", "w.pyk"));
+warnCheck("a compile reports them too", res.ok && warned.length === 3, JSON.stringify([res.ok, warned]));
+warned.length = 0;
+globalThis.pykSources = { "wm.pyk": unused };
+res = JSON.parse(pykAnalyze("wm.pyk"));
+warnCheck("asking what a program needs reports none", res.ok && warned.length === 0, JSON.stringify(warned));
+res = JSON.parse(pykRunProgram("wm.pyk"));
+warnCheck("a program of several modules reports its own", res.ok && warned.length === 3,
+          JSON.stringify(warned));
+let set = JSON.parse(pykSetWarnings("-Wnonsense"));
+warnCheck("a flag naming no warning is refused", !set.ok && set.text.includes("names no warning"),
+          JSON.stringify(set));
+set = JSON.parse(pykSetWarnings("-Wall -Wno-unused-function"));
+warnCheck("the flags set are answered as the shortest that say the same",
+          set.ok && JSON.stringify(set.flags) === JSON.stringify(
+            ["-Wno-unused-function", "-Wunused-pattern-var", "-Wunused-parameter", "-Wunused-loop-var"]),
+          JSON.stringify(set));
+set = JSON.parse(pykSetWarnings("-Werror=unused-function"));
+warned.length = 0;
+printed.length = 0;
+res = JSON.parse(pykRun("w.pyk\n" + unused));
+warnCheck("-Werror= refuses the program, the error in the answer and the rest reported",
+          !res.ok && res.stage === "Warning" && res.text.includes("[-Werror=unused-function]")
+            && res.info?.row1 === 5 && warned.length === 2 && printed.length === 0,
+          JSON.stringify([res, warned, printed]));
+pykSetWarnings("");
+pykReplStart();
+answer = submit("def f() -> Int:\n    y = 1\n    return 2");
+warnCheck("a REPL entry's warnings are in its answer, and its top-level names never are",
+          answer.warnings.length === 1 && answer.warnings[0].includes("Unused binding 'y'")
+            && answer.errors.length === 0,
+          JSON.stringify(answer));
+pykSetWarnings("-Werror");
+answer = submit("def g() -> Int:\n    z = 1\n    return 2");
+warnCheck("an entry a -Werror made a warning an error is refused",
+          answer.errors.length === 1 && answer.errors[0].includes("Error: Unused binding 'z'")
+            && !names(answer).some((n) => n.startsWith("g=")),
+          JSON.stringify(answer));
+pykSetWarnings("");
+pykReplStart();
+delete globalThis.pykOnWarning;
+delete globalThis.pykSources;
 
 // 6. A program that waits for its page, as tinyweb's `sdelay` does: an
 //    external answering a promise stops the interpreter, which goes on

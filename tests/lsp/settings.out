@@ -7,7 +7,7 @@ diagnostics $CASES/broken.pyk v1 [{"code": "Type error", "message": "argument 1 
 > idle
 > save broken.pyk
 > idle
-diagnostics $CASES/broken.pyk v2 []
+diagnostics $CASES/broken.pyk v2 [{"code": "-Wunused-binding", "message": "Unused binding 'value', bound on line 3: it is never used in its scope.", "range": {"end": {"character": 5, "line": 2}, "start": {"character": 0, "line": 2}}, "severity": 2, "source": "pyking", "tags": [1]}]
 > change broken.pyk
 > save broken.pyk
 > idle

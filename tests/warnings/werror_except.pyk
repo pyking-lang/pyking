@@ -1,0 +1,6 @@
+# pyk: -Werror -Wno-error=unused-binding
+# -Wno-error=<name> leaves one warning a warning under -Werror, so the
+# program runs.
+
+value = 2
+print("printed")

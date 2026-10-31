@@ -1,0 +1,17 @@
+# pyk: -Wunused-loop-var
+# -Wunused-loop-var reports a `for` variable, a loop's accumulator or a
+# name a comprehension binds, that the loop never uses.
+
+for i in range(2):
+    print("hi")
+
+for _ in range(1):
+    print("quiet")
+
+squares = [0 for k in range(3)]
+pairs = [a for (a, b) in [(1, 2)]]
+
+steps = loop n, spare = 0, 100 while n < 3:
+    n + 1, 100
+
+print(squares, pairs, steps)

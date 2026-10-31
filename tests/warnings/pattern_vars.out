@@ -1,0 +1,12 @@
+'pattern_vars.pyk' 12:20-12:21 Warning: Unused pattern variable 'r',
+  bound on line 12: its case never uses it. [-Wunused-pattern-var]
+'pattern_vars.pyk' 14:21-14:22 Warning: Unused pattern variable 'h',
+  bound on line 14: its case never uses it. [-Wunused-pattern-var]
+'pattern_vars.pyk' 14:27-14:32 Warning: Unused pattern variable
+  'whole', bound on line 14: its case never uses it.
+  [-Wunused-pattern-var]
+'pattern_vars.pyk' 19:19-19:23 Warning: Unused pattern variable
+  'rest', bound on line 19: its case never uses it.
+  [-Wunused-pattern-var]
+circle rect 2 4 7
+exit 0

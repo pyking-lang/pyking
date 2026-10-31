@@ -10,6 +10,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Warnings: what a program that checks may still have wrong, reported
+  without stopping it. An `=` binding nothing in its scope uses
+  (`Unused binding 'x', bound on line 3: it is never used in its
+  scope.`), a `def` never called or passed on (`Function 'helper' is
+  defined but never used.`, also when it only calls itself or a group
+  only call one another), and a `var` never read. An `=` inside a block
+  that shadows a name bound outside it, and is then never used, gets
+  the hint an update written without `var` deserves: `Did you try to
+  update x as a variable? Name x is bound on line 1, but is not defined
+  as a mutable variable. The declaration on line 3 is shadowing x, and
+  then never used in the scope.` Unused pattern variables, parameters
+  and loop variables are reported under their own flags, off by
+  default. A name starting with `_` and a module's public names are
+  never reported, nor is a library's module. Flags as GCC has them,
+  applied in order: `-W<name>` and `-Wno-<name>` for `unused-binding`,
+  `unused-function`, `unused-var`, `shadowed-update`,
+  `unused-pattern-var`, `unused-parameter` and `unused-loop-var`;
+  `-Wall`; `-w`; `-Werror`, which makes every warning an error and
+  stops the program before it runs; `-Werror=<name>` and
+  `-Wno-error=<name>`. `pyk --help` lists them. For `pyk <file>`, `pyk
+  compile`, the REPL (an entry's top-level names excepted), `pyk lsp`
+  (warning diagnostics with the flag as the code, faded names, a quick
+  fix adding `_`, and a `warnings` setting), `pyk dap` (on the debug
+  console, and a `warnings` launch argument), the playground (a new
+  Warnings settings tab naming each flag and what it means, with
+  warnings in the output, the REPL tab, the Debug tab and under the
+  source), the notebook (`pyk notebook -Wall`) and the VS Code
+  extension (`pyking.warnings`). A new suite, `tests/test_warnings.py`.
 - `break x` and `continue x`: a jump may carry the accumulator it
   leaves with. `break x` ends the loop worth `x`, and `continue x`
   starts the next turn with `x` (and, on the last turn of a

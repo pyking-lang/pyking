@@ -225,6 +225,11 @@ let synopsis =
   \                        target's own commands\n\
   \  --release             compile in release mode: every call to debug()\n\
   \                        is removed, and print() is kept\n\
+  \  -W<name>, -Wno-<name> turn one warning on or off; -Wall turns every\n\
+  \                        one on and -w every one off (`pyk --help` lists\n\
+  \                        them)\n\
+  \  -Werror[=<name>]      make every warning an error, or just that one;\n\
+  \                        -Wno-error[=<name>] undoes it\n\
   \  --use <feature>       with the REPL, turn a feature on from the start,\n\
   \                        as a 'use' line would: mutation or objects\n\
   \  --tinyweb-log         with the interpreter or the REPL, print what a\n\
@@ -284,6 +289,39 @@ let more_options =
   \                        it off is for reading the program as written,\n\
   \                        and for the recursion depth it restores."
 
+(** The Warnings: block for --help: every warning's flag, whether it is
+    on with no flag given, and what it reports. () -> string *)
+let warning_table () =
+  (* A description is filled to the width, six columns in. *)
+  let described text =
+    let words = List.filter (fun w -> w <> "") (String.split_on_char ' ' text) in
+    let lines, last =
+      List.fold_left
+        (fun (lines, line) w ->
+          if line = "" then (lines, "      " ^ w)
+          else if String.length line + 1 + String.length w <= width then (lines, line ^ " " ^ w)
+          else (lines @ [ line ], "      " ^ w))
+        ([], "") words
+    in
+    String.concat "\n" (lines @ [ last ])
+  in
+  "Warnings:\n"
+  ^ String.concat "\n"
+      (List.map
+         (fun kind ->
+           Printf.sprintf "  -W%s%s\n%s" (Warnings.name kind)
+             (if Warnings.default_on kind then " (on by default)" else " (off by default)")
+             (described (Warnings.description kind)))
+         Warnings.kinds)
+  ^ "\n"
+  ^ wrap
+      "A warning is printed to stderr and the program still runs. -Wall turns every \
+       one on, -w turns every one off, and -Werror makes every warning that is on an \
+       error, which stops the program before it runs; -Werror=<name> does that for \
+       one warning (and turns it on). The flags apply in the order given. A name \
+       starting with '_', a public name and a name in a module of a library are \
+       never reported."
+
 (* The short form names the targets in a sentence rather than a table:
    someone who wants to know what `-t` takes is answered by the list,
    and someone who wants to know what each one *writes* is asking for
@@ -300,6 +338,7 @@ let usage_full () =
     "%s\n\n\
      %s\n\n\
      Targets:\n\
+     %s\n\n\
      %s\n\n\
      %s\n\n\
      Pyking is statically typed, and every program is type-checked before\n\
@@ -411,6 +450,7 @@ let usage_full () =
         "A version names the oldest host the output is promised to run on, \
          and what it counts depends on the family:"
     ^ "\n" ^ version_table ())
+    (warning_table ())
     (run_table ())
 
 (* --- what was asked for --- *)
@@ -459,6 +499,7 @@ type options = {
   convert : string option;
   log : string option;
   uses : string list;  (* `--use`: the REPL's features from the start *)
+  warnings : string list;  (* every `-W...` and `-w`, in order *)
 }
 
 let default_options command =
@@ -485,6 +526,7 @@ let default_options command =
     convert = None;
     log = None;
     uses = [];
+    warnings = [];
   }
 
 (* --- the library search path ---
@@ -531,6 +573,11 @@ let library_path options =
   at "-L" options.lib_paths
   @ at "PYKING_LIB_PATH" (environment_libs ())
   @ at "built-in" (builtin_libs ())
+
+(** The warnings the -W flags ask for; parse_args has refused any it
+    could not read. options -> Warnings.config *)
+let warning_config options =
+  match Warnings.of_flags options.warnings with Ok config -> config | Error _ -> Warnings.default
 
 (** Whether this run hands the program to a backend whose own host
     eliminates tail calls, in which case the pass would only be undone
@@ -683,6 +730,10 @@ let parse_args argv =
        its own (`sys.args`), and it stops a program's `-t` or
        `--run` being read as ours. *)
     | "--" :: rest -> ({ options with arguments = rest }, List.rev positional)
+    | argument :: rest when Warnings.is_flag argument -> (
+        match Warnings.of_flags (options.warnings @ [ argument ]) with
+        | Ok _ -> go { options with warnings = options.warnings @ [ argument ] } positional rest
+        | Error message -> usage_error message)
     | argument :: rest -> go options (argument :: positional) rest
   in
   let options, positional = go (default_options command) [] argv in
@@ -722,6 +773,18 @@ let parse_args argv =
     usage_error
       "--port only applies to 'pyk notebook', 'pyk playground', 'pyk pykhelp' and \
        'pyk serve'";
+  if options.warnings <> [] && not (List.mem command [ default_command; "compile"; "repl"; "lsp"; "dap"; "notebook" ])
+  then
+    usage_error
+      (Printf.sprintf
+         "-W and -w say which warnings a program is checked with, so they apply to \
+          'pyk <file>', 'pyk compile', 'pyk repl', 'pyk lsp', 'pyk dap' and 'pyk \
+          notebook', not 'pyk %s'"
+         command);
+  if options.warnings <> [] && command = "notebook" && (options.mode = Some "test" || options.convert <> None) then
+    usage_error
+      "-W and -w say which warnings the notebook's page shows under a block, so \
+       they are not for --mode test, --to-json, --to-markdown or --json-schema";
   if options.log <> None && command <> "lsp" && command <> "dap" then
     usage_error "--log only applies to 'pyk lsp' and 'pyk dap'";
   if options.mode <> None && command <> "notebook" then
@@ -818,6 +881,7 @@ let format_error error =
   | Typesystem.Type_error (i, message) -> line "Type error" i message
   | Type_experiment.Type_error (i, message) -> line "Type error" i message
   | Interpreter.Runtime_error (i, message) -> line "Runtime error" i message
+  | Warnings.Refused found -> Some (String.concat "\n" (List.map (fun w -> wrap (Warnings.format w)) found))
   | _ -> None
 
 (** Prints error and exits 1. exn -> 'a *)
@@ -838,11 +902,29 @@ let fail_unsupported target (i : Lexer.info) message =
 
 (* --- the front end --- *)
 
+(** The warnings a config reports in one module of the program: its
+    names as the source wrote them, a dotted one included, and its
+    public ones exempt. config -> resolution IntMap.t -> Module.t ->
+    [Warnings.warning] *)
+let module_warnings warnings qmap (unit : Module.t) =
+  let display name =
+    match List.find_opt (fun (_, plain) -> plain = name) unit.dotted with
+    | Some (dotted, _) -> dotted
+    | None -> name
+  in
+  Warnings.check ~qmap ~public:(List.map fst unit.publics) ~display warnings unit.tokens unit.stmts
+
+(** Prints every warning to stderr, and exits 1 if a -Werror made one an
+    error. [Warnings.warning] -> () *)
+let report_warnings found =
+  List.iter (fun w -> prerr_endline (wrap (Warnings.format w))) found;
+  if Warnings.has_error found then exit 1
+
 (** One module through the type checker and the mutability analysis,
     answering the types it worked out. Exits via fail on the first
     error. Module.t -> [(string, Typesystem.sigmap)] -> bool
     -> ([stmt], typ IntMap.t) *)
-let check_module (unit : Module.t) sigmaps experiment =
+let check_module ?(warnings = Warnings.default) ?(warn = false) (unit : Module.t) sigmaps experiment =
   let declared = Module.external_signatures unit.declarations in
   (* Pyking is statically typed, so this is not a mode: a program that
      does not check is refused, whatever was asked for. The checker
@@ -861,6 +943,10 @@ let check_module (unit : Module.t) sigmaps experiment =
      with `:=`, and nothing may shadow one. *)
   (try Analyses.analyze_mutability unit.stmts
    with Analyses.Analysis_error _ as e -> fail e);
+  (* What checks may still be wrong: a name bound and never used. Each
+     warning goes to stderr and the program goes on, unless a -Werror
+     made one of them an error. *)
+  if warn then report_warnings (module_warnings warnings qmap unit);
   (* Overloading and implicits are removed here, from what the checker
      settled: a qualified name becomes a plain one, a resolved call names
      the definition it reaches, and an implicit parameter becomes an
@@ -969,7 +1055,9 @@ let front_end options =
               checked @ [ ({ unit with sigmap = Some sigmap }, None) ] )
           else
             let elaborated, tmap =
-              check_module unit
+              check_module ~warnings:(warning_config options)
+                ~warn:(not (Module.in_library (library_path options) unit.path))
+                unit
                 (Module.sigmaps_for unit sigmaps)
                 options.type_experiment
             in
@@ -1797,7 +1885,7 @@ let command_plugins options =
     tool's server, and answers 1 only if that could not be done.
     Web_tools.tool -> options -> int *)
 let command_web tool options =
-  match Web_tools.start tool options.port options.mode options.filename with
+  match Web_tools.start ~warnings:options.warnings tool options.port options.mode options.filename with
   | Ok status -> status
   | Error message ->
       prerr_endline (wrap message);
@@ -1973,7 +2061,7 @@ let command_lsp options =
               List.iter send out;
               loop state pending false)
   in
-  let state = Lsp.create disk (library_path options) Version.version in
+  let state = Lsp.create ~warnings:(warning_config options) disk (library_path options) Version.version in
   let status = try loop state "" false with error -> note "!!!" (Printexc.to_string error); 1 in
   Option.iter close_out log;
   status
@@ -2140,6 +2228,12 @@ let command_dap options =
         | _ -> ());
         let more = List.filter_map Json.to_string_option (Json.to_list (Json.member "libPath" arguments)) in
         libs := library_path { options with lib_paths = options.lib_paths @ more };
+        (* The launch's own -W flags go after the ones `pyk dap` was
+           started with. *)
+        let given = List.filter_map Json.to_string_option (Json.to_list (Json.member "warnings" arguments)) in
+        match Warnings.of_flags (options.warnings @ given) with
+        | Error message -> Error message
+        | Ok warnings ->
         let refusal error =
           match format_error error with
           | Some text -> Error (unwrapped text)
@@ -2147,7 +2241,10 @@ let command_dap options =
         in
         match
           let units = Module.load ~libs:!libs program in
-          (units, Debug_session.prepare ~release:(flag "release" false) units)
+          ( units,
+            Debug_session.prepare ~release:(flag "release" false) ~warnings
+              ~own:(fun (unit : Module.t) -> not (Module.in_library !libs unit.path))
+              units )
         with
         | exception (Sys_error message) -> Error message
         | exception error -> refusal error
@@ -2436,7 +2533,10 @@ let run_command argv =
      prints its log on stderr as well (lib/tinyweb/tinyweb_external.ml). *)
   if options.tinyweb_log then Unix.putenv "PYKING_TINYWEB_TRACE" "1";
   if options.command = "repl" then
-    Repl.start ~libs:(library_path options) ~features:options.uses format_error
+    Repl.start ~libs:(library_path options) ~features:options.uses
+      ~warnings:(warning_config options)
+      ~warning:(fun line -> prerr_endline (wrap line))
+      format_error
   else if options.command = "plugins" then command_plugins options
   else if options.command = "notebook" && options.convert <> None then command_notebook_convert options
   else if options.command = "notebook" then command_web Web_tools.Notebook options

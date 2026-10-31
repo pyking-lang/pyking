@@ -2,7 +2,7 @@
 {"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
 > open nbsp.pyk
 > idle
-diagnostics $CASES/nbsp.pyk v1 []
+diagnostics $CASES/nbsp.pyk v1 [{"code": "-Wunused-binding", "message": "Unused binding 'answer', bound on line 7: it is never used in its scope.", "range": {"end": {"character": 6, "line": 6}, "start": {"character": 0, "line": 6}}, "severity": 2, "source": "pyking", "tags": [1]}]
 > hover nbsp.pyk 7:14
 {"contents": {"kind": "markdown", "value": "```pyking\ntwice: (Int) -> Int\n```\n\nDoubles a number."}, "range": {"end": {"character": 14, "line": 6}, "start": {"character": 9, "line": 6}}}
 > hover nbsp.pyk 2:6

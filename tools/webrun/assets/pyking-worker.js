@@ -51,6 +51,10 @@
 // answers what it sends once the client has stopped typing -- the
 // diagnostics. Both answer null where the bundle has no `pykLsp`.
 //
+// Every request may carry `warnings`, the -W flags the page's checks
+// report with (pykSetWarnings); what a check finds arrives as {type:
+// "warning", text}, a line as `pyk` prints it on stderr.
+//
 // `highlight` colours Pyking source as `pyk highlight` does
 // (src/highlight.ml): {source, options} -- options {theme, font, size,
 // background, spaces}, each optional -- answers {html, rtf, text}, and
@@ -87,6 +91,24 @@ self.pykOnDebug = (text) => debugOut(text);
 self.pykOnShow = (text) => self.postMessage({ type: "show", text });
 self.pykOnError = (text) => self.postMessage({ type: "failure", text });
 self.pykOnExit = (code) => self.postMessage({ type: "exit", code });
+// A warning the check of a program found, one line as `pyk` prints it.
+self.pykOnWarning = (text) => self.postMessage({ type: "warning", text });
+
+// The -W flags the page asked for, as last handed to the compiler. Every
+// request carries the page's, so a worker started afresh -- after a stop,
+// or for the REPL -- checks with them too.
+let warningFlags = null;
+
+/** Hands the compiler the page's -W flags where they changed. Before the
+ *  compiler has loaded there is nothing to hand them to, and the next
+ *  request does it. [String] -> () */
+function applyWarnings(flags) {
+  const text = flags.join(" ");
+  if (text === warningFlags || typeof self.pykSetWarnings !== "function") return;
+  const answer = JSON.parse(self.pykSetWarnings(text));
+  warningFlags = text;
+  if (!answer.ok) status(answer.text);
+}
 // A browser implementation writes what it has to say to the console --
 // that a function is not supported here, say -- and in this worker the
 // console is the output pane.
@@ -121,6 +143,7 @@ self.pykFetchSource = (name) => {
 
 self.onmessage = (event) => {
   const message = event.data;
+  if (Array.isArray(message.warnings)) applyWarnings(message.warnings);
   const answer = (work) => {
     try {
       const value = work();
@@ -148,13 +171,15 @@ self.onmessage = (event) => {
       });
     case "words":
       // What a page reads out of the compiler rather than keeping a copy
-      // of: the words its editor highlights, the targets it offers, and
-      // the value formatter generated JavaScript is run with.
+      // of: the words its editor highlights, the targets it offers, the
+      // value formatter generated JavaScript is run with, and the
+      // warnings its settings list.
       return answer(() => ({
         keywords: JSON.parse(self.pykKeywords()),
         builtins: JSON.parse(self.pykBuiltins()),
         targets: JSON.parse(self.pykTargets()),
         formatHelper: self.pykFormatHelper(),
+        warnings: typeof self.pykWarnings === "function" ? JSON.parse(self.pykWarnings()) : [],
       }));
     case "analyze":
       return answer(() => analyze(message));
@@ -218,6 +243,7 @@ function boot({ pykingURL, libURL: lib }) {
   }
   loaded = true;
   self.pykStamp = stamp;
+  if (Array.isArray(arguments[0]?.warnings)) applyWarnings(arguments[0].warnings);
   status("ready");
   // Which compiler this worker is running, so the page can tell when the
   // one on disk has moved on (PykingRuntime, `_checkStamp`).

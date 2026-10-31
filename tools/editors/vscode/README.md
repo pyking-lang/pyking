@@ -23,6 +23,7 @@ on the `PATH`, or named by `pyking.server.path`.
 | `pyking.server.args` | `["lsp"]` | its arguments; `--stdio` is added after them |
 | `pyking.libPath` | `[]` | more library directories, searched after the server's `-L` flags |
 | `pyking.diagnostics` | `change` | `change`: check as you type; `save`: check on open and save |
+| `pyking.warnings` | `[]` | which warnings are reported, as `pyk`'s flags: `["-Wall", "-Werror=unused-function"]`; empty is the defaults |
 | `pyking.trace.server` | `off` | `messages` or `verbose` shows the protocol in the Pyking output channel |
 | `pyking.debugger.args` | `["dap"]` | what `pyking.server.path` is started with as the debugger |
 
@@ -36,7 +37,8 @@ With a `.pyk` file open, **Run > Start Debugging** debugs it with no
 `launch.json`. A `launch.json` configuration of type `pyking` can say
 more: `program`, `args`, `stdin` (a file the program reads), `cwd`,
 `stopOnEntry`, `justMyCode` (step over library code, on by default),
-`libPath` and `release`. `["dap", "--log", "/tmp/pyk-dap.log"]` in
+`libPath`, `release` and `warnings` (`pyk`'s -W flags for the program's
+check; its warnings are shown in the Debug Console). `["dap", "--log", "/tmp/pyk-dap.log"]` in
 `pyking.debugger.args` logs the debugger's messages.
 
 ## Installing

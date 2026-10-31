@@ -1,0 +1,12 @@
+total = 10
+def area(w: Int, h: Int) -> Int:
+    scratch = w * 2
+    return w * h
+
+def helper() -> Int:
+    return 1
+
+if total > 5:
+    total = 20
+for i in range(1):
+    print(area(total, 2))

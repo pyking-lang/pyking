@@ -49,11 +49,13 @@ let starts_with prefix text =
       imported so far that are implemented in a target language.
     connect -- how to reach those modules: the ones just imported, then
       all of them.
+    warn -- one warning an entry has, as the CLI prints it.
     from -- where an imported module's files are read, if not from disk. *)
 type host = {
   write : string -> unit;
   machine : Interpreter.externals option -> Interpreter.host;
   connect : Module.t list -> Module.t list -> Interpreter.externals;
+  warn : string -> unit;
   from : Module.sources option;
 }
 
@@ -96,6 +98,7 @@ type session = {
   exports : (string * (string * Interpreter.value) list) list;
   hosted : Module.t list;
   features : string list;
+  warnings : Warnings.config;
   host : host;
 }
 
@@ -127,6 +130,7 @@ let new_session ?(libs = []) host =
     exports = [];
     hosted = [];
     features = [];
+    warnings = Warnings.default;
     host;
   }
 
@@ -147,6 +151,10 @@ let parse_source ?(name = "<repl>") ?(features = []) source =
 let with_features session features =
   { session with
     features = session.features @ List.filter (fun f -> not (List.mem f session.features)) features }
+
+(** session with warnings reported as `config` says, as -W flags
+    would. session -> Warnings.config -> session *)
+let with_warnings session config = { session with warnings = config }
 
 (** One entry's statements, parsed with what the session's earlier
     `use` lines turned on, and the session with what this entry's own
@@ -426,6 +434,25 @@ let imported_modules session stmts =
     let modules, _, _, _ = reached session stmts in
     modules
 
+(** Shows the warnings an entry has, through the host, unless a -Werror
+    made one of them an error: then the entry is refused, and the
+    exception answered carries those. Its top-level names are never
+    reported, since a later entry may use them.
+    session -> string -> resolution IntMap.t -> [stmt] -> exn? *)
+let entry_warnings session source qmap entry =
+  let file = match entry with s :: _ -> (stmt_info s).file | [] -> "<repl>" in
+  let tokens = try Lexer.lexing file (Lexer.chars_of_string (source ^ "\n")) with _ -> [] in
+  let outer =
+    Analyses.SMap.fold
+      (fun name (b : Analyses.binding) out ->
+        match b.info with Some info -> (name, info) :: out | None -> out)
+      session.kinds []
+  in
+  let found = Warnings.check ~qmap ~toplevel_used:true ~outer session.warnings tokens entry in
+  let errors, others = List.partition (fun (w : Warnings.warning) -> w.error) found in
+  List.iter (fun w -> session.host.warn (Warnings.format w)) others;
+  if errors = [] then None else Some (Warnings.Refused errors)
+
 (** Checks stmts as one entry (all of it, before any of it runs), then
     runs whichever of them the checker accepted, reporting any runtime
     error via report. `source` is kept per-name for `:edit`. Answers the
@@ -475,6 +502,9 @@ let submit session stmts report source =
   with
   | Error e -> (session, Some e)
   | Ok (checked, tmap, qmap, kinds, seen, entry) -> (
+      match entry_warnings session source qmap entry with
+      | Some refused -> (session, Some refused)
+      | None ->
       (* An entry's tail calls become loops here as they would in a file,
          so a function written at the prompt runs the way `pyk <file>`
          runs it (see docs/optimization.md). The pass needs the types, so

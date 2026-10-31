@@ -408,6 +408,7 @@ export class Debugger {
         breakpoints: [{ file: FILE, breakpoints: this.sent() }],
         onOutput: (text) => this.write(text),
         onDebug: (text) => this.write(text, "debug"),
+        onWarning: (text) => this.write(text, "warn"),
         onInput: (text) => this.write(text, "input"),
         onPage: (module, data) => app.pageReceive(module, data),
         onFailure: (text) => this.write(text.trimEnd() + "\n", "err"),

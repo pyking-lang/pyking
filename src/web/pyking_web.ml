@@ -11,6 +11,7 @@
       pykRun(source, name)              run with the interpreter, as JSON
       pykRunProgram(main)               run a program of several modules
       pykAnalyze(main)                  what a program needs to be run
+      pykSetWarnings(flags)             which warnings checks report
       pykCallback(id\nargs)             call a function handed to JavaScript
       pykResume(id\nanswer)             go on with what waits for the page
       pykLsp(message) / pykLspIdle()    the language server (lsp.ml)
@@ -24,6 +25,7 @@
       pykTargets()                      the targets, as JSON
       pykFormatHelper()                 the JS value formatter's source
       pykKeywords() / pykBuiltins()     the language's own word lists
+      pykWarnings()                     every warning, as the settings list it
       pykHighlight(source, options)     source coloured as HTML, RTF
                                         and text (highlight.ml)
 
@@ -31,7 +33,7 @@
     as it is produced, so output made before a program hangs is still
     seen -- which is the case worth seeing. Its `debug` lines go to
     `pykOnDebug` in the same way, or to the console where the page gave
-    none.
+    none, and the warnings its check found to `pykOnWarning`.
 
     Functions:
       compile_source source target name -- compile, as a JSON string.
@@ -56,6 +58,7 @@ external register_utf8_0 : string -> (unit -> string) -> unit = "pyk_register_ut
 external emit : string -> unit = "pyk_emit"
 external emit_debug : string -> unit = "pyk_debug"
 external emit_show : string -> unit = "pyk_show"
+external emit_warning : string -> unit = "pyk_warning"
 
 (* Reaching a module implemented in JavaScript: the module's name, the
    field, and the arguments as a JSON array -- or the empty string for a
@@ -447,6 +450,28 @@ let front_end_error error =
       Some ("Runtime error", info, message)
   | _ -> None
 
+(** The warnings the page asked for (`pykSetWarnings`), as -W flags
+    would. Warnings.config ref *)
+let warning_config = ref Warnings.default
+
+(** Sends the warnings a module has to `pykOnWarning`, one line each as
+    the CLI prints them, or raises Warnings.Refused with the ones a
+    -Werror made errors, after sending the rest.
+    `dotted` is the module's submodule table, which gives a member its
+    written name back.
+    [string]? -> [(string, string)]? -> resolution IntMap.t -> [token] ->
+    [stmt] -> () *)
+let warn_module ?(public = []) ?(dotted = []) qmap tokens stmts =
+  let display name =
+    match List.find_opt (fun (_, plain) -> plain = name) dotted with
+    | Some (written, _) -> written
+    | None -> name
+  in
+  let found = Warnings.check ~qmap ~public ~display !warning_config tokens stmts in
+  let errors, others = List.partition (fun (w : Warnings.warning) -> w.error) found in
+  List.iter (fun w -> emit_warning (Warnings.format w ^ "\n")) others;
+  if errors <> [] then raise (Warnings.Refused errors)
+
 (** The stem a generated file is named from: the source name without its
     extension. string -> string *)
 let stem_of name = Filename.remove_extension name
@@ -456,9 +481,8 @@ let stem_of name = Filename.remove_extension name
     tail-call pass built. Raises the front end's own errors.
     string -> string -> bool -> ([stmt], typ IntMap.t) *)
 let front_end source name natively =
-  let program =
-    Parser.parse (Lexer.lexing name (Lexer.chars_of_string source))
-  in
+  let tokens = Lexer.lexing name (Lexer.chars_of_string source) in
+  let program = Parser.parse tokens in
   (* Default parameters and named arguments go first, as they do in
      Module.load, which this path does not go through. *)
   let program, _ = Desugar_args.desugar Desugar_args.no_signatures name program in
@@ -474,6 +498,7 @@ let front_end source name natively =
   let tmap, qmap = Typesystem.type_check program [] in
   (* The one rule types do not state: only a `var` may be written to. *)
   Analyses.analyze_mutability program;
+  warn_module qmap tokens program;
   (* Overloading and implicits are removed from what the checker settled,
      exactly as pyk.ml does it, so the page shows the program every
      backend compiles (docs/implicits.md). *)
@@ -517,7 +542,7 @@ let browser_sources =
     Answers each module with the types worked out for it.
     Raises the front end's own errors.
     bool? -> string -> bool -> [(Module.t, typ IntMap.t?)] *)
-let checked_modules ?(natively = false) main release =
+let checked_modules ?(natively = false) ?(warn = false) main release =
   let units = Module.load ~from:browser_sources main in
   (* The tail-call pass builds nodes and so hands out more symbols; they
      continue past the highest in the whole program, since one numbering
@@ -542,6 +567,11 @@ let checked_modules ?(natively = false) main release =
               (Module.sigmaps_for unit sigmaps)
           in
           Analyses.analyze_mutability unit.stmts;
+          (* Warnings are the page's own program's: the file named. A
+             module it imports is a library's, or one the page shows in
+             a tab of its own. *)
+          if warn && unit.path = main then
+            warn_module ~public:(List.map fst unit.publics) ~dotted:unit.dotted qmap unit.tokens unit.stmts;
           let sigmap = Module.module_sigmap unit.name unit.stmts unit.declarations tmap in
           let elaborated, tmap = Elaborate.program qmap tmap unit.stmts in
           let elaborated =
@@ -578,16 +608,32 @@ let checked_modules ?(natively = false) main release =
 
 (** The modules of a program, checked, without their types.
     string -> bool -> [Module.t] *)
-let checked_program main release = List.map fst (checked_modules main release)
+let checked_program ?warn main release = List.map fst (checked_modules ?warn main release)
 
 (** A failure before anything ran, as the page reads one: the front
     end's own refusal in `failed`'s shape, or anything else as an
     internal error, since a page that stops answering is no way to find
     a bug in the compiler. exn -> string *)
 let refused e =
-  match front_end_error e with
-  | Some (stage, info, message) -> failed stage info message
-  | None ->
+  match (front_end_error e, e) with
+  | Some (stage, info, message), _ -> failed stage info message
+  | None, Warnings.Refused (first :: _ as found) ->
+      json_object
+        [
+          ("ok", json_bool false);
+          ("stage", json_string "Warning");
+          ("message", json_string first.message);
+          ("text", json_string (String.concat "\n" (List.map Warnings.format found)));
+          ( "info",
+            json_object
+              [
+                ("row1", json_int first.at.row1);
+                ("col1", json_int first.at.col1);
+                ("row2", json_int first.at.row2);
+                ("col2", json_int first.at.col2);
+              ] );
+        ]
+  | None, _ ->
       json_object
         [
           ("ok", json_bool false);
@@ -705,7 +751,7 @@ let resume id answer =
     (`tinyweb.sdelay`), the answer says so, and `pykResume` goes on with
     it. string -> bool -> string *)
 let run_program main release =
-  match checked_program main release with
+  match checked_program ~warn:true main release with
   | exception e -> refused e
   | checked -> (
       let host =
@@ -821,7 +867,7 @@ let analyze main =
     errors. string -> string -> [(string, string)] *)
 let compile_modules main target =
   let family = Targets.family_of target in
-  let checked = checked_modules ~natively:(family = Targets.Ocaml) main false in
+  let checked = checked_modules ~natively:(family = Targets.Ocaml) ~warn:true main false in
   let checked =
     if List.mem family [ Targets.C; Targets.Java ] then Prune.program checked else checked
   in
@@ -1010,6 +1056,7 @@ let compile_source source target name =
     | exception e -> refused e
   else
   match front_end source name natively with
+  | exception (Warnings.Refused _ as e) -> refused e
   | exception e -> (
       match front_end_error e with
       | Some (stage, info, message) -> failed stage info message
@@ -1138,6 +1185,7 @@ let compile_source source target name =
     string -> string -> string *)
 let run_source source name =
   match front_end source name false with
+  | exception (Warnings.Refused _ as e) -> refused e
   | exception e -> (
       match front_end_error e with
       | Some (stage, info, message) -> failed stage info message
@@ -1244,6 +1292,9 @@ let lsp_idle () =
    implemented in JavaScript is reached through `pykExternals`. The
    session lives here, between calls, as the page's one REPL. *)
 
+(* The warnings the entry being submitted has, which its answer carries. *)
+let repl_warnings : string list ref = ref []
+
 (** Where a REPL session's lines go in a browser. Repl_session.host *)
 let repl_host =
   Repl_session.
@@ -1255,6 +1306,7 @@ let repl_host =
             ~debug_line:(fun line -> emit_debug (line ^ "\n"))
             (fun line -> emit (line ^ "\n")));
       connect = (fun _ all -> externals_for all);
+      warn = (fun line -> repl_warnings := !repl_warnings @ [ line ]);
       from = Some browser_sources;
     }
 
@@ -1263,6 +1315,9 @@ let repl_state = ref (Repl_session.new_session repl_host)
 (** A refusal or runtime error as the REPL shows it: the line the CLI
     would print. exn -> string *)
 let repl_error e =
+  match e with
+  | Warnings.Refused found -> String.concat "\n" (List.map Warnings.format found)
+  | e ->
   match front_end_error e with
   | Some (stage, info, message) ->
       Printf.sprintf "%s %s: %s" (Lexer.pprint_info info) stage message
@@ -1288,7 +1343,7 @@ let repl_bindings () =
 
 (** Forgets the session and starts an empty one. () -> string *)
 let repl_start () =
-  repl_state := Repl_session.new_session repl_host;
+  repl_state := Repl_session.with_warnings (Repl_session.new_session repl_host) !warning_config;
   json_object [ ("bindings", repl_bindings ()) ]
 
 (** Whether text is a whole entry, whether a line below could still
@@ -1351,6 +1406,8 @@ let repl_imports text =
     entry naming a function not written yet), with `exit` where
     `sys.exit` stopped it. string -> string *)
 let repl_submit text =
+  repl_warnings := [];
+  repl_state := Repl_session.with_warnings !repl_state !warning_config;
   let errors = ref [] in
   let report e = errors := !errors @ [ repl_error e ] in
   let pending, exit =
@@ -1381,6 +1438,7 @@ let repl_submit text =
   json_object
     ([
        ("errors", json_array (List.map json_string !errors));
+       ("warnings", json_array (List.map json_string !repl_warnings));
        ("pending", json_string pending);
        ("bindings", repl_bindings ());
      ]
@@ -1444,7 +1502,10 @@ let debug_start request =
   let flag name default = match Json.member name r with Json.Bool b -> b | _ -> default in
   match
     let units = Module.load ~from:browser_sources main in
-    (units, Debug_session.prepare ~release:(flag "release" false) units)
+    ( units,
+      Debug_session.prepare ~release:(flag "release" false) ~warnings:!warning_config
+        ~own:(fun (unit : Module.t) -> unit.path = main)
+        units )
   with
   | exception e -> refused e
   | units, program ->
@@ -1474,6 +1535,7 @@ let debug_start request =
           (session, [])
           (Json.to_list (Json.member "breakpoints" r))
       in
+      List.iter (fun w -> emit_warning (Warnings.format w ^ "\n")) (Debug_session.warnings session);
       debugging := Some session;
       Json.to_string (Json.Object [ ("ok", Json.Bool true); ("breakpoints", Json.List verified) ])
 
@@ -1717,6 +1779,22 @@ let highlight source options_json =
           ("text", json_string (Highlight.text options source));
         ]
 
+(** Sets the warnings every later check reports -- a run, a compile,
+    the REPL's entries and the language server's diagnostics -- from -W
+    flags separated by spaces: `{"ok":true,"flags":[...]}` with the
+    shortest flags saying the same, or `{"ok":false,"text":...}` naming
+    one that names no warning, which changes nothing.
+    string -> string *)
+let set_warnings text =
+  let flags = List.filter (fun f -> f <> "") (String.split_on_char ' ' (String.trim text)) in
+  match Warnings.of_flags flags with
+  | Error message -> json_object [ ("ok", json_bool false); ("text", json_string message) ]
+  | Ok config ->
+      warning_config := config;
+      lsp_state := Lsp.with_warnings !lsp_state config;
+      json_object
+        [ ("ok", json_bool true); ("flags", json_array (List.map json_string (Warnings.to_flags config))) ]
+
 let () =
   register3 "pykCompile" compile_source;
   register1 "pykRun" (fun request ->
@@ -1730,6 +1808,7 @@ let () =
             (String.sub request (i + 1) (String.length request - i - 1))
             (String.sub request 0 i));
   register1 "pykAnalyze" analyze;
+  register1 "pykSetWarnings" set_warnings;
   register1 "pykRunProgram" (fun request ->
       (* The program's main file, and on a second line the word
          `release` where the page was compiled with --release. *)
@@ -1781,5 +1860,19 @@ let () =
   register0 "pykKeywords" (fun () ->
       json_array (List.map json_string Lexer.keywords));
   register2 "pykHighlight" highlight;
+  register0 "pykWarnings" (fun () ->
+      (* Every warning a check can report, as the playground's settings
+         list them: its flag's name, whether it is on by default, and
+         what it reports. *)
+      json_array
+        (List.map
+           (fun kind ->
+             json_object
+               [
+                 ("name", json_string (Warnings.name kind));
+                 ("on", json_bool (Warnings.default_on kind));
+                 ("description", json_string (Warnings.description kind));
+               ])
+           Warnings.kinds));
   register0 "pykBuiltins" (fun () ->
       json_array (List.map json_string Builtin.names))

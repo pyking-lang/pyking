@@ -1,0 +1,23 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open warnings.pyk
+> idle
+diagnostics $CASES/warnings.pyk v1 [{"code": "-Wunused-binding", "message": "Unused binding 'scratch', bound on line 3: it is never used in its scope.", "range": {"end": {"character": 11, "line": 2}, "start": {"character": 4, "line": 2}}, "severity": 2, "source": "pyking", "tags": [1]}, {"code": "-Wunused-function", "message": "Function 'helper' is defined but never used.", "range": {"end": {"character": 10, "line": 5}, "start": {"character": 4, "line": 5}}, "severity": 2, "source": "pyking", "tags": [1]}, {"code": "-Wshadowed-update", "message": "Unused binding 'total', bound on line 10: it is never used in its scope. Did you try to update total as a variable? Name total is bound on line 1, but is not defined as a mutable variable. The declaration on line 10 is shadowing total, and then never used in the scope. To update it, declare it with 'var total = ...' (after 'use mutation') and write 'total := ...'.", "range": {"end": {"character": 9, "line": 9}, "start": {"character": 4, "line": 9}}, "severity": 2, "source": "pyking", "tags": [1]}]
+> request textDocument/codeAction {"textDocument": {"uri": "$URI(warnings.pyk)"}, "range": {"start": {"line": 2, "character": 4}, "end": {"line": 2, "character": 4}}, "context": {"diagnostics": []}}
+[{"edit": {"changes": {"$CASES/warnings.pyk": [{"newText": "_", "range": {"end": {"character": 4, "line": 2}, "start": {"character": 4, "line": 2}}}]}}, "kind": "quickfix", "title": "Rename 'scratch' to '_scratch', saying it is not used"}]
+> request textDocument/codeAction {"textDocument": {"uri": "$URI(warnings.pyk)"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": []}}
+[]
+> config {"pyking": {"warnings": ["-Wall", "-Werror=unused-function"]}}
+> idle
+diagnostics $CASES/warnings.pyk v1 [{"code": "-Wunused-binding", "message": "Unused binding 'scratch', bound on line 3: it is never used in its scope.", "range": {"end": {"character": 11, "line": 2}, "start": {"character": 4, "line": 2}}, "severity": 2, "source": "pyking", "tags": [1]}, {"code": "-Wunused-function", "message": "Function 'helper' is defined but never used.", "range": {"end": {"character": 10, "line": 5}, "start": {"character": 4, "line": 5}}, "severity": 1, "source": "pyking", "tags": [1]}, {"code": "-Wshadowed-update", "message": "Unused binding 'total', bound on line 10: it is never used in its scope. Did you try to update total as a variable? Name total is bound on line 1, but is not defined as a mutable variable. The declaration on line 10 is shadowing total, and then never used in the scope. To update it, declare it with 'var total = ...' (after 'use mutation') and write 'total := ...'.", "range": {"end": {"character": 9, "line": 9}, "start": {"character": 4, "line": 9}}, "severity": 2, "source": "pyking", "tags": [1]}, {"code": "-Wunused-loop-var", "message": "Unused loop variable 'i', bound on line 11: the loop never uses it.", "range": {"end": {"character": 5, "line": 10}, "start": {"character": 4, "line": 10}}, "severity": 2, "source": "pyking", "tags": [1]}]
+> config {"pyking": {"warnings": "-w"}}
+> idle
+diagnostics $CASES/warnings.pyk v1 []
+> config {"warnings": []}
+> change warnings.pyk
+> idle
+diagnostics $CASES/warnings.pyk v2 [{"code": "Type error", "message": "`+` cannot be applied to Int and String; it accepts Int + Int or Float + Float or String + String or two lists of one type. `+` joins two Strings and converts nothing: write string(n)", "range": {"end": {"character": 16, "line": 0}, "start": {"character": 9, "line": 0}}, "severity": 1, "source": "pyking"}]
+> shutdown
+null
+> exit
+> exit status 0

@@ -101,6 +101,19 @@ function pyk_debug(line) {
   return 0;
 }
 
+// Where the warnings a program's check found go, one line each as the
+// CLI prints them: `pykOnWarning` where the page supplied one, and the
+// console otherwise.
+//Provides: pyk_warning
+//Requires: pyk_text_of_utf8
+function pyk_warning(line) {
+  var sink = globalThis.pykOnWarning || function (text) {
+    console.warn(text.replace(/\n$/, ""));
+  };
+  sink(pyk_text_of_utf8(line));
+  return 0;
+}
+
 // Where the playground's REPL sends what it shows of an entry -- a
 // value and its type, a command's answer -- kept apart from what the
 // program printed: `pykOnShow` where the page supplied one, and

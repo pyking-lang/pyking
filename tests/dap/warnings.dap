@@ -1,0 +1,6 @@
+# The program's warnings go to the debug console as standard error
+# before it runs, as `pyk <file>` prints them.
+launch warnings.pyk
+configure
+wait terminated
+disconnect

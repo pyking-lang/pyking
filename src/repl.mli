@@ -34,14 +34,17 @@ type reader
 (** Runs the REPL loop until end of input or `:quit`. `format_error` is
     the driver's (pyk.ml), and `libs` is where an imported module is
     looked for after the current directory; `features` are on from the
-    start, as a `use` line typed first would turn them on. Answers the
-    process's exit status.
-    reader? -> session? -> [Module.lib_entry]? -> [string]?
-    -> (exn -> string option) -> int *)
+    start, as a `use` line typed first would turn them on; `warnings`
+    says which warnings an entry is checked for, and `warning` prints
+    one. Answers the process's exit status.
+    reader? -> session? -> [Module.lib_entry]? -> [string]? ->
+    Warnings.config? -> (string -> ())? -> (exn -> string option) -> int *)
 val start :
   ?read:reader ->
   ?session:session ->
   ?libs:Module.lib_entry list ->
   ?features:string list ->
+  ?warnings:Warnings.config ->
+  ?warning:(string -> unit) ->
   (exn -> string option) ->
   int

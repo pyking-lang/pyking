@@ -1,6 +1,9 @@
 > launch shadowing.pyk
 {"body": {"exceptionBreakpointFilters": [{"default": true, "filter": "uncaught", "label": "Runtime errors"}], "supportsConditionalBreakpoints": true, "supportsConfigurationDoneRequest": true, "supportsEvaluateForHovers": true, "supportsHitConditionalBreakpoints": true, "supportsLogPoints": true, "supportsSetVariable": true, "supportsTerminateRequest": true}, "command": "initialize", "success": true, "type": "response"}
 {"body": {}, "command": "launch", "success": true, "type": "response"}
+{"body": {"category": "stderr", "output": "'$CASES/shadowing.pyk' 1:0-1:1 Warning: Unused binding 'n', bound on line 1: it is never used in its scope. [-Wunused-binding]\n"}, "event": "output", "type": "event"}
+{"body": {"category": "stderr", "output": "'$CASES/shadowing.pyk' 2:0-2:5 Warning: Unused binding 'label', bound on line 2: it is never used in its scope. [-Wunused-binding]\n"}, "event": "output", "type": "event"}
+{"body": {"category": "stderr", "output": "'$CASES/shadowing.pyk' 5:4-5:9 Warning: Unused binding 'label', bound on line 5: it is never used in its scope. Did you try to update label as a variable? Name label is bound on line 2, but is not defined as a mutable variable. The declaration on line 5 is shadowing label, and then never used in the scope. To update it, declare it with 'var label = ...' (after 'use mutation') and write 'label := ...'. [-Wshadowed-update]\n"}, "event": "output", "type": "event"}
 {"body": {}, "event": "initialized", "type": "event"}
 > break shadowing.pyk 6
 {"body": {"breakpoints": [{"id": 1, "line": 6, "verified": true}]}, "command": "setBreakpoints", "success": true, "type": "response"}

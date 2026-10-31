@@ -1,0 +1,4 @@
+'overloads.pyk' 8:4-8:16 Warning: Function 'float::twice' is defined
+  but never used. [-Wunused-function]
+42 abab <5> 6
+exit 0

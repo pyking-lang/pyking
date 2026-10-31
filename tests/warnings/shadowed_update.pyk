@@ -1,0 +1,21 @@
+# The binding that shadows a name from an enclosing block and is never
+# used: what writing `x = ...` for an update looks like. The warning says
+# so, and how to write the update instead.
+
+x = 5
+if true:
+    x = 10
+
+def total(xs: [Int]) -> Int:
+    sum = 0
+    for v in xs:
+        sum = sum + v
+    return sum
+
+# The same name bound again in the same block is a new binding, and only
+# the unused one is reported -- with no hint, since nothing is shadowed
+# from outside.
+count = 1
+count = 2
+print(count)
+print(total([1, 2, 3]))

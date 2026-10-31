@@ -501,7 +501,69 @@ const DEBUG = `(async () => { ${HELPERS}
   return checks;
 })()`;
 
-// The settings dialog: its five tabs, what each holds, moving between
+// Warnings: underlined as warnings by the language server, shown in the
+// output before what the program prints, and set on the settings'
+// Warnings tab, which names each flag, says what it means, and turns
+// each on, off or into an error -- an error underlined as one, and
+// refusing the program.
+const WARNINGS = `(async () => { ${HELPERS}
+  const command = () => $("[data-r=warningCommand]").textContent;
+  const change = (el, value) => {
+    el.checked = value;
+    el.dispatchEvent(new Event("change"));
+  };
+  await source("x = 5\\nif true:\\n    x = 10\\nprint(41 + 1)\\n");
+  check("an unused binding is underlined as a warning",
+    await until(() => markers().length === 2)
+      && markers().every((m) => m.severity === monaco.MarkerSeverity.Warning)
+      && markers().some((m) => m.message.includes("Did you try to update x as a variable?")),
+    JSON.stringify(markers()));
+  $("[data-r=runLeft]").click();
+  check("Run shows the warnings first, then runs the program",
+    await until(() => /42\\n[\\s\\S]*finished/.test(output()), 30000)
+      && $$("[data-r=output] .warn").length === 2
+      && output().indexOf("Unused binding 'x'") < output().indexOf("42"), output());
+  $("[data-r=settingsButton]").click();
+  $("[data-settings-tab=warnings]").click();
+  const rows = $$(".pyk-warning");
+  check("the Warnings tab names every warning's flag, its default and what it means",
+    rows.length === 7 && rows[0].textContent.includes("-Wunused-binding")
+      && rows[0].textContent.includes("on by default") && rows[0].textContent.includes("-Werror=unused-binding")
+      && rows[4].textContent.includes("-Wunused-pattern-var") && rows[4].textContent.includes("off by default")
+      && rows.every((r) => r.querySelector(".pyk-hint").textContent.length > 20),
+    rows.map((r) => r.textContent).join(" / "));
+  check("and the command line its settings stand for", command() === "pyk playground.pyk", command());
+  change($("#pyk-warning-unused-binding"), false);
+  check("turning one off is a -Wno- flag", command() === "pyk -Wno-unused-binding playground.pyk", command());
+  check("and the underlines follow", await until(() => markers().length === 1
+    && markers()[0].startLineNumber === 3), JSON.stringify(markers()));
+  change($("[data-r=warningsError]"), true);
+  check("-Werror makes every warning an error", command() === "pyk -Wno-unused-binding -Werror playground.pyk"
+    && $$(".pyk-warning-error input").every((b) => b.checked && b.disabled), command());
+  check("underlined as one", await until(() => markers().length === 1
+    && markers()[0].severity === monaco.MarkerSeverity.Error), JSON.stringify(markers()));
+  $("[data-r=modalClose]").click();
+  $("[data-r=runLeft]").click();
+  check("and Run refuses the program", await until(() => output().includes("[-Werror=shadowed-update]"), 30000)
+    && !output().includes("42"), output());
+  $("[data-r=settingsButton]").click();
+  $("[data-r=warningsDefaults]").click();
+  check("Back to the defaults", command() === "pyk playground.pyk" && !$("[data-r=warningsError]").checked
+    && $("#pyk-warning-unused-binding").checked, command());
+  $("[data-r=warningsAll]").click();
+  check("Turn them all on is -Wall's",
+    command() === "pyk -Wunused-pattern-var -Wunused-parameter -Wunused-loop-var playground.pyk", command());
+  $("[data-r=warningsNone]").click();
+  check("and Turn them all off -w's", command().startsWith("pyk -Wno-unused-binding -Wno-unused-function")
+    && $$(".pyk-warning > input").every((b) => !b.checked), command());
+  check("with nothing underlined", await until(() => markers().length === 0), JSON.stringify(markers()));
+  $("[data-r=warningsDefaults]").click();
+  $("[data-r=modalClose]").click();
+  await source("print(41 + 1)\\n");
+  return checks;
+})()`;
+
+// The settings dialog: its six tabs, what each holds, moving between
 // them by the keyboard, and that it opens on Appearance again.
 const SETTINGS = `(async () => { ${HELPERS}
   const modal = $("[data-r=modal]");
@@ -512,8 +574,8 @@ const SETTINGS = `(async () => { ${HELPERS}
     .map((p) => p.dataset.settingsPanel);
   $("[data-r=settingsButton]").click();
   check("Settings opens the dialog", !modal.classList.contains("pyk-hidden"));
-  check("in five tabs", tabs().map((t) => t.textContent.trim()).join("|")
-    === "Appearance|Running|Debugger|Copy for slides|Keys", tabs().map((t) => t.textContent));
+  check("in six tabs", tabs().map((t) => t.textContent.trim()).join("|")
+    === "Appearance|Running|Warnings|Debugger|Copy for slides|Keys", tabs().map((t) => t.textContent));
   check("a tab list of tabs, each controlling its panel",
     $("[data-r=settingsTabs]").getAttribute("role") === "tablist"
     && tabs().every((t) => panel(t.dataset.settingsTab).getAttribute("role") === "tabpanel"
@@ -523,12 +585,15 @@ const SETTINGS = `(async () => { ${HELPERS}
     && visible().join() === "appearance" && document.activeElement === tabs()[0],
     selected() + " " + visible());
   check("only the chosen tab is in the tab order",
-    tabs().map((t) => t.tabIndex).join() === "0,-1,-1,-1,-1", tabs().map((t) => t.tabIndex));
+    tabs().map((t) => t.tabIndex).join() === "0,-1,-1,-1,-1,-1", tabs().map((t) => t.tabIndex));
   const holds = (name, refs) => refs.every((r) => panel(name).contains($("[data-r=" + r + "]")));
   check("Appearance holds the theme, the font size and the layout",
     holds("appearance", ["themeChoice", "fontSize", "resetLayoutButton"]));
   check("Running holds run while you type, clearing, scrolling and the tinyweb log",
     holds("running", ["autoRun", "clearOnRun", "scrollOutput", "tinywebLogSetting"]));
+  check("Warnings holds every warning, -Werror, its buttons and the command line",
+    holds("warnings", ["warningList", "warningsError", "warningsAll", "warningsNone",
+                       "warningsDefaults", "warningCommand"]));
   check("Debugger holds stopping at the first statement and just my code",
     holds("debugger", ["debugStopOnEntry", "debugJustMyCode"]));
   check("Copy for slides holds every option, the button's switch and a preview",
@@ -557,14 +622,14 @@ const SETTINGS = `(async () => { ${HELPERS}
   check("ArrowRight shows the next tab, and moves the focus there", selected() === "running"
     && visible().join() === "running" && document.activeElement === tabs()[1], selected());
   key(tabs()[1], "End");
-  check("End shows the last", selected() === "keys" && document.activeElement === tabs()[4], selected());
-  key(tabs()[4], "ArrowRight");
+  check("End shows the last", selected() === "keys" && document.activeElement === tabs()[5], selected());
+  key(tabs()[5], "ArrowRight");
   check("ArrowRight on the last goes round to the first", selected() === "appearance", selected());
   key(tabs()[0], "ArrowLeft");
   check("ArrowLeft on the first goes round to the last", selected() === "keys", selected());
-  key(tabs()[4], "Home");
+  key(tabs()[5], "Home");
   check("Home shows the first", selected() === "appearance", selected());
-  tabs()[3].click();
+  tabs()[4].click();
   check("a click shows a tab", selected() === "slides" && visible().join() === "slides", selected());
   check("Copy for slides previews the snippet", await until(() => $("[data-r=slidesPreview] pre")
     && $("[data-r=slidesPreview]").textContent.includes("def greet"), 20000),
@@ -626,16 +691,22 @@ const SETTINGS_SET = `(async () => { ${HELPERS}
   set("slidesButton", true);
   check("the editor's Copy for slides button shows when switched on",
     !$("[data-r=copySlides]").classList.contains("pyk-hidden"));
+  set("warningsError", true);
   $('.pyk-key-row[data-command="debug.stop"] .pyk-key-chip button').click();
+  const box = $("#pyk-warning-unused-pattern-var");
+  box.checked = true;
+  box.dispatchEvent(new Event("change"));
   const saved = JSON.parse(localStorage.getItem("pyking-playground.settings"));
   const want = { theme: "light", fontSize: 17, autoRun: true, clearOnRun: false, scrollOutput: false,
     tinywebLog: true, debugStopOnEntry: true, debugJustMyCode: false, slidesTheme: "dark",
     slidesFont: "Courier New", slidesSize: 28, slidesBackground: "#123456", slidesSpaces: "all",
-    slidesButton: true };
+    slidesButton: true, warningsError: true };
   for (const [name, value] of Object.entries(want)) {
     check("saved: " + name, saved?.[name] === value, JSON.stringify(saved?.[name]));
   }
   check("saved: a command's keys", JSON.stringify(saved?.keys) === '{"debug.stop":[]}', JSON.stringify(saved?.keys));
+  check("saved: a warning turned on", JSON.stringify(saved?.warnings) === '{"unused-pattern-var":{"on":true}}',
+    JSON.stringify(saved?.warnings));
   check("and no debugKeys", saved && !("debugKeys" in saved), JSON.stringify(saved));
   $("[data-r=modalClose]").click();
   return checks;
@@ -666,6 +737,10 @@ const SETTINGS_RESTORED = `(async () => { ${HELPERS}
   is("slidesColor", "#123456");
   is("slidesSpaces", "all");
   is("slidesButton", true);
+  is("warningsError", true);
+  check("restored: a warning turned on", $("#pyk-warning-unused-pattern-var").checked
+    && $("[data-r=warningCommand]").textContent === "pyk -Wunused-pattern-var -Werror playground.pyk",
+    $("[data-r=warningCommand]").textContent);
   check("restored: the editor's button", !$("[data-r=copySlides]").classList.contains("pyk-hidden"));
   check("restored: a command's keys",
     $$('.pyk-key-row[data-command="debug.stop"] .pyk-key-chip').length === 0
@@ -1337,7 +1412,7 @@ try {
     }
     throw new Error("the playground did not become ready again");
   };
-  for (const [name, script] of [["the page", PAGE], ["the language server", LSP],
+  for (const [name, script] of [["the page", PAGE], ["the language server", LSP], ["the warnings", WARNINGS],
                                 ["the tabs", TABS], ["the REPL", REPL], ["the debugger", DEBUG],
                                 ["the themes", THEME], ["a link", LINK],
                                 ["the settings' tabs", SETTINGS], ["every setting saved", SETTINGS_SET]]) {

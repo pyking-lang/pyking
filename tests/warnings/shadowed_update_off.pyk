@@ -1,0 +1,8 @@
+# pyk: -Wno-shadowed-update
+# With -Wno-shadowed-update the binding is still unused, and is reported
+# as that alone.
+
+x = 5
+if true:
+    x = 10
+print("done")

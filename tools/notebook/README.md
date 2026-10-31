@@ -458,6 +458,17 @@ line at the top says how many problems the document has. Solutions and answers a
 both modes -- the browser checks the answers -- so a student who reads
 the page's source can find them.
 
+### Warnings
+
+A cell that runs shows what its check found above what it prints: a
+name bound and never used, and an `=` shadowing a name from outside its
+block (see PYKING.md, "Warnings"), in the warning colour. Each cell is a
+program of its own, so a name a cell binds and never uses is reported
+in that cell. `pyk notebook -Wall FILE.md`, or any of `pyk`'s -W flags,
+says which are reported (they reach the page in `notebook.json`'s
+`warnings`); a warning one makes an error stops the cell. An answer
+being checked, and test mode, report none.
+
 Progress is kept in the browser's local storage, per document: each
 task's code, what was chosen in each quiz, the attempts used and the
 points. An item whose block is edited starts again.

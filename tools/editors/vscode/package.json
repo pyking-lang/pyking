@@ -78,6 +78,14 @@
           "default": [],
           "markdownDescription": "More directories of libraries, searched after the server's own `-L` flags."
         },
+        "pyking.warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Which warnings the server reports, as `pyk`'s flags: `-Wall`, `-Wno-unused-binding`, `-Werror`, `-Werror=unused-function`, ... applied in order to the defaults, which report unused bindings, functions and variables. An error is shown as one."
+        },
         "pyking.diagnostics": {
           "type": "string",
           "enum": [
@@ -175,6 +183,14 @@
                 "type": "boolean",
                 "description": "Debug the program as --release compiles it: every call to debug() removed.",
                 "default": false
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "pyk's -W flags for the program's check, after the debugger's own: its warnings go to the Debug Console, and one made an error stops the launch.",
+                "default": []
               }
             }
           }

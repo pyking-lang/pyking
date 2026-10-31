@@ -1,0 +1,15 @@
+'unused_binding.pyk' 7:0-7:10 Warning: Unused binding 'unused_top',
+  bound on line 7: it is never used in its scope. [-Wunused-binding]
+'unused_binding.pyk' 10:4-10:11 Warning: Unused binding 'scratch',
+  bound on line 10: it is never used in its scope. [-Wunused-binding]
+'unused_binding.pyk' 14:4-14:10 Warning: Unused binding 'inside',
+  bound on line 14: it is never used in its scope. [-Wunused-binding]
+'unused_binding.pyk' 17:0-17:3 Warning: Unused binding 'low', bound on
+  line 17: it is never used in its scope. [-Wunused-binding]
+'unused_binding.pyk' 23:23-23:33 Warning: Unused binding 'unused_let',
+  bound on line 23: it is never used in its scope. [-Wunused-binding]
+big
+9
+1
+20 4
+exit 0

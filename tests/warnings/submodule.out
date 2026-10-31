@@ -1,0 +1,4 @@
+'submodule.pyk' 6:11-6:20 Warning: Function 'shapes.perimeter' is
+  defined but never used. [-Wunused-function]
+6
+exit 0

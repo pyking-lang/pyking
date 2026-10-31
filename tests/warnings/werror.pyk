@@ -1,0 +1,9 @@
+# pyk: -Werror
+# -Werror makes every warning that is on an error: each is reported as
+# one, and the program does not run.
+
+def helper() -> Int:
+    return 1
+
+value = 2
+print("never printed")

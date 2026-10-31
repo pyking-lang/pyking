@@ -1,0 +1,15 @@
+use mutation
+# Unused variables, on by default: a `var` never read. Writing to it with
+# `:=` does not count as reading it, but reading it -- even in the value
+# of its own update -- does.
+
+var never_read = 0
+var only_written = 0
+only_written := 5
+
+var counter = 0
+counter := counter + 1
+
+var shown = 1
+shown := 2
+print(shown)

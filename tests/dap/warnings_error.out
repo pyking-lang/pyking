@@ -1,0 +1,6 @@
+> launch warnings.pyk
+{"body": {"exceptionBreakpointFilters": [{"default": true, "filter": "uncaught", "label": "Runtime errors"}], "supportsConditionalBreakpoints": true, "supportsConfigurationDoneRequest": true, "supportsEvaluateForHovers": true, "supportsHitConditionalBreakpoints": true, "supportsLogPoints": true, "supportsSetVariable": true, "supportsTerminateRequest": true}, "command": "initialize", "success": true, "type": "response"}
+{"body": {}, "command": "launch", "message": "'$CASES/warnings.pyk' 2:4-2:10 Error: Function 'helper' is defined but never used. [-Werror=unused-function]", "success": false, "type": "response"}
+> disconnect
+{"body": {}, "command": "disconnect", "success": true, "type": "response"}
+> exit status 0

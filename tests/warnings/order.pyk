@@ -1,0 +1,6 @@
+# pyk: -Wno-unused-binding -Wall
+# The flags apply in order: -Wall after -Wno-unused-binding turns it on
+# again.
+
+value = 2
+print("ran")

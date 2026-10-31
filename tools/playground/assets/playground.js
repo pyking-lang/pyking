@@ -59,6 +59,11 @@ const DEFAULT_SETTINGS = {
   slidesBackground: "none",
   slidesSpaces: "indent",
   slidesButton: false,
+  // The warnings (Warnings tab): each one the viewer changed, by its
+  // flag's name, as {on, error}; and whether every warning is an error,
+  // as -Werror makes it.
+  warnings: {},
+  warningsError: false,
 };
 
 /** What the settings' Copy for slides tab previews. */
@@ -72,8 +77,8 @@ print(greet("world"))
 /** The settings dialog's tabs, in order: [name, title]. It opens on the
  *  first, as the right-hand tabs open on Run output. */
 const SETTINGS_TABS = [
-  ["appearance", "Appearance"], ["running", "Running"], ["debugger", "Debugger"],
-  ["slides", "Copy for slides"], ["keys", "Keys"],
+  ["appearance", "Appearance"], ["running", "Running"], ["warnings", "Warnings"],
+  ["debugger", "Debugger"], ["slides", "Copy for slides"], ["keys", "Keys"],
 ];
 
 /** How long the source has to sit still before an automatic run. Long
@@ -139,6 +144,7 @@ export async function mountPlayground(host, options = {}) {
   // the compiler is loaded before the editors are made.
   const { words, monaco } = await ensureMonaco(runtime, { vendor: cfg.vendorURL });
   meta.formatHelper = words.formatHelper;
+  meta.warnings = words.warnings ?? [];
   quietLanguageWorkers(monaco);
 
   const ui = buildDom(host, meta, cfg);
@@ -550,9 +556,13 @@ class Playground {
     if (!(await this.ensureRuntime())) return;
     const target = this.ui.target.value;
     const source = this.left.getValue();
-    const result = await this.runtime.compile(source, target, "playground.pyk");
+    const warned = [];
+    const result = await this.runtime.compile(source, target, "playground.pyk", {
+      onWarning: (text) => warned.push(text),
+    });
     this.clearError();
     const log = this.ui.compiledOutput;
+    for (const text of warned) this.write(text, "warn", log);
 
     if (!result.ok) {
       this.showFiles({});
@@ -907,6 +917,7 @@ class Playground {
       const result = await this.runtime.runProgram(source, {
         onOutput: (text) => this.write(text),
         onDebug: (text) => this.debugLine(text),
+        onWarning: (text) => this.write(text, "warn"),
         onInput: (text) => this.write(text, "input"),
         onPage: (module, data) => this.pageReceive(module, data),
         onFailure: (text) => this.error(text.trimEnd()),
@@ -1387,6 +1398,7 @@ class Playground {
         this.replRuntime = createRuntime({
           webrun: this.cfg.webrunURL, pyking: this.cfg.pykingURL,
         });
+        this.replRuntime.setWarnings(this.warningFlags());
         await this.replRuntime.ready();
         const { bindings } = await this.replRuntime.replStart();
         this.showBindings(bindings);
@@ -1598,6 +1610,7 @@ class Playground {
         onShow: (out) => this.replWrite(out, "shown"),
         onDebug: (out) => this.replWrite(out, "debug"),
       });
+      for (const warning of answer.warnings ?? []) this.replWrite(warning + "\n", "warn");
       for (const error of answer.errors) this.replError(error);
       if (answer.exit !== undefined) {
         this.replError(`sys.exit(${answer.exit}) ended the entry; the session goes on.`);
@@ -1853,12 +1866,133 @@ class Playground {
       this.settings.debugJustMyCode = ui.debugJustMyCode.checked;
       this.saveSettings();
     });
+    this.installWarningSettings();
     this.installSlidesSettings();
     ui.keysReset.addEventListener("click", () => {
       this.settings.keys = {};
       this.keysChanged();
     });
     this.showKeySettings();
+  }
+
+  // -- warnings ---------------------------------------------------------
+
+  /** Whether a warning is on, as the settings have it: what the viewer
+   *  chose, or its default. {name, on} -> Bool */
+  warningOn(kind) {
+    return this.settings.warnings[kind.name]?.on ?? kind.on;
+  }
+
+  /** Whether a warning is an error, as the settings have it.
+   *  {name} -> Bool */
+  warningError(kind) {
+    return this.settings.warningsError || Boolean(this.settings.warnings[kind.name]?.error);
+  }
+
+  /** The -W flags the settings stand for, as `pyk` takes them: each
+   *  warning turned on or off against its default, then -Werror, or each
+   *  warning made an error by itself. () -> [String] */
+  warningFlags() {
+    const kinds = this.meta.warnings ?? [];
+    const flags = [];
+    for (const kind of kinds) {
+      const on = this.warningOn(kind);
+      if (on !== kind.on) flags.push((on ? "-W" : "-Wno-") + kind.name);
+    }
+    if (this.settings.warningsError) flags.push("-Werror");
+    else {
+      for (const kind of kinds) {
+        if (this.settings.warnings[kind.name]?.error) flags.push("-Werror=" + kind.name);
+      }
+    }
+    return flags;
+  }
+
+  /** Hands the settings' warnings to every runtime -- the Run's, whose
+   *  language server underlines them, and the REPL's -- and asks the
+   *  server for the diagnostics again. () -> () */
+  applyWarnings() {
+    const flags = this.warningFlags();
+    this.runtime.setWarnings(flags);
+    this.replRuntime?.setWarnings(flags);
+    this.lsp?.scheduleIdle();
+    this.showWarningSettings();
+  }
+
+  /** One warning changed: saved, and in force at once.
+   *  String -> {on?, error?} -> () */
+  setWarning(name, change) {
+    this.settings.warnings = {
+      ...this.settings.warnings, [name]: { ...this.settings.warnings[name], ...change },
+    };
+    this.saveSettings();
+    this.applyWarnings();
+  }
+
+  /** The Warnings tab's buttons and its -Werror box. () -> () */
+  installWarningSettings() {
+    const { ui } = this;
+    const every = (on) => {
+      this.settings.warnings = Object.fromEntries((this.meta.warnings ?? []).map(
+        (kind) => [kind.name, { ...this.settings.warnings[kind.name], on }]));
+      this.saveSettings();
+      this.applyWarnings();
+    };
+    ui.warningsAll.addEventListener("click", () => every(true));
+    ui.warningsNone.addEventListener("click", () => every(false));
+    ui.warningsDefaults.addEventListener("click", () => {
+      this.settings.warnings = {};
+      this.settings.warningsError = false;
+      this.saveSettings();
+      this.applyWarnings();
+    });
+    ui.warningsError.addEventListener("change", () => {
+      this.settings.warningsError = ui.warningsError.checked;
+      this.saveSettings();
+      this.applyWarnings();
+    });
+  }
+
+  /** The Warnings tab as the settings have it: a row per warning, with
+   *  whether it is on, its flag, whether it is an error, and what it
+   *  reports; and the command line that says the same. () -> () */
+  showWarningSettings() {
+    const { ui } = this;
+    if (!ui.warningList) return;
+    ui.warningList.textContent = "";
+    for (const kind of this.meta.warnings ?? []) {
+      const row = document.createElement("div");
+      row.className = "pyk-warning";
+      const on = document.createElement("input");
+      on.type = "checkbox";
+      on.checked = this.warningOn(kind);
+      on.id = `pyk-warning-${kind.name}`;
+      on.addEventListener("change", () => this.setWarning(kind.name, { on: on.checked }));
+      const label = document.createElement("label");
+      label.htmlFor = on.id;
+      label.className = "pyk-warning-flag";
+      const flag = document.createElement("code");
+      flag.textContent = "-W" + kind.name;
+      label.append(flag, kind.on ? " on by default" : " off by default");
+      const error = document.createElement("label");
+      error.className = "pyk-check pyk-warning-error";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = this.warningError(kind);
+      box.disabled = this.settings.warningsError;
+      box.addEventListener("change", () => this.setWarning(kind.name, { error: box.checked }));
+      const errorFlag = document.createElement("code");
+      errorFlag.textContent = "-Werror=" + kind.name;
+      error.append(box, " as an error ", errorFlag);
+      const says = document.createElement("p");
+      says.className = "pyk-hint";
+      says.textContent = kind.description;
+      row.append(on, label, error, says);
+      ui.warningList.appendChild(row);
+    }
+    ui.warningsError.checked = this.settings.warningsError;
+    const flags = this.warningFlags();
+    ui.warningCommand.textContent = ["pyk", ...flags, "playground.pyk"].join(" ");
   }
 
   /** The settings' tabs: a click, or the arrow keys, Home and End on the
@@ -2120,6 +2254,7 @@ class Playground {
     this.ui.debugStopOnEntry.checked = Boolean(this.settings.debugStopOnEntry);
     this.ui.debugJustMyCode.checked = this.settings.debugJustMyCode !== false;
     this.applySlidesSettings();
+    this.applyWarnings();
     for (const [key, name] of [["colSplit", "--pyk-col-split"],
                                ["outSplit", "--pyk-out-split"]]) {
       if (this.settings[key]) this.ui.root.style.setProperty(name, this.settings[key]);
@@ -2145,6 +2280,8 @@ class Playground {
       slidesBackground: this.settings.slidesBackground,
       slidesSpaces: this.settings.slidesSpaces,
       slidesButton: this.settings.slidesButton,
+      warnings: this.settings.warnings,
+      warningsError: this.settings.warningsError,
       colSplit: style.getPropertyValue("--pyk-col-split") || null,
       outSplit: style.getPropertyValue("--pyk-out-split") || null,
     });
@@ -2424,6 +2561,30 @@ function buildDom(host, meta, cfg) {
               <p class="pyk-hint">Shows what a tinyweb program sends its page, and
                 what the page answers, as pyk --tinyweb-log does. The Web output
                 tab has the same switch.</p>
+            </div>
+          </div>
+          <div class="pyk-settings-panel pyk-hidden pyk-warnings-panel" role="tabpanel"
+               data-settings-panel="warnings"
+               id="pyk-settings-warnings" aria-labelledby="pyk-settings-tab-warnings">
+            <p class="pyk-hint pyk-wide">What the compiler reports about a program that
+              checks but may still be wrong: a name bound and never used. A warning
+              is shown in the output and under the source, and the program still
+              runs; one made an error stops it, as <code>pyk -Werror</code> does. A
+              name starting with <code>_</code> is never reported. Each flag is the
+              one <code>pyk</code> takes.</p>
+            <div class="pyk-warning-list pyk-wide" data-r="warningList"></div>
+            <div class="pyk-field pyk-wide">
+              <label class="pyk-check">
+                <input type="checkbox" data-r="warningsError">
+                Every warning that is on is an error <code>-Werror</code>
+              </label>
+              <div class="pyk-field-row">
+                <button data-r="warningsAll">Turn them all on <code>-Wall</code></button>
+                <button data-r="warningsNone">Turn them all off <code>-w</code></button>
+                <button data-r="warningsDefaults">Back to the defaults</button>
+              </div>
+              <p class="pyk-hint">On the command line, the same is
+                <code data-r="warningCommand"></code></p>
             </div>
           </div>
           <div class="pyk-settings-panel pyk-hidden" role="tabpanel" data-settings-panel="debugger"

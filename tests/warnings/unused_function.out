@@ -1,0 +1,15 @@
+'unused_function.pyk' 7:4-7:9 Warning: Function 'never' is defined but
+  never used. [-Wunused-function]
+'unused_function.pyk' 13:4-13:13 Warning: Function 'countdown' is
+  defined but never used (it is only called from inside itself).
+  [-Wunused-function]
+'unused_function.pyk' 18:4-18:8 Warning: Function 'ping' is defined
+  but never used (it is only called from 'pong', which is never used
+  either). [-Wunused-function]
+'unused_function.pyk' 23:4-23:8 Warning: Function 'pong' is defined
+  but never used (it is only called from 'ping', which is never used
+  either). [-Wunused-function]
+'unused_function.pyk' 29:8-29:13 Warning: Function 'spare' is defined
+  but never used. [-Wunused-function]
+6 1
+exit 0

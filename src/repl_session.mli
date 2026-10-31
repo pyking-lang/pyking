@@ -31,11 +31,13 @@
       imported so far that are implemented in a target language.
     connect -- how to reach those modules: the ones just imported, then
       all of them.
+    warn -- one warning an entry has, as the CLI prints it.
     from -- where an imported module's files are read, if not from disk. *)
 type host = {
   write : string -> unit;
   machine : Interpreter.externals option -> Interpreter.host;
   connect : Module.t list -> Module.t list -> Interpreter.externals;
+  warn : string -> unit;
   from : Module.sources option;
 }
 
@@ -65,6 +67,10 @@ val parse_source : ?name:string -> ?features:string list -> string -> Syntax.stm
 (** session with these features on, as a `use` line would turn them
     on. session -> [string] -> session *)
 val with_features : session -> string list -> session
+
+(** session with warnings reported as `config` says, as -W flags
+    would. session -> Warnings.config -> session *)
+val with_warnings : session -> Warnings.config -> session
 
 (** One entry's statements, parsed with the features the session's
     earlier `use` lines turned on, and the session with this entry's own

@@ -320,8 +320,14 @@ let request state request command arguments =
           in
           let state = { state with session = Some s; phase = Launched; early = [] } in
           let state, answer = ok state (Json.Object []) in
+          (* The program's warnings, on the debug console before it runs,
+             where `pyk <file>` would print them. *)
+          let state, warned =
+            outputs state
+              (List.map (fun w -> ("stderr", Warnings.format w ^ "\n")) (Debug_session.warnings s))
+          in
           let state, initialized = event state "initialized" (Json.Object []) in
-          (state, answer @ [ initialized ]))
+          (state, answer @ warned @ [ initialized ]))
   | "attach" -> refuse state "pyk dap launches a program; it cannot attach to one"
   | "setBreakpoints" -> (
       let path = breakpoint_path arguments in

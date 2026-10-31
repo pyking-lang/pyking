@@ -121,9 +121,24 @@ a page".
 
 **The compiler is loaded before the editors are made**, because the Ace
 mode's and the Monaco language's word lists come from it: the worker's `words` request answers the
-keywords, builtins and targets the compiler has, and the JavaScript value
-formatter the playground's generated code is run with. Nothing here keeps a
+keywords, builtins and targets the compiler has, the JavaScript value
+formatter the playground's generated code is run with, and the warnings
+its checks can report. Nothing here keeps a
 copy of any of them, so none can drift from the language.
+
+**Warnings.** `runtime.setWarnings(flags)` says which warnings every
+later check reports, as `pyk`'s -W flags (`["-Wall", "-Werror"]`),
+applied to the defaults in order. The runtime sends them with every
+request, so a worker started afresh -- after `stop()`, or the REPL's --
+checks with them too, and the worker hands them to the bundle's
+`pykSetWarnings` where they changed. What a check finds arrives as a
+`warning` message, a line as `pyk` prints it on stderr: a run's,
+`debugProgram`'s and a `compile`'s at their `onWarning`, a REPL entry's
+in its answer's `warnings`. The language server's diagnostics follow
+the same flags. A warning made an error refuses the program, in
+`compile`'s shape with `stage` "Warning". The `words` request answers
+every warning there is, `{name, on, description}`, which is what the
+playground's settings list. See docs/warnings.md.
 
 **Code for a slide.** `runtime.highlight(source, options = {})` colours
 Pyking source as `pyk highlight` does (`src/highlight.ml`, through the

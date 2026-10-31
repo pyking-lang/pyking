@@ -22,6 +22,8 @@ relative to tests/dap/.
 
   env NAME VALUE             set in the adapter's environment (before
                              the first step)
+  flags FLAG...              what `pyk dap` is started with (before
+                             the first step): -Wall, -Werror, ...
   launch FILE [JSON]         initialize, then launch FILE, JSON adding
                              to the launch arguments
   break FILE [LINE...]       setBreakpoints, plain lines
@@ -107,10 +109,11 @@ def reader(stream, out):
         out.put(json.loads(stream.read(int(found.group(1))).decode()))
 
 
-def start(compiler, environment=None, log=None):
-    """Starts `pyk dap` in tests/dap/, with a thread reading what it
-    sends. [String] -> {String: String}? -> Path? -> (Popen, Queue)"""
-    command = compiler + ["dap"]
+def start(compiler, environment=None, log=None, flags=()):
+    """Starts `pyk dap` in tests/dap/, given `flags`, with a thread
+    reading what it sends.
+    [String] -> {String: String}? -> Path? -> [String]? -> (Popen, Queue)"""
+    command = compiler + ["dap"] + list(flags)
     if log is not None:
         command += ["--log", str(log)]
     env = dict(os.environ)
@@ -126,8 +129,8 @@ class Session:
     """A conversation with `pyk dap`: requests sent, and every message
     it sent back kept in order."""
 
-    def __init__(self, compiler, environment=None):
-        self.process, self.messages = start(compiler, environment)
+    def __init__(self, compiler, environment=None, flags=()):
+        self.process, self.messages = start(compiler, environment, flags=flags)
         self.seq = 0
 
     def send(self, command, arguments=None):
@@ -192,10 +195,15 @@ def run_script(compiler, path):
     lines = [line for line in path.read_text().splitlines()
              if line.strip() and not line.lstrip().startswith("#")]
     environment = {}
-    while lines and lines[0].startswith("env "):
-        _, name, value = lines.pop(0).split(" ", 2)
+    flags = []
+    while lines and (lines[0].startswith("env ") or lines[0].startswith("flags ")):
+        line = lines.pop(0)
+        if line.startswith("flags "):
+            flags += line.split()[1:]
+            continue
+        _, name, value = line.split(" ", 2)
         environment[name] = value
-    session = Session(compiler, environment)
+    session = Session(compiler, environment, flags)
     said = []
     frames, scopes, variables = [], [], []
     for line in lines:
@@ -436,7 +444,7 @@ def check_editors():
           json.dumps(debuggers)[:200])
     if pyking:
         properties = pyking.get("configurationAttributes", {}).get("launch", {}).get("properties", {})
-        for name in ("program", "args", "stdin", "stopOnEntry", "justMyCode"):
+        for name in ("program", "args", "stdin", "stopOnEntry", "justMyCode", "warnings"):
             check(f"its launch configuration takes `{name}`", name in properties)
         check("it offers a launch configuration to start from",
               any(c.get("type") == "pyking" for c in pyking.get("initialConfigurations", [])))

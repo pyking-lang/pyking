@@ -1,0 +1,7 @@
+# pyk: -Wall -w
+# -w turns every warning off, whatever came before it.
+
+value = 2
+def helper() -> Int:
+    return 1
+print("ran")

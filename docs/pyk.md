@@ -27,7 +27,7 @@ each know their own business.
 
 `options` is a single record carrying the command, the filename, and
 every flag — `target`, `output`, `stdout`, `run`, `symbols`, `tokens`,
-`tail_calls`, `release`, `typecheck`, `type_experiment` — regardless of which command was
+`tail_calls`, `release`, `typecheck`, `type_experiment`, `warnings` — regardless of which command was
 actually invoked. That's a deliberate choice over, say, three different
 per-command option types: it's what makes `--tokens` and `--symbols`
 mean the *same thing* wherever they're written, since there's exactly
@@ -89,6 +89,21 @@ rule: `:=` may only name a `var`, and nothing may shadow one. It goes
 second precisely because by then every name is known to be bound, so a
 name the mutability walk cannot find is never "unbound" — it is
 "not a mutable variable", which is the message worth printing.
+
+Right after it, `src/warnings.ml` looks for what checks but may still
+be wrong -- a name bound and never used, and an `=` shadowing a name
+from outside its block -- in every module of the program that is not in
+a library directory (`module_warnings`, `report_warnings`). It is the
+one stage that refuses nothing on its own: each warning is printed to
+stderr, wrapped like an error, and the program goes on, unless a
+`-Werror` made one an error, which exits 1 once all of them are
+printed. The `-W` flags are kept in `options.warnings` as written, so
+that the order they were given in -- which decides what they mean -- is
+the order `Warnings.of_flags` applies them in; `parse_args` applies
+them once as they arrive, to refuse one that names no warning, and
+refuses them for a command that checks no program. `pyk repl`, `pyk
+lsp` and `pyk dap` are handed the same config, and `pyk notebook` the
+flags themselves, for its page. See [warnings.md](warnings.md).
 
 Between that walk and the tail-call pass, `src/elaborate.ml` removes
 overloading and implicit arguments from the program, reading the second
@@ -200,6 +215,7 @@ let format_error error =
   | Typesystem.Type_error (i, message) -> line "Type error" i message
   | Type_experiment.Type_error (i, message) -> line "Type error" i message
   | Interpreter.Runtime_error (i, message) -> line "Runtime error" i message
+  | Warnings.Refused found -> (* every warning a -Werror made an error *)
   | _ -> None
 ```
 
@@ -219,6 +235,11 @@ line here, not writing a new formatting function -- which is exactly
 what `Module error` was. `Type_experiment.Type_error` is the seventh
 line and says the same word as the sixth: `--type-experiment` swaps
 which checker runs, not how its refusal reads.
+
+`Warnings.Refused` is the one that carries more than one span: it is
+what refuses a REPL entry a `-Werror` made a warning an error in, and
+it prints every such warning, one per line, as `report_warnings` does
+for a file.
 
 `fail_unsupported` is kept separate from `format_error`'s match on
 purpose: an `Unsupported` needs to name *which target* refused the

@@ -1,0 +1,6 @@
+'modules_lib.pyk' 13:4-13:13 Warning: Function 'forgotten' is defined
+  but never used. [-Wunused-function]
+'modules_lib.pyk' 16:0-16:6 Warning: Unused binding 'hidden', bound on
+  line 16: it is never used in its scope. [-Wunused-binding]
+hello, you
+exit 0

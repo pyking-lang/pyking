@@ -1,0 +1,6 @@
+'parameters.pyk' 6:24-6:25 Warning: Unused parameter 'c' of 'add', on
+  line 6: the body never uses it. [-Wunused-parameter]
+'parameters.pyk' 20:48-20:49 Warning: Unused parameter 'q' of a
+  lambda, on line 20: the body never uses it. [-Wunused-parameter]
+3 1 5 6
+exit 0

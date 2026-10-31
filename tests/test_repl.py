@@ -14,6 +14,9 @@ handling; the prompts appear inline in the expected output because that
 is what a pipe sees. Editing itself -- history, cursor movement,
 Escape -- is not covered.
 
+A session with a sibling .flags file is started with what it holds --
+`-Wall -Werror=unused-function`, say -- after `repl`.
+
 Each session runs in an empty directory of its own, since a module is
 looked for beside where the session runs first: a stray `tinyweb.pyk`
 where the suite was started would otherwise be what `import tinyweb`
@@ -53,13 +56,15 @@ def run(compiler, case):
     with the sibling .out. [String] -> Path -> (Bool, String, String)"""
     expected_path = case.with_suffix(".out")
     expected = expected_path.read_text() if expected_path.exists() else None
+    flags_path = case.with_suffix(".flags")
+    flags = flags_path.read_text().split() if flags_path.exists() else []
     try:
         # stderr into stdout rather than captured beside it: a refusal is
         # reported on stderr and a value on stdout, and what a session
         # means is the two in the order they were written.
         with tempfile.TemporaryDirectory(prefix="pyk-repl-") as directory:
             result = subprocess.run(
-                compiler + ["repl"],
+                compiler + ["repl"] + flags,
                 input=case.read_text(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,

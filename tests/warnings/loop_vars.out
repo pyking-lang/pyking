@@ -1,0 +1,13 @@
+'loop_vars.pyk' 5:4-5:5 Warning: Unused loop variable 'i', bound on
+  line 5: the loop never uses it. [-Wunused-loop-var]
+'loop_vars.pyk' 11:17-11:18 Warning: Unused loop variable 'k', bound
+  on line 11: the comprehension never uses it. [-Wunused-loop-var]
+'loop_vars.pyk' 12:19-12:20 Warning: Unused loop variable 'b', bound
+  on line 12: the comprehension never uses it. [-Wunused-loop-var]
+'loop_vars.pyk' 14:16-14:21 Warning: Unused loop variable 'spare',
+  bound on line 14: the loop never uses it. [-Wunused-loop-var]
+hi
+hi
+quiet
+[0, 0, 0] [1] (3, 100)
+exit 0

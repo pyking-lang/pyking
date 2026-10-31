@@ -34,6 +34,8 @@
     const app = await mountNotebook(host, {
       url: here.href,
       mode: config.mode ?? "student",
+      // The -W flags `pyk notebook` was given.
+      warnings: config.warnings ?? [],
       // `pyk notebook` says to reload the page when the file changes.
       watch: !!config.watch,
       // and where a picture a solution makes is saved beside the file.

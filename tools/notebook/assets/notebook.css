@@ -315,6 +315,7 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
    line the program read, echoed as a terminal would show it. */
 .pkn-stdout .pkn-debug { color: var(--pkn-faint); font-style: italic; }
 .pkn-stdout .pkn-failure { color: var(--pkn-bad); }
+.pkn-stdout .pkn-warning { color: var(--pkn-warn); }
 /* What a program using tinyweb shows, above its standard output. */
 .pkn-page {
   padding: .55rem 1rem; margin-bottom: .4rem;

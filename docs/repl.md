@@ -221,6 +221,21 @@ that is only `use mutation` has no statements, and answers nothing.
 (`with_features`), and the playground's REPL tab keeps the same
 session state, so a `use` there behaves the same.
 
+## Warnings: an entry's, not the session's
+
+An entry is checked for warnings as a file is (`entry_warnings`, after
+the mutability rule; see [warnings.md](warnings.md)), with one
+difference: its top-level names are never reported, since the session
+is not over and a later entry may use them. A name bound inside one of
+its blocks is the entry's own, and is reported as a file's would be --
+with the hint when it shadows a name an earlier entry bound, which the
+check is told of as `outer`. The warnings go to the host's `warn`:
+stderr for `pyk repl`, and the answer's `warnings` in the playground. A
+warning a `-Werror` made an error refuses the entry, as
+`Warnings.Refused`, which `format_error` prints a line at a time.
+`pyk repl` takes the -W flags (`with_warnings`), and the playground's
+REPL tab its settings' Warnings tab.
+
 ## Imports: a module arrives with the entry that names it
 
 An entry's imports are handled before the entry is desugared, since the

@@ -1,0 +1,24 @@
+# Unused bindings, on by default: an `=` binding nothing in its scope
+# uses, at the top level, in a function, in a block, in a tuple, and in
+# a `let`. A name starting with `_` is never reported, and a binding
+# that is used is not.
+
+total = 10
+unused_top = 1
+
+def area(w: Int, h: Int) -> Int:
+    scratch = w * 2
+    return w * h
+
+if total > 5:
+    inside = total + 1
+    print("big")
+
+low, high = (1, 9)
+print(high)
+
+_skipped = area(1, 2)
+_, second = (3, 4)
+
+print(let n = 1 in let unused_let = 2 in n)
+print(area(total, 2), second)

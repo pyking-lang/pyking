@@ -1,0 +1,8 @@
+# pyk: -Werror=unused-parameter
+# -Werror=<name> turns its warning on, as in GCC, as well as making it an
+# error.
+
+def f(x: Int) -> Int:
+    return 1
+
+print(f(2))

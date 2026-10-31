@@ -2,7 +2,7 @@
 {"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
 > open untyped.pyk
 > idle
-diagnostics $CASES/untyped.pyk v1 []
+diagnostics $CASES/untyped.pyk v1 [{"code": "-Wunused-function", "message": "Function 'twice' is defined but never used.", "range": {"end": {"character": 9, "line": 2}, "start": {"character": 4, "line": 2}}, "severity": 2, "source": "pyking", "tags": [1]}]
 > hover untyped.pyk 3:6
 {"contents": {"kind": "markdown", "value": "Types are not inferred until the function is called. Please use the function (call it), or give type annotations for the parameters and the return value."}}
 > hover untyped.pyk 3:14

@@ -1,0 +1,5 @@
+# A module's own unused names are reported in that module, and its public
+# ones never are: another module may use them.
+
+import modules_lib
+print(modules_lib.greet("you"))

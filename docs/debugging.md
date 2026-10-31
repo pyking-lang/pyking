@@ -41,6 +41,13 @@ Because the tail-call pass has run, a function that calls itself in
 tail position steps as the loop it became, and its frames do not pile
 up in the call stack.
 
+`prepare` also checks the program's own modules for warnings (see
+[warnings.md](warnings.md)), with the flags `pyk dap` was started with
+and the launch's own `warnings` after them. `pyk dap` sends each as an
+`output` event of category `stderr` before the program runs, and the
+playground's Debug tab gets them from `pykOnWarning`; one a `-Werror`
+made an error refuses the launch, as it refuses to run the program.
+
 ## Where it stops
 
 The machine is checked each time it is about to start a statement:

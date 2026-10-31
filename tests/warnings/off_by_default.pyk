@@ -1,0 +1,11 @@
+# Unused pattern variables, parameters and loop variables are off by
+# default: none of these is reported without its flag.
+
+def first(pair: (Int, Int), unused_param: Int) -> Int:
+    match pair:
+        case (a, b):
+            return a
+
+for i in range(2):
+    print(first((1, 2), 0))
+print([0 for k in range(3)], (lam y. 1)(5))

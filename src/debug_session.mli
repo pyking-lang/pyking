@@ -17,6 +17,7 @@
 
     Functions:
       prepare release units -- a program loaded by Module.load, checked.
+      warnings session -- the warnings its program's own modules have.
       create program host -- a session about to run a program.
       set_breakpoints t file specs -- the breakpoints of one file.
       resume t command -- the session told to go on, or to pause.
@@ -95,9 +96,13 @@ type t
 
 (** A program Module.load read, checked and made ready to run exactly as
     `pyk <file>` runs it, keeping beside what runs what the checker saw.
-    `release` removes every call to `debug` first. Raises the front
-    end's own errors. bool? -> [Module.t] -> program *)
-val prepare : ?release:bool -> Module.t list -> program
+    `release` removes every call to `debug` first. The modules `own`
+    says are the program's own are checked for the warnings `warnings`
+    asks for, and one a -Werror made an error raises Warnings.Refused.
+    Raises the front end's own errors.
+    bool? -> Warnings.config? -> (Module.t -> bool)? -> [Module.t] -> program *)
+val prepare :
+  ?release:bool -> ?warnings:Warnings.config -> ?own:(Module.t -> bool) -> Module.t list -> program
 
 (** A session about to run a program from its first statement, writing
     through host. `drive` is how a callback the host makes is run; by
@@ -181,3 +186,7 @@ val waiting_on : t -> int option
 (** The session with the run that waits on id handed value, going on
     from there once it runs again. t -> int -> Interpreter.value -> t *)
 val answer : t -> int -> Interpreter.value -> t
+
+(** The warnings the program's own modules have, as `prepare` was told
+    to look for them. t -> [Warnings.warning] *)
+val warnings : t -> Warnings.warning list

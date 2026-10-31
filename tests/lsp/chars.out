@@ -2,7 +2,7 @@
 {"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
 > open chars.pyk
 > idle
-diagnostics $CASES/chars.pyk v1 []
+diagnostics $CASES/chars.pyk v1 [{"code": "-Wunused-binding", "message": "Unused binding 'letter', bound on line 4: it is never used in its scope.", "range": {"end": {"character": 6, "line": 3}, "start": {"character": 0, "line": 3}}, "severity": 2, "source": "pyking", "tags": [1]}, {"code": "-Wunused-binding", "message": "Unused binding 'codes', bound on line 5: it is never used in its scope.", "range": {"end": {"character": 5, "line": 4}, "start": {"character": 0, "line": 4}}, "severity": 2, "source": "pyking", "tags": [1]}]
 > hover chars.pyk 1:6
 {"contents": {"kind": "markdown", "value": "```pyking\ndef initial: (String) -> Char\n```"}, "range": {"end": {"character": 34, "line": 0}, "start": {"character": 0, "line": 0}}}
 > hover chars.pyk 4:1

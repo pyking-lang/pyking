@@ -1,0 +1,7 @@
+total = 10
+def helper() -> Int:
+    return 1
+
+if total > 5:
+    total = 20
+print("ran")

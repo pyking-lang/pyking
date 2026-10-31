@@ -1,0 +1,10 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> . . '<repl>' 1:16-1:17 Warning: Unused parameter 'b' of 'add', on line 1:
+  the body never uses it. [-Wunused-parameter]
+> . . . . '<repl>' 3:17-3:18 Warning: Unused pattern variable 'y', bound on line
+  3: its case never uses it. [-Wunused-pattern-var]
+> . . . . '<repl>' 2:8-2:13 Error: Function 'inner' is defined but never used.
+  [-Werror=unused-function]
+> '<repl>' 1:0-1:5 Name error: unbound name 'outer'
+> 1 : Int
+> 

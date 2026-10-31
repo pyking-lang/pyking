@@ -1,0 +1,9 @@
+# A dotted definition is reported by the name it was written with.
+
+def shapes.area(w: Int, h: Int) -> Int:
+    return w * h
+
+def shapes.perimeter(w: Int, h: Int) -> Int:
+    return 2 * (w + h)
+
+print(shapes.area(2, 3))

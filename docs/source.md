@@ -47,6 +47,7 @@ and which module calls which.
 | [`walk.ml`](#walkml) | ~190 | One `children` function over every AST node, for the passes that ask a question of a whole subtree. |
 | [`typesystem.ml`](#typesystemml) | ~3010 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's, and nearly all of the OCaml backend's. |
 | [`exhaustive.ml`](#exhaustiveml) | ~420 | Every `match` matches every value and every case is reachable: Maranget's usefulness, over the checker's types. |
+| [`warnings.ml`](#warningsml) | ~660 | Warnings: names bound and never used, and an `=` that shadows a name from outside its block, after the checker; the -W flags that say which are reported and which are errors. |
 | [`type_experiment.ml`](#type_experimentml) | ~140 | An alternative checker, a fragment of one, run instead of the real one by `--type-experiment`. |
 | [`release.ml`](#releaseml) | ~180 | `--release`: every call to the builtin `debug` removed, before any backend sees the program. |
 | [`prune.ml`](#pruneml) | ~160 | What a program uses of the modules it imports, for the C and Java targets: the rest of each module removed, and every import narrowed. |
@@ -949,6 +950,40 @@ reported as a `Type error`. See [exhaustive.md](exhaustive.md).
 - **`covers datatype type_ patterns`** — whether the patterns match
   every value of a type. The OCaml backend asks it of the arms OCaml can
   see, to know whether OCaml needs a catch-all.
+
+## `warnings.ml`
+
+**What a program that checks may still have wrong.** One walk over a
+module's statements as the checker saw them, after the mutability
+analysis: every name bound and never used, by kind, and an `=` in a
+block that shadows a name from outside it and is never used -- an
+update written without `var` and `:=`. Nothing is refused unless a
+`-Werror` says so. See [warnings.md](warnings.md).
+
+### Data structures
+
+- **`kind`** — one warning, named by its flag: `Unused_binding`,
+  `Unused_function`, `Unused_var`, `Shadowed_update`,
+  `Unused_pattern_var`, `Unused_parameter`, `Unused_loop_var`.
+- **`config`** — which kinds are on, and which are errors: what the
+  -W flags made of the defaults.
+- **`warning`** — one found: the name's span, its kind, its message,
+  and whether it is an error.
+
+### Main functions
+
+- **`check config tokens stmts`** — every warning `config` reports in a
+  module, in source order. `qmap` charges an overloaded call and an
+  implicit argument to what they reach; `toplevel_used` exempts a REPL
+  entry's top-level names; `public` a module's exports; `outer` is what
+  an earlier REPL entry bound.
+- **`flag config text`** / **`of_flags flags`** — GCC's flags, applied
+  in order: `-W<name>`, `-Wno-<name>`, `-Wall`, `-w`, `-Werror`,
+  `-Wno-error`, `-Werror=<name>`, `-Wno-error=<name>`.
+- **`to_flags config`** — the shortest flags that make a config.
+- **`format w`** — a warning as pyk prints it:
+  `'file' r:c-r:c Warning: ... [-Wname]`, or `Error:` and
+  `[-Werror=name]`.
 
 ## `type_experiment.ml`
 

@@ -1,0 +1,5 @@
+'werror.pyk' 5:4-5:10 Error: Function 'helper' is defined but never
+  used. [-Werror=unused-function]
+'werror.pyk' 8:0-8:5 Error: Unused binding 'value', bound on line 8:
+  it is never used in its scope. [-Werror=unused-binding]
+exit 1

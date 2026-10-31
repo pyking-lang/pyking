@@ -18,12 +18,13 @@ const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 let client;
 
 // The settings the server reads, as sent in initializationOptions.
-// () -> {libPath: [String], diagnostics: String}
+// () -> {libPath: [String], diagnostics: String, warnings: [String]}
 function serverSettings() {
   const config = vscode.workspace.getConfiguration("pyking");
   return {
     libPath: config.get("libPath", []),
     diagnostics: config.get("diagnostics", "change"),
+    warnings: config.get("warnings", []),
   };
 }
 
