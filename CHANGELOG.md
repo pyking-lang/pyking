@@ -144,6 +144,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Notebook: a task's diff-allowed (and optional-last, any-order and
+  ignore-chars) blocks now apply when test mode and teacher mode check
+  a solution against its stdout and stderr blocks, so those blocks may
+  give numbers rounded (`area = 12.57` for `12.56636` under
+  `area = [+/-0.23]`); before, they were compared exactly. A task without
+  a solution may now have these blocks too, loosening how an answer is
+  compared with its stdout block. A `[+/-N]` may write N with no digit
+  before the point (`[+/-.3]`), as well as `[+/-2]`, `[+/-1.3]` and
+  `[+/-0.3]`, in the notebook and in nbverify. tests/notebook/tolerance.md
+  covers whole numbers and decimals.
+
 - In the playground, hovering over an error showed its message twice,
   with a line between: Run marked the error the language server had
   already marked. Run's marker now steps aside where the language

@@ -315,8 +315,12 @@ answer is compared with its solution. Each line of it is a pattern: its
 text must match a line exactly, except that each `[+/-N]` stands for a
 number, and a line of the answer and the solution's line count as the
 same when both match one pattern and each such number of the answer is
-at most N from the solution's. N may be a decimal (`[+/-3.21]`), and a
-line may have several. It applies to what is printed and to tinyweb's
+at most N from the solution's. N may be a whole number or a decimal
+(`[+/-2]`, `[+/-1.3]`, `[+/-0.3]` or `[+/-.3]`), and a line may have
+several. For a task without a solution it loosens the comparison with
+the stdout and stderr blocks instead, and test mode applies it when it
+checks a solution against those blocks, so they may give numbers
+rounded. It applies to what is printed and to tinyweb's
 log alike, and "See result diff" marks such a pair as an allowed
 difference rather than a change. It is a teacher's to see.
 
@@ -515,7 +519,8 @@ for each problem, and exits with 1 if there was one:
 - every cell runs, and every `error` cell is refused; a task's
   starting code included;
 - a solution prints, on each test's input, what any stdout or stderr
-  block after it says, and so does an ordinary cell, and a solution
+  block after it says, as its task's diff-allowed, optional-last,
+  any-order and ignore-chars blocks allow, and so does an ordinary cell, and a solution
   keeps to its task's `max_calls`;
 - a task with no solution has an output to compare an answer with;
 - an item's `name` is letters, digits, `_` and `-`, and no other item
@@ -526,7 +531,7 @@ for each problem, and exits with 1 if there was one:
   has a `file`, a .png beside the notebook, and a stdin block split by
   `lines_per_multi_input` is whole pieces, with a solution and no output
   after it, and a diff-allowed, optional-last, any-order or
-  ignore-chars block is under a task with a solution, each diff-allowed
+  ignore-chars block is under a task, each diff-allowed
   line holding a `[+/-N]`, each any-order line `BETWEEN:` or `ANY:` and
   a pattern, with at least one `ANY:`, and each ignore-chars block
   saying `chars = "…"`.

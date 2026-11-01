@@ -182,7 +182,6 @@ export function structure(parts, cells) {
           if (owner?.kind !== "task") {
             problem(part, `${article(kind)} ${kind} block belongs under a task`);
           } else {
-            if (!owner.solution) problem(part, `${article(kind)} ${kind} block loosens how an answer is compared with the solution, which this ${title(owner)} does not have`);
             owner.allowed.push(...readAllowed(part, problem));
             owner.allowedParts.push(part);
           }
@@ -591,17 +590,19 @@ const NUMBER = "[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?";
 
 /** One diff-allowed line as a Rule, or why it is not one: its text is
  *  matched exactly, and each [+/-N] stands for a number allowed to be N
- *  away from the solution's. String -> Rule | String */
+ *  away from the expected one (the solution's, or a stdout block's). N
+ *  is a whole number or a decimal: 2, 0.3, .3 or 1.3.
+ *  String -> Rule | String */
 function allowedRule(text) {
   const slots = [];
   let pattern = "";
   let rest = text;
-  const slot = /\[\s*\+\s*\/\s*-\s*([0-9]+(?:\.[0-9]+)?)\s*\]/;
+  const slot = /\[\s*\+\s*\/\s*-\s*([0-9]+(?:\.[0-9]*)?|\.[0-9]+)\s*\]/;
   for (;;) {
     const found = slot.exec(rest);
     const literal = found ? rest.slice(0, found.index) : rest;
     if (/[[\]]/.test(literal)) {
-      return `a diff-allowed line's [ ] holds +/- and a number, as [+/-2] or [+/-0.5]: '${text}'`;
+      return `a diff-allowed line's [ ] holds +/- and a number, as [+/-2], [+/-0.5] or [+/-1.3]: '${text}'`;
     }
     pattern += literal.replace(/[.*+?^${}()|\\]/g, "\\$&");
     if (!found) break;

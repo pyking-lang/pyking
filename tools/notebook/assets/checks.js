@@ -64,19 +64,21 @@ export async function checkNotebook(doc, run) {
   }
 
   // Each test of a task with a solution, and each example under a
-  // cell: what runs is what the block after it says.
-  const compare = async (source, name, line, test, stdin, args, until = null) => {
+  // cell: what runs is what the block after it says, but for what the
+  // task's diff-allowed, optional-last, any-order and ignore-chars
+  // blocks allow.
+  const compare = async (source, name, line, test, stdin, args, until = null, rules = []) => {
     const result = await run(source, name, stdin, args, test.events ?? "", until);
     if (!result.ok) {
       check(false, line, `the program does not run on this input:\n  ${result.text}`);
       return;
     }
     if (test.output) {
-      check(sameOutput(result.stdout, test.output.text), test.output.line,
+      check(sameOutput(result.stdout, test.output.text, rules), test.output.line,
         `the program prints\n${indent(result.stdout)}\nand this stdout block says\n${indent(test.output.text)}`);
     }
     if (test.error) {
-      check(sameOutput(result.stderr, test.error.text), test.error.line,
+      check(sameOutput(result.stderr, test.error.text, rules), test.error.line,
         `the program writes to stderr\n${indent(result.stderr)}\nand this stderr block says\n${indent(test.error.text)}`);
     }
   };
@@ -88,7 +90,7 @@ export async function checkNotebook(doc, run) {
       : `the solution uses ${over.name} ${over.count} times, and max_calls allows ${over.max}`);
     for (const test of item.tests) {
       await compare(source, `${item.id}-solution.pyk`, test.line, test,
-        test.stdin ?? item.stdin, test.args ?? item.args, untilLimit(item));
+        test.stdin ?? item.stdin, test.args ?? item.args, untilLimit(item), item.allowed);
     }
   }
   for (const example of notebook.examples) {

@@ -225,3 +225,21 @@ And one written with Pyking's old spellings:
 ```pyking
 print("a" ++ "b")
 ```
+
+A stdout block whose number is further from the solution's than its
+diff-allowed block allows, here 0.36 against .3:
+
+```pyking practice
+```
+
+```pyking solution
+print("area =", 12.56)
+```
+
+```stdout
+area = 12.2
+```
+
+```diff-allowed
+area = [+/-.3]
+```

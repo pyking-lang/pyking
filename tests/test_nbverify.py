@@ -437,6 +437,19 @@ def check_command_line(compiler):
                      and trailer[0] == "to stderr\n" and json.loads(trailer[1])["status"] == "ok",
                      "run passes stdin, stdout and the status through, and adds its trailer",
                      repr((ran.returncode, ran.stdout, ran.stderr)))
+    # A diff-allowed slot's N is a whole number or a decimal, as the
+    # notebook page reads it (tasks.js, allowedRule).
+    rules = nbverify_module.allowed_rules(["v [+/-1.3]", "w [+/-.3]", "n [+/-1]", "x [+/-0,3]"])
+    checks.check([slots for _, _, slots in rules] == [[1.3], [0.3], [1.0]],
+                 "diff-allowed reads N as 1.3, .3 and 1, and refuses 0,3",
+                 repr([slots for _, _, slots in rules]))
+    same = nbverify_module.same_output
+    checks.check(same("v 10.0\nw 0.5\nn 7\n", "v 11.3\nw 0.2\nn 8\n", rules)
+                 and same("v 10\nw 1\nn 7\n", "v 8.7\nw 1.3\nn 6\n", rules)
+                 and not same("v 10.0\n", "v 11.31\n", rules)
+                 and not same("w 0.5\n", "w 0.81\n", rules)
+                 and not same("n 7\n", "n 8.5\n", rules),
+                 "decimal and whole-number slots allow their N and no more")
     return checks
 
 

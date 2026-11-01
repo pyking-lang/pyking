@@ -286,8 +286,11 @@ A widget's id is what the function making it answers: the title, for
 `tw.button("More")`.
 
 **Loosening the comparison.** Four blocks under a task let an answer
-differ from the solution in ways that do not matter. Each needs a
-solution. Each applies to what is printed, what `debug` writes and
+differ from what is expected in ways that do not matter: from the
+solution's output, or, for a task without a solution, from its stdout
+and stderr blocks. Test mode and teacher mode apply them too, when they
+check that a solution prints what a stdout or stderr block says, so a
+block may give a number rounded. Each applies to what is printed, what `debug` writes and
 tinyweb's log. The result diff (**See result diff**) shows what they
 excuse in yellow. A task may have any number of each. Their patterns
 are lines as the output writes them: tinyweb's log as the result diff
@@ -312,8 +315,11 @@ Each step sees the lines the steps before it left.
 
 **A diff-allowed block**: each line is a pattern matched exactly, except
 that each `[+/-N]` stands for a number that may differ from the
-solution's by at most N. N may be a decimal, and a line may have
-several.
+expected one by at most N. N is a whole number or a decimal, with or
+without a digit before the point: `[+/-2]`, `[+/-1.3]`, `[+/-0.3]` and
+`[+/-.3]` all work, and a line may have several. The numbers compared
+may be whole or decimal on either side, so `7` and `8.2` are within
+`[+/-1.3]`.
 
 ````markdown
 ```diff-allowed
@@ -321,6 +327,9 @@ circle "canvas" [+/-2] [+/-2] 10 "#000000" "" 1.000 1.000
 area = [+/-0.01]
 ```
 ````
+
+With that block, a stdout block may say `area = 12.57` for a solution
+printing `area = 12.56636`.
 
 **An optional-last block** lets an output end with lines the other
 does not. Before comparing, lines its patterns match are dropped from
@@ -517,13 +526,14 @@ line:
 - every cell runs, every `error` cell is refused, and every task's
   starting code runs;
 - each solution and each cell prints, on each test's input and events,
-  what any stdout or stderr block after it says, and each solution
+  what any stdout or stderr block after it says (a solution as its
+  task's diff-allowed and other such blocks allow), and each solution
   keeps to its task's `max_calls`;
 - a task without a solution has an output to compare an answer
   with; `save_canvas` has a `file`, a `.png`; `lines_per_multi_input`
   splits into whole pieces, with a solution and no output after it; a
-  diff-allowed, optional-last, any-order or ignore-chars block is under a task with
-  a solution; each diff-allowed line holds a `[+/-N]`; each any-order
+  diff-allowed, optional-last, any-order or ignore-chars block is under a task;
+  each diff-allowed line holds a `[+/-N]`; each any-order
   line is `BETWEEN:` or `ANY:` and a pattern, and the block has an
   `ANY:` line; an ignore-chars block has a `chars = "…"` that is not
   empty.

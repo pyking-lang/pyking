@@ -45,4 +45,8 @@ tests/notebook/broken.md:217: this cell does not run:
   'cell-20.pyk' 1:0-1:3 Parsing error: 'var' declares a mutable variable, which needs 'use mutation' at the top of this module
 tests/notebook/broken.md:225: this cell does not run:
   'cell-21.pyk' 1:10-1:12 Parsing error: '++' is now written '+': 'a + b' joins two strings or two lists
-notebook test: tests/notebook/broken.md: 21 cells, 17 tasks and quizzes, 38 problems.
+tests/notebook/broken.md:239: the program prints
+    area = 12.56
+and this stdout block says
+    area = 12.2
+notebook test: tests/notebook/broken.md: 23 cells, 18 tasks and quizzes, 39 problems.

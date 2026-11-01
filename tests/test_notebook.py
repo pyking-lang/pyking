@@ -30,7 +30,8 @@ Five parts:
             Markdown, a mode there is none of, a missing directory, an
             address to listen on that is not one; and what POST /save/
             writes beside a copy of drawing.md, and refuses.
-  test mode `pyk notebook --mode test` passes features.md and drawing.md, and reports
+  test mode `pyk notebook --mode test` passes features.md, drawing.md and
+            tolerance.md (stdout blocks within their diff-allowed), and reports
             exactly what tests/notebook/broken.out says about broken.md.
   page      where a Chromium is found (tests/suite.py, find_chromium) and
             the editor has been vendored (`make vendor`), features.md
@@ -82,6 +83,7 @@ MARKDOWN = REPO / "tools" / "notebook" / "assets" / "markdown.js"
 TASKS = REPO / "tools" / "notebook" / "assets" / "tasks.js"
 BROKEN = FIXTURES / "broken.md"
 DRAWING = FIXTURES / "drawing.md"
+TOLERANCE = FIXTURES / "tolerance.md"
 ACTIVITIES = REPO / "tools" / "notebook" / "assets" / "activities.js"
 WORKER = REPO / "tools" / "webrun" / "assets" / "pyking-worker.js"
 VENDOR = REPO / "tools" / "webrun" / "vendor" / "ace" / "ace.js"
@@ -342,12 +344,14 @@ for (const [header, problem] of [
    "holds +/- and a number"],
   ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nno slot here\n```\n",
    "needs a [+/-N]"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nx [+/-0,3]\n```\n",
+   "holds +/- and a number"],
+  ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```diff-allowed\nx [+/-.]\n```\n",
+   "holds +/- and a number"],
   ["```optional-last\nsdelay*\n```\n", "an optional-last block belongs under a task"],
-  ["```pyking task\n```\n```optional-last\nsdelay*\n```\n", "which this task does not have"],
   ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```optional-last\n```\n",
    "an optional-last block needs at least one line"],
   ["```ignore-chars chars = \" \"\npoint*\n```\n", "an ignore-chars block belongs under a task"],
-  ["```pyking task\n```\n```ignore-chars chars = \" \"\npoint*\n```\n", "which this task does not have"],
   ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```ignore-chars\npoint*\n```\n",
    "an ignore-chars block says which characters to ignore"],
   ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```ignore-chars chars = \"\"\npoint*\n```\n",
@@ -404,6 +408,30 @@ check("a rule's slots may be decimals, several on a line",
       && !grading.allowedLine(decimals, "x = 1.5, y = 2", "x = -1.72, y = 2")
       && !grading.allowedLine(decimals, "x = 1.5, y = 2", "x = 1.5, y = 2.6"),
       JSON.stringify(decimals.map((r) => r.slots)));
+const forms = renderMarkdown("```pyking task\n```\n```pyking solution\nprint(1)\n```\n"
+  + "```diff-allowed\na [+/-2] [+/-0.3] [+/-.3] [+/-1.3] [+/-1.] [+/-0.25]\n```\n").notebook;
+check("a slot's N is a whole number or a decimal, with or without a digit before the point",
+      forms.problems.length === 0
+      && JSON.stringify(forms.items[0].allowed.map((r) => r.slots)) === "[[2,0.3,0.3,1.3,1,0.25]]",
+      JSON.stringify([forms.problems, forms.items[0].allowed.map((r) => r.slots)]));
+const tenths = renderMarkdown("```pyking task\n```\n```pyking solution\nprint(1)\n```\n"
+  + "```diff-allowed\nv [+/-1.3]\nw [+/-.3]\nn [+/-1]\n```\n").notebook.items[0].allowed;
+check("decimals and whole numbers are compared to within their N, and no further",
+      grading.sameOutput("v 10.0\nw 0.5\nn 7", "v 11.3\nw 0.2\nn 8", tenths)
+      && grading.sameOutput("v 10\nw 1\nn 7", "v 8.7\nw 1.3\nn 6", tenths)
+      && !grading.sameOutput("v 10.0", "v 11.31", tenths)
+      && !grading.sameOutput("w 0.5", "w 0.81", tenths)
+      && !grading.sameOutput("n 7", "n 8.5", tenths)
+      && !grading.sameOutput("v 10.0", "v ten", tenths),
+      JSON.stringify(tenths.map((r) => r.slots)));
+const unsolved = renderMarkdown("```pyking task\n```\n```stdout\npi 3.14\n```\n"
+  + "```diff-allowed\npi [+/-0.01]\n```\n```optional-last\ndone\n```\n"
+  + "```ignore-chars chars = \",\"\nlist*\n```\n").notebook;
+check("a task with no solution may loosen how an answer is compared with its stdout block",
+      unsolved.problems.length === 0 && unsolved.items[0].allowed.length === 3
+      && grading.sameOutput("pi 3.15\ndone", "pi 3.14", unsolved.items[0].allowed)
+      && !grading.sameOutput("pi 3.16", "pi 3.14", unsolved.items[0].allowed),
+      JSON.stringify(unsolved.problems));
 const drums = renderMarkdown("```pyking task\n```\n```pyking solution\nprint(1)\n```\n"
   + "```optional-last\nsdelay*\nsplash\n```\n```any-order\nBETWEEN: sdelay*\nANY: play \"song*\n"
   + "ANY: play \"wow*\n```\n").notebook;
@@ -1036,8 +1064,9 @@ def check_server(compiler):
 
 
 def check_test_mode(compiler, update):
-    """`pyk notebook --mode test` passes features.md, and reports what
-    broken.out says about broken.md, line by line. [String] -> Bool ->
+    """`pyk notebook --mode test` passes features.md, drawing.md and
+    tolerance.md, and reports what broken.out says about broken.md,
+    line by line. [String] -> Bool ->
     (Int, [String])"""
     failures = []
     environment = dict(os.environ, PYKING_WEB_NO_VENDOR="1")
@@ -1048,7 +1077,7 @@ def check_test_mode(compiler, update):
                               cwd=REPO, capture_output=True, text=True,
                               env=environment, timeout=STEP_TIMEOUT)
 
-    for document in (FEATURES, DRAWING):
+    for document in (FEATURES, DRAWING, TOLERANCE):
         good = mode_test(document)
         if good.returncode != 0:
             failures.append(f"{document.name} passes test mode: "

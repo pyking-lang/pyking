@@ -710,7 +710,7 @@ export function lineDiff(a, b, same = (x, y) => x === y) {
 function compare(answer, expected, test, hasSolution, rules = []) {
   if (answer.timedOut) return "Your program did not finish in time.";
   if (!answer.ok) return "Your program did not run:\n" + (answer.text ?? "").trimEnd();
-  const allowed = hasSolution ? rules : [];
+  const allowed = rules;
   if ((hasSolution || test.output) && !sameOutput(answer.stdout, expected.stdout, allowed)) {
     return "The output is not what it should be.";
   }
