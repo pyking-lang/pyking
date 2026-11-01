@@ -105,6 +105,12 @@ file = "fail_typecheck_forward_binding.pyk"
 file = "fail_typecheck_if_branches.pyk"
 
 [[cases]]
+file = "fail_typecheck_if_branches_loop.pyk"
+
+[[cases]]
+file = "fail_typecheck_if_branches_tail.pyk"
+
+[[cases]]
 file = "fail_typecheck_if_expr_branches.pyk"
 
 [[cases]]
@@ -203,6 +209,9 @@ file = "fail_typecheck_list_elements.pyk"
 
 [[cases]]
 file = "fail_typecheck_match_arms.pyk"
+
+[[cases]]
+file = "fail_typecheck_match_arms_tail.pyk"
 
 [[cases]]
 file = "fail_typecheck_match_gap.pyk"
@@ -499,6 +508,10 @@ excluded = { c = "a function value outliving the stack frame it captures from ne
 
 [[cases]]
 file = "typecheck_if.pyk"
+
+[[cases]]
+file = "typecheck_if_branches_discarded.pyk"
+also = ["pyking_rerun"]
 
 [[cases]]
 file = "typecheck_infer_basic.pyk"

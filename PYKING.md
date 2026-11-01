@@ -3742,7 +3742,8 @@ tail position. An `else if` ladder works for the same reason — a ladder
 *is* a nested `if` in the else branch (see "`if`/`else` statements").
 
 Only the **last** statement is in tail position. An `if` with something
-after it is an ordinary statement run for its effect, and the trailing
+after it is an ordinary statement run for its effect -- its branches
+need not even agree on a type (see "Type checking") -- and the trailing
 expression is the value:
 
 ```pyking
@@ -4228,9 +4229,9 @@ has one type, as a name an `=` binding binds does: binding a lambda
 with `let` does not make it polymorphic.
 
 **Blocks and `if`.** A block's type is its last statement's, and unit if
-it is empty. The two branches of an `if` must have the *same* type —
-which is what makes `x = if ...` sound, since only one branch runs but
-the binding has one type either way:
+it is empty. Where that value is used, the two branches of an `if` must
+have the *same* type — which is what makes `x = if ...` sound, since only
+one branch runs but the binding has one type either way:
 
 ```pyking
 flag = 3 < 4
@@ -4266,6 +4267,56 @@ there is a way through such a statement that runs no branch at all, so
 there is no value it can be counted on for. A function that needed that
 value is refused where the value was needed — at the function, not at
 the `if`. A condition must be `Bool` — there is no truthiness.
+
+**An `if` whose value nothing uses** need not have branches of one type.
+Its value is used where it is bound (`x = if ...`, `return if ...`) and
+where it is in tail position: the last statement of a function body, or
+of a loop body that carries a value (see "Tail position"). Anywhere else
+— with a statement after it, as the last statement of a loop that
+carries nothing, or of the program — it is only run, and it supplies
+unit. That reaches into its branches: an `if` ending a branch of such an
+`if` is not used either. The arms of a `match` follow the same rule.
+
+```pyking
+def twice(n: Int) -> Int:
+    n * 2
+
+
+def first(n: Int) -> Int:
+    if n > 0:
+        twice(n)             # Int
+    else:
+        print("no")          # unit: fine, the `if` is only run
+    n + 1
+
+
+print(first(3))
+```
+
+Where the value is used, the branches are still held to one type, and
+the error says why. Here the `if` is `pick`'s last statement, so it is
+`pick`'s value:
+
+```
+def twice(n: Int) -> Int:
+    n * 2
+def pick(n: Int):
+    if n > 0:
+        twice(n)
+    else:
+        print("no")
+```
+
+```
+'prog.pyk' 4:4-7:19 Type error: the branches of this 'if' have
+  different types: Int and (). Its value is used -- it is bound, or it
+  ends a function or a loop body that carries a value -- so its
+  branches must give one type. With a statement after it, the 'if'
+  would only be run, and its branches could differ
+```
+
+The REPL shows the value of every statement typed at its prompt, so
+there an `if` on its own is used, and its branches must agree.
 
 **Tuples.** `(e1, e2, ...)` has the tuple type of its elements, `()` is
 unit, and a binding may take one apart -- `a, b = pair` binds each name
@@ -4666,7 +4717,8 @@ it answers is the names it binds: `case [x, ..rest]` over a `[Int]`
 gives `x : Int` and `rest : [Int]`. A pattern that could never match —
 a String pattern over an Int — is refused where it is written.
 
-The **arms of a `match` agree on one type**, again the `if` rule. Where
+The **arms of a `match` agree on one type** where its value is used,
+again the `if` rule — one with a statement after it is only run. Where
 the arms disagree only in how general they are, the more general one
 wins, which is what lets a base case return `[]`:
 

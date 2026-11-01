@@ -139,6 +139,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- An `if` or a `match` whose value nothing uses no longer needs its
+  branches to have one type: one with a statement after it, or ending a
+  loop that carries nothing, a branch of such an `if`, or the program.
+  `if c: tw.rect(...) else: loop ...` before a `continue` was refused
+  with "the branches of this 'if' have different types: Int and ()".
+  Where the value is used -- bound, or ending a function or a loop body
+  that carries a value -- the branches must still agree, and the error
+  now says why.
+
 - Notebook: a cell's stdin field is as tall as its input, one line for
   each line up to eight, and scrolls beyond that; before, it was always
   two lines. It follows what the reader types.

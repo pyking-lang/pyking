@@ -1,0 +1,69 @@
+use mutation
+def twice(n:Int) -> Int:
+    n * 2
+def note(s:String) -> ():
+    print("note", s)
+def first(n:Int) -> Int:
+    if n > 0:
+        twice(n)
+    else:
+        note("not positive")
+    n + 1
+print(first(3), first(-1))
+total: Int = loop y: Int = 0 while y < 4:
+    if y % 2 == 0:
+        loop x: Int = 0 while x < 2:
+            print("even row", y, "column", x)
+            continue x + 1
+    else:
+        note("odd row")
+    continue y + 1
+print("rows", total)
+var i = 0
+while i < 3:
+    i := i + 1
+    if i == 2:
+        "two"
+    else:
+        twice(i)
+print("counted", i)
+def ladder(n:Int) -> String:
+    if n == 0:
+        "zero"
+    else if n == 1:
+        twice(n)
+    else if n == 2:
+        n > 1
+    else:
+        note("many")
+    "done"
+print(ladder(0), ladder(1), ladder(2), ladder(3))
+def shape(n:Int) -> Int:
+    match n:
+        case 0:
+            "none"
+        case 1:
+            twice(n)
+        case _:
+            note("some")
+    n * 10
+print(shape(0), shape(1), shape(5))
+def nested(n:Int) -> Int:
+    if n > 0:
+        if n > 5:
+            twice(n)
+        else:
+            note("small")
+    else:
+        "negative"
+    n
+print(nested(7), nested(2), nested(-1))
+picked: String = if i > 1:
+    "big"
+else:
+    "small"
+print(picked)
+if i > 1:
+    note("last")
+else:
+    twice(i)

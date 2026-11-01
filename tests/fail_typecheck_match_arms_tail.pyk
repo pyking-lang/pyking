@@ -1,0 +1,16 @@
+# A `match` whose value is used must still have arms of one type.
+#
+# With a statement after it a `match` is run only for what it does, and
+# its arms may disagree (tests/if_branches_discarded.pyk). As a function
+# body's last statement it is the function's value, so they may not.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def describe(n: Int):
+    match n:
+        case 0: "zero"
+        case _: n
+
+
+describe(1)

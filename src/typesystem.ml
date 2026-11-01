@@ -1320,6 +1320,17 @@ let jump_error keyword acc_type actual store =
   Printf.sprintf "this loop carries %s, but this '%s' gives it %s"
     (printed mine) keyword (printed theirs)
 
+(** Why a statement's branches had to agree, said after the error that
+    they do not: its value is used, which a statement after it would
+    have stopped. string -> string -> string *)
+let value_used statement parts =
+  Printf.sprintf
+    "Its value is used -- it is bound, or it ends a function or a loop \
+     body that carries a value -- so its %s must give one type. With a \
+     statement after it, the %s would only be run, and its %s could \
+     differ"
+    parts statement parts
+
 (* --- where a block is left --- *)
 
 (** Whether one statement says what happens next on every path through
@@ -2545,9 +2556,12 @@ let operator_result expr common rows store =
     `return_type` is what a `return` written in it is checked against and
     `acc_type` what the loop a `break`/`continue` belongs to carries;
     the answer is what the block supplies, which is None for a block that
-    does not fall through.
-    [stmt] -> env -> expected -> typ option -> store -> (typ option, store) *)
-let rec check_stmts stmts env return_type acc_type store =
+    does not fall through. `discarded` says nothing uses what the block
+    supplies -- its last statement is then run only for what it does, as
+    every statement before the last always is.
+    ?discarded:bool -> [stmt] -> env -> expected -> typ option -> store ->
+    (typ option, store) *)
+let rec check_stmts ?(discarded = false) stmts env return_type acc_type store =
   (* Bind every function definition of the block first, so that they may
      name each other and themselves. *)
   let env, store = declare_functions stmts env store in
@@ -2563,8 +2577,11 @@ let rec check_stmts stmts env return_type acc_type store =
       (fun (result, left, env, store, rest) statement ->
         let rest = match rest with _ :: rest -> rest | [] -> [] in
         let before = env in
+        (* A statement with another after it is run for what it does:
+           what it is worth goes nowhere. *)
         let supplied, env, store =
-          check_stmt statement env return_type acc_type store
+          check_stmt ~discarded:(discarded || rest <> []) statement env
+            return_type acc_type store
         in
         let store = if env == before then store else sharpened rest env store in
         if left then
@@ -2591,9 +2608,12 @@ and sharpened rest env store =
     store rest
 
 (** Checks one statement. Answers what it supplies, the environment the
-    statements after it should see, and the store.
-    stmt -> env -> expected -> typ option -> store -> (typ option, env, store) *)
-and check_stmt statement env return_type acc_type store =
+    statements after it should see, and the store. `discarded` says
+    nothing uses what it supplies, so the branches of an `if` or the arms
+    of a `match` need not agree on a type (PYKING.md, "Type checking").
+    ?discarded:bool -> stmt -> env -> expected -> typ option -> store ->
+    (typ option, env, store) *)
+and check_stmt ?(discarded = false) statement env return_type acc_type store =
   match statement with
   | SLet (info, target, e, annotation, sym, _, implicit) ->
       (* The binding's symbol records what its right-hand side turned out
@@ -2678,7 +2698,7 @@ and check_stmt statement env return_type acc_type store =
           "the condition of an 'if'" store
       in
       let then_type, then_store =
-        check_stmts then_body env return_type acc_type store
+        check_stmts ~discarded then_body env return_type acc_type store
       in
       match else_body with
       (* With no `else` there is a way through this statement that runs
@@ -2693,12 +2713,22 @@ and check_stmt statement env return_type acc_type store =
              them runs, but both were checked, and what either worked out
              is true whichever way the program goes. *)
           let else_type, else_store =
-            check_stmts else_body env return_type acc_type then_store
+            check_stmts ~discarded else_body env return_type acc_type
+              then_store
           in
           if then_type = None && else_type = None then
             (* Neither way through this `if` falls out of it, so neither
                does the `if`. *)
             (None, env, else_store)
+          else if
+            discarded && fst (agree then_type else_type else_store) = None
+          then
+            (* Nothing uses what this `if` is worth -- a statement comes
+               after it, or the block it ends is itself run for what it
+               does -- so each branch is only run, and the two need not
+               be one type. The `if` is then worth unit, as one with no
+               `else` is. *)
+            (Some (unit_type info), env, else_store)
           else
             (* A branch that cannot finish -- a loop with no `break` in
                it, or one ending in `break`/`continue` -- leaves the type
@@ -2711,9 +2741,10 @@ and check_stmt statement env return_type acc_type store =
                    ( info,
                      Printf.sprintf
                        "the branches of this 'if' have different types: %s and \
-                        %s"
+                        %s. %s"
                        (shown (Option.get then_type) else_store)
-                       (shown (Option.get else_type) else_store) ));
+                       (shown (Option.get else_type) else_store)
+                       (value_used "'if'" "branches") ));
             check_not_conflated then_type else_type info;
             (both, env, else_store))
   | SReturn (info, e, _) ->
@@ -2756,7 +2787,8 @@ and check_stmt statement env return_type acc_type store =
       let store = record store sym accumulator in
       let turn_env, store = check_iteration iterate env body_env store in
       let supplied, store =
-        check_turn body turn_env return_type accumulator store
+        check_turn ~discarded:(target = None) body turn_env return_type
+          accumulator store
       in
       (* What the body ends in is what the next turn carries, so it is
          held to the accumulator's type -- unless the body always jumps,
@@ -2828,9 +2860,17 @@ and check_stmt statement env return_type acc_type store =
                     "the guard of a 'case'" store
             in
             let arm_type, store =
-              check_stmts body inner return_type acc_type store
+              check_stmts ~discarded body inner return_type acc_type store
             in
             if not seen then (arm_type, true, store)
+            else if
+              discarded && yielded <> None && arm_type <> None
+              && fst (agree yielded arm_type store) = None
+            then
+              (* Nothing uses what this `match` is worth, so its arms
+                 need not agree (as for `if` above): from here on it is
+                 worth unit. *)
+              (Some (unit_type case_info), seen, store)
             else if yielded = None || arm_type = None then
               (* An arm that never falls through leaves what the `match`
                  is worth to the arms that do. *)
@@ -2844,9 +2884,10 @@ and check_stmt statement env return_type acc_type store =
                      ( case_info,
                        Printf.sprintf
                          "the arms of this 'match' have different types: %s \
-                          and %s"
+                          and %s. %s"
                          (shown (Option.get yielded) store)
-                         (shown (Option.get arm_type) store) ));
+                         (shown (Option.get arm_type) store)
+                         (value_used "'match'" "arms") ));
               check_not_conflated yielded arm_type case_info;
               (both, seen, store))
           (None, false, store) cases
@@ -2937,8 +2978,8 @@ and check_jump_value keyword value env acc_type store =
     leaves the enclosing *function*, so what it gives stays in the frame,
     exactly as one written outside the loop would.
     [stmt] -> env -> expected -> typ -> store -> (typ option, store) *)
-and check_turn body turn_env return_type accumulator store =
-  check_stmts body turn_env return_type (Some accumulator) store
+and check_turn ?(discarded = false) body turn_env return_type accumulator store =
+  check_stmts ~discarded body turn_env return_type (Some accumulator) store
 
 (** The environment a loop's body runs in, once its iteration clause is
     checked. A `for` walks a list and binds its element over the body; a
@@ -4545,7 +4586,10 @@ let type_check ?(declared = []) stmts sigmaps =
       (builtin_env ()) declared
   in
   let _, store =
-    check_stmts stmts (import_env stmts start store) No_function None store
+    (* A program's last statement is run for what it does, like every
+       other: nothing receives what it is worth. *)
+    check_stmts ~discarded:true stmts (import_env stmts start store)
+      No_function None store
   in
   let store = settle_plus store in
   check_exports stmts store;

@@ -1,0 +1,106 @@
+# An `if` or a `match` whose value nothing uses: its branches need not
+# agree on a type. A statement with another after it is run only for
+# what it does, and so is the last one of a block that is itself run
+# only for what it does -- a loop carrying nothing, a branch of such an
+# `if`, or the program's own top level. The refusals where the value is
+# used are fail_typecheck_if_branches_tail.pyk,
+# fail_typecheck_if_branches_loop.pyk and fail_typecheck_match_arms_tail.pyk.
+use mutation
+
+
+def twice(n: Int) -> Int:
+    n * 2
+
+
+def note(s: String):
+    print("note", s)
+
+
+# Not the last statement of a function: Int and unit.
+def first(n: Int) -> Int:
+    if n > 0:
+        twice(n)
+    else:
+        note("not positive")
+    n + 1
+
+
+print(first(3), first(-1))
+
+# In a loop that carries an Int, before the `continue`: one branch ends
+# in a loop (worth its Int), the other in a call worth unit.
+total = loop y = 0 while y < 4:
+    if y % 2 == 0:
+        loop x = 0 while x < 2:
+            print("even row", y, "column", x)
+            continue x + 1
+    else:
+        note("odd row")
+    continue y + 1
+
+print("rows", total)
+
+# The last statement of a loop that carries nothing: String and Int.
+var i = 0
+while i < 3:
+    i := i + 1
+    if i == 2:
+        "two"
+    else:
+        twice(i)
+
+print("counted", i)
+
+# An `else if` ladder with three different types, then a statement.
+def ladder(n: Int) -> String:
+    if n == 0:
+        "zero"
+    else if n == 1:
+        twice(n)
+    else if n == 2:
+        n > 1
+    else:
+        note("many")
+    "done"
+
+
+print(ladder(0), ladder(1), ladder(2), ladder(3))
+
+# A `match` whose arms disagree, followed by a statement.
+def shape(n: Int) -> Int:
+    match n:
+        case 0: "none"
+        case 1: twice(n)
+        case _: note("some")
+    n * 10
+
+
+print(shape(0), shape(1), shape(5))
+
+# A discarded `if` holding one whose own branches disagree: the inner
+# one ends its branch, and that branch's value goes nowhere either.
+def nested(n: Int) -> Int:
+    if n > 0:
+        if n > 5:
+            twice(n)
+        else:
+            note("small")
+    else:
+        "negative"
+    n
+
+
+print(nested(7), nested(2), nested(-1))
+
+# Branches that agree keep working as before, used or not.
+picked = if i > 1:
+    "big"
+else:
+    "small"
+print(picked)
+
+# The program's last statement: nothing uses its value either.
+if i > 1:
+    note("last")
+else:
+    twice(i)

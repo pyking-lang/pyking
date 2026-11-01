@@ -183,10 +183,13 @@ val check_matches : stmt list -> store -> unit
 val import_env : stmt list -> env -> store -> env
 
 (** Checks one statement. Answers what it supplies, the environment the
-    statements after it should see, and the store.
-    stmt -> env -> expected -> typ option -> store
+    statements after it should see, and the store. `discarded` (false by
+    default) says nothing uses what it supplies, so an `if`'s branches or
+    a `match`'s arms need not agree on a type.
+    ?discarded:bool -> stmt -> env -> expected -> typ option -> store
     -> (typ option, env, store) *)
 val check_stmt :
+  ?discarded:bool ->
   stmt -> env -> expected -> typ option -> store -> typ option * env * store
 
 (** The type of one expression, recorded in the store's table under its

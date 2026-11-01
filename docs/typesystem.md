@@ -209,8 +209,26 @@ The two types are then held to being one type by `agree`, which is
 where one of them was still open this is what settles it. A branch that
 never falls through is `None` and leaves the answer to the other.
 
+Unless nothing uses that value. `check_stmts` and `check_stmt` take
+`?discarded`: a statement with another after it is discarded, and so is
+the last statement of a block that is itself discarded -- the branches
+of a discarded `if`, the arms of a discarded `match`, the body of a loop
+that carries nothing, and the program's top level (`type_check`). A
+discarded `if` still tries `agree`, so branches that can be one type
+settle each other as before; where they cannot, the `if` is worth unit
+instead of an error. A `match` does the same arm by arm. What is not
+discarded is what PYKING.md's tail-position table lists: a binding's
+right-hand side (`SLetStmt`), `return if ...`, a function body's last
+statement, and a carrying loop body's. The REPL checks each statement of
+an entry with `check_stmt` alone, so there an `if` is used: its value is
+shown. The backends need nothing new, since each already compiles a
+statement with one after it as run for what it does.
+
 `tests/typecheck_hm_branch_uses.pyk` pins the first half,
-`tests/typecheck_if_branches.pyk` the second.
+`tests/typecheck_if.pyk` the second, `tests/typecheck_if_branches_discarded.pyk`
+the discarded case, and `tests/fail_typecheck_if_branches_tail.pyk`,
+`tests/fail_typecheck_if_branches_loop.pyk` and
+`tests/fail_typecheck_match_arms_tail.pyk` where the value is used.
 
 ## `env` *is* the scope
 

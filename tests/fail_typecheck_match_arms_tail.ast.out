@@ -1,0 +1,5 @@
+'tests/fail_typecheck_match_arms_tail.pyk' 13:8-13:17 Type error: the
+  arms of this 'match' have different types: String and Int. Its value
+  is used -- it is bound, or it ends a function or a loop body that
+  carries a value -- so its arms must give one type. With a statement
+  after it, the 'match' would only be run, and its arms could differ
