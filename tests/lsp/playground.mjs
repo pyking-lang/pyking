@@ -704,7 +704,10 @@ const SETTINGS = `(async () => { ${HELPERS}
     "repl.submit", "repl.newline", "repl.previous", "repl.next", "repl.complete"].join(), commands);
   const chipsOf = (id) => $$('.pyk-key-row[data-command="' + id + '"] .pyk-key-chip')
     .map((c) => c.firstChild.textContent).join(",");
-  check("with its default keys", chipsOf("run").startsWith("Shift+Enter,Ctrl+Enter")
+  // A Mac names Mod Cmd and Alt Option, and gives Run Cmd+Enter as well.
+  const mac = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? "");
+  check("with its default keys", chipsOf("run").startsWith(mac ? "Shift+Enter,Cmd+Enter,Ctrl+Enter"
+    : "Shift+Enter,Ctrl+Enter")
     && /^(Alt|Option)\\+Shift\\+C$/.test(chipsOf("copySlides")) && chipsOf("repl.submit") === "Enter"
     && chipsOf("repl.previous") === "Up" && chipsOf("repl.complete") === "Tab",
     [chipsOf("run"), chipsOf("copySlides"), chipsOf("repl.submit")]);
@@ -1541,13 +1544,17 @@ try {
   await reload();
   // Copy for slides and every command's keys, pressed for real through
   // the browser's input, so a key the playground does not swallow types
-  // into the editor; what is copied is read back off the clipboard.
+  // into the editor; what is copied is read back off the clipboard. The
+  // keys are pressed as a reader on this platform presses them: Mod is
+  // Cmd on a Mac.
+  const mac = await evaluate(
+    `/mac|iphone|ipad/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? "")`);
   progress("checking Copy for slides");
-  for (const [label, ok, detail] of await copyChecks(send, sessionId, evaluate, "this platform", false, true)) {
+  for (const [label, ok, detail] of await copyChecks(send, sessionId, evaluate, "this platform", mac, true)) {
     record(label, ok, detail);
   }
   progress("checking every command's keys changed");
-  for (const [label, ok, detail] of await keyChecks(send, sessionId, evaluate, false)) {
+  for (const [label, ok, detail] of await keyChecks(send, sessionId, evaluate, mac)) {
     record(label, ok, detail);
   }
   await evaluate(`localStorage.removeItem(${KEY})`);
