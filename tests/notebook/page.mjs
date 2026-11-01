@@ -70,6 +70,39 @@ const STUDENT = [`(async () => { ${HELPERS}
   check("a solution that is not available cannot be asked for",
     hidden($("[data-r=show]", task(3))));
   check("no answer key", $$(".pkn-answer-key").length === 0);
+  {
+    // A stdin field is as tall as its text, up to eight lines, and
+    // scrolls beyond that; it follows what is typed.
+    const field = $$("textarea.pkn-stdin").find((t) => t.value.trim() === "Grace");
+    const before = field?.value;
+    // Shown while it is measured: a cell shows it only once it knows the
+    // program reads stdin, which may not have happened yet.
+    const hiders = [];
+    for (let el = field; el; el = el.parentElement) {
+      if (el.classList.contains("pkn-hidden")) { hiders.push(el); el.classList.remove("pkn-hidden"); }
+    }
+    const type = (text) => {
+      field.value = text;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      return field.rows;
+    };
+    const lines = (n) => Array.from({ length: n }, (_, k) => "line " + (k + 1)).join("\\n");
+    const shown = field?.rows;
+    const three = field && type(lines(3));
+    const eight = field && type(lines(8));
+    const fitsEight = field && field.scrollHeight <= field.clientHeight + 1;
+    const twelve = field && type(lines(12));
+    const scrolls = field && field.scrollHeight > field.clientHeight + 1;
+    const final = field && type(lines(3) + "\\n");
+    const empty = field && type("");
+    check("a stdin field shows each line of its text, up to eight, then scrolls",
+      shown === 1 && three === 3 && eight === 8 && fitsEight && twelve === 8 && scrolls
+      && final === 3 && empty === 1,
+      JSON.stringify({ found: !!field, values: $$("textarea.pkn-stdin").map((t) => t.value).slice(0, 4),
+        shown, three, eight, fitsEight, twelve, scrolls, final, empty }));
+    if (field) type(before);
+    for (const el of hiders) el.classList.add("pkn-hidden");
+  }
   check("an ordinary cell's visible stdout is shown, a hidden one not",
     $$(".pkn-io-stdout").some((b) => b.innerText.includes("my out"))
     && !$$(".pkn-io").some((b) => b.innerText.includes("echo me"))

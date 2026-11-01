@@ -139,6 +139,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Notebook: a cell's stdin field is as tall as its input, one line for
+  each line up to eight, and scrolls beyond that; before, it was always
+  two lines. It follows what the reader types.
+
 - A notebook cell no longer echoes the line `io.read_line` reads after
   a prompt; only what the program writes is shown under it.
 

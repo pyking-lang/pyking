@@ -93,6 +93,17 @@ const OUTPUT_LIMIT = 200000;
 // whether it reads standard input or its arguments.
 const ANALYZE_DELAY = 400;
 
+/** The most lines a cell's stdin field shows; longer input scrolls. */
+const STDIN_ROWS = 8;
+
+/** How many lines a stdin field shows for its text: one per line, at
+ *  least one and at most STDIN_ROWS, a final newline starting none.
+ *  String -> Int */
+export function stdinRows(text) {
+  const lines = text.replace(/\n$/, "").split("\n").length;
+  return Math.min(STDIN_ROWS, Math.max(1, lines));
+}
+
 /** Renders a document into host and makes its cells runnable. Resolves
  *  to the mounted Notebook. Element -> {...} -> Promise<Notebook> */
 export async function mountNotebook(host, options = {}) {
@@ -837,7 +848,7 @@ class Cell {
         <div class="pkn-cell-inputs pkn-hidden" data-r="inputs">
           <label class="pkn-input pkn-hidden" data-r="stdinField">
             <span class="pkn-input-label">stdin</span>
-            <textarea class="pkn-stdin" rows="2" spellcheck="false"
+            <textarea class="pkn-stdin" rows="1" spellcheck="false"
                       data-r="stdin" aria-label="Standard input for cell ${spec.index + 1}"></textarea>
           </label>
           <label class="pkn-input pkn-hidden" data-r="argsField">
@@ -873,6 +884,11 @@ class Cell {
     this.element = element;
 
     this.ui.stdin.value = spec.stdin ?? "";
+    // The stdin field is as tall as its text, up to STDIN_ROWS lines,
+    // and grows and shrinks as it is typed in; beyond that it scrolls.
+    const fit = () => { this.ui.stdin.rows = stdinRows(this.ui.stdin.value); };
+    fit();
+    this.ui.stdin.addEventListener("input", fit);
     this.ui.args.value = spec.args ?? "";
     // The code editor's own keys, in the two input fields too, so a cell
     // can be run from wherever its input is being typed.

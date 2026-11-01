@@ -52,7 +52,9 @@ the cell, and a `debug` line is shown there too, marked apart. A cell
 whose program reads standard input (`io.read_line`, `io.read`,
 `io.is_eof`) shows a **stdin** field above its code, and one reading
 `sys.args()` an **args** field -- only such a cell, asked of the
-compiler as the cell is edited. What the program reads is that text, one
+compiler as the cell is edited. The stdin field shows as many lines as
+its text has, up to eight, and scrolls beyond that, following what is
+typed. What the program reads is that text, one
 line at a time; only what it writes is shown under the cell, not what
 it reads (a prompt `io.read_line` writes is shown, the line after it
 not). The

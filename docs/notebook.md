@@ -80,8 +80,10 @@ def f(x): ...
 ### A cell's input
 
 A cell reading standard input shows a stdin field, and one reading
-`sys.args()` an args field. What they start with is written on the
-header:
+`sys.args()` an args field. The stdin field is as tall as its text, one
+line for each line of input up to eight, and scrolls when there are
+more; it grows and shrinks as the reader types. What they start with is
+written on the header:
 
 ````markdown
 ```pyking stdin = "Ada" args = "first 'second argument'"
