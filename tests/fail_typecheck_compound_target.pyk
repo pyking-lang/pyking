@@ -1,0 +1,10 @@
+# What a compound assignment updates is a mutable variable, written as
+# its plain name: a list's element is not something it can write.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+var xs = [1, 2]
+xs[0] += 1

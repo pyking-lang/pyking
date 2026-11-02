@@ -1880,4 +1880,4 @@ let () =
                ])
            Warnings.kinds));
   register0 "pykBuiltins" (fun () ->
-      json_array (List.map json_string Builtin.names))
+      json_array (List.map json_string Builtin.words))

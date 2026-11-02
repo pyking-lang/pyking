@@ -70,7 +70,7 @@ let token_kind (token : Lexer.token) text after_def =
   | TokIdent (_, name) ->
       if after_def then Function
       else if capitalised name then Type
-      else if List.mem name Builtin.names then Builtin
+      else if List.mem name Builtin.words then Builtin
       else Plain
   | _ when List.mem text Lexer.keywords ->
       if capitalised text then Type

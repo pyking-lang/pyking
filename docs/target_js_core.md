@@ -160,3 +160,22 @@ parameter, not a global, is what makes those calls
 independent of each other and safe to make in any order or even
 concurrently — nothing here needs the "one call, then restore" discipline
 `syntax.ml`'s design depends on.
+
+## Runtime helpers are emitted on use
+
+`js_helpers` writes the module's own helpers -- `pykList`, `pykRange`,
+`pykLen`, the Char helpers, `pykConcat`, `pykData`, `pykWithShape` and
+the array ones -- only where the translated program names them
+(`uses`), so an ordinary program compiles to ordinary JavaScript. The
+array helpers (`pykArray`, `pykArrayOfList`, `pykArrayFill`,
+`pykArrayInit`, `pykArrayUnfold`, `pykArraySize`, `pykAt`,
+`pykCheckIndex`, `pykIndexError`, `pykFail`) also list the helpers each
+calls, and `wanted_array_helpers` closes over that list, so a program
+that only reads `a[i]` gets `pykAt` and what it calls and nothing else.
+Every one of these names is in `reserved`, so a Pyking binding of one
+is renamed rather than shadowing it.
+
+An array's element write is the one statement the JavaScript AST has
+that is not a binding: `JsSetIndex (target, index, value)` prints
+`target[index] = value;`, and is emitted only after the
+`pykCheckIndex` statement that checks it (target_js.md, "Arrays").

@@ -1006,6 +1006,59 @@ and rewrite signatures scope taken statement =
       let statement = SVar (i, name, go e, s) in
       ([], statement, bind scope statement)
   | SMutate (i, name, e, s) -> ([], SMutate (i, name, go e, s), scope)
+  | SSetIndex (i, owner, index, value, s) -> (
+      match index_compound_parts statement with
+      | None -> ([], SSetIndex (i, go owner, go index, go value, s), scope)
+      | Some (op, right) ->
+          (* `a[i] op= e` reads the element it writes, so `a` and `i` are
+             worked out once, into `element__array` and `element__index`,
+             before anything else: the write then goes to the array they
+             named even if `e` changes what `a` or `i` are (PYKING.md,
+             "Arrays"). The temporaries have an empty span at the
+             statement's end, as a tuple `:=`'s do. *)
+          let nowhere = { i with row1 = i.row2; col1 = i.col2 } in
+          let bound name e = SLet (i, TargetName (nowhere, name, 0), e, None, 0, false, false) in
+          let array_ = bound "element__array" (go owner) in
+          let index_ = bound "element__index" (go index) in
+          let read =
+            EIndex
+              ( { i with row2 = (expr_info index).row2; col2 = (expr_info index).col2 + 1 },
+                EVar (nowhere, "element__array", 0),
+                EVar (nowhere, "element__index", 0),
+                0 )
+          in
+          let scope = bind (bind scope array_) index_ in
+          ( [ array_; index_ ],
+            SSetIndex
+              ( i,
+                EVar (nowhere, "element__array", 0),
+                EVar (nowhere, "element__index", 0),
+                compound_on op read (go right),
+                s ),
+            scope ))
+  | SMutateTuple (i, target, e, _) ->
+      (* `a, (b, c) := e` is `a__new, (b__new, c__new) = e` and then one
+         `:=` per name, left to right: the value is worked out once, and
+         every name is written only after all of it is. The temporaries
+         have an empty span at the statement's end, so nothing pointing
+         at a name in the source lands on one. *)
+      let nowhere = { i with row1 = i.row2; col1 = i.col2 } in
+      let rec temps target =
+        match target with
+        | TargetName (_, name, s) -> TargetName (nowhere, name ^ "__new", s)
+        | TargetTuple (ti, parts, s) -> TargetTuple (ti, List.map temps parts, s)
+      in
+      let rec writes target =
+        match target with
+        | TargetName (ni, name, _) ->
+            [ SMutate (ni, name, EVar (nowhere, name ^ "__new", 0), 0) ]
+        | TargetTuple (_, parts, _) -> List.concat_map writes parts
+      in
+      let binding = SLet (i, temps target, go e, None, 0, false, false) in
+      let scope = bind scope binding in
+      let all = binding :: writes target in
+      let last = List.nth all (List.length all - 1) in
+      (List.filteri (fun k _ -> k < List.length all - 1) all, last, scope)
   | SReturn (i, e, s) -> ([], SReturn (i, go e, s), scope)
   | SReturnStmt (i, inner, s) ->
       let _, inner, _ = rewrite signatures scope taken inner in

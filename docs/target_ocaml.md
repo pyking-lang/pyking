@@ -44,6 +44,9 @@ section; everything else compiles:
   and its `for`/`while` clauses;
 - `match` / `case`, including list and text patterns;
 - lists and list comprehensions;
+- arrays: `array(...)` in its four forms, `a[i]`, `a[i] := v`, `len`,
+  `same`, `for` and comprehensions over one, as OCaml's own `array`
+  (see "Arrays");
 - tuples, including a binding that takes one apart;
 - `return`, anywhere it can be written;
 - lambdas (`lam x. x + 1`);
@@ -593,6 +596,98 @@ alone (they ride with the conversion helpers):
 | `int(c)`, `float(c)`, `bool(c)` | `c`, `float_of_int c`, `c <> 0` |
 | `char(n)`, `char(s)`, `char(c)` | `pyk_char_of_int n` (0 unless a scalar value), `pyk_char_of_string s` (its first code point, 0 for `""`), `c` |
 
+### Arrays
+
+An `Array(T)` is OCaml's own `T array`: a block shared by reference,
+so assigning one, passing it, returning it, putting it in a tuple, list
+or datatype and capturing it in a closure never copies it, which is
+Pyking's rule as well. `len(a)` is `Stdlib.Array.length a`, which is
+O(1), and `same(a, b)` is `a == b`, OCaml's physical equality. Every
+name is written `Stdlib.Array.…`, since a program that imports
+`lib/array` has a module `Array` of its own beside it (see "External
+modules").
+
+| Pyking | OCaml |
+|---|---|
+| `array(xs)` | `Stdlib.Array.of_list xs` |
+| `array(n, v)` | `pyk_array_fill n v`: n slots holding the one `v`, not copies |
+| `array(n, f)` | `pyk_array_init n f`: `f 0`, `f 1`, … in that order, which `Array.init` does not promise; `f` never runs for n = 0 |
+| `array(n, seed, f)` | `pyk_array_unfold n seed f`: each `f s` gives an element and the next state; the last state is dropped |
+| `a[i]` | `pyk_array_get a i` |
+| `a[i] := v` | `pyk_array_check a i; Stdlib.Array.unsafe_set a i v`, the array and index held first |
+| `for x in a` | a walk by index, reading `a.(i)` as each turn begins |
+| `[e for x in a]` | the comprehension walks `Stdlib.Array.to_list a` |
+| printing | `"array([" ^ … ^ "])"`, each element as a list writes it |
+
+The helpers are emitted only into a program that uses them, each with
+the ones it calls ahead of it.
+
+**Checks.** OCaml's own bounds check raises `Invalid_argument "index
+out of bounds"`, which names nothing the program said, so every index
+is checked first by `pyk_array_check`, and a size by `pyk_array_size`
+before anything is called or allocated. A failed check is a Pyking
+runtime error: `pyk_array_fail` flushes what was printed, writes
+`error: ` and the interpreter's message to standard error, and exits
+with status 1:
+
+```
+error: the index 5 is outside an array of 2 elements
+error: an array's size is never negative, and this one is -1
+error: an array of N elements is more than this machine can hold
+```
+
+The last is for a size above `Sys.max_array_length`. A negative index
+is an error too: nothing counts from the end.
+
+**Writing an element.** `a[i] := v` works out the array, then the
+index, then checks the index, and only then works out `v` — so a bad
+index stops the program before `v` has done anything. The array and the
+index are held under a name of their own (a plain immutable name is
+used as it is), so the write goes into the array first named even when
+working out `v` rebinds the `var` it came from:
+
+```pyking
+held[0] := replace_held()
+```
+
+```ocaml
+let () =
+  let tmp45 = !held in
+  pyk_array_check tmp45 0;
+  Stdlib.Array.unsafe_set tmp45 0 (replace_held ())
+```
+
+`a[i] op= e` reaches this backend already split into a binding of the
+array, one of the index, and `a[i] := a[i] op e` on those two names.
+
+**Walking.** A `for` over an array is the same local recursive function
+any loop is (see "`for` and `while`"), with the turn's index as its
+second parameter rather than the rest of a list: the loop stops when
+the index reaches `Stdlib.Array.length a`, and otherwise reads the
+element there as the turn begins. A write to a later element during the
+loop is therefore seen when its turn comes, as it is in the
+interpreter:
+
+```ocaml
+let rec tmp12 _tmp13 tmp14 =
+  if tmp14 >= Stdlib.Array.length walked then ()
+  else
+    (let x = Stdlib.Array.unsafe_get walked tmp14 in
+     ...;
+     tmp12 () (tmp14 + 1)) in
+tmp12 () 0
+```
+
+An array that is more than a plain name is held under one before the
+loop starts, after the accumulator's first value.
+
+**Types.** `array([])` says nothing to OCaml about its element type,
+and a top-level binding of one would then have a type OCaml refuses to
+generalise. Where the checker's type for it is made of the base types,
+lists, tuples and arrays, it is written on the call:
+`(Stdlib.Array.of_list [] : int array)`. An exported function's type
+writes `Array(T)` as `T array` in the `.mli`.
+
 ### `print`
 
 `print_endline`, with the arguments formatted per
@@ -623,6 +718,7 @@ builtin, which is how a program's own `debug` is told from the builtin.
 | `string(n)` | `string_of_int n` (or `string_of_bool`, or nothing at all for a `String`) |
 | `len(s)` | `pyk_char_length s` (code points; see "Chars") |
 | `len(xs)` | `List.length xs` |
+| `len(a)`, `same(a, b)` | `Stdlib.Array.length a`; `a == b` (see "Arrays") |
 | `range(n)` | `List.init (max 0 n) Fun.id` |
 | `range(a, b)`, `range(a, b, s)` | `pyk_range a b s`, a generated helper |
 | `float(n)`, `float(b)` | `float_of_int n`; `if b then 1.0 else 0.0` |
@@ -662,7 +758,13 @@ let sum = let tmp1 = step "a" 1 in tmp1 + step "b" 2
 
 A program whose functions only compute — nearly every program — has
 nothing to order, and its operands stay exactly where the source put
-them. `tests/evaluation_order.pyk` is the case that pins this down; it
+them.
+
+Arrays add a second reason to pin. An element read can fail, and sees a
+write made before it, so where one of the operands reads an array (or
+makes one), each operand that reads one or calls a function is pinned
+as a printing one is: `a[0] + change()`, where `change` writes `a[0]`,
+reads the element first, as the interpreter does. `tests/evaluation_order.pyk` is the case that pins this down; it
 runs on every target that supports it, and one `.out` has to serve them
 all.
 

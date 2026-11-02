@@ -1,0 +1,9 @@
+# An element is written with `:=`, as a `var` is: `=` binds a name.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+a = array([1, 2])
+a[0] = 5

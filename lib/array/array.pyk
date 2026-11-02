@@ -1,0 +1,455 @@
+## Arrays: copying, filling, comparing, sorting and joining them.
+##
+## An array is made by the builtin `array(...)`, read with `a[i]` and
+## written with `a[i] := v`, and `len(a)` and `same(a, b)` are builtins
+## too (PYKING.md, "Arrays"). This module is the rest. `copy`, `concat`
+## and `resize` make a **new** array, and copy **shallowly**: an array of
+## arrays copied still shares its rows. `fill`, `reverse`, `swap` and
+## `sort` change the array they are given, which everyone holding it
+## sees. Indexing, writing and `len` take constant time; copying,
+## filling and comparing take time in proportion to the length, and
+## sorting `n log n`.
+#
+# Written in Pyking alone, so every target runs the same code: `sort`
+# is one merge sort here rather than each host's own, and its orderings
+# -- Floats with NaN last, Strings by code point -- are written out
+# below, since the hosts disagree about both. A function a caller hands
+# in cannot sort (that is `sort_by`, which waits for `pure`), so the
+# comparisons the overloads pass to `merge_sort` are this module's own.
+
+use mutation
+
+
+## A new array holding the same elements as `a`, in the same order.
+## Writing to one does not change the other; an element that is itself
+## an array is shared by both.
+##
+## # Parameters
+## - `a`: the array to copy.
+##
+## # Returns
+## A new array of `len(a)` elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2, 3])
+## b = array.copy(a)
+## b[0] := 9
+## print(a, b, same(a, b))
+## ```
+## ```stdout
+## array([1, 2, 3]) array([9, 2, 3]) false
+## ```
+public def copy(a: Array(t)) -> Array(t):
+    array(len(a), lam i. a[i])
+
+
+## The elements of `a` as they are now, as a list.
+##
+## # Parameters
+## - `a`: the array.
+##
+## # Returns
+## A list of `len(a)` elements; changing `a` afterwards does not change it.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(3, lam i. i * 10)
+## print(array.to_list(a))
+## ```
+## ```stdout
+## [0, 10, 20]
+## ```
+public def to_list(a: Array(t)) -> [t]:
+    [a[i] for i in range(len(a))]
+
+
+## Writes `v` into every element of `a`.
+##
+## # Parameters
+## - `a`: the array to fill.
+## - `v`: the value every element gets.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2, 3])
+## array.fill(a, 0)
+## print(a)
+## ```
+## ```stdout
+## array([0, 0, 0])
+## ```
+public def fill(a: Array(t), v: t) -> ():
+    for i in range(len(a)):
+        a[i] := v
+
+
+## Exchanges the elements at `i` and `j`.
+##
+## # Parameters
+## - `a`: the array.
+## - `i`: one index.
+## - `j`: the other.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["x", "y", "z"])
+## array.swap(a, 0, 2)
+## print(a)
+## ```
+## ```stdout
+## array(["z", "y", "x"])
+## ```
+public def swap(a: Array(t), i: Int, j: Int) -> ():
+    held = a[i]
+    a[i] := a[j]
+    a[j] := held
+
+
+## Puts the elements of `a` in the opposite order, in place.
+##
+## # Parameters
+## - `a`: the array to reverse.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2, 3, 4])
+## array.reverse(a)
+## print(a)
+## ```
+## ```stdout
+## array([4, 3, 2, 1])
+## ```
+public def reverse(a: Array(t)) -> ():
+    var i = 0
+    var j = len(a) - 1
+    while i < j:
+        swap(a, i, j)
+        i += 1
+        j -= 1
+
+
+## A new array holding the elements of `a` and then those of `b`.
+##
+## # Parameters
+## - `a`: the first part.
+## - `b`: the second part.
+##
+## # Returns
+## A new array of `len(a) + len(b)` elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## print(array.concat(array([1, 2]), array([3])))
+## ```
+## ```stdout
+## array([1, 2, 3])
+## ```
+public def concat(a: Array(t), b: Array(t)) -> Array(t):
+    array(len(a) + len(b), lam i. if i < len(a) then a[i] else b[i - len(a)])
+
+
+## A new array of `n` elements: those of `a` while it has them, and `v`
+## after that. It is always new, so an old array is never changed.
+##
+## # Parameters
+## - `a`: the array to start from.
+## - `n`: the new length, never negative.
+## - `v`: what fills the elements `a` does not have.
+##
+## # Returns
+## A new array of `n` elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2, 3])
+## print(array.resize(a, 5, 0), array.resize(a, 2, 0))
+## ```
+## ```stdout
+## array([1, 2, 3, 0, 0]) array([1, 2])
+## ```
+public def resize(a: Array(t), n: Int, v: t) -> Array(t):
+    array(n, lam i. if i < len(a) then a[i] else v)
+
+
+# --- comparing ---
+
+# Whether two arrays have the same length and, position by position,
+# elements `alike` says are the same.
+def equal_by(a: Array(t), b: Array(t), alike: (t, t) -> Bool) -> Bool:
+    var same_so_far = len(a) == len(b)
+    var k = 0
+    while same_so_far and k < len(a):
+        same_so_far := alike(a[k], b[k])
+        k += 1
+    same_so_far
+
+
+## Whether two arrays of Ints hold the same elements in the same order,
+## compared with `==`. `same(a, b)` asks instead whether they are one
+## array.
+##
+## # Parameters
+## - `a`: one array.
+## - `b`: the other.
+##
+## # Returns
+## `true` when they have the same length and equal elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## print(array.equal(array([1, 2]), array([1, 2])), array.equal(array([1]), array([2])))
+## ```
+## ```stdout
+## true false
+## ```
+public def int::equal(a: Array(Int), b: Array(Int)) -> Bool:
+    equal_by(a, b, lam (x, y). x == y)
+
+
+## Whether two arrays of Floats hold the same elements in the same
+## order, compared with `==` -- so an array holding NaN equals no array.
+##
+## # Parameters
+## - `a`: one array.
+## - `b`: the other.
+##
+## # Returns
+## `true` when they have the same length and equal elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## print(array.equal(array([0.5]), array([0.5])))
+## ```
+## ```stdout
+## true
+## ```
+public def float::equal(a: Array(Float), b: Array(Float)) -> Bool:
+    equal_by(a, b, lam (x, y). x == y)
+
+
+## Whether two arrays of Strings hold the same elements in the same order.
+##
+## # Parameters
+## - `a`: one array.
+## - `b`: the other.
+##
+## # Returns
+## `true` when they have the same length and equal elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## print(array.equal(array(["a"]), array(["a"])))
+## ```
+## ```stdout
+## true
+## ```
+public def string::equal(a: Array(String), b: Array(String)) -> Bool:
+    equal_by(a, b, lam (x, y). x == y)
+
+
+## Whether two arrays of Chars hold the same elements in the same order.
+##
+## # Parameters
+## - `a`: one array.
+## - `b`: the other.
+##
+## # Returns
+## `true` when they have the same length and equal elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## print(array.equal(array(['a', 'b']), array(['a', 'c'])))
+## ```
+## ```stdout
+## false
+## ```
+public def char::equal(a: Array(Char), b: Array(Char)) -> Bool:
+    equal_by(a, b, lam (x, y). x == y)
+
+
+## Whether two arrays of Bools hold the same elements in the same order.
+##
+## # Parameters
+## - `a`: one array.
+## - `b`: the other.
+##
+## # Returns
+## `true` when they have the same length and equal elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## print(array.equal(array([true]), array([true])))
+## ```
+## ```stdout
+## true
+## ```
+public def bool::equal(a: Array(Bool), b: Array(Bool)) -> Bool:
+    equal_by(a, b, lam (x, y). x == y)
+
+
+# --- sorting ---
+
+# Sorts a[low..high) in place, stably, with `before(x, y)` saying x goes
+# strictly before y. `buffer` is as long as `a` and is where each merge is
+# written before it is copied back. One merge sort, the same on every
+# target, so the comparisons it makes are the same everywhere.
+def sort_range(a: Array(t), buffer: Array(t), low: Int, high: Int, before: (t, t) -> Bool) -> ():
+    if high - low > 1:
+        middle = (low + high) / 2
+        sort_range(a, buffer, low, middle, before)
+        sort_range(a, buffer, middle, high, before)
+        var i = low
+        var j = middle
+        var k = low
+        while k < high:
+            # Equal elements keep their order: the left one goes first.
+            if j >= high or (i < middle and not before(a[j], a[i])):
+                buffer[k] := a[i]
+                i += 1
+            else:
+                buffer[k] := a[j]
+                j += 1
+            k += 1
+        k := low
+        while k < high:
+            a[k] := buffer[k]
+            k += 1
+
+
+def merge_sort(a: Array(t), before: (t, t) -> Bool) -> ():
+    if len(a) > 1:
+        sort_range(a, copy(a), 0, len(a), before)
+
+
+# Floats in a total order: -inf first, -0.0 and 0.0 equal, inf, and every
+# NaN last, equal to each other.
+def float_before(x: Float, y: Float) -> Bool:
+    if x != x:
+        false
+    else if y != y:
+        true
+    else:
+        x < y
+
+
+# Strings by code point, a String before every longer one it starts.
+def string_before(x: String, y: String) -> Bool:
+    var answer = len(x) < len(y)
+    var decided = false
+    var k = 0
+    while not decided and k < len(x) and k < len(y):
+        if x[k] != y[k]:
+            answer := x[k] < y[k]
+            decided := true
+        k += 1
+    answer
+
+
+## Sorts an array of Ints from smallest to largest, in place.
+##
+## # Parameters
+## - `a`: the array to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([3, 1, 2])
+## array.sort(a)
+## print(a)
+## ```
+## ```stdout
+## array([1, 2, 3])
+## ```
+public def int::sort(a: Array(Int)) -> ():
+    merge_sort(a, lam (x, y). x < y)
+
+
+## Sorts an array of Floats from smallest to largest, in place: `-inf`
+## first, `-0.0` and `0.0` as equal, then `inf`, and every NaN last, the
+## same on every target.
+##
+## # Parameters
+## - `a`: the array to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## import math
+## a = array([2.5, math.nan, -1.0, math.inf])
+## array.sort(a)
+## print(a)
+## ```
+## ```stdout
+## array([-1.0, 2.5, inf, nan])
+## ```
+public def float::sort(a: Array(Float)) -> ():
+    merge_sort(a, float_before)
+
+
+## Sorts an array of Strings in place, by code point: every target
+## orders them alike, `"B"` before `"a"`, and a String before every
+## longer one it starts.
+##
+## # Parameters
+## - `a`: the array to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["pear", "apple", "Fig", "app"])
+## array.sort(a)
+## print(a)
+## ```
+## ```stdout
+## array(["Fig", "app", "apple", "pear"])
+## ```
+public def string::sort(a: Array(String)) -> ():
+    merge_sort(a, string_before)
+
+
+## Sorts an array of Chars by code point, in place.
+##
+## # Parameters
+## - `a`: the array to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(['c', 'a', 'b'])
+## array.sort(a)
+## print(a)
+## ```
+## ```stdout
+## array(['a', 'b', 'c'])
+## ```
+public def char::sort(a: Array(Char)) -> ():
+    merge_sort(a, lam (x, y). x < y)

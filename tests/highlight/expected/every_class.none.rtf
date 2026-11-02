@@ -25,6 +25,7 @@
 {\cf2 def} {\cf7 main}():\par
     {\cf2 var} count {\cf8 =} {\cf4 0x1F}\par
     count {\cf8 :=} count {\cf8 <<} {\cf4 2} {\cf8 |} {\cf4 0b101} {\cf8 &} {\cf8 ~}count\par
+    count {\cf8 +=} {\cf4 1}\par
     {\cf2 for} i {\cf2 in} {\cf8 range}({\cf4 3}):\par
         {\cf8 print}(describe(i, {\cf5 'a'}), area({\cf3 Circle}({\cf4 1.5})) {\cf8 !=} {\cf4 2.0e1}, {\cf4 true})\par
     {\cf8 print}(count {\cf8 %} {\cf4 7}, {\cf8 len}([{\cf4 1}, {\cf4 2}, {\cf4 3}]) {\cf8 ^} {\cf4 2})\par

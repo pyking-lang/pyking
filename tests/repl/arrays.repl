@@ -1,0 +1,20 @@
+use mutation
+a = array([3, 1, 2])
+a[0] := 10
+a
+a[1] += 5
+a[1]
+len(a)
+squares = array(4, lam i. i * i)
+squares
+same(a, a)
+a == a
+a[7]
+var total = 0
+total += 2
+total
+x, y = 1, 2
+var p = 0
+var q = 0
+p, q := y, x
+(p, q)

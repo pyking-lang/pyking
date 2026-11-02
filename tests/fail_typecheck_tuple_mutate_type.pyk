@@ -1,0 +1,10 @@
+# Each part a tuple `:=` writes must be its variable's own type.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+var count = 1
+var name = "x"
+count, name := "y", 2

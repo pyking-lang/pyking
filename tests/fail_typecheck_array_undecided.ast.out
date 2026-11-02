@@ -1,0 +1,5 @@
+'tests/fail_typecheck_array_undecided.pyk' 11:14-11:25 Type error:
+  nothing here decides which 'array' is meant: 'fill::array' and
+  'init::array' all take these arguments, and the type of at least one
+  of them is still open. Annotate it -- a function makes the elements,
+  anything else fills them -- or write 'fill::array' or 'init::array'

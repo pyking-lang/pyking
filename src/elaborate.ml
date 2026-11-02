@@ -462,6 +462,12 @@ and statement s qmap work =
   | SVar (i, name, e, sym) ->
       let e, work = go e work in
       (SVar (i, name, e, sym), work)
+  | SMutateTuple _ -> after_desugar "elaborate"
+  | SSetIndex (i, owner, index, value, sym) ->
+      let owner, work = go owner work in
+      let index, work = go index work in
+      let value, work = go value work in
+      (SSetIndex (i, owner, index, value, sym), work)
   | SMutate (i, name, e, sym) ->
       let e, work = go e work in
       (SMutate (i, name, e, sym), work)

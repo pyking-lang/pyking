@@ -1,0 +1,11 @@
+# A compound assignment is typed as the `:=` it means: `ratio /= 2` is
+# `ratio := ratio / 2`, and Pyking mixes no numbers, so a Float divided
+# by an Int is refused. `ratio /= 2.0` is what was meant.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+var ratio = 1.5
+ratio /= 2

@@ -1,7 +1,7 @@
 # Functions handed down: a nested def or a lambda capturing values,
 # passed to a function that calls it and returns. Nothing it captures
-# has to outlive the call, which is all C -- with no garbage collector --
-# can give a function value.
+# has to outlive the call, which is all C can give a function value while
+# its environments stay on the stack.
 
 use mutation
 

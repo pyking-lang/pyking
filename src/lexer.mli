@@ -97,6 +97,9 @@ type token =
   | TokMatch of info (* 'match' *)
   | TokCase of info (* 'case' *)
   | TokAssign of info (* ':=' (mutation of a `var`) *)
+  | TokCompound of info * string
+      (* '+=', '<<=', ...: compound assignment, carrying the operator
+         it applies (`+`, `<<`, ...). `xor=` is lexed as `xor` and `=`. *)
   | TokTypeInt of info (* 'Int' (type annotation) *)
   | TokTypeFloat of info (* 'Float' (type annotation) *)
   | TokTypeString of info (* 'String' (type annotation) *)

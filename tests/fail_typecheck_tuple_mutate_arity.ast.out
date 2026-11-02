@@ -1,0 +1,2 @@
+'tests/fail_typecheck_tuple_mutate_arity.pyk' 10:0-10:4 Type error:
+  this ':=' writes 2 values, but its value has type (Int, Int, Int)

@@ -84,6 +84,7 @@ type oexpr =
   | ODeref of string (* !x -- reading one *)
   | OAssign of string * oexpr (* x := e -- writing one *)
   | OIgnore of oexpr (* ignore (expr) *)
+  | OTyped of oexpr * typ (* (e : t) -- what OCaml could not tell *)
   | OField of oexpr * string (* e.field -- a polymorphic parameter, used *)
   | ORecord of string * oexpr (* { field = e } -- one, passed *)
   | OEscape of string * string * string * oexpr
@@ -415,7 +416,7 @@ let rec free e =
   match e with
   | OInt _ | OFloat _ | OStr _ | OBool _ | OUnit -> StringSet.empty
   | OVar name -> StringSet.singleton name
-  | OIgnore e | ORef e | OField (e, _) | ORecord (_, e) -> free e
+  | OIgnore e | ORef e | OField (e, _) | ORecord (_, e) | OTyped (e, _) -> free e
   | ODeref name -> StringSet.singleton name
   | OAssign (name, value) -> StringSet.add name (free value)
   | OApp (func, args) -> union_all (free func :: List.map free args)
@@ -868,7 +869,9 @@ let stmt_kind_name s =
   | SLet _ -> "SLet"
   | SLetStmt _ -> "SLetStmt"
   | SVar _ -> "SVar"
+  | SMutateTuple _ -> "SMutateTuple"
   | SMutate _ -> "SMutate"
+  | SSetIndex _ -> "SSetIndex"
   | SReturn _ -> "SReturn"
   | SReturnStmt _ -> "SReturnStmt"
   | SExprStmt _ -> "SExprStmt"
@@ -1263,11 +1266,125 @@ let char_helper_lines name =
       ]
   else None
 
+(* --- arrays ---
+
+   An Array(T) is OCaml's own `T array`, shared by reference as Pyking's
+   is. OCaml's bounds checks raise Invalid_argument, which says nothing a
+   Pyking programmer wrote, so every index is checked here first and a
+   bad one stops the program with interpreter.ml's message
+   (docs/target_ocaml.md, "Arrays"). The helpers lean on each other, so
+   `need_array` asks for what each one calls before the helper itself:
+   the conversions are written in the order they were first needed. *)
+
+let array_fail_helper = "pyk_array_fail"
+let array_size_helper = "pyk_array_size"
+let array_check_helper = "pyk_array_check"
+let array_get_helper = "pyk_array_get"
+let array_fill_helper = "pyk_array_fill"
+let array_init_helper = "pyk_array_init"
+let array_unfold_helper = "pyk_array_unfold"
+
+(** The helpers each array helper calls, nearest first. string -> [string] *)
+let array_helper_needs name =
+  if name = array_size_helper || name = array_check_helper then [ array_fail_helper ]
+  else if name = array_get_helper then [ array_fail_helper; array_check_helper ]
+  else if name = array_fill_helper || name = array_init_helper || name = array_unfold_helper
+  then [ array_fail_helper; array_size_helper ]
+  else []
+
+(** The lines of an array helper, or None for another name.
+    string -> [string]? *)
+let array_helper_lines name =
+  if name = array_fail_helper then
+    Some
+      [
+        "(* A runtime error: what was printed first stays printed. *)";
+        Printf.sprintf "let %s message =" name;
+        "  flush stdout;";
+        "  prerr_endline (\"error: \" ^ message);";
+        "  exit 1";
+      ]
+  else if name = array_size_helper then
+    Some
+      [
+        Printf.sprintf "let %s n =" name;
+        "  if n < 0 then";
+        Printf.sprintf "    %s (\"an array's size is never negative, and this one is \" ^ string_of_int n)"
+          array_fail_helper;
+        "  else if n > Stdlib.Sys.max_array_length then";
+        Printf.sprintf "    %s (\"an array of \" ^ string_of_int n ^ \" elements is more than this machine can hold\")"
+          array_fail_helper;
+      ]
+  else if name = array_check_helper then
+    Some
+      [
+        Printf.sprintf "let %s a i =" name;
+        "  let n = Stdlib.Array.length a in";
+        "  if i < 0 || i >= n then";
+        Printf.sprintf "    %s" array_fail_helper;
+        "      (\"the index \" ^ string_of_int i ^ \" is outside an array of \" ^ string_of_int n";
+        "       ^ (if n = 1 then \" element\" else \" elements\"))";
+      ]
+  else if name = array_get_helper then
+    Some
+      [
+        Printf.sprintf "let %s a i =" name;
+        Printf.sprintf "  %s a i;" array_check_helper;
+        "  Stdlib.Array.unsafe_get a i";
+      ]
+  else if name = array_fill_helper then
+    Some
+      [
+        Printf.sprintf "let %s n v =" name;
+        Printf.sprintf "  %s n;" array_size_helper;
+        "  Stdlib.Array.make n v";
+      ]
+  else if name = array_init_helper then
+    Some
+      [
+        "(* Element i is f i, called for i = 0, 1, ... in that order, which";
+        "   Array.init does not promise. *)";
+        Printf.sprintf "let %s n f =" name;
+        Printf.sprintf "  %s n;" array_size_helper;
+        "  if n = 0 then [||]";
+        "  else begin";
+        "    let a = Stdlib.Array.make n (f 0) in";
+        "    for i = 1 to n - 1 do";
+        "      Stdlib.Array.unsafe_set a i (f i)";
+        "    done;";
+        "    a";
+        "  end";
+      ]
+  else if name = array_unfold_helper then
+    Some
+      [
+        "(* Each element and the next state from the state before; the";
+        "   last state is dropped. *)";
+        Printf.sprintf "let %s n seed f =" name;
+        Printf.sprintf "  %s n;" array_size_helper;
+        "  if n = 0 then [||]";
+        "  else begin";
+        "    let first, state = f seed in";
+        "    let a = Stdlib.Array.make n first in";
+        "    let s = ref state in";
+        "    for i = 1 to n - 1 do";
+        "      let x, next = f !s in";
+        "      Stdlib.Array.unsafe_set a i x;";
+        "      s := next";
+        "    done;";
+        "    a";
+        "  end";
+      ]
+  else None
+
 (** acc, noting that the program needs the helper `name`.
     acc -> string -> acc *)
 let need acc name =
-  if List.mem name acc.conversions then acc
-  else { acc with conversions = acc.conversions @ [ name ] }
+  let one acc name =
+    if List.mem name acc.conversions then acc
+    else { acc with conversions = acc.conversions @ [ name ] }
+  in
+  List.fold_left one acc (array_helper_needs name @ [ name ])
 
 (* The conversions OCaml's own would get wrong (builtin.ml, "what a
    conversion reads"): `int_of_string` reads "0x1F" and "1_000", and
@@ -1281,7 +1398,11 @@ let power_helper = "pyk_ipow"
 (** The text of one conversion helper. string -> string *)
 let conversion_def name =
   String.concat "\n"
-    (match char_helper_lines name with
+    (match
+       match char_helper_lines name with
+       | Some lines -> Some lines
+       | None -> array_helper_lines name
+     with
      | Some lines -> lines
      | None ->
      if name = power_helper then
@@ -1423,8 +1544,51 @@ let rec expr ctx acc e =
   | ECall (_, EVar (_, name, callee), args, _)
     when Builtin.crosses_host name && not (IntMap.mem callee ctx.tmap) ->
       print_call ctx acc e (arg_exprs args)
-  | ECall (_, EVar (_, name, _), args, _) when List.mem name Builtin.pure_names ->
+  | ECall (_, EVar (_, name, callee), args, _)
+    when List.mem name Builtin.pure_names
+         (* `same` is a newer builtin than many a program's own `same`,
+            which the checker gave a type and which is called as any
+            definition is. *)
+         && not (name = "same" && IntMap.mem callee ctx.tmap) ->
       builtin_call ctx acc e name (arg_exprs args)
+  (* The four ways to make an array (docs/target_ocaml.md, "Arrays"):
+     the arguments are worked out left to right like any call's, then
+     the size is checked, then anything is called. *)
+  | ECall (_, EVar (_, name, _), args, _) when List.mem name Builtin.member_names ->
+      let pieces, sequence, acc = in_order ctx acc (arg_exprs args) in
+      let helper, acc =
+        match name with
+        | "list__array" -> ("Stdlib.Array.of_list", acc)
+        | "fill__array" -> (array_fill_helper, need acc array_fill_helper)
+        | "init__array" -> (array_init_helper, need acc array_init_helper)
+        | "unfold__array" -> (array_unfold_helper, need acc array_unfold_helper)
+        | _ ->
+            unsupported (expr_info e)
+              (Printf.sprintf "the builtin `%s` is not supported yet" name)
+      in
+      let made = sequence (OApp (OVar helper, pieces)) in
+      (* `array([])` says nothing of its element type to OCaml, which
+         would leave a top-level one with a type it refuses to
+         generalise: the checker's type is written on it instead. *)
+      let made =
+        match (name, arg_exprs args) with
+        | "list__array", [ EList (_, [], _) ] ->
+            (* Only a type written the same in every module, with no
+               variable left in it, is written. *)
+            let rec plain t =
+              match t with
+              | TInt _ | TFloat _ | TString _ | TChar _ | TBool _ -> true
+              | TList (_, element, _) -> plain element
+              | TTuple (_, elements, _) -> List.for_all plain elements
+              | t -> (
+                  match Typesystem.array_element t with
+                  | Some element -> plain element
+                  | None -> false)
+            in
+            if plain (type_of ctx e) then OTyped (made, type_of ctx e) else made
+        | _ -> made
+      in
+      (made, acc)
   | ECall (_, func, args, _) ->
       let pieces, sequence, acc =
         in_order ctx acc (func :: arg_exprs args)
@@ -1535,6 +1699,9 @@ let rec expr ctx acc e =
       if is_string (type_of ctx list) then
         (* A String's i-th code point. *)
         (sequence (OApp (OVar char_get_helper, pieces)), need acc char_get_helper)
+      else if Typesystem.array_element (type_of ctx list) <> None then
+        (* Checked, so a bad index stops with Pyking's message. *)
+        (sequence (OApp (OVar array_get_helper, pieces)), need acc array_get_helper)
       else (sequence (OApp (OVar "List.nth", pieces)), acc)
   | EConstruct (_, _, name, args, _) -> (
       let canonical =
@@ -1604,14 +1771,47 @@ and in_order ctx acc exprs =
         (out @ [ o ], acc))
       ([], acc) exprs
   in
+  (* An array read can fail, and sees a write made before it, so it is
+     pinned like a print -- and, beside one, so is anything that calls a
+     function, which may be what writes (docs/target_ocaml.md, "Arrays"). *)
+  let touches pred e =
+    let rec go node =
+      match node with
+      | Walk.NExpr (ELambda _) -> false
+      | node -> pred node || List.exists go (Walk.children node)
+    in
+    go (Walk.NExpr e)
+  in
+  let is_array e =
+    match IntMap.find_opt (expr_sym e) ctx.tmap with
+    | Some t -> Typesystem.array_element (substituted ctx.specialised t) <> None
+    | None -> false
+  in
+  let reads_array =
+    touches (fun node ->
+        match node with
+        | Walk.NExpr (EIndex (_, owner, _, _)) -> is_array owner
+        | Walk.NExpr (ECall (_, EVar (_, name, _), _, _)) -> List.mem name Builtin.member_names
+        | _ -> false)
+  in
+  let calls =
+    touches (fun node ->
+        match node with
+        | Walk.NExpr (ECall (_, EVar (_, name, _), _, _)) -> not (List.mem name Builtin.pure_names)
+        | Walk.NExpr (ECall _) -> true
+        | _ -> false)
+  in
+  let any_array_read = List.exists reads_array exprs in
   let effectful =
-    List.filteri
-      (fun _ _ -> true)
-      (List.concat
-         (List.mapi
-            (fun index e ->
-              if Analyses.may_print ctx.printing e then [ index ] else [])
-            exprs))
+    List.concat
+      (List.mapi
+         (fun index e ->
+           if
+             Analyses.may_print ctx.printing e
+             || (any_array_read && (reads_array e || calls e))
+           then [ index ]
+           else [])
+         exprs)
   in
   if List.length effectful < 2 then (translated, (fun result -> result), acc)
   else
@@ -1738,6 +1938,16 @@ and string_of ctx acc type_ translated info top =
         (OSeq (OIgnore translated, OStr ""), acc)
     | TVar (_, variable, _, true) when List.mem_assoc variable ctx.shows ->
         (OApp (List.assoc variable ctx.shows, [ translated ]), acc)
+    | TCon _ when Typesystem.array_element type_ <> None ->
+        (* What makes one: `array([` and the elements as a list writes
+           them. *)
+        let element = Option.get (Typesystem.array_element type_) in
+        let name, acc = fresh_name ctx acc in
+        let shown, acc = string_of ctx acc element (OVar name) info false in
+        let listed = OApp (OVar "Stdlib.Array.to_list", [ translated ]) in
+        let mapped = OApp (OVar "List.map", [ OFun [ (name, shown) ]; listed ]) in
+        let joined = OApp (OVar "String.concat", [ OStr ", "; mapped ]) in
+        (OBin ("^", OStr "array([", OBin ("^", joined, OStr "])")), acc)
     | TCon (_, canonical, args, _) ->
         (* A datatype's values print through the printer written beside
            its declaration, handed one printer per type it is applied to. *)
@@ -1848,6 +2058,8 @@ and builtin_call ctx acc call name args =
         (OApp (OVar char_length_helper, [ o_value ]), need acc char_length_helper)
       else if is_list type_ then
         (OApp (OVar "List.length", [ o_value ]), acc)
+      else if Typesystem.array_element type_ <> None then
+        (OApp (OVar "Stdlib.Array.length", [ o_value ]), acc)
       else
         unsupported (expr_info call)
           (Printf.sprintf "`len` of a value of type %s" (name_of type_)))
@@ -1864,6 +2076,8 @@ and builtin_call ctx acc call name args =
       | _ ->
           unsupported (expr_info call)
             (Printf.sprintf "`char` of a value of type %s" (name_of type_)))
+  (* One array under two names: identity, which OCaml's `==` is. *)
+  | "same", [ left; right ] -> binary ctx acc "==" left right
   | "range", [ count ] ->
       (* `List.init` refuses a negative length where `range` answers with
          nothing, so the count is floored here. *)
@@ -2208,6 +2422,13 @@ and clauses ctx acc clause_list element =
       in
       let o_sequence, acc = expr ctx acc sequence in
       let o_sequence, acc = walked_chars ctx acc sequence o_sequence in
+      (* A comprehension over an array walks the elements it holds when
+         the walk begins, as interpreter.ml's does. *)
+      let o_sequence =
+        if Typesystem.array_element (type_of ctx sequence) <> None then
+          OApp (OVar "Stdlib.Array.to_list", [ o_sequence ])
+        else o_sequence
+      in
       (* A `function` takes no `when`, so a guarded pattern is matched
          inside the body instead. *)
       let taking, acc =
@@ -2450,7 +2671,7 @@ and last ctx acc statement where =
                 OUnit,
                 false ),
             acc )
-      | SMutate _ ->
+      | SMutate _ | SSetIndex _ ->
           (* A mutation is worth unit, which is what a block run for what
              it does supplies anyway. *)
           discard ctx acc statement
@@ -2505,6 +2726,28 @@ and loop ctx acc s returning =
             (Some o, acc)
         | _ -> (o_sequence, acc)
       in
+      (* An array is walked by index rather than as a list, so that each
+         element is read as its turn is reached and a write ahead of the
+         walk is seen (docs/target_ocaml.md, "Arrays"). The array is held
+         under a name of its own, which the turns read. *)
+      let walked_array, acc =
+        match walked with
+        | [ sequence ] when Typesystem.array_element (type_of ctx sequence) <> None -> (
+            (* One a plain name holds is read through that name, unless
+               the loop binds the same name over it. *)
+            let shadowed plain =
+              match (target, iterate) with
+              | _, Some (ForIn (_, element, _, _)) when mangle ctx element = plain -> true
+              | Some target, _ -> List.mem plain (pattern_names (target_pattern ctx target))
+              | None, _ -> false
+            in
+            match o_sequence with
+            | Some (OVar plain) when not (shadowed plain) -> (Some plain, acc)
+            | _ ->
+                let held, acc = fresh_name ctx acc in
+                (Some held, acc))
+        | _ -> (None, acc)
+      in
       let parameter, accumulator, acc =
         match target with
         | None ->
@@ -2531,7 +2774,12 @@ and loop ctx acc s returning =
           loop_accumulator = accumulator;
           carries = target <> None;
           returning;
-          walking = Option.map (fun remaining -> OVar remaining) remaining;
+          walking =
+            Option.map
+              (fun remaining ->
+                if walked_array = None then OVar remaining
+                else OBin ("+", OVar remaining, OInt 1))
+              remaining;
         }
       in
       let inner_ctx = { ctx with loops = ctx.loops @ [ this ] } in
@@ -2539,6 +2787,26 @@ and loop ctx acc s returning =
       let read = free o_body in
       let params, value, acc =
         match (iterate, remaining) with
+        | Some (ForIn (_, element, _, _)), Some index when walked_array <> None ->
+            (* The second parameter is the index of the turn, and walking
+               off the end is leaving the loop. *)
+            let held = OVar (Option.get walked_array) in
+            ( [ parameter; OPatName index ],
+              OIf
+                ( OBin (">=", OVar index, OApp (OVar "Stdlib.Array.length", [ held ])),
+                  accumulator,
+                  Some
+                    (OLet
+                       ( [
+                           {
+                             bound = OPatName (unread (mangle ctx element) (Some read));
+                             params = [];
+                             value = OApp (OVar "Stdlib.Array.unsafe_get", [ held; OVar index ]);
+                           };
+                         ],
+                         o_body,
+                         false )) ),
+              acc )
         | Some (ForIn (_, element, _, _)), Some remaining ->
             (* Running out of sequence is leaving the loop, so the empty
                arm is worth what a `break` is worth. *)
@@ -2565,12 +2833,35 @@ and loop ctx acc s returning =
          unnecessary one is a warning, and the harness builds with
          warnings as errors. *)
       let recursive = StringSet.mem name (free_in_binding b) in
-      let arguments =
-        match o_sequence with
-        | None -> [ o_init ]
-        | Some sequence -> [ o_init; sequence ]
-      in
-      (pin (OLet ([ b ], OApp (OVar name, arguments), recursive)), acc)
+      (match (walked_array, o_sequence) with
+      | Some held, Some sequence ->
+          (* The accumulator is worked out before the array, so one that
+             is more than a name is held first. *)
+          let o_init, init_binding, acc =
+            match o_init with
+            | OVar _ | OUnit | OInt _ | OFloat _ | OStr _ | OBool _ -> (o_init, [], acc)
+            | _ ->
+                let first, acc = fresh_name ctx acc in
+                (OVar first, [ { bound = OPatName first; params = []; value = o_init } ], acc)
+          in
+          let looped = OLet ([ b ], OApp (OVar name, [ o_init; OInt 0 ]), recursive) in
+          let started =
+            if sequence = OVar held then looped
+            else
+              OLet ([ { bound = OPatName held; params = []; value = sequence } ], looped, false)
+          in
+          ( pin
+              (List.fold_right
+                 (fun binding inner -> OLet ([ binding ], inner, false))
+                 init_binding started),
+            acc )
+      | _ ->
+          let arguments =
+            match o_sequence with
+            | None -> [ o_init ]
+            | Some sequence -> [ o_init; sequence ]
+          in
+          (pin (OLet ([ b ], OApp (OVar name, arguments), recursive)), acc))
   | _ -> (OUnit, acc)
 
 (** A `return` that leaves the function from somewhere OCaml has no exit
@@ -2727,6 +3018,33 @@ and discard ctx acc statement =
   | SMutate (_, name, e, _) ->
       let value, acc = expr ctx acc e in
       (OAssign (mangle ctx name, value), acc)
+  | SSetIndex (_, owner, index, value, _) ->
+      (* `a[i] := v` (docs/target_ocaml.md, "Arrays"): the array and the
+         index are held first, the index is checked, and only then is the
+         value worked out -- and written into the array held, whatever
+         the value did to the name it came from. *)
+      let o_owner, acc = expr ctx acc owner in
+      let o_index, acc = expr ctx acc index in
+      let o_value, acc = expr ctx acc value in
+      let held o acc =
+        match o with
+        | OVar _ | OInt _ -> (o, [], acc)
+        | _ ->
+            let name, acc = fresh_name ctx acc in
+            (OVar name, [ { bound = OPatName name; params = []; value = o } ], acc)
+      in
+      let o_owner, owner_binding, acc = held o_owner acc in
+      let o_index, index_binding, acc = held o_index acc in
+      let write =
+        OSeq
+          ( OApp (OVar array_check_helper, [ o_owner; o_index ]),
+            OApp (OVar "Stdlib.Array.unsafe_set", [ o_owner; o_index; o_value ]) )
+      in
+      ( List.fold_right
+          (fun b inner -> OLet ([ b ], inner, false))
+          (owner_binding @ index_binding)
+          write,
+        need acc array_check_helper )
   | SBreak _ | SContinue _ -> unsupported (stmt_info statement) no_early_exit
   | statement ->
       unsupported (stmt_info statement)
@@ -2945,6 +3263,7 @@ let rec polish e =
   match e with
   | OInt _ | OFloat _ | OStr _ | OBool _ | OUnit | OVar _ | ODeref _ -> e
   | OIgnore inner -> OIgnore (polish inner)
+  | OTyped (inner, t) -> OTyped (polish inner, t)
   | OField (inner, field) -> OField (polish inner, field)
   | ORecord (field, inner) -> ORecord (field, polish inner)
   | ORef value -> ORef (polish value)
@@ -3157,6 +3476,8 @@ let rec type_text type_ name top =
      left off and the variables written as they are. *)
   | TForall (_, _, inner, _) -> type_text inner name top
   | TVar (_, variable, _, _) -> Printf.sprintf "'%s" variable
+  | TCon (_, _, [ element ], _) when Typesystem.array_element type_ <> None ->
+      Printf.sprintf "%s array" (type_text element name false)
   | TCon (_, canonical, [], _) -> datatype_name canonical
   | TCon (_, canonical, [ one ], _) ->
       Printf.sprintf "%s %s" (type_text one name false) (datatype_name canonical)
@@ -3318,6 +3639,9 @@ and pprint_bare e level =
         p_seq )
   | OIgnore inner ->
       (Printf.sprintf "ignore %s" (pprint inner p_atom level), p_app)
+  | OTyped (inner, t) ->
+      ( Printf.sprintf "(%s : %s)" (pprint inner (p_seq + 1) level) (type_text t "" true),
+        p_atom )
   | OField (inner, field) ->
       (Printf.sprintf "%s.%s" (pprint inner p_atom level) field, p_atom)
   | ORecord (field, inner) ->

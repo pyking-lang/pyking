@@ -1,0 +1,11 @@
+# An array whose element type nothing decides is refused at its binding:
+# a mutable value has one type, and nothing later can say which. An
+# immutable `xs = []` would be a list of anything.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+empty = array([])
+print(len(empty))

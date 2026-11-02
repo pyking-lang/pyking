@@ -55,9 +55,9 @@ test harness all read it from there.
 | `web2024` | | [JavaScript](target_js.md) | the same | the same | **everything the checker accepts** |
 | `iweb2020` | `iweb` | [the interpreter](target_js.md#the-interpreted-target) | `foo.html`, `pyking.js`, the `.pyk` sources | serve it: `--run` does, and prints the page's URL | **everything the checker accepts** |
 | `iweb2024` | | [the interpreter](target_js.md#the-interpreted-target) | the same | the same | **everything the checker accepts** |
-| `c89` | | [C](target_c.md) | `foo.c` | `cc -std=c89 foo.c && ./a.out` | everything but what needs a heap |
-| `c99` | `c` | [C](target_c.md) | `foo.c` | `cc -std=c99 foo.c && ./a.out` | everything but what needs a heap |
-| `c23` | | [C](target_c.md) | `foo.c` | `cc -std=c23 foo.c && ./a.out` | everything but what needs a heap |
+| `c89` | | [C](target_c.md) | `foo.c` | `cc -std=c89 foo.c -lgc -lm && ./a.out` | everything but lists and recursive datatypes |
+| `c99` | `c` | [C](target_c.md) | `foo.c` | `cc -std=c99 foo.c -lgc -lm && ./a.out` | everything but lists and recursive datatypes |
+| `c23` | | [C](target_c.md) | `foo.c` | `cc -std=c23 foo.c -lgc -lm && ./a.out` | everything but lists and recursive datatypes |
 | `java8` | | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 8 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
 | `java17` | | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 17 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
 | `java21` | `java` | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 21 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
@@ -95,7 +95,7 @@ table's fourth column, each printed before it runs:
 
 ```sh
 $ pyk compile -t c23 --run hello.pyk
-$ cc -std=c23 -o hello hello.c -lm
+$ cc -std=c23 -o hello hello.c -lgc -lm
 $ ./build/hello
 Hello, world!
 ```
@@ -145,8 +145,8 @@ always accept exactly the same programs:
   and what files come out.
 - **[C](target_c.md)** — `c89`, `c99`, `c23`. One backend
   (`src/target_c.ml`) with a `standard` parameter. They differ only in
-  how the same C is printed. C has no garbage collector, so the family
-  takes everything that needs no heap and refuses the rest.
+  how the same C is printed. Every program links the bdwgc collector;
+  lists and recursive datatypes are not compiled yet, and are refused.
 - **[Java](target_java.md)** — `java8`, `java17`, `java21`. One backend
   (`src/target_java.ml`) with a `version` parameter. All three take the
   whole checked language; they are three shapes of output: plain classes
@@ -237,13 +237,14 @@ is gone from every other output.
 ## The shared subset
 
 Every target but C compiles everything the type checker accepts, and
-`make test` runs every test program on every one of them. C has no
-garbage collector, so the C family compiles everything that needs no
-heap and refuses, with a source position and the reason, what does:
+`make test` runs every test program on every one of them. The C family
+links the bdwgc collector, but does not yet compile lists, recursive
+datatypes or a closure that outlives its frame, and refuses them with a
+source position and the reason:
 
 | feature | python | javascript | java | ocaml | c |
 |---|---|---|---|---|---|
-| scalars, strings, a `+` joining strings, every operator (`and`/`or`/`not` short-circuiting, `%`, `^`, `!=`, the bitwise ones) | ✅ | ✅ | ✅ | ✅ | ✅ (a string join allocates and is never freed) |
+| scalars, strings, a `+` joining strings, every operator (`and`/`or`/`not` short-circuiting, `%`, `^`, `!=`, the bitwise ones) | ✅ | ✅ | ✅ | ✅ | ✅ (a string join allocates; the collector frees it) |
 | `xs[i]` on a list | ✅ | ✅ | ✅ (`get`) | ✅ (`List.nth`) | ❌ lists need a heap |
 | `Char`, `s[i]` on a String, `for c in s`, `len` of a String (code points) | ✅ (a one-character `str` subclass) | ✅ (the code point, a number) | ✅ (the runtime's `PykChar`) | ✅ (the code point, an `int`) | ✅ (the code point, an `int`; `for c in s` walks the UTF-8) |
 | `def`, recursion, mutual recursion, nested `def` | ✅ | ✅ | ✅ (a nested `def` is a static method taking what it captures) | ✅ | ✅ (a nested `def` is a function taking what it captures) |
@@ -288,8 +289,9 @@ source position, rather than emitted as code that will not build:
 
 ```
 $ pyk compile -t c23 tests/list_literals.pyk
-'tests/list_literals.pyk' 1:8-1:10 Unsupported by target 'c23': a list,
-  which needs a heap: C has no garbage collector to free one
+'tests/list_literals.pyk' 1:8-1:10 Unsupported by target 'c23': a
+  list, which the C targets do not compile yet: they come after the
+  collector, in their own step
 ```
 
 The test manifest says the same thing per program: a case runs on every

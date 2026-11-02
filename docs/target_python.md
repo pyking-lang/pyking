@@ -190,7 +190,7 @@ char(n) / char(s)                __pyk_char_of_int(n) / __pyk_char_of_str(s)
 A Python `str` holds code points, so `s[i]` is the `i`-th code point and
 `len(s)` counts code points with no help, as every target now does. An
 index past the end raises Python's `IndexError`; a negative one counts
-from the end, as it does for a list here. `__pyk_chars(s)` walks a
+from the end, as it does for a list here. An array's index is checked (see "Arrays"). `__pyk_chars(s)` walks a
 String (a `for` whose sequence the checker typed `String`) a Char at a
 time. `char(n)` answers `'\0'` for a number that is not a Unicode
 scalar value and `char("")` answers `'\0'`; `char(c)` of a Char is `c`.
@@ -200,6 +200,70 @@ prelude, so a program's own `def ord` cannot stand in for it.
 
 A NUL, which a String or a Char may hold, is written `\x00` in the
 generated source, which may not hold a raw one.
+
+### Arrays
+
+An array is a Python list of a class of its own, emitted in the prelude
+of every module that makes one. The list is never grown: nothing but
+the four makers below builds one, and nothing appends to it.
+
+```python
+class __PykArray(list):
+    # An array: a list never grown, told from a list when printed.
+    __slots__ = ()
+```
+
+As with a Char, the subclass is there for printing: the print helper
+writes a list whose `type(v) is not list` as `array([1, 2])`, with its
+elements written as they are inside a list (a String or a Char quoted),
+`array([])` when it is empty. That is true of an array made in any
+module. An array is never copied: a name, a parameter, a tuple or a
+closure holds the one list. As an annotation an array is `list[T]`.
+
+| Pyking | generated Python |
+|---|---|
+| `array(xs)` | `__pyk_array_list(xs)` |
+| `array(n, v)` | `__pyk_array_fill(n, v)`: `[v] * n`, the one `v` in every element |
+| `array(n, f)` | `__pyk_array_init(n, f)`: `f(0)`, `f(1)`, ... in that order |
+| `array(n, seed, f)` | `__pyk_array_unfold(n, seed, f)` |
+| `a[i]` | `__pyk_array_get(a, i)` |
+| `len(a)` | `len(a)` |
+| `same(a, b)` | `a is b` |
+| `for x in a` | `for x in a`, which reads `a[i]` as each turn is reached |
+
+Each maker checks its size first, before anything is called or made: a
+negative one is the error `an array's size is never negative, and this
+one is -1`, and a size Python cannot allocate is `an array of N
+elements is more than this machine can hold`. Each helper is emitted
+only where the program uses it.
+
+Every index is checked by generated code. A Python list counts a
+negative index from the end and raises its own `IndexError` past it;
+an array does neither. `__pyk_array_get` answers the element, and
+anything outside is the error `the index 5 is outside an array of 2
+elements`. A runtime error goes through `__pyk_fail`, which flushes
+standard output, writes `error: ` and the message to standard error,
+and exits with status 1.
+
+An element write `a[i] := v` keeps Pyking's order: the array, then the
+index, then the index checked, then the value, then the write. Python's
+own `a[i] = v` works out `v` first, so the check is a statement ahead
+of it. Where the value cannot change what the array and the index are,
+each a name no `:=` writes or a literal, they are written as
+themselves; otherwise each is held in a temporary first, so the write
+goes to the array the owner was even when the value rebinds a `var`:
+
+```pyking                          # generated Python
+a[i] := v                          __pyk_array_index(a, i)
+                                   a[i] = v
+held[0] := replace_held()          __pyk_owner1 = held
+                                   __pyk_at1 = __pyk_array_index(__pyk_owner1, 0)
+                                   __pyk_owner1[__pyk_at1] = replace_held()
+```
+
+`a[i] += e` arrives as `element__array = a`, `element__index = i` and
+a write of `element__array[element__index] + e`, both names ones no
+`:=` writes.
 
 ### A `var` written from inside a function
 

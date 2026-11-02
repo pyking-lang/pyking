@@ -10,8 +10,17 @@ boundary".
 
 ## Four readers, one table
 
-`print`, `debug`, `range`, `string`, `len`, `int`, `float`, `bool` and
-`char` are in scope in every program and are bound by nothing. Four parts of the compiler need that
+`print`, `debug`, `range`, `string`, `len`, `same`, `int`, `float`,
+`bool` and `char` are in scope in every program and are bound by
+nothing, and so is `array`, the one builtin **overload set**
+(`Builtin.overload_sets`): its members `list::array`, `fill::array`,
+`init::array` and `unfold::array` are bound by the checker's
+`builtin_env` as ordinary polymorphic `::` definitions and resolved by
+their arguments as any set is (docs/overloading.md), with one priority
+rule -- `array(n, f)` with a function `f` is `init::array`. After
+elaborate.ml a call names the member's plain name (`fill__array`,
+`Builtin.member_names`), and that is what the interpreter and every
+backend implement; the printer writes it back as `fill::array`. Four parts of the compiler need that
 fact, and each needs something different about it:
 
 - `typesystem.ml` puts the names in the environment before the first

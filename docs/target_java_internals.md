@@ -65,3 +65,19 @@ expression evaluated for its effect alone.
 A `jprogram` records the tuple arities, function arities and
 polymorphic interfaces it names; `runtime_source` writes
 `PykRuntime.java` for a whole program from all of its modules'.
+Beside them it always holds the helpers every program may call: the
+value printer, the conversions, `PykChar`, `PykArray` with its four
+factories (`arrayOfList`, `arrayFill`, `arrayInit`, `arrayUnfold`), and
+`fail`, which ends the program with a runtime error.
+
+## Arrays
+
+`jt` writes `Array(T)` as `PykRuntime.PykArray<T>` before the general
+`TCon` case, which would take it for a datatype. `make_array` compiles
+the four members of `array` the elaborator leaves as calls, with the
+element type as an explicit type argument where `settled` says Java can
+be told it; `typed_value` casts a lambda argument to its interface.
+`a[i]` and `len(a)` need nothing of their own: a `PykArray` has `get`
+and `size` as a list does. `SSetIndex` holds the owner and the index in
+temporaries and writes the check before the statement working the
+value out, so the write runs in Pyking's order (target_java.md, "Arrays").

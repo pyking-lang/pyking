@@ -10,19 +10,22 @@
   are needed.
 - It infers no types of its own: every type it writes is read out of the
   checker's `tmap`, as `src/target_ocaml.ml` reads them.
-- C has no garbage collector, so this backend compiles **everything that
-  needs no heap**, and refuses with a source position what does: a list,
-  a datatype holding itself, and a function value that could outlive
-  the stack frame it captures from.
+- Every program links the **Boehm–Demers–Weiser collector, bdwgc**
+  (see "Memory"): what it allocates is freed once nothing holds it.
+  An array is a pointer to a collected struct of its length and its
+  elements, shared by everything holding it (see "Arrays"). Lists, datatypes holding themselves and a function value that could
+  outlive the stack frame it captures from are not compiled yet, and are
+  refused with a source position; they are steps of their own after
+  the collector.
 - A polymorphic function is compiled **once per type it is used at**; a
   tuple is a struct and a datatype a tagged union, both passed by value;
   a nested `def` or a lambda is a function of its own taking what it
   captures; a function value is a function pointer and an environment
   on the stack.
-- Output is one `.c` file per module with no dependencies beyond the C
-  standard library, and only the headers it uses.
-- Least optimal at: strings, which every join (`+` on two strings) and conversion allocates
-  and nothing frees.
+- Output is one `.c` file per module needing the C standard library and
+  bdwgc, and only the headers it uses.
+- Least optimal at: strings, which every join (`+` on two strings) and
+  conversion allocates afresh.
 
 Verified with `gcc -pedantic` under all three standards.
 
@@ -38,19 +41,58 @@ C89 has no compound literals and no non-constant aggregate
 initializers, so every struct is built by a function of its own
 (`pyk_mk_...`), which reads the same under all three.
 
-## What needs a heap, and is refused
+## Memory
+
+Every C program links **bdwgc**, the Boehm–Demers–Weiser conservative
+collector, and nothing else manages memory: there is no mode that
+allocates and never frees.
+
+- **What allocates.** A String the program makes -- a join, a
+  conversion, a Char's UTF-8, a value printed inside a tuple -- and a
+  String a library answers (`io.read`, `fs.read_text`, `text`'s slices)
+  come from `GC_MALLOC_ATOMIC`, since a String holds no pointers for the
+  collector to follow. An array is two allocations: its struct from
+  `GC_MALLOC`, and its elements from `GC_MALLOC_ATOMIC` where an element
+  holds no pointer (an `Int`, `Char`, `Float` or `Bool`, or a tuple or
+  datatype of only those) and from `GC_MALLOC` where it does (a String,
+  an array, a function value, a tuple or datatype holding one), so the
+  collector scans only what can point somewhere.
+- **Starting it.** `main` calls `GC_INIT()` before the program's own
+  top level, which is a block of its own after it.
+- **Where it comes from.** bdwgc is a system library: `brew install
+  bdw-gc` on macOS, `apt install libgc-dev` on Debian and Ubuntu, `dnf
+  install gc-devel` on Fedora. `pyk compile --run` (and the Makefile it
+  writes) finds it with `pkg-config bdw-gc`, and otherwise in
+  `/opt/homebrew`, `/usr/local`, `/opt/local` and `/usr`; where it is
+  nowhere, `pyk` says so and how to install it, rather than leaving the
+  C compiler to say `gc.h` is missing. By hand:
+
+  ```
+  cc -std=c99 -o prog prog.c $(pkg-config --cflags --libs bdw-gc) -lm
+  ```
+
+- **Tested.** `tests/gc_strings.pyk` drops over fifty MB of Strings,
+  and its manifest entry (`c_peak_mb = 32`) holds a C build to a small
+  fraction of that: tests/test_script.py runs it with its data segment
+  limited to that much (`RLIMIT_DATA`, which Linux enforces; macOS
+  ignores it), so a build that freed nothing would fail. Memory is not
+  compared across targets.
+
+## What is refused
 
 | refused | why |
 |---|---|
-| a list, `[e for ...]`, `for x in` a list, `range` outside a `for` header | every list is allocated, and nothing would free it |
-| a datatype holding itself, directly or through another (`Tree(a)`) | a value of it has no size of its own |
-| a function value that captures, returned, or held in a tuple, a datatype or a top-level binding | its environment is on the stack of the function that made it |
+| a list, `[e for ...]`, `for x in` a list, `range` outside a `for` header | lists on C are a step of their own after the collector (FCR-L2 of the mutation design) |
+| `array(xs)` from anything but a list literal; `array.to_list` | the same step: `array([1, 2])` builds the array straight from the literal's elements, with no list between, but any other list is a list |
+| a datatype holding itself, directly or through another (`Tree(a)`) | the same step: a value of it has no size of its own, so it is a pointer |
+| a function value that captures, returned, or held in a tuple, a datatype, an array or a top-level binding | its environment is on the stack of the function that made it, and is not yet moved to the collected heap |
 | a polymorphic parameter (`all a. (a) -> a`) | one function would have to serve every type, which needs one representation for all of them |
 | a polymorphic function as a value, other than as an argument or another name for it | a value has one type, and the function is compiled once per type |
 
 `for x in range(a, b, c)` builds no list: it is a counting loop.
 A `match` over a list, a list pattern and `len` of a list are refused
-with the list (so are `[e for c in s]` and `lib/text`'s `chars`, which
+with the list -- but for `len` of a list literal, which is its count of
+elements, each worked out for what it does and no list made (so are `[e for c in s]` and `lib/text`'s `chars`, which
 make a list of a String's Chars).
 
 ## Chars and Strings
@@ -86,14 +128,81 @@ escaped) and a String by `pyk_quote` (`"abc"`, with `\\`, `\"`, `\n`,
 | `(Int, String)` | `pyk_t_Tis_`, a struct with `a0`, `a1` |
 | `Shape`, `Maybe(Int)` | `pyk_d_D<module>_Shape__`, `pyk_d_D<module>_Maybe_i_`: a struct with a `tag` and a union of the constructors' fields |
 | `(Int) -> Int` | `pyk_c_Fi_i_`: a function `fn` taking the environment first, the environment `env`, and `plain`, the function itself where it captures nothing |
+| `Array(Int)` | `pyk_a_Ai_ *`: a pointer to a struct of `len` and `items` |
 
 A compound type's name is its **code**: one letter per scalar (`i`,
-`c`, `f`, `b`, `s`, `u` for unit), and `T...`, `D<module>_<name>_...` and
-`F..._..._` for a tuple, a datatype and a function. A datatype is
+`c`, `f`, `b`, `s`, `u` for unit), and `T...`, `D<module>_<name>_...`,
+`F..._..._` and `A..._` for a tuple, a datatype, a function and an
+array. A datatype is
 always named with its module, so every file of a program writes the
 same struct. Each type is declared guarded (`#ifndef PYK_TYPE_...`), so
 a header and the file including it may both carry it, and a module's
 header carries every type its file declares.
+
+## Arrays
+
+An array (PYKING.md, "Arrays") is a **pointer** to a struct declared
+once per element type, guarded like every compound type:
+
+```c
+typedef struct pyk_a_Ai_ {
+    int len;
+    int *items;
+} pyk_a_Ai_;
+```
+
+Assigning one, passing it, answering it, holding it in a tuple, a
+datatype or another array, and capturing it copy the pointer, never the
+elements: every name holding an array sees a write through any other.
+`same(a, b)` is `a == b`, and `len(a)` is `a->len`.
+
+| Pyking | C |
+|---|---|
+| `array([4, 1, 2])` | `(t = pyk_new_Ai_(3), t->items[0] = 4, ..., t)`: the elements written straight in, left to right; no list is made |
+| `array(n, v)` | `pyk_fill_Ai_(n, v)`: n times the one value v |
+| `array(n, f)` | `pyk_init_Fi_i_(n, f)`: element i is `f.fn(f.env, i)`, for i = 0, 1, ... in turn |
+| `array(n, seed, f)` | `pyk_unfold_Fi_Tii__(n, seed, f)`: each turn `r = f.fn(f.env, s)`, element i is `r.a0` and `s` becomes `r.a1` |
+| `a[i]` | `pyk_at_Ai_(a, i)` |
+| `for x in a`, `loop acc = e for x in a:` | `for (x_at = 0; x_at < x_array->len; x_at++) { x = x_array->items[x_at]; ... }` |
+
+**Checks.** Every maker starts with `pyk_new_<code>(n)`, which asks
+`pyk_array_items` for the elements: a negative `n` stops the program
+with `an array's size is never negative, and this one is -1`, and `n`
+elements of more bytes than a `size_t` counts -- or more than the
+collector can find -- with `an array of N elements is more than this
+machine can hold`, both before an element is made or `f` called once.
+Every read and write goes through `pyk_check_index(i, a->len)`, which
+stops the program with `the index 5 is outside an array of 2 elements`
+(`element` for one). Like every runtime error here, it writes `error:`
+and the message to stderr and exits with status 1; `exit` flushes what
+the program printed before.
+
+**An element write** `a[i] := v` is statements of its own, run in the
+order PYKING.md gives: the array into a temporary, the index into
+another, the index checked, and only then the value worked out and
+written into the array the temporary holds -- even when working it out
+rebinds the name the array came from:
+
+```c
+pyk_arr2 = held;
+pyk_idx3 = 0;
+pyk_check_index(pyk_idx3, pyk_arr2->len);
+pyk_arr2->items[pyk_idx3] = replace_held();
+```
+
+`a[i] += e` reaches the backend already as that, its array and index
+named once (`element__array`, `element__index`, desugar_args.md).
+
+**Printing** an array, on its own or inside a tuple, a datatype or
+another array, is `pyk_show_<code>`: `array([`, each element as it is
+written inside a list (a String quoted, a Char in single quotes), and
+`])`.
+
+A function value is held in an array only where it captures nothing:
+one whose environment is on the stack is refused, as in a tuple.
+`tests/array_nolist.pyk` exercises all of this, and `lib/array`, without
+a list; `array_bounds_read.pyk`, `array_bounds_write.pyk` and
+`array_negative_size.pyk` the three runtime errors.
 
 ## Polymorphic functions
 
@@ -352,9 +461,9 @@ harness both do.
 
 ## Where the output is not optimal
 
-- **Strings leak.** `pyk_concat`, a conversion and the text of a printed
-  compound value allocate and never free. Pyking has no ownership to
-  compile into a `free`.
+- **Strings are not shared.** `pyk_concat`, a conversion and the text
+  of a printed compound value allocate a new String each time; the
+  collector frees it when nothing holds it.
 - **A polymorphic function is compiled once per type**, which grows the
   file as fast as the types it is used at.
 - **A lifted function takes every name it mentions** from around it, used

@@ -775,7 +775,7 @@ let completion state document pos =
               item n kind detail :: acc)
           scope_names []
       in
-      let names = if names = [] then List.map (fun n -> item n 3 (Some "builtin")) Builtin.names else names in
+      let names = if names = [] then List.map (fun n -> item n 3 (Some "builtin")) Builtin.words else names in
       (* A reserved word nothing uses yet is no keyword to offer. *)
       let keywords =
         List.map (fun k -> item k 14 None)
@@ -957,6 +957,15 @@ let builtin_signatures name =
         ("range(start: Int, stop: Int, step: Int) -> [Int]", [ "start: Int"; "stop: Int"; "step: Int" ]);
       ]
   | "len" -> [ ("len(items) -> Int", [ "items" ]) ]
+  | "same" -> [ ("same(a: Array(t), b: Array(t)) -> Bool", [ "a: Array(t)"; "b: Array(t)" ]) ]
+  | "array" ->
+      [
+        ("array(xs: [t]) -> Array(t)", [ "xs: [t]" ]);
+        ("array(n: Int, v: t) -> Array(t)", [ "n: Int"; "v: t" ]);
+        ("array(n: Int, f: (Int) -> t) -> Array(t)", [ "n: Int"; "f: (Int) -> t" ]);
+        ( "array(n: Int, seed: s, f: (s) -> (t, s)) -> Array(t)",
+          [ "n: Int"; "seed: s"; "f: (s) -> (t, s)" ] );
+      ]
   | "string" -> [ ("string(value) -> String", [ "value" ]) ]
   | "int" -> [ ("int(value) -> Int", [ "value" ]) ]
   | "float" -> [ ("float(value) -> Float", [ "value" ]) ]
@@ -1091,7 +1100,11 @@ let signature_help state document pos =
           | Some Builtin | None when module_ = None ->
               List.map
                 (fun (label, params) ->
-                  let doc = match Builtin.lookup base with Some b -> b.doc | None -> "" in
+                  let doc =
+                    match Builtin.lookup base with
+                    | Some b -> b.doc
+                    | None -> Option.value (Builtin.overload_doc base) ~default:""
+                  in
                   (signature label doc (List.map (fun p -> (p, "")) params), []))
                 (builtin_signatures base)
           | _ -> []
@@ -1247,7 +1260,7 @@ let bindable name =
   && (match name.[0] with 'a' .. 'z' | '_' -> true | _ -> false)
   && String.for_all (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true | _ -> false) name
   && (not (List.mem name Lexer.keywords))
-  && not (List.mem name Builtin.names)
+  && not (List.mem name Builtin.words)
 
 (** Every place the name at a position is written, given a new name --
     refused where the new name is not one a program may bind, or where

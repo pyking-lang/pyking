@@ -1,0 +1,10 @@
+# A compound assignment to a name bound with `=`: only a `var` may be
+# updated, and the error names the operator that was written.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+count = 0
+count += 1

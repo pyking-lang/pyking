@@ -394,6 +394,17 @@ compiler *in* Pyking, and a representation with host objects woven
 through it wouldn't survive that translation — a `value` tree built only
 from these nine shapes will.
 
+`VArray` holds an OCaml `value array`, which is the one exception, and
+a deliberate one: an array is a store written in place and shared by
+every name holding it, which is what a host array is, and a Pyking
+interpreter written in Pyking would hold an `Array(Value)` the same way.
+An element write is three continuations -- `KSetArray` (the array has
+arrived), `KSetIndex` (the index, checked here, before the value runs),
+`KSetValue` (the write) -- and a `for` over an array keeps the array and
+the next index in the loop's `walking`, reading each element as its turn
+is reached. `init::array` and `unfold::array` call their function back
+in a machine of their own, as a host's callback is called.
+
 ## Hosts: where output actually goes
 
 `Host` is a tiny protocol — `print_line` and `debug_line`, one per

@@ -22,6 +22,7 @@
 <span style="color:#8959a8">def</span> <span style="color:#4271ae">main</span>():
 &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8959a8">var</span> count <span style="color:#3e999f">=</span> <span style="color:#f5871f">0x1F</span>
 &nbsp;&nbsp;&nbsp;&nbsp;count <span style="color:#3e999f">:=</span> count <span style="color:#3e999f">&lt;&lt;</span> <span style="color:#f5871f">2</span> <span style="color:#3e999f">|</span> <span style="color:#f5871f">0b101</span> <span style="color:#3e999f">&amp;</span> <span style="color:#3e999f">~</span>count
+&nbsp;&nbsp;&nbsp;&nbsp;count <span style="color:#3e999f">+=</span> <span style="color:#f5871f">1</span>
 &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8959a8">for</span> i <span style="color:#8959a8">in</span> <span style="color:#3e999f">range</span>(<span style="color:#f5871f">3</span>):
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#3e999f">print</span>(describe(i, <span style="color:#718c00">'a'</span>), area(<span style="color:#c99e00">Circle</span>(<span style="color:#f5871f">1.5</span>)) <span style="color:#3e999f">!=</span> <span style="color:#f5871f">2.0e1</span>, <span style="color:#f5871f">true</span>)
 &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#3e999f">print</span>(count <span style="color:#3e999f">%</span> <span style="color:#f5871f">7</span>, <span style="color:#3e999f">len</span>([<span style="color:#f5871f">1</span>, <span style="color:#f5871f">2</span>, <span style="color:#f5871f">3</span>]) <span style="color:#3e999f">^</span> <span style="color:#f5871f">2</span>)

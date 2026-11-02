@@ -22,6 +22,7 @@ def describe(n: Int, c: Char) -> String:
 def main():
     var count = 0x1F
     count := count << 2 | 0b101 & ~count
+    count += 1
     for i in range(3):
         print(describe(i, 'a'), area(Circle(1.5)) != 2.0e1, true)
     print(count % 7, len([1, 2, 3]) ^ 2)

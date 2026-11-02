@@ -34,7 +34,8 @@ let unit_for e = ETuple (expr_info e, [], expr_sym e)
     typ IntMap.t -> stmt -> bool *)
 let supplies_unit tmap statement =
   match statement with
-  | SLet _ | SLetStmt _ | SVar _ | SMutate _ | SFunctionDef _ | SFunctionSig _
+  | SMutateTuple _ -> after_desugar "release"
+  | SLet _ | SLetStmt _ | SVar _ | SMutate _ | SSetIndex _ | SFunctionDef _ | SFunctionSig _
   | SImport _ | SDatatype _ ->
       true
   | SExprStmt (_, e, _) -> (
@@ -127,6 +128,8 @@ and rewrite tmap statement =
   | SLetStmt (i, target, inner, t, s, public) ->
       SLetStmt (i, target, rewrite tmap inner, t, s, public)
   | SVar (i, name, e, s) -> SVar (i, name, go e, s)
+  | SMutateTuple _ -> after_desugar "release"
+  | SSetIndex (i, owner, index, value, s) -> SSetIndex (i, go owner, go index, go value, s)
   | SMutate (i, name, e, s) -> SMutate (i, name, go e, s)
   | SReturn (i, e, s) -> SReturn (i, go e, s)
   | SReturnStmt (i, inner, s) -> SReturnStmt (i, rewrite tmap inner, s)

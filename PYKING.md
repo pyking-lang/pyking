@@ -267,8 +267,9 @@ Statements:
   several names at once (e.g. `a, b = 1, 2` or `(a, (b, c)) = pair`),
   and whose right-hand side may be an `if`/`match` *statement* in value
   form (`x = if cond:` / `x = match e:`) — Pyking extension
-- Mutable variables (`var` and `:=`), turned on with `use mutation` —
-  Pyking extension
+- Mutable variables (`var` and `:=`), and compound assignment
+  (`count += 1`, `bits <<= 2`, `flag xor= true`), turned on with
+  `use mutation` — Pyking extension
 - Features turned on per module with `use` (`use mutation`) — Pyking
   extension (see "Features turned on with `use`")
 - **Default parameters** (`def greet(who: String = "world"):`), used
@@ -527,7 +528,13 @@ rest_marker        = ".." , [ ident ] ;
 
 var_decl    = "var" , ident , "=" , bound_expr ;
 assignment  = [ "implicit" ] , target , [ ":" , type ] , "=" , bound_value ;
-mutation    = ident , ":=" , bound_expr ;
+mutation    = ident , ":=" , bound_expr
+            | target , ":=" , bound_expr            (* a tuple of names *)
+            | ident , compound_op , bound_expr
+            | atom , ( ":=" | compound_op ) , bound_expr ;
+                       (* an array's element: an atom ending in an index_tail *)
+compound_op = "+=" | "-=" | "*=" | "/=" | "%=" | "^="
+            | "&=" | "|=" | "<<=" | ">>=" | "xor" "=" ;   (* no space in "xor=" *)
 
 (* A bound value may start on the line after its "=", indented -- the
    lexer wraps it in the same INDENT/DEDENT any other block gets. *)
@@ -1587,7 +1594,10 @@ print(xs[0], xs[2], xs[len(xs) - 1], rows[1][0])   # 10 30 30 3
 - An index binds as tightly as a call and a field, and the `[` is on
   the row the list ends on: a `[` starting the next line starts a list
   literal there, as a `(` there starts a new statement.
-- A list is never changed: there is no `xs[i] := v`.
+- A list is never changed: there is no `xs[i] := v`. An array's
+  element is written that way (see "Arrays").
+- An array is indexed the same way, and an index outside it is a
+  runtime error on every target.
 - An index outside the list -- negative included -- is a runtime error
   in the interpreter (`the index 5 is outside a list of 2 elements`) and
   whatever the host does with it in compiled code.
@@ -1595,7 +1605,7 @@ print(xs[0], xs[2], xs[len(xs) - 1], rows[1][0])   # 10 30 30 3
   counting code points, and is a `Char` (see "Char literals"). An index
   outside the String is a runtime error in the interpreter (`the index 9
   is outside a String of 3 characters`).
-- Only a list and a String are indexed. A tuple is taken apart by a
+- Only a list, an array and a String are indexed. A tuple is taken apart by a
   pattern or a `let`; the checker says so.
 
 ### Function calls
@@ -1798,7 +1808,7 @@ print(count)
 
 | Feature | Turns on |
 |---|---|
-| `mutation` | `var` and `:=` (see "Mutable variables") |
+| `mutation` | `var`, `:=` and compound assignment such as `+=` (see "Mutable variables"), and making and writing arrays (see "Arrays") |
 | `objects` | nothing yet: the name is reserved for classes and methods |
 
 Several are written on one line, `use mutation, objects`, or on lines
@@ -1879,6 +1889,195 @@ that reading step becomes something a program can talk about.)
 A mutable variable is also the one name that may not be shadowed, and
 `:=` only ever accepts one — both checked at compile time, and neither
 of them a question about types; see "Names and scoping" below.
+
+**Compound assignment.** `name op= expr` is `name := name op expr`, for
+every arithmetic and bitwise operator: `+=`, `-=`, `*=`, `/=`, `%=`,
+`^=`, `&=`, `|=`, `<<=`, `>>=` and `xor=`. It is checked exactly as the
+`:=` it means is, so it needs `use mutation` and a `var`, and the
+operator's result must be the variable's own type: `ratio /= 2` on a
+Float is refused, since Pyking mixes no numbers, and `ratio /= 2.0` is
+what works. The right-hand side is one whole expression, so
+`n *= 1 + 2` is `n := n * (1 + 2)`:
+
+```pyking
+use mutation
+
+var count = 10
+count += 5          # 15
+count *= 1 + 2      # 45
+var greeting = "hello"
+greeting += ", world"
+var bits = 12
+bits <<= 2          # 48
+print(count, greeting, bits)
+```
+
+**Several at once.** `a, b := e` writes several mutable variables from
+one tuple, and the names may nest to match its shape:
+`(x, (y, z)) := (1, (2, 3))`. The value is worked out once, in full,
+and only then is each name written, left to right — so `a, b := b, a`
+swaps them, where two `:=` in a row would not. Each name must be a `var`
+of the part's type, and is named once. This is how a function updates
+several variables: it returns their new values, and one `:=` stores
+them (there are no reference parameters):
+
+```pyking
+use mutation
+
+def divmod(n: Int, d: Int) -> (Int, Int):
+    (n / d, n % d)
+
+var q = 0
+var r = 0
+q, r := divmod(17, 5)
+var a = 1
+var b = 2
+a, b := b, a
+print(q, r, a, b)       # 3 2 2 1
+```
+
+`+=` on a String or a list joins, as `+` does, and builds a new value:
+a list held by a `var` is still never changed in place, so a binding
+that held the old list keeps it. Like `:=`, a compound assignment is a
+statement with no value of its own: `print(count += 1)` is refused.
+There is no `++`, and no `and=`/`or=`. `-t pyking` prints one back as
+it was written.
+
+### Arrays (`Array(T)`) — Pyking extension
+
+An **array** is a fixed number of elements of one type, written in
+place and shared by every name that holds it. Its type is `Array(T)`,
+apart from the list type `[T]`: a list is a value that is never
+changed, an array is a store that is. Making one and writing to one
+need `use mutation`; reading, passing, returning and holding one do
+not.
+
+**Making one.** An array is made by `array(...)` alone -- `var` before a
+list still makes a `var` holding a list. It has four forms, told apart
+by their arguments:
+
+| call | form | makes |
+|---|---|---|
+| `array(xs)` | `list::array` | the elements of the list `xs` |
+| `array(n, v)` | `fill::array` | `n` elements, each the one value `v`, worked out once |
+| `array(n, f)`, `f: (Int) -> T` | `init::array` | element `i` is `f(i)` |
+| `array(n, seed, f)`, `f: (S) -> (T, S)` | `unfold::array` | each element and the next `seed` from `f` |
+
+```pyking
+use mutation
+
+primes = array([2, 3, 5])
+zeros = array(4, 0)
+squares = array(5, lam i. i * i)
+fibs = array(8, (0, 1), lam p. let (a, b) = p in (a, (b, a + b)))
+print(primes, zeros, squares, fibs)
+# array([2, 3, 5]) array([0, 0, 0, 0]) array([0, 1, 4, 9, 16]) array([0, 1, 1, 2, 3, 5, 8, 13])
+```
+
+- **A function argument makes the elements.** `array(3, f)` with a
+  function `f` calls it; an array of three copies of a function is
+  `fill::array(3, f)`. This is the one place two fitting definitions are
+  not an error (see "Static overloading").
+- **An argument nothing has decided is refused**, rather than guessed:
+  inside `lam v. array(3, v)` the type of `v` is open, so it could fill
+  or make, and the checker says to annotate it or name the form.
+  Writing the form -- `fill::array(n, v)`, `init::array(n, f)` -- always
+  says which.
+- **The generated forms call `f` in index order**, once per element,
+  and never when `n` is 0; `unfold` drops the last `seed`. A negative
+  `n` is a runtime error (`an array's size is never negative`), and a
+  size is checked before anything is allocated.
+- **An empty array needs its element type known**: from its use, or
+  written, `empty: Array(Int) = array([])`. One whose element type
+  nothing decides is refused at its binding: `the type of 'empty' is
+  Array(?)`. An immutable `xs = []` stays a list of anything.
+
+**Reading and writing.** `a[i]` reads element `i`, counting from 0, and
+`a[i] := v` writes it; the compound forms (`a[i] += 1`) work on an
+element as on a `var`. `len(a)` is the number of elements, fixed when it
+was made: an array never grows or shrinks.
+
+```pyking
+use mutation
+
+a = array([5, 1, 2])
+a[0] := a[1] + a[2]
+a[2] *= 10
+print(a, len(a))        # array([3, 1, 20]) 3
+```
+
+- **Every index is checked, on every target.** One outside the array --
+  a negative one too, since nothing counts from the end -- is a runtime
+  error, `the index 5 is outside an array of 2 elements`, where C, Java
+  and Python would each do something different.
+- **An element write runs in a fixed order.** `a[i] := e` works out `a`,
+  then `i`, then checks `i` -- an index outside the array fails before
+  `e` runs -- then works out `e`, and writes into the array `a` was. A
+  compound form reads the element between the check and `e`. So if `e`
+  writes `a[i]` itself, `a[i] += e` adds to what was there before `e`
+  ran, and if `e` makes `a` name another array, the write still goes to
+  the first one.
+- **`=` does not write.** `a[i] = v` is refused with "did you mean
+  `a[i] := v`?", and a list's or a String's element cannot be written at
+  all.
+- **The costs.** Reading, writing and `len` take constant time; making,
+  copying and filling one take time in proportion to its length. Growing
+  a list with `xs := xs + [x]` copies it each time, so a loop doing that
+  is quadratic: an array made by `array(n, f)`, or a comprehension, is
+  linear.
+
+**Sharing.** `b = a` makes `b` a second name for the same array, and a
+call `f(a)` gives `f` the same array, so a write through either is seen
+through both -- Java's and Python's rule. `same(a, b)` asks whether two
+names hold one array. `==` compares no arrays: whether two hold the
+same elements is `array.equal(a, b)` from `lib/array`, which says so
+when `==` is tried.
+
+```pyking
+use mutation
+
+def zero_first(xs: Array(Int)) -> ():
+    xs[0] := 0
+
+a = array([5, 6])
+b = a
+zero_first(b)
+print(a, same(a, b), same(a, array([0, 6])))   # array([0, 6]) true false
+```
+
+**Arrays of arrays** are a matrix, indexed `m[r][c]`. `array(n, v)` with
+an array `v` stores one row `n` times -- the classic trap -- and the
+`shared-fill` warning says so (see "Warnings"); a generator makes a new
+row each time:
+
+```pyking
+use mutation
+
+grid = array(3, lam _. array(3, 0))
+grid[0][0] := 1
+print(grid)      # array([array([1, 0, 0]), array([0, 0, 0]), array([0, 0, 0])])
+```
+
+**Walking one.** `for x in a` runs `len(a)` turns and reads each
+element as its turn is reached, so a write ahead of the loop is seen. A
+comprehension over an array makes a list, and a `loop` may carry an
+array as its accumulator. There are no array patterns: a `match` takes
+an array as a whole, with a name or `_`.
+
+**Printing.** An array prints as what makes one, `array([1, 2])`, so it
+is told from the list `[1, 2]`, and nested arrays print nested.
+`string(a)` is the same text.
+
+**Types.** `Array(T)` is a type like any datatype's, and it is
+*invariant*: an `Array(Int)` is never an `Array(a)` of some other `a`.
+Only `def`s are polymorphic, so `def first(xs: Array(a)) -> a` serves
+every element type, while a binding's array has one.
+
+The rest -- copying, filling, comparing, sorting, joining -- is the
+library `lib/array` (see "Modules", and its help page): `copy`,
+`to_list`, `fill`, `swap`, `reverse`, `concat`, `resize`, `equal` and
+`sort`, which is stable and orders Floats with NaN last and Strings by
+code point, alike on every target.
 
 ### Names and scoping
 
@@ -2985,7 +3184,11 @@ Three rules follow, and each is refused where it is written:
   `twice` with no qualifier, `twice(...)` means that one and is a type
   error if it does not fit.
 - **A builtin's name is never part of a set.** `string(1)` is the builtin
-  whatever `q::string` definitions are in scope.
+  whatever `q::string` definitions are in scope. The one exception is
+  `array`, which *is* a set: `list::array`, `fill::array`, `init::array`
+  and `unfold::array`, and the one place two fitting definitions are not
+  an error -- an `array(n, f)` whose `f` is a function is `init::array`
+  (see "Arrays").
 
 Resolution needs the argument types to be decided. Inside a function
 whose parameter could be anything, they are not, and the call is
@@ -5133,6 +5336,7 @@ Each warning has a name, which is what its flag is called:
 | `unused-pattern-var` | no | a name a `case` pattern binds that its arm never uses |
 | `unused-parameter` | no | a parameter of a `def` or a lambda that its body never uses |
 | `unused-loop-var` | no | a `for` variable, a loop's accumulator, or a name a comprehension binds, that is never used |
+| `shared-fill` | yes | `array(n, v)` where `v` is itself an array, so every element is one and the same array (see "Arrays"); not for a size of 0 or 1 |
 
 A function is used when something that runs calls it, or passes it on
 as a value. A function that only calls itself is reported, and so is a

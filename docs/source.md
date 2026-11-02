@@ -1832,9 +1832,10 @@ go, how a boolean is spelled -- not about meaning.
 [target_c.md](target_c.md) (what compiles to what, and what is refused).
 
 - **`translate_program ?requested stmts tmap context standard`** -- one
-  module, its types read from `tmap`. C has no garbage collector, so it
-  compiles what needs none and refuses a list, a datatype holding
-  itself and a function value that could outlive its environment.
+  module, its types read from `tmap`. Strings come from the bdwgc
+  collector; it refuses a list, a datatype holding itself and a
+  function value that could outlive its environment, which are steps
+  after the collector.
 - **`translate_all units standard`** -- every module of a program, each
   compiling the instances of its polymorphic functions the others call.
 - **`ctype` / `code`** -- a type as C, every compound one declared once

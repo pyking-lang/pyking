@@ -154,6 +154,13 @@ val type_check :
     Builtin.names, at its TBuiltin type. () -> env *)
 val builtin_env : unit -> env
 
+(** The element type of an array type (`Array(T)` gives `T`), or None
+    for any other type. typ -> typ option *)
+val array_element : typ -> typ option
+
+(** `Array(T)` for an element type. info -> typ -> typ *)
+val t_array : info -> typ -> typ
+
 (** The store a program starts checking in, holding the signature of
     every module it imports. [(string, sigmap)] -> store *)
 val empty_store : (string * sigmap) list -> store

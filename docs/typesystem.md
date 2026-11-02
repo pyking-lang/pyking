@@ -344,6 +344,37 @@ lookup dispatches on a type variant. Like `TUnknown` it is unwritable in
 source; unlike it, it is never recorded in `tmap`, so it cannot reach
 printed output.
 
+## Arrays: a builtin datatype and a builtin overload set
+
+`Array(T)` is `TCon ("Array", [T])`, registered in `empty_store`'s
+`types` so an annotation may name it, with one parameter and no
+constructors; `array_element` reads `T` back. `module.ml` leaves it
+unqualified in a module's signature, where every other datatype is named
+`module.Type`.
+
+`array` is the one builtin overload set: `builtin_env` binds
+`list::array`, `fill::array`, `init::array` and `unfold::array` as
+ordinary polymorphic `::` definitions, so `resolve_overload` resolves a
+call by its arguments and records it in `qmap` as any set's. It adds one
+rule: when exactly `fill::array` and `init::array` fit and the second
+argument is a function, `init::array` is chosen. Where that argument's
+type is still open the call is refused, with a message naming the two
+forms. A member named outright (`fill::array(...)`) is resolved as a set
+of one, so it is recorded too -- which is what the `shared-fill` warning
+reads.
+
+An element is read by `EIndex` and written by `SSetIndex`, checked in the
+order they run: the array (a list or a String is refused with what to
+write instead), the index (an Int), and the value against the element
+type, with `satisfies`. `len`, `for` and a comprehension take arrays,
+and `same` is a builtin taking two arrays of one element type. `==` has
+no row for arrays, and its error says to use `same` or `array.equal`.
+
+**An open array is refused at its binding** (`check_open_arrays`, after
+the module is checked): a binding whose type holds `Array` of an
+element type nothing decided, since a mutable value has one type and
+nothing later can say which. An immutable `xs = []` stays `[a]`.
+
 ## Three kinds of type variable
 
 `syntax.ml` has one node, `TVar`, and the checker uses it two ways. With

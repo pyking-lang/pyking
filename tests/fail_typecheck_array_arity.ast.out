@@ -1,0 +1,2 @@
+'tests/fail_typecheck_array_arity.pyk' 8:12-8:30 Type error: 'Array'
+  takes 1 type parameter, but is given 2

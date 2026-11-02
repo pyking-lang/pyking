@@ -31,11 +31,11 @@ file = "boolean_literals.pyk"
 
 [[cases]]
 file = "boolean_literals_patterns.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "concatenation.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "else_if.pyk"
@@ -45,7 +45,7 @@ file = "else_if_nested.pyk"
 
 [[cases]]
 file = "else_if_nested_loop.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "escapes.pyk"
@@ -133,7 +133,7 @@ file = "char_basic.pyk"
 
 [[cases]]
 file = "char_lists.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "fail_typecheck_char_long.pyk"
@@ -293,7 +293,7 @@ file = "function_types.pyk"
 
 [[cases]]
 file = "if_expr.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "ifelse.pyk"
@@ -306,57 +306,57 @@ file = "lexical_capture.pyk"
 
 [[cases]]
 file = "lexical_capture_group.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "lexical_capture_loop.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "lexical_capture_nested.pyk"
 
 [[cases]]
 file = "list_complex.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "list_comprehension_basic.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "list_comprehension_filter.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "list_comprehension_nested.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "list_comprehension_pattern_helper.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "list_literals.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "list_pattern_match.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "list_pattern_recursive.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "list_pattern_recursive_short.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "loop_corner_cases.pyk"
 
 [[cases]]
 file = "loop_def_capture.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "loop_early_return.pyk"
@@ -369,27 +369,27 @@ file = "loop_break_value.pyk"
 
 [[cases]]
 file = "loop_break_value_lists.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "match_int_simple.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "match_int_simple_new.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "match_string_simple.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "negative_numbers.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "nested_for_mutation.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "recursion_forward.pyk"
@@ -411,25 +411,25 @@ file = "renaming_keywords.pyk"
 
 [[cases]]
 file = "renaming_shadowing.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "scopes.pyk"
 
 [[cases]]
 file = "shadowing.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "shadowing_blocks.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "shadowing_functions.pyk"
 
 [[cases]]
 file = "shadowing_mutable.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "short_function.pyk"
@@ -466,14 +466,14 @@ file = "tuples_assign_destructure.pyk"
 
 [[cases]]
 file = "tuples_complex.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "tuples_functions.pyk"
 
 [[cases]]
 file = "tuples_lists.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "tuples_literals.pyk"
@@ -483,7 +483,7 @@ file = "tuples_match_destructure.pyk"
 
 [[cases]]
 file = "typecheck_builtins.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_function_if.pyk"
@@ -493,11 +493,11 @@ file = "typecheck_function_types.pyk"
 
 [[cases]]
 file = "typecheck_for_value.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_loop_combined.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_functions.pyk"
@@ -539,19 +539,19 @@ also = ["pyking_notail"]
 
 [[cases]]
 file = "typecheck_infer_polymorphic.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_infer_variables.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_infer_pinned.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_infer_empty.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "fail_typecheck_infer_pinned.pyk"
@@ -561,15 +561,15 @@ file = "fail_typecheck_infer_returns.pyk"
 
 [[cases]]
 file = "typecheck_infer_polymorphic_arg.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_infer_generic_lists.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_infer_pipeline.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_annotated_rank2.pyk"
@@ -577,7 +577,7 @@ excluded = { c = "a polymorphic parameter needs one function for every type; C c
 
 [[cases]]
 file = "typecheck_hm_annotation_agrees.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_apply.pyk"
@@ -590,7 +590,7 @@ file = "typecheck_hm_compose.pyk"
 
 [[cases]]
 file = "typecheck_hm_fold.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_generalisation.pyk"
@@ -603,39 +603,39 @@ file = "typecheck_hm_letpoly.pyk"
 
 [[cases]]
 file = "typecheck_hm_lists.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_loops.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_map.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_mutual.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_nested.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_order.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_pipeline.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_recursion.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_shadowed.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_hm_tuples.pyk"
@@ -669,21 +669,21 @@ file = "typecheck_loop_break.pyk"
 
 [[cases]]
 file = "typecheck_loop_iteration.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_infer_loop_return.pyk"
 
 [[cases]]
 file = "typecheck_loop_simple.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_loop_basic.pyk"
 
 [[cases]]
 file = "typecheck_loop_continue.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_loop_nested.pyk"
@@ -792,57 +792,57 @@ file = "typecheck_type_variables.pyk"
 
 [[cases]]
 file = "typecheck_comprehensions.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_concat_nested.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_concat_parse.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_concat_patterns.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_division.pyk"
 
 [[cases]]
 file = "typecheck_expr_evaluator.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_list_pipeline.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_lists.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_map_fold.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_match_exhaustive.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_match_lists.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_match_polymorphic.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_match_scalars.pyk"
 
 [[cases]]
 file = "typecheck_match_suffix.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_match_value.pyk"
@@ -855,11 +855,11 @@ file = "types_atoms.pyk"
 
 [[cases]]
 file = "types_complex.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "types_lists.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "types_mixed.pyk"
@@ -869,14 +869,14 @@ file = "types_tuples.pyk"
 
 [[cases]]
 file = "unit_values.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "value_if.pyk"
 
 [[cases]]
 file = "value_match.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "value_next_line.pyk"
@@ -901,7 +901,7 @@ file = "inline_blocks_value.pyk"
 
 [[cases]]
 file = "inline_match.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "fail_typecheck_inline_two_statements.pyk"
@@ -911,7 +911,7 @@ file = "fail_typecheck_inline_then_indented.pyk"
 
 [[cases]]
 file = "nbsp_spaces.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "fail_typecheck_nbsp_indent.pyk"
@@ -934,9 +934,62 @@ file = "fail_typecheck_inline_case_list.pyk"
 [[cases]]
 file = "typecheck_var_basic.pyk"
 
+# Arrays (PYKING.md, "Arrays"): every form of `array`, element writes in
+# the order they run, sharing, printing and lib/array. array_nolist runs
+# them without a list, which is what C compiles.
+[[cases]]
+file = "array_basic.pyk"
+excluded = { c = "lists are not compiled to C yet: they come after its collector (array_nolist.pyk is this without them)" }
+
+[[cases]]
+file = "array_lib.pyk"
+libs = ["array"]
+excluded = { c = "lists are not compiled to C yet: they come after its collector (array_nolist.pyk is this without them)" }
+
+[[cases]]
+file = "array_nolist.pyk"
+libs = ["array"]
+
+# An index outside an array, and a negative size, stop the program with
+# status 1 on every target, after what it printed before.
+[[cases]]
+file = "array_bounds_read.pyk"
+exit_code = 1
+
+[[cases]]
+file = "array_bounds_write.pyk"
+exit_code = 1
+
+[[cases]]
+file = "array_negative_size.pyk"
+exit_code = 1
+
+[[cases]]
+file = "typecheck_array.pyk"
+excluded = { c = "lists are not compiled to C yet: they come after its collector (array_nolist.pyk is this without them)" }
+also = ["pyking_rerun"]
+
+# The C collector: a program that drops over fifty MB of Strings
+# must stay small on C (tests/test_script.py, `c_peak_mb`).
+[[cases]]
+file = "gc_strings.pyk"
+c_peak_mb = 32
+
+[[cases]]
+file = "typecheck_compound_assign.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "typecheck_tuple_mutate.pyk"
+also = ["pyking_rerun", "pyking_nosugar"]
+
+[[cases]]
+file = "typecheck_compound_assign_text.pyk"
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+
 [[cases]]
 file = "typecheck_var_scope.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "fail_typecheck_var_mutate_type.pyk"
@@ -952,7 +1005,7 @@ file = "typecheck_var_functions.pyk"
 
 [[cases]]
 file = "typecheck_var_nested.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "negative_nested.pyk"
@@ -968,23 +1021,23 @@ file = "shadowing_depth_loops.pyk"
 
 [[cases]]
 file = "printing_quotes.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "printing_quotes_str.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_pyking_reparse.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "match_exhaustive_tuple.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_singleton_tuple.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 # The unannotated twins: each is a `typecheck_*` program above with
 # every annotation taken off, so its `.ast.out` pins what inference
@@ -992,7 +1045,7 @@ excluded = { c = "lists need a heap, and C has no garbage collector to free one"
 
 [[cases]]
 file = "typecheck_noann_builtins.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_noann_division.pyk"
@@ -1005,11 +1058,11 @@ file = "typecheck_noann_lexical_capture.pyk"
 
 [[cases]]
 file = "typecheck_noann_list_pipeline.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_noann_lists.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_noann_loop_basic.pyk"
@@ -1019,7 +1072,7 @@ file = "typecheck_noann_loop_break.pyk"
 
 [[cases]]
 file = "typecheck_noann_loop_iteration.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_noann_loop_nested.pyk"
@@ -1033,11 +1086,11 @@ also = ["pyking_rerun", "pyking_nosugar"]
 
 [[cases]]
 file = "typecheck_noann_map_fold.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_noann_match_lists.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_noann_match_scalars.pyk"
@@ -1056,7 +1109,7 @@ file = "typecheck_noann_tco_mutual.pyk"
 
 [[cases]]
 file = "typecheck_noann_var_scope.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 
 [[cases]]
@@ -1140,7 +1193,7 @@ modules = ["external_all_mod1_external.pyk"]
 [[cases]]
 file = "external_shapes.pyk"
 modules = ["external_shapes_mod1_external.pyk"]
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "fail_typecheck_external_body.pyk"
@@ -1199,19 +1252,19 @@ file = "lib_fs_exists.pyk"
 libs = ["fs"]
 excluded = { web = "a browser page has no file system", iweb = "a browser page has no file system" }
 
-# `sys` builds lists, which C has no garbage collector for, so `sys.args`
+# `sys` builds lists, which C does not compile yet, so `sys.args`
 # and `sys.env` do not reach C -- `sys.exit` does, below. `time` builds
 # a tuple, which every target carries. See docs/libraries.md.
 
 [[cases]]
 file = "lib_sys_arguments.pyk"
 libs = ["sys"]
-excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "lib_sys_environment.pyk"
 libs = ["sys"]
-excluded = { web = "a browser page has no environment variables", iweb = "a browser page has no environment variables", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a browser page has no environment variables", iweb = "a browser page has no environment variables", c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "lib_time_format.pyk"
@@ -1256,7 +1309,7 @@ modules = ["module_reserved_export_mod1.pyk"]
 file = "lib_sys_arguments_passed.pyk"
 libs = ["sys"]
 arguments = ["alpha", "beta gamma"]
-excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists are not compiled to C yet: they come after its collector" }
 
 # The examples `pyk example` hands out (src/examples.toml): hello.pyk,
 # and use_args.pyk, which follows.
@@ -1271,12 +1324,12 @@ file = "hello_world.pyk"
 file = "lib_sys_use_args.pyk"
 libs = ["sys"]
 arguments = ["3", "Hello world!"]
-excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "lib_sys_use_args_usage.pyk"
 libs = ["sys"]
-excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists are not compiled to C yet: they come after its collector" }
 
 # Two libraries at once. `sys` is named before `fs` on purpose: it puts
 # a module `Sys` on the OCaml include path before fs.ml is compiled,
@@ -1286,7 +1339,7 @@ excluded = { web = "a browser page has no command-line arguments", iweb = "a bro
 [[cases]]
 file = "lib_two_libraries.pyk"
 libs = ["sys", "fs"]
-excluded = { web = "a browser page has no environment variables", iweb = "a browser page has no environment variables", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a browser page has no environment variables", iweb = "a browser page has no environment variables", c = "lists are not compiled to C yet: they come after its collector" }
 
 # The io library: standard output beside `print`, and standard input.
 # A case reading its input has a sibling .in file, which is what it is
@@ -1320,7 +1373,7 @@ file = "debug_basic.pyk"
 
 [[cases]]
 file = "debug_values.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 # `release = true` compiles with --release: every call to `debug` is
 # removed, so each compiled target must write nothing to standard error,
@@ -1404,11 +1457,11 @@ file = "float_printing.pyk"
 
 [[cases]]
 file = "float_shapes.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "float_str.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "float_var.pyk"
@@ -1449,7 +1502,7 @@ also = ["pyking_nosugar", "pyking_rerun"]
 
 [[cases]]
 file = "typecheck_defaults_complex.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 also = ["pyking_nosugar"]
 
 [[cases]]
@@ -1507,7 +1560,7 @@ excluded = { c = "a function value outliving the stack frame it captures from ne
 
 [[cases]]
 file = "lambda_loop_capture.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_lambda.pyk"
@@ -1527,11 +1580,11 @@ file = "overload_basic.pyk"
 
 [[cases]]
 file = "overload_poly.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_overload.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "implicit_value.pyk"
@@ -1544,12 +1597,12 @@ file = "implicit_explicit_arg.pyk"
 
 [[cases]]
 file = "typecheck_implicit_nested.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "module_implicit.pyk"
 modules = ["module_implicit_mod.pyk"]
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_module_implicit.pyk"
@@ -1657,15 +1710,15 @@ file = "fail_typecheck_overload_named.pyk"
 # accepts, and every shape of String each refuses, on every target --
 # each implements the same reading rather than its host's own. A
 # conversion with no right answer answers a default (PYKING.md,
-# "Builtins"). `conversions_values` takes lists, which C has no
-# garbage collector for.
+# "Builtins"). `conversions_values` takes lists, which C does not
+# compile yet.
 
 [[cases]]
 file = "conversions.pyk"
 
 [[cases]]
 file = "conversions_values.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_conversions.pyk"
@@ -1697,7 +1750,7 @@ libs = ["text"]
 [[cases]]
 file = "lib_text_lists.pyk"
 libs = ["text"]
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "lib_tinyweb_timers.pyk"
@@ -1735,7 +1788,7 @@ excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks 
 [[cases]]
 file = "lib_tinyweb_polygons.pyk"
 libs = ["math", "text", "tinyweb"]
-excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "lib_tinyweb_transform.pyk"
@@ -1765,7 +1818,7 @@ excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks 
 [[cases]]
 file = "lib_tinyweb_choice.pyk"
 libs = ["math", "text", "tinyweb"]
-excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists are not compiled to C yet: they come after its collector" }
 
 # random: a generator written in Pyking, so a seed gives the same numbers
 # on every target.
@@ -1776,7 +1829,7 @@ libs = ["time", "random"]
 [[cases]]
 file = "lib_random_lists.pyk"
 libs = ["time", "random"]
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "lib_tinyweb_splash.pyk"
@@ -1799,47 +1852,47 @@ excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks 
 
 [[cases]]
 file = "adt_basic.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "adt_option.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "adt_tree.pyk"
-excluded = { c = "a datatype holding itself needs a heap, and C has no garbage collector to free one" }
+excluded = { c = "a datatype holding itself is not compiled to C yet: it comes after its collector, with lists" }
 
 [[cases]]
 file = "adt_expr.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "adt_mutual.pyk"
-excluded = { c = "a datatype holding itself needs a heap, and C has no garbage collector to free one" }
+excluded = { c = "a datatype holding itself is not compiled to C yet: it comes after its collector, with lists" }
 
 [[cases]]
 file = "adt_list.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "adt_fields.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "adt_redblack.pyk"
-excluded = { c = "a datatype holding itself needs a heap, and C has no garbage collector to free one" }
+excluded = { c = "a datatype holding itself is not compiled to C yet: it comes after its collector, with lists" }
 
 [[cases]]
 file = "pattern_or.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "pattern_guard.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "pattern_as.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "pattern_guard_scalar.pyk"
@@ -1850,7 +1903,7 @@ file = "typecheck_adt_infer.pyk"
 [[cases]]
 file = "module_adt.pyk"
 modules = ["module_adt_mod1.pyk"]
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "fail_typecheck_module_adt_private.pyk"
@@ -1918,7 +1971,7 @@ file = "fail_typecheck_adt_wrong_datatype.pyk"
 
 # Datatypes, closures handed down, polymorphic functions and another
 # module's polymorphic functions, none of them needing a list: what C,
-# with no garbage collector, compiles as well as every other target.
+# with no lists yet, compiles as well as every other target.
 [[cases]]
 file = "adt_values.pyk"
 
@@ -1979,7 +2032,7 @@ file = "var_values.pyk"
 
 [[cases]]
 file = "var_lists.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "lib_tinyweb_pointer.pyk"
@@ -1999,7 +2052,7 @@ excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks 
 [[cases]]
 file = "lib_tinyweb_smooth.pyk"
 libs = ["math", "text", "tinyweb"]
-excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "lib_tinyweb_layout.pyk"
@@ -2112,32 +2165,32 @@ excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks 
 
 [[cases]]
 file = "operators_boolean.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "operators_bitwise.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "operators_arithmetic.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "list_index.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "concatenation_plus.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "use_mutation.pyk"
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "typecheck_operators.pyk"
 also = ["pyking_rerun"]
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "operators_scalar.pyk"
@@ -2148,7 +2201,7 @@ file = "operators_xor_bool.pyk"
 [[cases]]
 file = "use_mutation_module.pyk"
 modules = ["use_mutation_module_mod1.pyk"]
-excluded = { c = "lists need a heap, and C has no garbage collector to free one" }
+excluded = { c = "lists are not compiled to C yet: they come after its collector" }
 
 [[cases]]
 file = "fail_typecheck_and_mixed.pyk"
@@ -2239,6 +2292,81 @@ file = "fail_typecheck_use_late.pyk"
 
 [[cases]]
 file = "fail_typecheck_use_mutate.pyk"
+
+[[cases]]
+file = "fail_typecheck_compound_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_compound_not_var.pyk"
+
+[[cases]]
+file = "fail_typecheck_compound_mixed.pyk"
+
+[[cases]]
+file = "fail_typecheck_compound_value.pyk"
+
+[[cases]]
+file = "fail_typecheck_compound_target.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_write_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_list_write.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_string_write.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_eq.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_open.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_undecided.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_element.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_eq_write.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_index.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_same.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_arity.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_sort_bool.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_unfold.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_mutate_twice.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_mutate_not_var.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_mutate_arity.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_mutate_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_mutate_compound.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_mutate_type.pyk"
 
 [[cases]]
 file = "fail_typecheck_use_nested.pyk"

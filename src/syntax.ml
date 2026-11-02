@@ -219,6 +219,15 @@ and stmt =
       (* target = <if/match statement in value form> *)
   | SVar of info * string * expr * int (* var name = expr *)
   | SMutate of info * string * expr * int (* name := expr *)
+  | SSetIndex of info * expr * expr * expr * int
+      (* owner[index] := value -- an element of an array written. The
+         owner and the index are worked out, the index checked, then the
+         value, and the element of the owner first worked out is written
+         (PYKING.md, "Arrays"). *)
+  | SMutateTuple of info * assign_target * expr * int
+      (* a, (b, c) := expr -- several `var`s written at once. Desugar_args
+         rewrites it into an `=` binding of the parts and one `:=` per
+         name, so nothing after it sees one. *)
   | SReturn of info * expr * int (* return expr *)
   | SReturnStmt of info * stmt * int
       (* return <if/match statement in value form> *)
@@ -468,6 +477,8 @@ let stmt_info s =
   | SLetStmt (i, _, _, _, _, _) -> i
   | SVar (i, _, _, _) -> i
   | SMutate (i, _, _, _) -> i
+  | SMutateTuple (i, _, _, _) -> i
+  | SSetIndex (i, _, _, _, _) -> i
   | SReturn (i, _, _) -> i
   | SReturnStmt (i, _, _) -> i
   | SExprStmt (i, _, _) -> i
@@ -488,6 +499,8 @@ let stmt_sym s =
   | SLetStmt (_, _, _, _, s, _) -> s
   | SVar (_, _, _, s) -> s
   | SMutate (_, _, _, s) -> s
+  | SMutateTuple (_, _, _, s) -> s
+  | SSetIndex (_, _, _, _, s) -> s
   | SReturn (_, _, s) -> s
   | SReturnStmt (_, _, s) -> s
   | SExprStmt (_, _, s) -> s
@@ -500,6 +513,109 @@ let stmt_sym s =
   | SMatch (_, _, _, s) -> s
   | SImport (_, _, _, _, _, s) -> s
   | SDatatype (_, _, _, _, s, _) -> s
+
+(* --- compound assignment ---
+   `x += e` is parsed as the `x := x + e` it means, so nothing after the
+   parser has a node of its own to handle. What still tells the two
+   apart is where the `x` being read was written: a compound
+   assignment's is the name the statement starts with, and in a `:=`
+   written out it comes after the `:=`. *)
+
+(** The binary expression `x op e` a compound assignment `x op= e` is
+    written as, for the operator's text: `+`, `<<`, `xor`, ...
+    string -> info -> expr -> expr *)
+let rec compound_expr op i target right = compound_on op (EVar (i, target, 0)) right
+
+(** `left op right`, for a compound assignment's operator text, spanning
+    from `left` to `right`. string -> expr -> expr -> expr *)
+and compound_on op left right =
+  let i = expr_info left in
+  let whole = { i with row2 = (expr_info right).row2; col2 = (expr_info right).col2 } in
+  match op with
+  | "+" -> EAdd (whole, left, right, 0)
+  | "-" -> ESub (whole, left, right, 0)
+  | "*" -> EMul (whole, left, right, 0)
+  | "/" -> EDiv (whole, left, right, 0)
+  | "%" -> EBinary (whole, BMod, left, right, 0)
+  | "^" -> EBinary (whole, BPow, left, right, 0)
+  | "&" -> EBinary (whole, BBitAnd Symbol, left, right, 0)
+  | "|" -> EBinary (whole, BBitOr Symbol, left, right, 0)
+  | "xor" -> EBinary (whole, BXor, left, right, 0)
+  | "<<" -> EBinary (whole, BShiftLeft, left, right, 0)
+  | ">>" -> EBinary (whole, BShiftRight, left, right, 0)
+  | _ -> invalid_arg ("compound_expr: " ^ op)
+
+(** The operator and the right-hand side of a `:=` that was written as a
+    compound assignment, `x op= e`; None for one written out.
+    stmt -> (string * expr) option *)
+let compound_parts stmt =
+  match stmt with
+  | SMutate (i, name, e, _) -> (
+      let starts (left : expr) =
+        match left with
+        | EVar (vi, n, _) -> n = name && vi.row1 = i.row1 && vi.col1 = i.col1
+        | _ -> false
+      in
+      match e with
+      | (EAdd (_, l, r, _) | EConcat (_, l, r, _)) when starts l -> Some ("+", r)
+      | ESub (_, l, r, _) when starts l -> Some ("-", r)
+      | EMul (_, l, r, _) when starts l -> Some ("*", r)
+      | EDiv (_, l, r, _) when starts l -> Some ("/", r)
+      | EBinary (_, op, l, r, _) when starts l -> (
+          match op with
+          | BMod -> Some ("%", r)
+          | BPow -> Some ("^", r)
+          | BBitAnd _ -> Some ("&", r)
+          | BBitOr _ -> Some ("|", r)
+          | BXor | BBoolXor -> Some ("xor", r)
+          | BShiftLeft -> Some ("<<", r)
+          | BShiftRight -> Some (">>", r)
+          | _ -> None)
+      | _ -> None)
+  | _ -> None
+
+(** Raises Invalid_argument, for a stage after desugar_args that met a
+    node only the parser makes and desugar_args removes (a tuple `:=`).
+    string -> 'a *)
+let after_desugar stage =
+  invalid_arg (stage ^ ": a tuple ':=' reached a stage after desugar_args")
+
+(** The operator and right-hand side of an element write written as a
+    compound assignment (`a[i] op= e`), or None for one written out with
+    `:=`: the element a compound assignment reads is written where the
+    statement starts. stmt -> (string * expr) option *)
+let index_compound_parts stmt =
+  match stmt with
+  | SSetIndex (i, _, _, e, _) -> (
+      let starts (left : expr) =
+        match left with
+        | EIndex (vi, _, _, _) -> vi.row1 = i.row1 && vi.col1 = i.col1
+        | _ -> false
+      in
+      match e with
+      | (EAdd (_, l, r, _) | EConcat (_, l, r, _)) when starts l -> Some ("+", r)
+      | ESub (_, l, r, _) when starts l -> Some ("-", r)
+      | EMul (_, l, r, _) when starts l -> Some ("*", r)
+      | EDiv (_, l, r, _) when starts l -> Some ("/", r)
+      | EBinary (_, op, l, r, _) when starts l -> (
+          match op with
+          | BMod -> Some ("%", r)
+          | BPow -> Some ("^", r)
+          | BBitAnd _ -> Some ("&", r)
+          | BBitOr _ -> Some ("|", r)
+          | BXor | BBoolXor -> Some ("xor", r)
+          | BShiftLeft -> Some ("<<", r)
+          | BShiftRight -> Some (">>", r)
+          | _ -> None)
+      | _ -> None)
+  | _ -> None
+
+(** How a `:=` statement was written: `:=`, or the compound operator
+    (`+=`, `xor=`, ...). stmt -> string *)
+let assignment_word stmt =
+  match (compound_parts stmt, index_compound_parts stmt) with
+  | Some (op, _), _ | None, Some (op, _) -> op ^ "="
+  | None, None -> ":="
 
 (* --- one node with its span replaced ---
    What `dataclasses.replace(node, info=...)` does in src/: a
@@ -846,7 +962,17 @@ and pprint_expr_body cfg e min_prec =
   | EString (_, s, _) -> quote_string s
   | EChar (_, c, _) -> Builtin.quote_char c
   | EBool (_, v, _) -> if v then "true" else "false"
-  | EVar (_, name, _) -> name
+  | EVar (_, name, _) -> (
+      (* A builtin set's member, renamed by elaborate.ml (`fill__array`),
+         is printed by the name a program writes it with, so what is
+         printed reads back as itself. *)
+      match
+        List.find_opt
+          (fun member -> Names.renamed member = name)
+          (List.concat_map snd Builtin.overload_sets)
+      with
+      | Some member -> member
+      | None -> name)
   | EQualified (_, module_name, name, _) -> module_name ^ "." ^ name
   | EConstruct (_, module_, name, args, _) ->
       let reached =
@@ -1147,8 +1273,18 @@ and pprint_stmt_body cfg s level =
       String.concat "\n" ((prefix ^ strip head) :: rest)
   | SVar (_, name, expr, _) ->
       Printf.sprintf "%svar %s = %s" pad name (pprint_expr cfg expr 0)
-  | SMutate (_, name, expr, _) ->
-      Printf.sprintf "%s%s := %s" pad name (pprint_expr cfg expr 0)
+  | SMutate (_, name, expr, _) -> (
+      match compound_parts s with
+      | Some (op, right) ->
+          Printf.sprintf "%s%s %s= %s" pad name op (pprint_expr cfg right 0)
+      | None -> Printf.sprintf "%s%s := %s" pad name (pprint_expr cfg expr 0))
+  | SMutateTuple (_, target, expr, _) ->
+      Printf.sprintf "%s%s := %s" pad (pprint_target cfg target) (pprint_expr cfg expr 0)
+  | SSetIndex (_, owner, index, value, _) -> (
+      let element = pprint_expr cfg owner prec_atom ^ "[" ^ pprint_expr cfg index prec_low ^ "]" in
+      match index_compound_parts s with
+      | Some (op, right) -> Printf.sprintf "%s%s %s= %s" pad element op (pprint_expr cfg right 0)
+      | None -> Printf.sprintf "%s%s := %s" pad element (pprint_expr cfg value 0))
   | SReturn (_, expr, _) ->
       Printf.sprintf "%sreturn %s" pad (pprint_expr cfg expr 0)
   | SReturnStmt (_, stmt, _) ->

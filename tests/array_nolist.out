@@ -1,0 +1,15 @@
+array([3, 11, 2]) 3 2
+array([0, 1, 4, 9]) array([2.5, 2.5, 2.5]) array([1, 2, 4, 8, 16])
+array(['p', 'y']) array(["k", "ing"]) array([true]) array([(1, 'x')])
+array([3, 11, 99]) true false
+array([9, 11, 99])
+for 0
+for 1
+for 4
+for -9
+array([array([0.0, 1.5]), array([0.0, 0.0])])
+1
+array([6])
+array([-1, 0, 2, 2, 3, 10]) array(["Fig", "app", "apple", "pear"])
+array([10, 3, 2, 2, 0, -1]) array(["pear", "app", "apple", "Fig"]) array([10, 3, 2, 2, 0, -1, 7]) array(["pear", "app", "apple", "Fig", "-"])
+array([0, 0, 0, 0, 0, 0]) true false

@@ -1,0 +1,9 @@
+# `Array` takes one type: its elements'.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+def size(a: Array(Int, String)) -> Int:
+    len(a)

@@ -1,0 +1,11 @@
+# lib/array sorts Ints, Floats, Strings and Chars, each by its own
+# ordering; a Bool has none.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+import array
+
+flags = array([true, false])
+array.sort(flags)

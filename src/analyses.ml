@@ -309,7 +309,9 @@ and analyze_stmt s env =
       List.fold_left
         (fun env (name, info) -> bind env name Imported info)
         env (bound_names s)
+  | SMutateTuple _ -> after_desugar "analyses"
   | SMutate (info, name, _, _) -> (
+      let word = assignment_word s in
       match SMap.find_opt name env with
       | Some existing when existing.kind = Mutable -> env
       | existing ->
@@ -327,10 +329,14 @@ and analyze_stmt s env =
             (Analysis_error
                ( info,
                  Printf.sprintf
-                   "cannot update '%s' with ':=': it is %s (declare it with \
+                   "cannot update '%s' with '%s': it is %s (declare it with \
                     'var' to make it one)"
-                   name what )))
+                   name word what )))
   | SReturn _ | SExprStmt _ | SBreak _ | SContinue _ -> env
+  (* Writing an element binds nothing and writes no name: whether the
+     owner may be written is its type's question (an Array's elements
+     always may), not a `var`'s. *)
+  | SSetIndex _ -> env
   | SReturnStmt (_, stmt, _) ->
       (* `return if c:` / `return match e:` -- the branches are ordinary
          nested scopes, exactly as in `SLetStmt`, and nothing is bound
@@ -751,6 +757,19 @@ and sym_stmt counter st =
       let expr, counter = sym_expr counter expr in
       let s, counter = assign s counter in
       (SVar (i, name, expr, s), counter)
+  | SSetIndex (i, owner, index, value, s) ->
+      let owner, counter = sym_expr counter owner in
+      let index, counter = sym_expr counter index in
+      let value, counter = sym_expr counter value in
+      let s, counter = assign s counter in
+      (SSetIndex (i, owner, index, value, s), counter)
+  | SMutateTuple (i, target, expr, s) ->
+      (* Only `-t pyking --no-typechecking` symbolizes one: it prints the
+         program before desugar_args has rewritten it. *)
+      let target, counter = sym_target counter target in
+      let expr, counter = sym_expr counter expr in
+      let s, counter = assign s counter in
+      (SMutateTuple (i, target, expr, s), counter)
   | SMutate (i, name, expr, s) ->
       let expr, counter = sym_expr counter expr in
       let s, counter = assign s counter in
@@ -949,6 +968,9 @@ and high_stmt st =
         max
           (max (high_target target) (high_stmt stmt))
           (high_option high_type type_)
+    | SMutateTuple (_, target, expr, _) -> max (high_target target) (high_expr expr)
+    | SSetIndex (_, owner, index, value, _) ->
+        max (high_expr owner) (max (high_expr index) (high_expr value))
     | SVar (_, _, expr, _) | SMutate (_, _, expr, _) | SReturn (_, expr, _)
     | SExprStmt (_, expr, _) ->
         high_expr expr

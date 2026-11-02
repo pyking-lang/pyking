@@ -465,6 +465,7 @@ SAMPLES = [
     ("area", "function"), ("describe", "function"),
     ("print", "builtin"), ("range", "builtin"), ("len", "builtin"), ("string", "builtin"),
     (":=", "operator"), ("&lt;&lt;", "operator"), ("^", "operator"), ("!=", "operator"), ("%", "operator"),
+    ("+=", "operator"),
 ]
 
 

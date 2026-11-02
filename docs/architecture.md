@@ -35,7 +35,8 @@ threaded through rather than state mutated in place.
                     ┌────────▼────────┐
                     │src/desugar_args │   default parameters and named
                     │      .ml        │   arguments → ordinary defs and
-                    └────────┬────────┘   ordinary calls
+                    └────────┬────────┘   ordinary calls; a tuple `:=` →
+                             │            one `:=` per name
                     ┌────────▼────────┐
                     │src/analyses.ml │   one unique integer per node
                     │   symbolize     │
@@ -119,7 +120,7 @@ repl`) rather than a `--target`.
 | `src/module.ml` | The module system: which modules a program is made of, in what order, what each exports, and what each import means. Runs first — it is what reads the files at all — and again between checks, since a module is checked against the signature `make_sigmap` took from the last one. Also owns *external* modules: a `<name>_external.pyk` declares what a module implemented in the target's own language offers, and this is where that is resolved, checked and named. |
 | `src/submodules.ml` | Submodules: a dotted definition name (`mymod.foo`) is made the plain name it compiles to (`mymod__foo`) everywhere it is used, and an import naming a submodule the `from` line taking its members. Tokens in, a module out, inside `module.load` before the sugar, so nothing after it knows submodules exist. See [modules.md](modules.md), "Submodules". |
 | `src/splash.ml` | tinyweb's splash screen: a program any of whose modules can call tinyweb's `play` or `play_file` ends its own top level with `tinyweb.splash()`, imported where the module has no plain import of tinyweb. AST in, AST out, inside `module.load` before anything else reads the program. See [libraries.md](libraries.md), "The splash screen". |
-| `src/desugar_args.ml` | Default parameters and named arguments, removed before anything reasons about the program. A default becomes a generated zero-argument `def` in the block the definition is written in, and an omitted argument becomes a call to it; a named argument is put back in its parameter's position. AST in, AST out, inside `module.load` and before `symbolize`, so no later stage knows the sugar exists and every target supports it. See [desugar_args.md](desugar_args.md). |
+| `src/desugar_args.ml` | Default parameters and named arguments, removed before anything reasons about the program. A default becomes a generated zero-argument `def` in the block the definition is written in, and an omitted argument becomes a call to it; a named argument is put back in its parameter's position. A tuple `:=` becomes an `=` binding of its parts and one `:=` per name. AST in, AST out, inside `module.load` and before `symbolize`, so no later stage knows the sugar exists and every target supports it. See [desugar_args.md](desugar_args.md). |
 | `src/analyses.ml` | Static passes over the AST. `symbolize` gives every node a unique integer `sym`, rebuilding the tree (nodes are frozen), and runs before anything reasons about the program. `analyze_mutability` runs *after* the checker and applies the one rule a type cannot state: `:=` may only name a `var`, and nothing may shadow one. It only rejects, never rewrites. `Effects` is a third pass the driver never runs: the C and OCaml backends ask it which expressions can print, since their host languages leave evaluation order unspecified. |
 | `src/typesystem.ml` | The type checker, and the only pass that checks *names*: its environment is a scope, so an unbound name is refused here, as an `Analyses.Analysis_error`. It runs for every mode and every target, since Pyking is statically typed — there is no flag and no way round it. It covers only part of the language; it leaves the AST alone and reports what it inferred in `tmap`, a symbol → type table, which is what `-t pyking` then prints from. It answers a second table beside it, `qmap`: what each call it resolved denotes, which is what `elaborate.ml` rewrites the program by. It is given the signature of every module this one imports, and all it sees of another module is that. |
 | `src/exhaustive.ml` | Exhaustiveness and reachability of `match`, by Maranget's usefulness algorithm: a `match` some value reaches no case of is refused, naming such a value, and so is a case no value can reach. Run by the checker at the end of `type_check`, over the types it worked out, and asked by the OCaml backend which of its arms OCaml can see cover. See [exhaustive.md](exhaustive.md). |
@@ -160,8 +161,8 @@ repl`) rather than a `--target`.
 
 ## The builtins and the host boundary
 
-`print`, `debug`, `range`, `string`, `len`, `int`, `float`, `bool` and `char`
-are in scope in every program and are
+`print`, `debug`, `range`, `string`, `len`, `same`, `int`, `float`,
+`bool` and `char`, and the overload set `array`, are in scope in every program and are
 bound by nothing. `src/builtin.ml` is the one table that says so: each
 one's name, how many arguments it takes, whether calling it can be
 observed outside the program, and what it does. See

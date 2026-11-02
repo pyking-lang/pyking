@@ -10,6 +10,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Compound assignment under `use mutation` (mutation design, step 1):
+  `count += 1` is `count := count + 1`, for `+=`, `-=`, `*=`, `/=`,
+  `%=`, `^=`, `&=`, `|=`, `<<=`, `>>=` and `xor=`. It is typed as the
+  `:=` it means, so the result must be the variable's own type, and it
+  is a statement: `print(count += 1)` is refused. `+=` on a String or a
+  list joins and builds a new value. `-t pyking` prints it as written,
+  and the playground, `pyk highlight` and VS Code colour it as an
+  operator.
+- Tuple `:=` under `use mutation` (mutation design, step 2):
+  `a, b := b, a` writes several `var`s from one tuple, nested to match
+  its shape. The value is worked out once and the names are written
+  after it, left to right, so it swaps; each name is a `var`, named
+  once. It is how a function updates several variables: return the new
+  values and store them with one `:=`.
+- The C targets link the Boehm–Demers–Weiser garbage collector, bdwgc
+  (mutation design, step 3): every String a C program makes, and every
+  one the `io`, `fs` and `text` libraries answer, is freed once nothing
+  holds it, where before it was never freed. bdwgc is a system library
+  (`brew install bdw-gc`, `apt install libgc-dev`); `pyk compile --run`
+  finds it with pkg-config or in the usual prefixes, and says how to
+  install it where it is missing. The Homebrew cask depends on it, the
+  `full` Docker image and the Nix package carry it, and
+  `tests/gc_strings.pyk` runs a C build that drops over fifty MB of
+  Strings within 32 MB.
+- Arrays under `use mutation` (mutation design, step 4): `Array(T)`, a
+  fixed-size store written in place and shared by every name holding
+  it. `array(xs)`, `array(n, v)`, `array(n, f)` (element i is f(i)) and
+  `array(n, seed, f)` (unfolding an accumulator) make one -- `array` is
+  a builtin overload set (`list::array`, `fill::array`, `init::array`,
+  `unfold::array`), and an argument whose type is open is refused
+  rather than guessed. `a[i]` reads, `a[i] := v` and `a[i] += v` write
+  (array and index first, the index checked before the value runs),
+  every index is checked on every target, `len`, `for` and
+  comprehensions take arrays, `same(a, b)` is identity, `==` is refused
+  with what to write instead, and an array prints as `array([1, 2])`.
+  An array binding whose element type nothing decides is refused. The
+  new library `lib/array` has `copy`, `to_list`, `fill`, `swap`,
+  `reverse`, `concat`, `resize`, `equal` and a stable `sort` with the
+  same orderings on every target (Floats with NaN last, Strings by code
+  point). A new warning, `shared-fill` (on by default), reports
+  `array(n, v)` filling with one array. Every target, the interpreter,
+  the REPL, the debugger, the language server's hover and completion,
+  `pyk highlight`, the playground and the editors know them.
+
 - Warnings: what a program that checks may still have wrong, reported
   without stopping it. An `=` binding nothing in its scope uses
   (`Unused binding 'x', bound on line 3: it is never used in its

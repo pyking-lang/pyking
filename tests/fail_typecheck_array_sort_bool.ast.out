@@ -1,0 +1,6 @@
+'tests/fail_typecheck_array_sort_bool.pyk' 11:0-11:17 Type error: no
+  definition of 'array.sort' takes (Array(Bool)); the ones in scope
+  are 'array.char::sort' of type (Array(Char)) -> (),
+  'array.float::sort' of type (Array(Float)) -> (), 'array.int::sort'
+  of type (Array(Int)) -> (), 'array.string::sort' of type
+  (Array(String)) -> ()

@@ -232,6 +232,15 @@ and stmt =
       (* target = <if/match statement in value form> *)
   | SVar of info * string * expr * int (* var name = expr *)
   | SMutate of info * string * expr * int (* name := expr *)
+  | SSetIndex of info * expr * expr * expr * int
+      (* owner[index] := value -- an element of an array written. The
+         owner and the index are worked out, the index checked, then the
+         value, and the element of the owner first worked out is written
+         (PYKING.md, "Arrays"). *)
+  | SMutateTuple of info * assign_target * expr * int
+      (* a, (b, c) := expr -- several `var`s written at once. Desugar_args
+         rewrites it into an `=` binding of the parts and one `:=` per
+         name, so nothing after it sees one. *)
   | SReturn of info * expr * int (* return expr *)
   | SReturnStmt of info * stmt * int
       (* return <if/match statement in value form> *)
@@ -354,6 +363,36 @@ val case_guard : match_case -> expr option
 
 (** The source span of one statement. stmt -> info *)
 val stmt_info : stmt -> info
+
+(** The binary expression `x op e` a compound assignment `x op= e` is
+    parsed as, for the operator's text (`+`, `<<`, `xor`, ...), the span
+    of the name and the right-hand side. string -> info -> string -> expr
+    -> expr *)
+val compound_expr : string -> info -> string -> expr -> expr
+
+(** `left op right` for a compound assignment's operator text, spanning
+    from `left` to `right`: what `a[i] op= e` is parsed as, with `a[i]`
+    on the left. string -> expr -> expr -> expr *)
+val compound_on : string -> expr -> expr -> expr
+
+(** The operator and right-hand side of a `:=` written as a compound
+    assignment (`x op= e`), or None for one written out: a compound
+    assignment's `x` is read where the statement starts.
+    stmt -> (string * expr) option *)
+val compound_parts : stmt -> (string * expr) option
+
+(** Raises Invalid_argument: a stage after desugar_args met a tuple `:=`,
+    which only the parser makes and desugar_args removes. string -> 'a *)
+val after_desugar : string -> 'a
+
+(** The operator and right-hand side of an element write written as a
+    compound assignment (`a[i] op= e`), or None for one written with
+    `:=`. stmt -> (string * expr) option *)
+val index_compound_parts : stmt -> (string * expr) option
+
+(** How a `:=` statement was written: ":=", or "+=", "xor=", ...
+    stmt -> string *)
+val assignment_word : stmt -> string
 
 (** The symbol of one statement. stmt -> int *)
 val stmt_sym : stmt -> int

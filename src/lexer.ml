@@ -108,6 +108,9 @@ type token =
   | TokMatch of info (* 'match' *)
   | TokCase of info (* 'case' *)
   | TokAssign of info (* ':=' (mutation of a `var`) *)
+  | TokCompound of info * string
+      (* '+=', '<<=', ...: compound assignment, carrying the operator
+         it applies (`+`, `<<`, ...). `xor=` is lexed as `xor` and `=`. *)
   | TokTypeInt of info (* 'Int' (type annotation) *)
   | TokTypeFloat of info (* 'Float' (type annotation) *)
   | TokTypeString of info (* 'String' (type annotation) *)
@@ -191,6 +194,7 @@ let token_info tok =
   | TokMatch i -> i
   | TokCase i -> i
   | TokAssign i -> i
+  | TokCompound (i, _) -> i
   | TokTypeInt i -> i
   | TokTypeFloat i -> i
   | TokTypeString i -> i
@@ -272,6 +276,7 @@ let pprint_token tok =
   | TokMatch _ -> "TokMatch"
   | TokCase _ -> "TokCase"
   | TokAssign _ -> "TokAssign"
+  | TokCompound (_, op) -> "TokCompound(" ^ op ^ ")"
   | TokTypeInt _ -> "TokTypeInt"
   | TokTypeFloat _ -> "TokTypeFloat"
   | TokTypeString _ -> "TokTypeString"
@@ -635,6 +640,14 @@ let lexing file chars =
                      (Builtin.quote_string text) )))
     (* Operators that are user defined in real pyking. `++` is read as one
        token so that the parser can say `+` joins now. *)
+    (* Compound assignment, read before the operators it starts with. *)
+    | '<' :: '<' :: '=' :: xs ->
+        lex xs r (c + 3) stack depth line_start (TokCompound (fi r c 3, "<<") :: tokens)
+    | '>' :: '>' :: '=' :: xs ->
+        lex xs r (c + 3) stack depth line_start (TokCompound (fi r c 3, ">>") :: tokens)
+    | (('+' | '-' | '*' | '/' | '%' | '^' | '&' | '|') as op) :: '=' :: xs ->
+        lex xs r (c + 2) stack depth line_start
+          (TokCompound (fi r c 2, String.make 1 op) :: tokens)
     | '+' :: '+' :: xs ->
         lex xs r (c + 2) stack depth line_start (TokConcat (fi r c 2) :: tokens)
     | '+' :: xs ->

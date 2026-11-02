@@ -1093,6 +1093,52 @@ and try_parse_assignment_target eof tokens =
           Some (target, annotation, rest)
       | _ -> None)
 
+(** `a, (b, c)` followed by `:=` -- several `var`s written at once --
+    as the target and the tokens after the `:=`, or None for anything
+    else. A tuple followed by `+=` is refused here: a compound
+    assignment updates one variable. info -> [token] -> (assign_target *
+    [token]) option *)
+and try_parse_mutation_target eof tokens =
+  match (try Some (parse_target eof tokens) with Parse_error _ -> None) with
+  | Some ((TargetTuple _ as target), TokAssign _ :: rest) -> Some (target, rest)
+  | Some ((TargetTuple _ as target), TokCompound (i, op) :: _) ->
+      raise
+        (Parse_error
+           ( combine_info (target_info target) i,
+             Printf.sprintf
+               "'%s=' updates one mutable variable; several are written at \
+                once with ':=', as in 'a, b := b, a'"
+               op ))
+  | _ -> None
+
+(** `a, (b, c) := e` after its `:=`: the names must be plain and
+    different, since each is written once (PYKING.md, "Mutable
+    variables"). info -> assign_target -> [token] -> (stmt, [token]) *)
+and parse_tuple_mutation eof target rest =
+  let rec names target =
+    match target with
+    | TargetName (i, name, _) ->
+        check_plain_name i name "updated with ':='";
+        [ (name, i) ]
+    | TargetTuple (_, parts, _) -> List.concat_map names parts
+  in
+  ignore
+    (List.fold_left
+       (fun seen (name, i) ->
+         if List.mem name seen then
+           raise
+             (Parse_error
+                ( i,
+                  Printf.sprintf
+                    "'%s' is written twice by this ':=': each variable it \
+                     updates is named once"
+                    name ));
+         name :: seen)
+       [] (names target));
+  let value, rest = parse_bound_value eof rest in
+  let e = expect_expr_value value "a ':=' mutation" in
+  (SMutateTuple (combine_info (target_info target) (expr_info e), target, e, 0), rest)
+
 (** Refuses a qualified name anywhere in a binding's target.
     assign_target -> () *)
 and check_plain_target target =
@@ -1700,6 +1746,12 @@ and parse_statement eof tokens =
       let e = expect_expr_value value "a ':=' mutation" in
       check_plain_name i name "updated with ':='";
       (SMutate (combine_info i (expr_info e), name, e, 0), rest)
+  (* `x += e` is `x := x + e`, and is parsed as that (Syntax.compound_expr):
+     `x` is read once, as it is anyway, and the sum is what `:=` stores. *)
+  | TokIdent (i, name) :: TokCompound (_, op) :: rest -> parse_compound eof i name op rest
+  | TokIdent (i, name) :: TokXor x :: TokEq e :: rest
+    when x.row2 = e.row1 && x.col2 = e.col1 ->
+      parse_compound eof i name "xor" rest
   (* `target = expr`, where `target` may destructure a tuple -- tried
      speculatively since, unlike the fixed-prefix cases above, a target
      can be an arbitrarily long comma-separated/nested prefix of tokens;
@@ -1718,12 +1770,59 @@ and parse_statement eof tokens =
           | BExpr e ->
               let let_info = combine_info (target_info target) (expr_info e) in
               (SLet (let_info, target, e, annotation, 0, false, false), rest))
-      | None -> parse_expr_statement eof tokens)
+      | None -> (
+          match try_parse_mutation_target eof tokens with
+          | Some (target, rest) -> parse_tuple_mutation eof target rest
+          | None -> parse_expr_statement eof tokens))
   | _ -> parse_expr_statement eof tokens
 
 and parse_expr_statement eof tokens =
   let e, rest = parse_tuple_or_expr eof tokens in
+  match (e, rest) with
+  (* `a[i] := e` writes an element; `a[i] += e` is `a[i] := a[i] + e`,
+     with `a` and `i` worked out once (desugar_args makes sure of it). *)
+  | EIndex (_, owner, index, _), TokAssign _ :: rest ->
+      let value, rest = parse_bound_value eof rest in
+      let v = expect_expr_value value "a ':=' writing an element" in
+      (SSetIndex (combine_info (expr_info e) (expr_info v), owner, index, v, 0), rest)
+  | EIndex (_, owner, index, _), TokCompound (_, op) :: rest ->
+      let value, rest = parse_bound_value eof rest in
+      let v = expect_expr_value value (Printf.sprintf "a '%s=' assignment" op) in
+      (SSetIndex (combine_info (expr_info e) (expr_info v), owner, index, compound_on op e v, 0), rest)
+  | EIndex (_, owner, index, _), TokXor x :: TokEq q :: rest when x.row2 = q.row1 && x.col2 = q.col1 ->
+      let value, rest = parse_bound_value eof rest in
+      let v = expect_expr_value value "a 'xor=' assignment" in
+      (SSetIndex (combine_info (expr_info e) (expr_info v), owner, index, compound_on "xor" e v, 0), rest)
+  | EIndex _, TokEq i :: _ ->
+      raise
+        (Parse_error
+           ( combine_info (expr_info e) i,
+             "an element is written with ':=', not '=': did you mean 'a[i] := v'? \
+              '=' binds a name" ))
+  | _ ->
+  (* What is left of a `:=` or a `+=` is a mutable variable's plain
+     name or an element: any other expression is not something either
+     may write. *)
+  (match rest with
+  | (TokAssign i | TokCompound (i, _)) :: _ ->
+      let word = match rest with TokCompound (_, op) :: _ -> op ^ "=" | _ -> ":=" in
+      raise
+        (Parse_error
+           ( combine_info (expr_info e) i,
+             Printf.sprintf
+               "'%s' updates a mutable variable, written as its plain name \
+                on the left ('count %s 1'), or an array's element ('a[i] %s 1')"
+               word word word ))
+  | _ -> ());
   (SExprStmt (expr_info e, e, 0), rest)
+
+(** `x op= e` after its `x op=`: the `x := x op e` it means.
+    info -> info -> String -> String -> [token] -> (stmt, [token]) *)
+and parse_compound eof i name op rest =
+  let value, rest = parse_bound_value eof rest in
+  let e = expect_expr_value value (Printf.sprintf "a '%s=' assignment" op) in
+  check_plain_name i name (Printf.sprintf "updated with '%s='" op);
+  (SMutate (combine_info i (expr_info e), name, compound_expr op i name e, 0), rest)
 
 (* --- the rules the grammar cannot state --- *)
 
@@ -2902,24 +3001,61 @@ let use_lines tokens =
     reads every module -- and refused here, as a syntax error that names
     the `use` line which would allow them. [string] -> [stmt] -> () *)
 let check_features enabled stmts =
+  (* `array(...)` makes an array, which is mutation's -- unless this
+     module binds a name `array` of its own, which a call then means. *)
+  let own_array =
+    Walk.fold_stmts
+      (fun found node ->
+        found
+        ||
+        match node with
+        | Walk.NStmt (SFunctionDef (_, name, _, _, _, _, _, _, _)) -> Names.base name = "array"
+        | Walk.NTarget (TargetName (_, "array", _)) -> true
+        | _ -> false)
+      false stmts
+  in
   if not (List.mem "mutation" enabled) then
     Walk.fold_stmts
       (fun () node ->
         match node with
+        | Walk.NStmt (SSetIndex (i, _, _, _, _) as statement) ->
+            raise
+              (Parse_error
+                 ( i,
+                   Printf.sprintf
+                     "'%s' writes an element of an array, which needs 'use \
+                      mutation' at the top of this module"
+                     (assignment_word statement) ))
+        | Walk.NExpr (ECall (_, EVar (i, name, _), _, _))
+          when (not own_array)
+               && List.mem name [ "array"; "list::array"; "fill::array"; "init::array"; "unfold::array" ] ->
+            raise
+              (Parse_error
+                 ( i,
+                   Printf.sprintf
+                     "'%s' makes an array, which needs 'use mutation' at the \
+                      top of this module"
+                     name ))
         | Walk.NStmt (SVar (i, _, _, _)) ->
             raise
               (Parse_error
                  ( { i with row2 = i.row1; col2 = i.col1 + 3 },
                    "'var' declares a mutable variable, which needs 'use \
                     mutation' at the top of this module" ))
-        | Walk.NStmt (SMutate (i, name, _, _)) ->
+        | Walk.NStmt (SMutateTuple (i, _, _, _)) ->
+            raise
+              (Parse_error
+                 ( i,
+                   "':=' changes mutable variables, which needs 'use \
+                    mutation' at the top of this module" ))
+        | Walk.NStmt (SMutate (i, name, _, _) as statement) ->
             raise
               (Parse_error
                  ( i,
                    Printf.sprintf
-                     "':=' changes the mutable variable '%s', which needs \
+                     "'%s' changes the mutable variable '%s', which needs \
                       'use mutation' at the top of this module"
-                     name ))
+                     (assignment_word statement) name ))
         | _ -> ())
       () stmts
 
@@ -2938,6 +3074,26 @@ let parse_with enabled tokens =
   (match List.find_opt (function TokReserved _ -> true | _ -> false) tokens with
   | Some (TokReserved (i, word)) -> raise (Parse_error (i, reserved_message word))
   | _ -> ());
+  (* `+=` and its kind are statements: one inside brackets is being
+     used as a value, which no assignment has. *)
+  ignore
+    (List.fold_left
+       (fun depth token ->
+         match token with
+         | TokLParen _ | TokLBracket _ -> depth + 1
+         | TokRParen _ | TokRBracket _ -> max 0 (depth - 1)
+         | (TokCompound _ | TokAssign _) when depth > 0 ->
+             let i = token_info token in
+             let word = match token with TokCompound (_, op) -> op ^ "=" | _ -> ":=" in
+             raise
+               (Parse_error
+                  ( i,
+                    Printf.sprintf
+                      "'%s' is a statement, and has no value to use inside \
+                       brackets: write it on a line of its own"
+                      word ))
+         | _ -> depth)
+       0 tokens);
   let own, tokens = parse_uses eof tokens in
   let own = List.map fst own in
   let rec statements rest collected =

@@ -1,0 +1,8 @@
+# `same` asks whether two arrays of one element type are one array.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+print(same(array([1]), array(["one"])))

@@ -34,6 +34,8 @@ Functions:
     run_driver(bundle, plan) -- one node process over the bundle.
     parity_pairs(compiler) -- what `pyk compile` makes of every case.
     run_parity(bundle, pairs) -- the same cases compiled by the bundle.
+    has_collector() -- whether bdwgc is installed, for the C downloads.
+    download_cases() -- DOWNLOADS, C ones not built without bdwgc.
     check_downloads(bundle) -- the Download of every case in DOWNLOADS.
     check_keys() -- the page's keys, keys.js.
     main(argv) -- the command-line entry point.
@@ -315,8 +317,9 @@ globalThis.pykOnWarning = (line) => warned.push(line.replace(/\n$/, ""));
 const warnCheck = (label, ok, detail) => check("warnings: " + label, ok, detail);
 const kinds = JSON.parse(pykWarnings());
 warnCheck("pykWarnings lists every warning, with its default and what it means",
-          kinds.length === 7
+          kinds.length === 8
             && kinds.some((k) => k.name === "unused-binding" && k.on)
+            && kinds.some((k) => k.name === "shared-fill" && k.on)
             && kinds.some((k) => k.name === "unused-pattern-var" && !k.on)
             && kinds.every((k) => typeof k.description === "string" && k.description.length > 0),
           JSON.stringify(kinds).slice(0, 300));
@@ -656,13 +659,39 @@ DOWNLOADS = (
                   "tinyweb_page.js", "tinyweb_assets/ball.png", "Makefile"]}])
 
 
+def has_collector():
+    """Whether bdwgc, the collector a C download links, is installed where
+    the download's Makefile looks: pkg-config, then the usual prefixes --
+    as tests/test_script.py decides whether to run the C targets.
+    () -> bool"""
+    try:
+        if subprocess.run(["pkg-config", "--exists", "bdw-gc"]).returncode == 0:
+            return True
+    except OSError:
+        pass
+    return any(Path(prefix, "include", "gc.h").exists()
+               for prefix in ["/opt/homebrew", "/usr/local", "/opt/local", "/usr"])
+
+
+def download_cases():
+    """DOWNLOADS, with a C download packed and unpacked but not built when
+    the collector is missing, as the program suite skips the C targets
+    then. [dict]"""
+    if has_collector():
+        return DOWNLOADS
+    print("playground: bdwgc is not installed, so the C downloads are packed "
+          "but not built (brew install bdw-gc, or apt install libgc-dev).", flush=True)
+    return [{**case, "run": False} if case["target"].startswith("c") else case
+            for case in DOWNLOADS]
+
+
 def check_downloads(bundle):
     """The Download of every case in DOWNLOADS: (checks passed, failures).
     Path -> (Int, [String])"""
     directory = tempfile.mkdtemp(prefix="pyk-download-")
     try:
         listed = Path(directory) / "cases.json"
-        listed.write_text(json.dumps(DOWNLOADS))
+        listed.write_text(json.dumps(download_cases()))
         try:
             result = suite.run_with_progress(
                 NODE + [str(DOWNLOAD_DRIVER), str(bundle), str(REPO / "lib"), str(listed)],

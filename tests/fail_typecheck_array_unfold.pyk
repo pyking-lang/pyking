@@ -1,0 +1,9 @@
+# `array(n, seed, f)` unfolds an accumulator: `f` answers the element and
+# the next accumulator, as a pair.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+a = array(3, 0, lam s. s + 1)

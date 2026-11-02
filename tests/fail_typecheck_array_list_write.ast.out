@@ -1,0 +1,3 @@
+'tests/fail_typecheck_array_list_write.pyk' 10:0-10:2 Type error: a
+  list is never changed, so its element cannot be written with ':=';
+  an array's can: make one with 'array(xs)'

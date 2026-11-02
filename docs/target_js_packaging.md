@@ -53,6 +53,15 @@ answer, which is how the mistake was found.
 rather than carrying its own copy. One definition, so a program cannot
 print two ways; and a module that prints nothing imports nothing.
 
+`pykFormat` tells a Pyking list, array and tuple apart -- all three are
+JavaScript arrays -- by the marker the program put on it: `pykList` for
+a list, `pykArray` for an array (printed `array([...])`), none for a
+tuple. `pykShaped`'s descriptor has `{s}` for an array whose elements
+need their type to print, beside `[s]` for a list (target_js.md,
+"Arrays"). The checks an array makes, and `pykFail`, which reports a
+runtime error, are the program module's own helpers rather than this
+module's, written only where a program uses them.
+
 Both targets send it to `console.log`. The page deliberately does *not*
 print onto itself: what a compiled program prints should be what `node
 foo.js` prints, and a reader comparing the two should not have to

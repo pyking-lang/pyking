@@ -1,0 +1,16 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> > > > array([10, 1, 2]) : Array(Int)
+> > 6 : Int
+> 3 : Int
+> > array([0, 1, 4, 9]) : Array(Int)
+> true : Bool
+> '<repl>' 1:0-1:6 Type error: `==` cannot be applied to Array(Int) and
+  Array(Int); it accepts Int == Int or Float == Float or String ==
+  String or Char == Char or Bool == Bool. Arrays are compared with
+  'same(a, b)', which asks whether they are one array, or with
+  'array.equal(a, b)' from lib/array, which compares their elements
+> '<repl>' 1:0-1:4 Runtime error: the index 7 is outside an array of 3
+  elements
+> > > 2 : Int
+> > > > > (2, 1) : (Int, Int)
+> 

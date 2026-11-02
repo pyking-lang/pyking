@@ -1,0 +1,13 @@
+'shared_fill.pyk' 8:7-8:20 Warning: Every element of this array is the
+  same Array(Int): 'array(n, v)' stores one v n times, so writing into
+  one element is seen in all of them. To make n different ones, make
+  each in a generator: 'array(n, lam _. array(...))'. [-Wshared-fill]
+'shared_fill.pyk' 12:11-12:37 Warning: Every element of this array is
+  the same Array(Int): 'array(n, v)' stores one v n times, so writing
+  into one element is seen in all of them. To make n different ones,
+  make each in a generator: 'array(n, lam _. array(...))'.
+  [-Wshared-fill]
+array([array([1, 0, 0]), array([1, 0, 0]), array([1, 0, 0])])
+array([array([1]), array([1])])
+array([0, 0, 0]) array([array([1, 0, 0])]) 0 array([array([0, 0, 0]), array([0, 0, 0]), array([0, 0, 0])])
+exit 0

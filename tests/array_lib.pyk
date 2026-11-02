@@ -1,0 +1,52 @@
+# lib/array: copy, to_list, fill, swap, reverse, concat, resize, equal
+# and sort, on every target. A copy is shallow, `sort` is stable and
+# orders Floats with NaN last and Strings by code point everywhere.
+
+use mutation
+import array
+
+nan = float("nan")
+inf = float("inf")
+a = array([5, 3, 9, 1])
+b = array.copy(a)
+b[0] := 0
+print(a, b, same(a, b), array.to_list(a))
+
+array.fill(b, 7)
+array.swap(a, 0, 3)
+print(b, a)
+array.reverse(a)
+print(a)
+print(array.concat(a, array([100])), array.resize(a, 6, -1), array.resize(a, 2, -1))
+none: Array(Int) = array([])
+print(len(array.concat(none, none)), array.concat(none, array([1])))
+
+rows = array(2, lam _. array([0]))
+shallow = array.copy(rows)
+shallow[0][0] := 42
+print(rows)
+
+print(array.equal(array([1, 2]), array([1, 2])), array.equal(array([1, 2]), array([1])))
+print(array.equal(array(["a"]), array(["b"])), array.equal(array([nan]), array([nan])))
+print(array.equal(array(['x']), array(['x'])), array.equal(array([true]), array([false])))
+
+ints = array([3, -1, 2, 0, 2, 10])
+array.sort(ints)
+floats = array([2.5, nan, -0.0, -1.0, inf, 0.0, 0.0 - inf])
+array.sort(floats)
+words = array(["pear", "apple", "Fig", "app", "", "äpple", "zebra"])
+array.sort(words)
+letters = array(['c', 'A', 'b', 'a'])
+array.sort(letters)
+print(ints)
+print(floats)
+print(words)
+print(letters)
+
+big = array(200, lam i. (i * 37) % 101)
+array.sort(big)
+var ordered = true
+for i in range(1, len(big)):
+    if big[i - 1] > big[i]:
+        ordered := false
+print(ordered, big[0], big[199])

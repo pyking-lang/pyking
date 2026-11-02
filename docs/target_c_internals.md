@@ -30,6 +30,18 @@ result by the comma operator. `pre` holds the statements an expression
 needs run first -- an environment to fill -- which the statement
 translators put in front of the statement (`flush`).
 
+## Arrays
+
+`Array(T)` is a `TCon` like a datatype's, so every match on `TCon` --
+`code`, `ctype`, `shower`, `holds_itself` -- tests for `array_name`
+first. `ctype` declares the struct and `pyk_new_<code>`, choosing
+`GC_MALLOC_ATOMIC` by `holds_pointers`; `array_getter` writes
+`pyk_at_<code>`; `make_array` compiles the four makers the elaborator
+names (`list__array`, `fill__array`, `init__array`, `unfold__array`),
+each a helper of the file but `list__array` of a list literal, which is
+a comma expression. `SSetIndex` and `for x in a` are in `stmt` and
+`loop`.
+
 ## Instances
 
 A polymorphic def is a `template`, kept with the scope it was written

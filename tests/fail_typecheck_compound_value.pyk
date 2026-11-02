@@ -1,0 +1,10 @@
+# A compound assignment is a statement and has no value, so it cannot
+# stand where a value is wanted -- here as an argument.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+var count = 0
+print(count += 1)

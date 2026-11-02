@@ -1,0 +1,37 @@
+use mutation
+var count = 10
+count += 5
+count -= 3
+count *= 2
+count /= 4
+count %= 5
+count ^= 3
+print(count)
+var bits = 12
+bits &= 10
+bits |= 1
+bits xor= 3
+bits <<= 2
+bits >>= 1
+print(bits)
+var ratio = 1.5
+ratio *= 2.0
+ratio -= 0.5
+ratio /= 2.0
+ratio ^= 2.0
+print(ratio)
+var flag = true
+flag xor= true
+print(flag)
+def sum_to(n:Int) -> Int:
+    var total = 0
+    var i = 1
+    while i <= n:
+        total += i
+        i += 1
+    total
+print(sum_to(10))
+count *= 1 + 2
+print(count)
+count := count + 1
+print(count)

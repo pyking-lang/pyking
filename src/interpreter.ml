@@ -103,6 +103,9 @@ type value =
   | VData of string * (string option * value) list
       (* a value of a datatype: its constructor, and each field with its
          name where it has one *)
+  | VArray of value array
+      (* an array: one store of elements, shared by every name holding
+         it and written in place (PYKING.md, "Arrays") *)
 
 (** A persistent chain of frames: the names this frame introduces, and
     the frame outside it. A binding is a cell rather than a value, which
@@ -168,6 +171,10 @@ let display_value value =
         | VList elements ->
             Buffer.add_string out "[";
             go (commas elements "]" @ rest)
+        | VArray elements ->
+            (* Written as what makes one, so it is told from a list. *)
+            Buffer.add_string out "array([";
+            go (commas (Array.to_list elements) "])" @ rest)
         | VTuple elements ->
             (* A singleton keeps the comma that tells it from a
                parenthesized value, exactly as the source form does. *)
@@ -202,6 +209,7 @@ let display_value value =
 let sequence_items value =
   match value with
   | VString text -> VList (List.map (fun c -> VChar c) (Builtin.code_points text))
+  | VArray elements -> VList (Array.to_list elements)
   | value -> value
 
 (** Formats a value as print writes it (builtin.ml's rules): a
@@ -223,6 +231,7 @@ let describe value =
   | VBool _ -> "Bool"
   | VUnit -> "()"
   | VList _ -> "a list"
+  | VArray _ -> "an array"
   | VTuple elements -> Printf.sprintf "a tuple of %d" (List.length elements)
   | VClosure _ | VBuiltin _ | VHostFun _ -> "a function"
   | VData (name, _) -> "a value built by '" ^ name ^ "'"
@@ -325,7 +334,7 @@ let top_level_env () =
     bindings =
       List.fold_left
         (fun map name -> SMap.add name (ref (VBuiltin name)) map)
-        SMap.empty Builtin.names;
+        SMap.empty (Builtin.names @ Builtin.member_names);
     parent = None;
   }
 
@@ -409,6 +418,13 @@ type kont =
   | KBind of assign_target * env * kont option
   | KVarBind of string * env * kont option
   | KMutate of string * info * env * kont option
+  | KSetArray of expr * expr * info * env * kont option
+      (* an element write's array has arrived: its index, the value, the
+         statement *)
+  | KSetIndex of value * expr * info * env * kont option
+      (* its index has arrived: the array, the value *)
+  | KSetValue of value * int * info * env * kont option
+      (* the value has arrived: the array and the checked index *)
   | KBinaryLeft of expr * expr * env * kont option
   | KBinaryRight of expr * value * env * kont option
   | KCallee of expr * env * kont option
@@ -483,6 +499,10 @@ and loop = {
   loop_kont : kont option;
   loop_parent : loop option;
   remaining : value list; (* what a `for` has left to walk *)
+  walking : (value array * int) option;
+      (* an array a `for` walks, and the index of the next turn's
+         element: read as each turn is reached, so a write to a later
+         element is seen (PYKING.md, "Arrays") *)
 }
 
 (* Maximum Pyking call depth before the machine raises a runtime
@@ -586,6 +606,26 @@ let call_free_symbols stmts =
    in. A rule given operands it does not take answers None instead, and
    lets the operand message below do the reporting. *)
 let divide_info = { file = "<division>"; row1 = 0; col1 = 0; row2 = 0; col2 = 0 }
+
+(** Raises the error an index outside an array is, before anything reads
+    or writes there. value array -> int -> () *)
+let check_array_index elements i =
+  let n = Array.length elements in
+  if i < 0 || i >= n then
+    raise
+      (Trap
+         ( divide_info,
+           Printf.sprintf "the index %d is outside an array of %d element%s" i n
+             (if n = 1 then "" else "s") ))
+
+(** Raises the error a size no array can have is: a negative one, or one
+    larger than the host can hold -- checked before anything is
+    allocated. int -> () *)
+let check_array_size n =
+  if n < 0 then
+    raise (Trap (divide_info, Printf.sprintf "an array's size is never negative, and this one is %d" n))
+  else if n > Sys.max_array_length then
+    raise (Trap (divide_info, Printf.sprintf "an array of %d elements is more than this machine can hold" n))
 
 let arith op float_op left right =
   match (left, right) with
@@ -691,6 +731,12 @@ let shift left_shift left right =
             else a asr n))
   | _ -> None
 
+(** Element i of an array, or the error an index outside it is: checked
+    on every target (PYKING.md, "Arrays"). value array -> int -> value *)
+let array_element elements i =
+  check_array_index elements i;
+  elements.(i)
+
 (** `xs[i]`: element i of a list, counting from 0. An index outside the
     list is a Pyking error rather than a crash. value -> value -> value option *)
 let element left right =
@@ -704,6 +750,7 @@ let element left right =
                Printf.sprintf "the index %d is outside a list of %d element%s" i n
                  (if n = 1 then "" else "s") ))
       else Some (List.nth items i)
+  | VArray elements, VInt i -> Some (array_element elements i)
   | VString text, VInt i ->
       let chars = Builtin.code_points text in
       let n = List.length chars in
@@ -872,6 +919,12 @@ let apply_builtin name args info host =
   | "char", [ VChar c ] -> VChar c
   | "len", [ VString text ] -> VInt (Builtin.utf8_length text)
   | "len", [ VList elements ] -> VInt (List.length elements)
+  | "len", [ VArray elements ] -> VInt (Array.length elements)
+  | "same", [ VArray a; VArray b ] -> VBool (a == b)
+  | "list__array", [ VList items ] -> VArray (Array.of_list items)
+  | "fill__array", [ VInt n; value ] ->
+      check_array_size n;
+      VArray (Array.make n value)
   | "range", [ VInt stop ] -> range_list 0 stop 1 info
   | "range", [ VInt start; VInt stop ] -> range_list start stop 1 info
   | "range", [ VInt start; VInt stop; VInt step ] ->
@@ -1212,10 +1265,12 @@ let turn state loop =
   | Error (info, message) -> failed state info message
   | Ok env ->
       let env, loop =
-        match (loop_iterate loop, loop.remaining) with
+        match (loop_iterate loop, loop.walking, loop.remaining) with
+        | Some (ForIn (_, name, _, _)), Some (elements, i), _ ->
+            (extend env name elements.(i), { loop with walking = Some (elements, i + 1) })
         (* Each turn binds the element afresh, and the loop keeps what is
            left for the next one. *)
-        | Some (ForIn (_, name, _, _)), first :: rest ->
+        | Some (ForIn (_, name, _, _)), None, first :: rest ->
             (extend env name first, { loop with remaining = rest })
         | _ -> (env, loop)
       in
@@ -1227,8 +1282,10 @@ let turn state loop =
     goes round unconditionally. state -> loop -> state *)
 let begin_turn state loop =
   match loop_iterate loop with
-  | Some (ForIn _) ->
-      if loop.remaining = [] then finish state loop else turn state loop
+  | Some (ForIn _) -> (
+      match loop.walking with
+      | Some (elements, i) -> if i >= Array.length elements then finish state loop else turn state loop
+      | None -> if loop.remaining = [] then finish state loop else turn state loop)
   | Some (WhileTest (_, condition, _)) -> (
       (* The condition can ask about the accumulator, so it is evaluated
          where the accumulator is bound. *)
@@ -1270,11 +1327,49 @@ let start_loop state loop =
     state -> expr -> value -> [value] -> env -> kont option -> state *)
 let rec call state call_node callee args env rest =
   let info = expr_info call_node in
+  (* A builtin's own failure has no node of its own: it is the call's. *)
+  let at where = if where == divide_info then info else where in
   match callee with
+  | VBuiltin (("init__array" | "unfold__array") as name) -> (
+      (* The generated forms call a Pyking function once per element, in
+         index order and never for n = 0, each in a machine of its own
+         as a host's callback is (PYKING.md, "Arrays"). *)
+      match
+        try
+          match (name, args) with
+          | "init__array", [ VInt n; f ] ->
+              check_array_size n;
+              Ok (VArray (Array.init n (fun i -> callback state info f [ VInt i ])))
+          | "unfold__array", [ VInt n; seed; f ] ->
+              check_array_size n;
+              let state_now = ref seed in
+              Ok
+                (VArray
+                   (Array.init n (fun _ ->
+                        match callback state info f [ !state_now ] with
+                        | VTuple [ element; next ] ->
+                            state_now := next;
+                            element
+                        | other ->
+                            raise
+                              (Trap
+                                 ( info,
+                                   Printf.sprintf
+                                     "an unfolding array's function answers an \
+                                      element and the next seed, not %s"
+                                     (describe other) )))))
+          | _ -> Error (info, Printf.sprintf "'%s' cannot be applied to (%s)" name
+                              (String.concat ", " (List.map describe args)))
+        with
+        | Trap (where, message) -> Error (at where, message)
+        | Runtime_error (where, message) -> Error (where, message)
+      with
+      | Error (info, message) -> failed state info message
+      | Ok value -> { state with control = CApply value; env; kont = rest })
   | VBuiltin name -> (
       match
         try Ok (apply_builtin name args info state.runtime.host)
-        with Trap (info, message) -> Error (info, message)
+        with Trap (where, message) -> Error (at where, message)
       with
       | Error (info, message) -> failed state info message
       | Ok value -> { state with control = CApply value; env; kont = rest })
@@ -1652,6 +1747,16 @@ and step_stmt state stmt =
         control = CEval e;
         kont = Some (KVarBind (name, state.env, state.kont));
       }
+  | SMutateTuple _ -> after_desugar "interpreter"
+  | SSetIndex (info, owner, index, value, _) ->
+      (* The array, then the index, which is checked before the value is
+         worked out; the value is then written into the array first
+         worked out (PYKING.md, "Arrays"). *)
+      {
+        state with
+        control = CEval owner;
+        kont = Some (KSetArray (index, value, info, state.env, state.kont));
+      }
   | SMutate (info, name, e, _) ->
       {
         state with
@@ -1677,6 +1782,7 @@ and step_stmt state stmt =
           loop_kont = state.kont;
           loop_parent = state.loops;
           remaining = [];
+          walking = None;
         }
       in
       match (target, init) with
@@ -1765,6 +1871,20 @@ and step_apply state value =
         env = extend env name value;
         kont = rest;
       }
+  | Some (KSetArray (index, value_expr, info, env, rest)) ->
+      { state with control = CEval index; env; kont = Some (KSetIndex (value, value_expr, info, env, rest)) }
+  | Some (KSetIndex (owner, value_expr, info, env, rest)) -> (
+      match (owner, value) with
+      | VArray elements, VInt i -> (
+          match check_array_index elements i with
+          | () -> { state with control = CEval value_expr; env; kont = Some (KSetValue (owner, i, info, env, rest)) }
+          | exception Trap (_, message) -> failed state info message)
+      | _ ->
+          failed state info
+            (Printf.sprintf "only an array's element is written, not %s's" (describe owner)))
+  | Some (KSetValue (owner, i, _, env, rest)) ->
+      (match owner with VArray elements -> elements.(i) <- value | _ -> ());
+      { state with control = CApply unit_value; env; kont = rest }
   | Some (KMutate (name, info, env, rest)) ->
       if not (mutate env name value) then
         failed state info (Printf.sprintf "unbound name '%s'" name)
@@ -1844,6 +1964,9 @@ and step_apply state value =
       start_loop state { loop with accumulator = value }
   | Some (KSequence loop) -> (
       match sequence_items value with
+      | _ when (match value with VArray _ -> true | _ -> false) ->
+          let elements = match value with VArray elements -> elements | _ -> [||] in
+          begin_turn state { loop with walking = Some (elements, 0) }
       | VList items -> begin_turn state { loop with remaining = items }
       | value ->
           failed state

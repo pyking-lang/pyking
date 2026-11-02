@@ -418,6 +418,8 @@ let rec value_type v =
   | Interpreter.VBool _ -> Some (TBool (none, 0))
   | Interpreter.VUnit -> Some (TTuple (none, [], 0))
   | Interpreter.VList (first :: _) -> Option.map (fun e -> TList (none, e, 0)) (value_type first)
+  | Interpreter.VArray elements when Array.length elements > 0 ->
+      Option.map (fun e -> TCon (none, "Array", [ e ], 0)) (value_type elements.(0))
   | Interpreter.VTuple parts -> Option.map (fun ts -> TTuple (none, ts, 0)) (all parts)
   | _ -> None
 
@@ -949,6 +951,7 @@ let scopes t fid =
 let has_parts v =
   match v with
   | Interpreter.VList (_ :: _) | Interpreter.VTuple (_ :: _) | Interpreter.VData (_, _ :: _) -> true
+  | Interpreter.VArray elements -> Array.length elements > 0
   | _ -> false
 
 (** How many parts of a value are shown before the rest are left out. *)
@@ -1023,6 +1026,10 @@ let variables t reference =
       let parts =
         match value with
         | Interpreter.VList items -> List.mapi (fun i v -> (Printf.sprintf "[%d]" i, v)) items
+        | Interpreter.VArray items ->
+            (* An array is shown element by element, as a list is; its
+               elements are read as they are now. *)
+            List.mapi (fun i v -> (Printf.sprintf "[%d]" i, v)) (Array.to_list items)
         | Interpreter.VTuple items -> List.mapi (fun i v -> (string_of_int i, v)) items
         | Interpreter.VData (_, fields) ->
             List.mapi

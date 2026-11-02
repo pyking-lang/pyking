@@ -1,0 +1,21 @@
+# Compound assignment on Strings and lists: `+=` joins, as `+` does, and
+# builds a new value -- a list held by a `var` is never changed in place,
+# so a binding that held the old list still holds it.
+
+use mutation
+
+var greeting = "hello"
+greeting += ", "
+greeting += "world"
+print(greeting)
+
+var xs = [1, 2]
+before = xs
+xs += [3]
+xs += [4, 5]
+print(xs, before)
+
+var letters = ""
+for c in ["a", "b", "c"]:
+    letters += c
+print(letters)

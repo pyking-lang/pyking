@@ -239,3 +239,13 @@ marked-off prelude block (`pprint_py_program`), because it's boilerplate
 for the host Python interpreter, not a rendering of anything the Pyking
 source wrote — the same distinction `target_js_packaging.ml` draws for
 its own generated preludes.
+
+**The fixed helpers.** The Char class, the conversions and the array
+helpers (`__PykArray`, `__pyk_fail`, `__pyk_array_*`) are fixed blocks
+of host text, not trees: `add_conversion` records a name in
+`gen.conversions` the first time the translation emits a call to it,
+along with what `conversion_needs` says that helper calls, and
+`pprint_py_body` prints each recorded one once through
+`conversion_def`. An element write's temporaries are named by
+`fresh_write_names`, checked against `gen.used` as the comprehension
+helper's names are.

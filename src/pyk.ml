@@ -142,7 +142,7 @@ let run_table () =
       (Targets.Node, [ "node prog.js" ]);
       (Targets.Web, [ "pyk serve prog.html (a page must be"; "served; the link printed opens the page)" ]);
       (Targets.Iweb, [ "the same" ]);
-      (Targets.C, [ "cc -std=<standard> -o prog prog.c, then prog" ]);
+      (Targets.C, [ "cc -std=<standard> -o prog prog.c -lgc -lm,"; "then prog (bdwgc found by pkg-config)" ]);
       (Targets.Java, [ "javac --release <version> prog.java, then"; "java prog" ]);
       (Targets.Ocaml, [ "ocamlopt -I +unix unix.cmxa -o prog prog.ml,"; "then prog" ]);
       (Targets.Pyking, [ "pyk prog.pyk" ]);

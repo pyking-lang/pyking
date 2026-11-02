@@ -110,6 +110,7 @@ and pymatchcase = PyMatchCase of info * pypattern * pystmt list * pyexpr option
 and pytarget =
   | PyTargetName of info * string (* name *)
   | PyTargetTuple of info * pytarget list (* (t1, t2, ...) *)
+  | PyTargetIndex of info * pyexpr * pyexpr (* a[i], an array's element *)
 
 and pycompclause =
   | PyCompFor of info * pytarget * pyexpr (* for target in sequence *)
@@ -312,6 +313,7 @@ and pprint_py_target t =
       | elements ->
           Printf.sprintf "(%s)"
             (String.concat ", " (List.map pprint_py_target elements)))
+  | PyTargetIndex (info, owner, index) -> pprint_py_expr (PyIndex (info, owner, index))
 
 (** p as Python source text. pypattern -> string *)
 let rec pprint_py_pattern p =
@@ -612,10 +614,114 @@ let chars_helper = "__pyk_chars"
 let char_of_int_helper = "__pyk_char_of_int"
 let char_of_string_helper = "__pyk_char_of_str"
 
+(* An array is a Python list of a class of its own that is never grown,
+   so that the print formatter can tell it from a list, and every index
+   into one is checked by a helper here (docs/target_python.md,
+   "Arrays"). Like the Char class, every module that makes an array
+   defines the class, and the formatter asks only whether a list is a
+   subclass. *)
+let array_class = "__PykArray"
+let fail_helper = "__pyk_fail"
+let array_size_helper = "__pyk_array_size"
+let array_index_helper = "__pyk_array_index"
+let array_get_helper = "__pyk_array_get"
+
+(** The prelude helper each of the builtin array makers compiles to, by
+    the plain name elaborate.ml gives the member. [(string, string)] *)
+let array_makers =
+  [
+    ("list__array", "__pyk_array_list");
+    ("fill__array", "__pyk_array_fill");
+    ("init__array", "__pyk_array_init");
+    ("unfold__array", "__pyk_array_unfold");
+  ]
+
+(** The helpers a helper calls, which the prelude has to hold beside it.
+    string -> [string] *)
+let conversion_needs name =
+  if name = fail_helper || name = array_class then []
+  else if name = array_size_helper || name = array_index_helper then [ fail_helper ]
+  else if name = array_get_helper then [ array_index_helper; fail_helper ]
+  else if name = List.assoc "list__array" array_makers then [ array_class ]
+  else if List.exists (fun (_, helper) -> helper = name) array_makers then
+    [ array_class; array_size_helper; fail_helper ]
+  else []
+
 (** The text of one conversion helper. string -> string *)
 let conversion_def name =
   String.concat "\n"
-    (if name = char_class then
+    (if name = array_class then
+       [
+         Printf.sprintf "class %s(list):" name;
+         "    # An array: a list never grown, told from a list when printed.";
+         "    __slots__ = ()";
+       ]
+     else if name = fail_helper then
+       [
+         Printf.sprintf "def %s(message):" name;
+         "    # A runtime error: what was printed is written out, the message";
+         "    # goes to standard error, and the program stops with status 1.";
+         "    sys = __import__('sys')";
+         "    sys.stdout.flush()";
+         "    sys.stderr.write('error: ' + message + '\\n')";
+         "    raise SystemExit(1)";
+       ]
+     else if name = array_size_helper then
+       [
+         Printf.sprintf "def %s(n):" name;
+         "    if n < 0:";
+         Printf.sprintf
+           "        %s(\"an array's size is never negative, and this one is \" + str(n))"
+           fail_helper;
+       ]
+     else if name = array_index_helper then
+       [
+         Printf.sprintf "def %s(a, i):" name;
+         "    # No index counts from the end: a negative one is outside.";
+         "    n = len(a)";
+         "    if 0 <= i < n:";
+         "        return i";
+         Printf.sprintf
+           "    %s('the index ' + str(i) + ' is outside an array of ' + str(n)" fail_helper;
+         "        + (' element' if n == 1 else ' elements'))";
+       ]
+     else if name = array_get_helper then
+       [
+         Printf.sprintf "def %s(a, i):" name;
+         "    if 0 <= i < len(a):";
+         "        return a[i]";
+         Printf.sprintf "    %s(a, i)" array_index_helper;
+       ]
+     else if name = List.assoc "list__array" array_makers then
+       [ Printf.sprintf "def %s(xs):" name; Printf.sprintf "    return %s(xs)" array_class ]
+     else if name = List.assoc "fill__array" array_makers then
+       [
+         Printf.sprintf "def %s(n, v):" name;
+         Printf.sprintf "    %s(n)" array_size_helper;
+         "    try:";
+         Printf.sprintf "        return %s([v] * n)" array_class;
+         "    except (MemoryError, OverflowError):";
+         Printf.sprintf
+           "        %s('an array of ' + str(n) + ' elements is more than this machine can hold')"
+           fail_helper;
+       ]
+     else if name = List.assoc "init__array" array_makers then
+       [
+         Printf.sprintf "def %s(n, f):" name;
+         Printf.sprintf "    %s(n)" array_size_helper;
+         Printf.sprintf "    return %s([f(i) for i in range(n)])" array_class;
+       ]
+     else if name = List.assoc "unfold__array" array_makers then
+       [
+         Printf.sprintf "def %s(n, s, f):" name;
+         Printf.sprintf "    %s(n)" array_size_helper;
+         "    out = []";
+         "    for _ in range(n):";
+         "        e, s = f(s)";
+         "        out.append(e)";
+         Printf.sprintf "    return %s(out)" array_class;
+       ]
+     else if name = char_class then
        [
          Printf.sprintf "class %s(str):" name;
          "    # A Char: one code point, told from a String when printed.";
@@ -734,6 +840,7 @@ type gen = {
   types : typ IntMap.t;
   comp_counter : int;
   turn_counter : int;
+  write_counter : int;  (* names the temporaries of an element write *)
   pending : pystmt list;
   format_helper : string option;
   format_def : pystmt option;
@@ -815,6 +922,18 @@ let fresh_turn_name gen =
     else (name, { gen with turn_counter = counter })
   in
   go (gen.turn_counter + 1)
+
+(** A fresh pair of names for the array and the index of one element
+    write (`__pyk_owner1`, `__pyk_at1`), guaranteed not to collide with
+    any source identifier. gen -> (string, string, gen) *)
+let fresh_write_names gen =
+  let rec go counter =
+    let owner = Printf.sprintf "__pyk_owner%d" counter in
+    let at = Printf.sprintf "__pyk_at%d" counter in
+    if StringSet.mem owner gen.used || StringSet.mem at gen.used then go (counter + 1)
+    else (owner, at, { gen with write_counter = counter })
+  in
+  go (gen.write_counter + 1)
 
 (** The names pattern would bind, in order. pattern -> [string] *)
 let rec pattern_captured_names pattern =
@@ -1189,6 +1308,7 @@ and free_in_stmt s bound free =
   | SVar (_, name, e, _) ->
       let free = free_in_expr e bound free in
       (StringSet.add name bound, free)
+  | SMutateTuple _ -> after_desugar "target_python"
   | SMutate (_, name, e, _) ->
       (* `:=` writes a `var` that is already in scope; it binds nothing,
          so an enclosing one stays what the name means. *)
@@ -1197,6 +1317,13 @@ and free_in_stmt s bound free =
       in
       (bound, free_in_expr e bound free)
   | SReturn (_, e, _) | SExprStmt (_, e, _) -> (bound, free_in_expr e bound free)
+  | SSetIndex (_, owner, index, value, _) ->
+      (* An element write binds nothing: the array is written, not the
+         name it was reached through. *)
+      ( bound,
+        List.fold_left
+          (fun free e -> free_in_expr e bound free)
+          free [ owner; index; value ] )
   | SReturnStmt (_, inner, _) ->
       let _, free = free_in_stmt inner bound free in
       (bound, free)
@@ -1638,6 +1765,13 @@ let build_format_helper info name floats =
           [
             PyAssign (info, PyTargetName (info, "out"), text "");
             PyFor (info, "e", v, [ step ], None);
+            (* An array is a list of a class of its own (`array_class`),
+               written as what makes one. *)
+            PyIf
+              ( info,
+                PyBinOp (info, "is not", 1, 2, 2, call "type" [ v ], var "list"),
+                [ PyReturn (info, joined [ text "array(["; out; text "])" ]) ],
+                None );
             PyReturn (info, joined [ text "["; out; text "]" ]);
           ],
           None );
@@ -1733,6 +1867,13 @@ let is_float_expr e gen =
   | Some (TFloat _) -> true
   | _ -> false
 
+(** Whether the checker gave this expression an array type -- what
+    makes `e[i]` a checked read. expr -> gen -> bool *)
+let is_array_expr e gen =
+  match IntMap.find_opt (expr_sym e) gen.types with
+  | Some t -> Typesystem.array_element t <> None
+  | None -> false
+
 (** Whether a type is exactly Float, which is the one case a bare
     Python `str` gets wrong. typ option -> bool *)
 let is_float_type type_ =
@@ -1748,6 +1889,7 @@ let rec holds_float type_ =
   | TFunction (_, params, result, _, _, _, _) ->
       List.exists holds_float params || holds_float result
   | TForall (_, _, body, _) -> holds_float body
+  | TCon (_, "Array", args, _) -> List.exists holds_float args
   | _ -> false
 
 (** "bool" for a Bool, "not-bool" for a type with no Bool anywhere
@@ -2082,6 +2224,7 @@ let rec target_as_expr target =
   | PyTargetName (info, name) -> PyVar (info, name)
   | PyTargetTuple (info, elements) ->
       PyTuple (info, List.map target_as_expr elements)
+  | PyTargetIndex (info, owner, index) -> PyIndex (info, owner, index)
 
 (** Whether control can reach the end of py_body without returning -- if
     so, an explicit `return ()` is needed, since unit is the empty tuple
@@ -2322,6 +2465,7 @@ let add_conversion name gen =
     then add char_class gen
     else gen
   in
+  let gen = List.fold_left (fun gen need -> add need gen) gen (conversion_needs name) in
   add name gen
 
 (** Whether the checker gave this expression the type String -- what
@@ -2355,6 +2499,11 @@ let rec translate_expr e scope gen =
   | EChar (info, code_point, _) ->
       ( PyCall (info, PyVar (info, char_class), [ PyString (info, Builtin.utf8 code_point) ]),
         add_conversion char_class gen )
+  | EVar (info, name, _)
+    when List.mem_assoc name array_makers && not (is_bound name scope) ->
+      (* `array(...)` in its four forms, each a prelude helper. *)
+      let helper = List.assoc name array_makers in
+      (PyVar (info, helper), add_conversion helper gen)
   | EVar (info, name, _) ->
       (* A name this module *declared* rather than defined is the host's,
          and lives in the implementation beside this file -- the two
@@ -2478,6 +2627,13 @@ let rec translate_expr e scope gen =
         | UNot _ -> PyUnOp (info, "not ", 0, 1, py_operand)
         | UBitNot _ -> PyUnOp (info, "~", 4, 5, py_operand)),
         gen )
+  | EIndex (info, l, index, _) when is_array_expr l gen ->
+      (* Every read of an array is checked: a Python list would count a
+         negative index from the end, and raise its own error past it. *)
+      let py_l, gen = translate_expr l scope gen in
+      let py_index, gen = translate_expr index scope gen in
+      ( PyCall (info, PyVar (info, array_get_helper), [ py_l; py_index ]),
+        add_conversion array_get_helper gen )
   | EIndex (info, l, index, sym) -> (
       (* A String's s[i] is its i-th code point, which a Python str
          indexes too; it is made a Char. *)
@@ -2511,6 +2667,9 @@ let rec translate_expr e scope gen =
   | ECall (info, EVar (_, (("int" | "float" | "bool") as name), _), [ (_, argument) ], _)
     when not (is_bound name scope) ->
       conversion info name argument scope gen
+  | ECall (info, EVar (_, "same", _), [ (_, l); (_, r) ], _) when not (is_bound "same" scope) ->
+      (* Two arrays are the same array when they are one Python object. *)
+      binary (fun i a b -> PyBinOp (i, "is", 1, 2, 2, a, b)) info l r
   | ECall (info, EVar (_, "string", _), [ (_, argument) ], _)
     when not (is_bound "string" scope) ->
       (* string follows print's own Bool formatting rule. *)
@@ -3010,6 +3169,7 @@ and translate_stmt s scope gen =
         bind ~rebinding:true ~loop_carried:false ~mutable_:true name scope
       in
       ([ PyAssign (info, PyTargetName (info, py_name), py_expr) ], scope, gen)
+  | SMutateTuple _ -> after_desugar "target_python"
   | SMutate (info, name, e, _) ->
       (* An update, not a binding: it reuses the variable's name,
          whatever renaming that variable got when it was declared. *)
@@ -3019,6 +3179,44 @@ and translate_stmt s scope gen =
   | SReturn (info, e, _) ->
       let py_expr, gen = translate_expr e scope gen in
       ([ PyReturn (info, py_expr) ], scope, gen)
+  | SSetIndex (info, owner, index, value, _) ->
+      (* `owner[index] := value`: the array and the index first, then the
+         index checked, then the value, then the write -- into the array
+         the owner was when it was worked out (docs/target_python.md,
+         "Arrays"). Python's own `a[i] = v` works the value out first, so
+         the check is a statement of its own ahead of it. Where the
+         value cannot change what the owner and the index are -- each a
+         name no `:=` writes, or a literal -- they are written as
+         themselves; otherwise each is held in a temporary first. *)
+      let stable e =
+        match e with
+        | EVar (_, name, _) -> not (SMap.mem name scope.mutables)
+        | EInt _ -> true
+        | _ -> false
+      in
+      let py_owner, gen = translate_expr owner scope gen in
+      let py_index, gen = translate_expr index scope gen in
+      let gen = add_conversion array_index_helper gen in
+      let check owner_ index_ =
+        PyCall (info, PyVar (info, array_index_helper), [ owner_; index_ ])
+      in
+      let setup, py_owner, py_index, gen =
+        if stable owner && stable index then
+          ([ PyExprStmt (info, check py_owner py_index) ], py_owner, py_index, gen)
+        else
+          let held, at, gen = fresh_write_names gen in
+          ( [
+              PyAssign (info, PyTargetName (info, held), py_owner);
+              PyAssign (info, PyTargetName (info, at), check (PyVar (info, held)) py_index);
+            ],
+            PyVar (info, held),
+            PyVar (info, at),
+            gen )
+      in
+      let py_value, gen = translate_expr value scope gen in
+      ( setup @ [ PyAssign (info, PyTargetIndex (info, py_owner, py_index), py_value) ],
+        scope,
+        gen )
   | SExprStmt (_, e, _) when yields_unit e scope ->
       (* Nothing reads what a statement is worth, so `print(x)` is
          written as itself rather than as the value form. *)
@@ -3194,6 +3392,10 @@ and annotation t scope gen =
           f1 || f2 )
     | TVar (_, v, _, _) -> (public_py_name v, gen, false)
     | TForall (_, _, body, _) -> text body gen
+    | TCon (_, _, [ element ], _) when Typesystem.array_element t <> None ->
+        (* An array is a list of a class of its own. *)
+        let e, gen, f = text element gen in
+        ("list[" ^ e ^ "]", gen, f)
     | TCon (_, canonical, args, _) ->
         let head, forward =
           match String.rindex_opt canonical '.' with
@@ -3554,6 +3756,7 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
       types = tmap;
       comp_counter = 0;
       turn_counter = 0;
+      write_counter = 0;
       pending = [];
       format_helper = None;
       format_def = None;

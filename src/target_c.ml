@@ -1,12 +1,15 @@
 (** The C code-generation backend, serving c89, c99 and c23. Like
     target_ocaml.ml it infers no types of its own: every type it writes
-    is read out of the checker's tmap. C has no garbage collector, so
-    this backend compiles what needs none: a polymorphic function once
+    is read out of the checker's tmap. What it allocates -- Strings -- is
+    from the Boehm-Demers-Weiser collector (bdwgc), which every program
+    links. It compiles a polymorphic function once
     per type it is used at, a tuple as a struct passed by value, a
     datatype that does not hold itself as a tagged union, a nested def as
     a function of its own taking what it captures, and a function value
     as a function pointer and an environment on the stack -- one that
-    could outlive that stack frame is refused, and so is a list. C also
+    could outlive that stack frame is refused, and so is a list -- and
+    an array as a pointer to a collected struct of its length and its
+    elements. C also
     leaves the order of an operator's operands and a call's arguments
     unspecified, so operands that can print are pinned down with
     temporaries. See docs/target_c.md.
@@ -43,9 +46,16 @@ module SMap = Map.Make (String)
 
 let no_info = { file = "<c>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
 
-(* Why a list is refused: every one is a heap allocation, and nothing
-   would free it. *)
-let heap_reason = "a list, which needs a heap: C has no garbage collector to free one"
+(* Why a list is refused: the C targets have a collector (bdwgc), but
+   lists and recursive datatypes are a step of their own after it
+   (mutation design, FCR-L2). *)
+let heap_reason =
+  "a list, which the C targets do not compile yet: they come after the \
+   collector, in their own step"
+
+(* The name of the type `Array(T)` (typesystem.ml's `t_array`), which
+   is a TCon like a datatype's but compiled as a pointer of its own. *)
+let array_name = "Array"
 
 (* --- C expressions: text and precedence --- *)
 
@@ -248,6 +258,7 @@ let rec code own info t =
   | TString _ -> "s"
   | TTuple (_, [], _) -> "u"
   | TTuple (_, es, _) -> "T" ^ String.concat "" (List.map (code own info) es) ^ "_"
+  | TCon (_, c, [ e ], _) when c = array_name -> "A" ^ code own info e ^ "_"
   | TCon (_, c, args, _) ->
       (* A datatype is named by its module wherever it is used, so every
          file of the program spells its struct the same. *)
@@ -382,19 +393,19 @@ let need_helper st name text =
 (* --- the shared helpers --- *)
 
 let concat_helper =
-  "static const char *pyk_concat(const char *a, const char *b)\n{\n    size_t la = strlen(a);\n    size_t lb = strlen(b);\n    char *result = malloc(la + lb + 1);\n    memcpy(result, a, la);\n    memcpy(result + la, b, lb + 1);\n    return result;\n}"
+  "static const char *pyk_concat(const char *a, const char *b)\n{\n    size_t la = strlen(a);\n    size_t lb = strlen(b);\n    char *result = GC_MALLOC_ATOMIC(la + lb + 1);\n    memcpy(result, a, la);\n    memcpy(result + la, b, lb + 1);\n    return result;\n}"
 
 let slice_helper =
-  "static const char *pyk_slice(const char *s, size_t from, size_t drop)\n{\n    size_t n = strlen(s) - from - drop;\n    char *out = malloc(n + 1);\n    memcpy(out, s + from, n);\n    out[n] = '\\0';\n    return out;\n}"
+  "static const char *pyk_slice(const char *s, size_t from, size_t drop)\n{\n    size_t n = strlen(s) - from - drop;\n    char *out = GC_MALLOC_ATOMIC(n + 1);\n    memcpy(out, s + from, n);\n    out[n] = '\\0';\n    return out;\n}"
 
 let ends_helper =
   "static int pyk_ends_with(const char *s, const char *suffix)\n{\n    size_t ls = strlen(s);\n    size_t lt = strlen(suffix);\n    return ls >= lt && strcmp(s + ls - lt, suffix) == 0;\n}"
 
 let int_str_helper =
-  "static const char *pyk_int_str(int n)\n{\n    char *out = malloc(24);\n    sprintf(out, \"%d\", n);\n    return out;\n}"
+  "static const char *pyk_int_str(int n)\n{\n    char *out = GC_MALLOC_ATOMIC(24);\n    sprintf(out, \"%d\", n);\n    return out;\n}"
 
 let quote_helper =
-  "static const char *pyk_quote(const char *s)\n{\n    char *out = malloc(strlen(s) * 2 + 3);\n    size_t k = 0;\n    out[k++] = '\"';\n    for (; *s != '\\0'; s++) {\n        switch (*s) {\n        case '\\\\': out[k++] = '\\\\'; out[k++] = '\\\\'; break;\n        case '\"': out[k++] = '\\\\'; out[k++] = '\"'; break;\n        case '\\n': out[k++] = '\\\\'; out[k++] = 'n'; break;\n        case '\\t': out[k++] = '\\\\'; out[k++] = 't'; break;\n        case '\\r': out[k++] = '\\\\'; out[k++] = 'r'; break;\n        default: out[k++] = *s;\n        }\n    }\n    out[k++] = '\"';\n    out[k] = '\\0';\n    return out;\n}"
+  "static const char *pyk_quote(const char *s)\n{\n    char *out = GC_MALLOC_ATOMIC(strlen(s) * 2 + 3);\n    size_t k = 0;\n    out[k++] = '\"';\n    for (; *s != '\\0'; s++) {\n        switch (*s) {\n        case '\\\\': out[k++] = '\\\\'; out[k++] = '\\\\'; break;\n        case '\"': out[k++] = '\\\\'; out[k++] = '\"'; break;\n        case '\\n': out[k++] = '\\\\'; out[k++] = 'n'; break;\n        case '\\t': out[k++] = '\\\\'; out[k++] = 't'; break;\n        case '\\r': out[k++] = '\\\\'; out[k++] = 'r'; break;\n        default: out[k++] = *s;\n        }\n    }\n    out[k++] = '\"';\n    out[k] = '\\0';\n    return out;\n}"
 
 (* --- characters ---
    A Char is an int holding its code point; a String is UTF-8, walked a
@@ -462,7 +473,7 @@ let utf8_helper =
     [
       "static const char *pyk_utf8(int c)";
       "{";
-      "    char *out = malloc(5);";
+      "    char *out = GC_MALLOC_ATOMIC(5);";
       "    if (c < 0x80) {";
       "        out[0] = (char)c;";
       "        out[1] = '\\0';";
@@ -621,7 +632,7 @@ let float_helper =
       "{";
       "    char buf[64];";
       "    char digits[32];";
-      "    char *out = malloc(64);";
+      "    char *out = GC_MALLOC_ATOMIC(64);";
       "    double a;";
       "    int negative, p, at, i, n, decpt, k;";
       "    const char *e;";
@@ -782,6 +793,7 @@ let ctor_tag ctx info t name =
 let holds_itself ctx info t =
   let rec reaches seen t target =
     match t with
+    | TCon (_, c, [ e ], _) when c = array_name -> reaches seen e target
     | TCon (_, c, args, _) ->
         let key = c ^ "/" ^ code ctx.own info t in
         if key = target then true
@@ -795,6 +807,7 @@ let holds_itself ctx info t =
     | _ -> false
   in
   match t with
+  | TCon (_, c, _, _) when c = array_name -> false
   | TCon (_, c, args, _) ->
       let key = c ^ "/" ^ code ctx.own info t in
       let Datatype (_, _, ctors), bound = datatype_of ctx info c args in
@@ -802,6 +815,75 @@ let holds_itself ctx info t =
         (fun (_, fields) -> List.exists (fun (_, ft) -> reaches [] (substitute bound ft) key) fields)
         ctors
   | _ -> false
+
+(* --- arrays ---
+   An array is a pointer to a struct of its length and its elements,
+   both from the collector: `pyk_a_<code>` per element type. The
+   elements come from GC_MALLOC_ATOMIC where they hold no pointer, so
+   the collector never scans them. *)
+
+(** Whether a value of type t holds a pointer the collector must see.
+    ctx -> [string] -> typ -> bool *)
+let rec holds_pointers ctx seen t =
+  match substitute ctx.sigma t with
+  | TInt _ | TChar _ | TFloat _ | TBool _ -> false
+  | TTuple (_, es, _) -> List.exists (holds_pointers ctx seen) es
+  | TCon (_, c, args, _) when c <> array_name -> (
+      if List.mem c seen then false
+      else
+        match SMap.find_opt c ctx.datatypes with
+        | Some (Datatype (_, params, ctors)) ->
+            let bound = if List.length params = List.length args then List.combine params args else [] in
+            List.exists
+              (fun (_, fields) -> List.exists (fun (_, ft) -> holds_pointers ctx (c :: seen) (substitute bound ft)) fields)
+              ctors
+        | None -> true)
+  | _ -> true
+
+(** A pointer to values of the C type ct. string -> string *)
+let pointer_to ct = if String.length ct > 0 && ct.[String.length ct - 1] = '*' then ct ^ "*" else ct ^ " *"
+
+(* The elements of a new array of n, each size bytes: n checked first,
+   never negative and never more bytes than a size_t counts. *)
+let array_items_helper =
+  String.concat "\n"
+    [
+      "static void *pyk_array_items(int n, size_t size, int atomic)";
+      "{";
+      "    void *items;";
+      "    if (n < 0) {";
+      "        fprintf(stderr, \"error: an array's size is never negative, and this one is %d\\n\", n);";
+      "        exit(1);";
+      "    }";
+      "    if ((size_t)n > ((size_t)-1) / size) {";
+      "        items = NULL;";
+      "    } else if (n == 0) {";
+      "        items = GC_MALLOC_ATOMIC(1);";
+      "    } else if (atomic) {";
+      "        items = GC_MALLOC_ATOMIC((size_t)n * size);";
+      "    } else {";
+      "        items = GC_MALLOC((size_t)n * size);";
+      "    }";
+      "    if (items == NULL) {";
+      "        fprintf(stderr, \"error: an array of %d elements is more than this machine can hold\\n\", n);";
+      "        exit(1);";
+      "    }";
+      "    return items;";
+      "}";
+    ]
+
+(* What reading or writing a[i] checks first. *)
+let check_index_helper =
+  String.concat "\n"
+    [
+      "static void pyk_check_index(int i, int n)";
+      "{";
+      "    if (i < 0 || i >= n) {";
+      "        fprintf(stderr, \"error: the index %d is outside an array of %d element%s\\n\", i, n, n == 1 ? \"\" : \"s\");";
+      "        exit(1);";
+      "    }";
+      "}";
+    ]
 
 (** A Pyking type as C writes it, every compound type it names declared
     once in the file. ctx -> state -> info -> typ -> (string, state) *)
@@ -839,6 +921,35 @@ let rec ctype ctx st info t =
         in
         let st = { st with types = st.types @ [ (name, decl) ] } in
         (name, need_helper st ("pyk_mk_" ^ code ctx.own info t) maker)
+  | TCon (_, c, [ elem ], _) when c = array_name ->
+      (* A pointer to the array's struct, and pyk_new_<code>(n), which
+         makes one of n elements (zeroed: the collector clears what it
+         hands out). *)
+      let acode = code ctx.own info t in
+      let name = "pyk_a_" ^ acode in
+      if List.mem_assoc name st.types then (name ^ " *", st)
+      else
+        let ect, st = ctype ctx st info elem in
+        let decl =
+          Printf.sprintf "typedef struct %s {\n    int len;\n    %s;\n} %s;" name (declaration (pointer_to ect) "items") name
+        in
+        let st = { st with types = st.types @ [ (name, decl) ] } in
+        let st = need_helper st "pyk_array_items" array_items_helper in
+        let maker =
+          String.concat "\n"
+            [
+              Printf.sprintf "static %s *pyk_new_%s(int n)" name acode;
+              "{";
+              Printf.sprintf "    %s = pyk_array_items(n, sizeof(%s), %d);" (declaration (pointer_to ect) "items") ect
+                (if holds_pointers ctx [] elem then 0 else 1);
+              Printf.sprintf "    %s *a = GC_MALLOC(sizeof(%s));" name name;
+              "    a->len = n;";
+              "    a->items = items;";
+              "    return a;";
+              "}";
+            ]
+        in
+        (name ^ " *", need_helper st ("pyk_new_" ^ acode) maker)
   | TCon (_, canonical, args, _) ->
       let name = "pyk_d_" ^ code ctx.own info t in
       if List.mem_assoc name st.types then (name, st)
@@ -846,8 +957,9 @@ let rec ctype ctx st info t =
         if holds_itself ctx info t then
           unsupported info
             (Printf.sprintf
-               "the datatype %s, which holds a value of itself: that needs a \
-                heap, and C has no garbage collector to free one"
+               "the datatype %s, which holds a value of itself: the C targets \
+                do not compile one yet (it comes after the collector, with \
+                lists)"
                (pprint_type default_config t));
         let Datatype (_, _, ctors), bound = datatype_of ctx info canonical args in
         let sole = List.length ctors = 1 in
@@ -983,6 +1095,33 @@ let rec shower ctx st info t =
             @ [ Printf.sprintf "    return pyk_concat(out, \"%s\");" (if List.length es = 1 then ",)" else ")") ])
         in
         let text = Printf.sprintf "static const char *%s(%s v)\n{\n%s\n}" name ct body in
+        ((fun v -> Printf.sprintf "%s(%s)" name v), need_helper st name text)
+  | TCon (_, c, [ elem ], _) when c = array_name ->
+      (* Written as what makes one, `array([1, 2])`, its elements as they
+         are inside a list. *)
+      let name = "pyk_show_" ^ code ctx.own info t in
+      let ct, st = ctype ctx st info t in
+      if List.mem_assoc name st.helpers then ((fun v -> Printf.sprintf "%s(%s)" name v), st)
+      else
+        let show, st = shower ctx st info elem in
+        let st = need_concat st in
+        let text =
+          String.concat "\n"
+            [
+              Printf.sprintf "static const char *%s(%s)" name (declaration ct "v");
+              "{";
+              "    const char *out = \"array([\";";
+              "    int i;";
+              "    for (i = 0; i < v->len; i++) {";
+              "        if (i > 0) {";
+              "            out = pyk_concat(out, \", \");";
+              "        }";
+              Printf.sprintf "        out = pyk_concat(out, %s);" (show "v->items[i]");
+              "    }";
+              "    return pyk_concat(out, \"])\");";
+              "}";
+            ]
+        in
         ((fun v -> Printf.sprintf "%s(%s)" name v), need_helper st name text)
   | TCon (_, canonical, args, _) ->
       let name = "pyk_show_" ^ code ctx.own info t in
@@ -1439,6 +1578,10 @@ and expr ctx st scope e =
           let pieces, steps, st = in_order ctx st scope [ l; r ] in
           ( sequenced steps (atom (Printf.sprintf "pyk_char_at(%s, %s)" (List.nth pieces 0).text (List.nth pieces 1).text)),
             need_char st "pyk_char_at" )
+      | at when Typesystem.array_element at <> None ->
+          let pieces, steps, st = in_order ctx st scope [ l; r ] in
+          let getter, st = array_getter ctx st info at in
+          (sequenced steps (atom (Printf.sprintf "%s(%s, %s)" getter (List.nth pieces 0).text (List.nth pieces 1).text)), st)
       | _ -> unsupported info heap_reason)
   | ELessThan (_, l, r, _) -> arithmetic ctx st scope p_rel "<" l r
   | ELessThanEq (_, l, r, _) -> arithmetic ctx st scope p_rel "<=" l r
@@ -1448,6 +1591,22 @@ and expr ctx st scope e =
     when Builtin.crosses_host name && not (IntMap.mem callee ctx.tmap) ->
       let line, st = print_call ctx st scope name (arg_exprs args) in
       (atom (Printf.sprintf "(%s, 0)" line), st)
+  | ECall (_, EVar (_, "len", _), [ (_, EList (_, items, _)) ], _) when not (SMap.mem "len" scope.names) ->
+      (* The length of a list literal is how many elements it writes:
+         each is worked out, left to right, and no list is made. *)
+      let steps, st =
+        List.fold_left
+          (fun (out, st) item ->
+            match item with
+            | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ | EVar _ -> (out, st)
+            | _ ->
+                let v, st = expr ctx st scope item in
+                (out @ [ "(void)" ^ at p_unary v ], st))
+          ([], st) items
+      in
+      (sequenced steps (atom (string_of_int (List.length items))), st)
+  | ECall (_, EVar (_, name, _), args, _) when List.mem name Builtin.member_names && not (SMap.mem name scope.names) ->
+      make_array ctx st scope e name (arg_exprs args)
   | ECall (_, EVar (_, name, _), args, _) when List.mem name Builtin.pure_names && not (SMap.mem name scope.names) ->
       builtin ctx st scope e name (arg_exprs args)
   | ECall (_, func, args, _) -> call ctx st scope e func (arg_exprs args)
@@ -1505,13 +1664,123 @@ and expr ctx st scope e =
 and escaping what =
   Printf.sprintf
     "%s holding a function that captures values: the values are on the stack \
-     of the function that made it, and C has no garbage collector to keep \
-     them once it returns"
+     of the function that made it, and the C targets do not yet move them to \
+     the collected heap to outlive it"
     what
 
 and arithmetic ctx st scope prec op l r =
   let pieces, steps, st = in_order ctx st scope [ l; r ] in
   (sequenced steps (binary prec op (List.nth pieces 0) (List.nth pieces 1)), st)
+
+(** The function reading a[i] of an array of type t, the index checked
+    first: pyk_at_<code>. ctx -> state -> info -> typ -> (string, state) *)
+and array_getter ctx st info t =
+  let acode = code ctx.own info t in
+  let name = "pyk_at_" ^ acode in
+  let ct, st = ctype ctx st info t in
+  if List.mem_assoc name st.helpers then (name, st)
+  else
+    let elem = Option.get (Typesystem.array_element t) in
+    let ect, st = ctype ctx st info elem in
+    let st = need_helper st "pyk_check_index" check_index_helper in
+    let text =
+      String.concat "\n"
+        [
+          Printf.sprintf "static %s(%s, int i)" (declaration ect name) (declaration ct "a");
+          "{";
+          "    pyk_check_index(i, a->len);";
+          "    return a->items[i];";
+          "}";
+        ]
+    in
+    (name, need_helper st name text)
+
+(** A call making an array, `list__array` and the other three the
+    elaborator names: its arguments worked out left to right, and the
+    size checked before anything is called or allocated. `list__array`
+    is compiled only from a list literal, its elements written straight
+    into the new array: there are no lists to make one from.
+    ctx -> state -> scope -> expr -> string -> [expr] -> (cexpr, state) *)
+and make_array ctx st scope e name args =
+  let info = expr_info e in
+  let t = type_of ctx scope e in
+  let elem =
+    match Typesystem.array_element t with
+    | Some elem -> elem
+    | None -> unsupported info "an array whose element type nothing in the program settles, which C has to know"
+  in
+  let act, st = ctype ctx st info t in
+  let acode = code ctx.own info t in
+  let ect, st = ctype ctx st info elem in
+  let fn_type ps r = TFunction (info, ps, r, 0, 0, None, []) in
+  (* A helper of the file, written once: its name, its parameters and the
+     statements between making the array and answering it. *)
+  let helper st hname params loop_decls loop_body =
+    let text =
+      String.concat "\n"
+        ([
+           Printf.sprintf "static %s(%s)" (declaration act hname) (String.concat ", " params);
+           "{";
+           Printf.sprintf "    %s = pyk_new_%s(n);" (declaration act "a") acode;
+         ]
+        @ List.map (fun d -> "    " ^ d) loop_decls
+        @ [ "    int i;"; "    for (i = 0; i < n; i++) {" ]
+        @ List.map (fun l -> "        " ^ l) loop_body
+        @ [ "    }"; "    return a;"; "}" ])
+    in
+    need_helper st hname text
+  in
+  let call_text hname values steps = sequenced steps (atom (Printf.sprintf "%s(%s)" hname (String.concat ", " (List.map (fun v -> v.text) values)))) in
+  match (name, args) with
+  | "list__array", [ EList (_, items, _) ] ->
+      (* The new array, and then each element written into it in turn:
+         the comma operator runs them left to right. *)
+      let values, st =
+        List.fold_left
+          (fun (out, st) item ->
+            let v, st = expr ctx st scope item in
+            (out @ [ v ], st))
+          ([], st) items
+      in
+      if List.exists (fun v -> v.local_env) values then unsupported info (escaping "an array");
+      let held, st = fresh_temp st act in
+      let steps =
+        Printf.sprintf "%s = pyk_new_%s(%d)" held acode (List.length items)
+        :: List.mapi (fun i v -> Printf.sprintf "%s->items[%d] = %s" held i (at p_assign v)) values
+      in
+      (atom ("(" ^ String.concat ", " (steps @ [ held ]) ^ ")"), st)
+  | "list__array", _ -> unsupported info heap_reason
+  | "fill__array", [ n; v ] ->
+      let values, steps, st = in_order ctx st scope [ n; v ] in
+      if (List.nth values 1).local_env then unsupported info (escaping "an array");
+      let hname = "pyk_fill_" ^ acode in
+      let st = helper st hname [ "int n"; declaration ect "v" ] [] [ "a->items[i] = v;" ] in
+      (call_text hname values steps, st)
+  | "init__array", [ n; f ] ->
+      let ft = fn_type [ TInt (info, 0) ] elem in
+      let values, steps, st = in_order ~expected:[ None; Some ft ] ctx st scope [ n; f ] in
+      let fct, st = ctype ctx st info ft in
+      let hname = "pyk_init_" ^ code ctx.own info ft in
+      let body = if is_unit elem then [ "f.fn(f.env, i);"; "a->items[i] = 0;" ] else [ "a->items[i] = f.fn(f.env, i);" ] in
+      let st = helper st hname [ "int n"; declaration fct "f" ] [] body in
+      (call_text hname values steps, st)
+  | "unfold__array", [ n; seed; f ] ->
+      let seed_t = type_of ctx scope seed in
+      let pair = TTuple (info, [ elem; seed_t ], 0) in
+      let ft = fn_type [ seed_t ] pair in
+      let values, steps, st = in_order ~expected:[ None; None; Some ft ] ctx st scope [ n; seed; f ] in
+      let sct, st = ctype ctx st info seed_t in
+      let pct, st = ctype ctx st info pair in
+      let fct, st = ctype ctx st info ft in
+      let hname = "pyk_unfold_" ^ code ctx.own info ft in
+      let st =
+        helper st hname
+          [ "int n"; declaration sct "s"; declaration fct "f" ]
+          [ declaration pct "r" ^ ";" ]
+          [ "r = f.fn(f.env, s);"; "a->items[i] = r.a0;"; "s = r.a1;" ]
+      in
+      (call_text hname values steps, st)
+  | _ -> unsupported info (Printf.sprintf "the builtin `%s` with these arguments" name)
 
 (** A field every constructor of a datatype has, read through a function
     of its own. ctx -> state -> info -> typ -> string -> (string, state) *)
@@ -1848,12 +2117,16 @@ and builtin ctx st scope e name args =
   match (name, values) with
   | "range", _ ->
       unsupported info
-        "`range` outside a `for` loop's header, where it is a list, which \
-         needs a heap: C has no garbage collector to free one"
+        "`range` outside a `for` loop's header, where it is a list, which the \
+         C targets do not compile yet"
   | "len", [ v ] -> (
       match arg_type 0 with
       | TString _ -> (sequenced steps (atom (Printf.sprintf "pyk_utf8_length(%s)" v.text)), need_char st "pyk_utf8_length")
+      | t when Typesystem.array_element t <> None -> wrap (atom (at p_atom v ^ "->len"))
       | _ -> unsupported info heap_reason)
+  | "same", [ a; b ] ->
+      (* One array is one pointer. *)
+      wrap (binary p_eq "==" a b)
   | "string", [ v ] -> (
       match arg_type 0 with
       | TString _ -> wrap v
@@ -2125,6 +2398,33 @@ and stmt ctx st scope s =
           bind_value scope name { value = atom cname; kind = BCell; btype = t; cname_ = cname },
           st )
       else (pre @ [ CDecl (ct, cname, Some v.text) ], bind_value scope name { value = atom cname; kind = BLocal; btype = t; cname_ = cname }, st)
+  | SMutateTuple _ -> after_desugar "target_c"
+  | SSetIndex (info, owner, index, value, _) ->
+      (* owner[index] := value: the array and the index each into a
+         temporary, the index checked, and only then the value worked
+         out and written -- into the array the temporary holds, whatever
+         the value did to the name it came from. *)
+      let at = type_of ctx scope owner in
+      if Typesystem.array_element at = None then unsupported info "an element write into what is not an array";
+      let act, st = ctype ctx st info at in
+      let ov, st = expr ctx st scope owner in
+      let opre, st = flush st in
+      let held, st = temp st "arr" in
+      let iv, st = expr ctx st scope index in
+      let ipre, st = flush st in
+      let idx, st = temp st "idx" in
+      let vv, st = expr ctx st scope value in
+      if vv.local_env then unsupported info (escaping "an array");
+      let vpre, st = flush st in
+      let st = need_helper st "pyk_check_index" check_index_helper in
+      ( opre
+        @ [ CDecl (act, held, Some ov.text) ]
+        @ ipre
+        @ [ CDecl ("int", idx, Some iv.text); CLine (Printf.sprintf "pyk_check_index(%s, %s->len);" idx held) ]
+        @ vpre
+        @ [ CLine (Printf.sprintf "%s->items[%s] = %s;" held idx vv.text) ],
+        scope,
+        st )
   | SMutate (info, name, e, _) ->
       let v, st = expr ctx st scope e in
       let pre, st = flush st in
@@ -2380,6 +2680,26 @@ and loop ctx st scope s =
           ( pre @ setup
             @ [ CDecl ("const char *", pos_name, None); CDecl ("int", cname, None) ]
             @ spre @ [ CFor (header, body_stmts) ],
+            value, acc_t, st )
+      | Some (ForIn (iter_info, element, sequence, _))
+        when Typesystem.array_element (type_of ctx scope sequence) <> None ->
+          (* An array's elements by index, each read as its turn is
+             reached, so a write ahead of the loop is seen. *)
+          let at = type_of ctx scope sequence in
+          let elem = Option.get (Typesystem.array_element at) in
+          let v, st = expr ctx st scope sequence in
+          let spre, st = flush st in
+          let act, st = ctype ctx st iter_info at in
+          let ect, st = ctype ctx st iter_info elem in
+          let held, st = fresh st (element ^ "_array") in
+          let idx, st = fresh st (element ^ "_at") in
+          let cname, st = fresh st element in
+          let inner = bind_value inner element { value = atom cname; kind = BLocal; btype = elem; cname_ = cname } in
+          let body_stmts, st = tail_block ctx st inner fin body in
+          let header = Printf.sprintf "%s = 0; %s < %s->len; %s++" idx idx held idx in
+          ( pre @ setup @ spre
+            @ [ CDecl (act, held, Some v.text); CDecl ("int", idx, None); CDecl (ect, cname, None);
+                CFor (header, CLine (Printf.sprintf "%s = %s->items[%s];" cname held idx) :: body_stmts) ],
             value, acc_t, st )
       | Some (ForIn (iter_info, _, _, _)) -> unsupported iter_info ("a `for` loop over " ^ heap_reason)
       | Some (WhileTest (_, condition, _)) ->
@@ -3037,7 +3357,8 @@ let headers (program : cprogram) standard text =
   List.map (Printf.sprintf "#include <%s>")
     ((if standard = "c99" && (contains "bool" || contains "true" || contains "false") then [ "stdbool.h" ] else [])
     @ (if contains "printf" || contains "sprintf" then [ "stdio.h" ] else [])
-    @ (if contains "malloc" || contains "strtod" || contains "atoi" || contains "NULL" then [ "stdlib.h" ] else [])
+    @ (if contains "malloc" || contains "strtod" || contains "atoi" || contains "NULL" || contains "exit(" then [ "stdlib.h" ] else [])
+    @ (if contains "GC_" then [ "gc.h" ] else [])
     @ (if contains "strlen" || contains "strcmp" || contains "memcpy" || contains "strcpy" || contains "strchr" || contains "strncmp" then [ "string.h" ] else [])
     @ (if contains "DBL_MAX" then [ "float.h" ] else [])
     @ if program.includes_math || contains "HUGE_VAL" then [ "math.h" ] else [])
@@ -3107,7 +3428,11 @@ let pprint_c_program (program : cprogram) standard source =
           (fun f -> [ ""; visibility f ^ signature f; "{"; block standard 1 f.f_body; "}" ])
           program.funcs
       @
-      if program.main then [ ""; "int main(void)"; "{"; block standard 1 program.main_body; ""; "    return 0;"; "}"; "" ]
+      if program.main then
+        (* The collector is started before anything can allocate; the
+           program's own top level is a block of its own after it, since
+           C89 wants a block's declarations before its statements. *)
+        [ ""; "int main(void)"; "{"; "    GC_INIT();"; "    {"; block standard 2 program.main_body; "    }"; ""; "    return 0;"; "}"; "" ]
       else [ ""; Printf.sprintf "void %s(void)" (init_name program.program_name); "{"; block standard 1 program.main_body; "}"; "" ])
   in
   let body = expand_captures program.capture_table body in
@@ -3116,7 +3441,8 @@ let pprint_c_program (program : cprogram) standard source =
     ([
        comment (Printf.sprintf "Generated from %s by the Pyking compiler. Do not edit." source) standard;
        comment
-         (if program.main && not program.separate then Printf.sprintf "Target: %s. Compile with:  cc -std=%s <this file>" standard standard
+         (if program.main && not program.separate then
+            Printf.sprintf "Target: %s. Compile with:  cc -std=%s <this file> -lgc -lm" standard standard
           else Printf.sprintf "Target: %s. One translation unit of the program; compile it with the others." standard)
          standard;
      ]

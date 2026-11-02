@@ -146,6 +146,8 @@ let children n =
           [ NTarget target; NStmt inner ]
           @ option_of (fun t -> NType t) annotation
       | SVar (_, _, e, _) | SMutate (_, _, e, _) -> [ NExpr e ]
+      | SMutateTuple (_, target, e, _) -> [ NTarget target; NExpr e ]
+      | SSetIndex (_, owner, index, value, _) -> [ NExpr owner; NExpr index; NExpr value ]
       | SReturn (_, e, _) | SExprStmt (_, e, _) -> [ NExpr e ]
       | SReturnStmt (_, inner, _) -> [ NStmt inner ]
       | SLoop (_, target, init, annotation, iterate, body, _) ->

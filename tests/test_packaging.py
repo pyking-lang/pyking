@@ -381,8 +381,8 @@ def check_stage(check, compiler):
         check("a one-architecture cask says which",
               "depends_on arch: :arm64" in packaging.cask(url, first, ["arm64"])
               and "depends_on arch: :intel" in packaging.cask(url, first, ["x86_64"]))
-        check("the cask depends on nothing else",
-              text.count("depends_on") == 1, text)
+        check("the cask depends on bdw-gc, the C targets' collector, and nothing else",
+              text.count("depends_on") == 2 and 'depends_on formula: "bdw-gc"' in text, text)
         if shutil.which("ruby"):
             (root / "pyking.rb").write_text(text)
             result = run(["ruby", "-c", root / "pyking.rb"], root, env)

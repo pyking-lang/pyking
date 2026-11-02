@@ -1,0 +1,22 @@
+# Strings made and dropped, many times over: each turn joins a String of
+# over a thousand characters and keeps only its length, so a program
+# that freed nothing would hold over fifty MB by its end. On C,
+# where every String comes from the bdwgc collector, the manifest's
+# `c_peak_mb` holds the program to a small fraction of that -- what tests
+# that the collector frees what the program drops.
+
+use mutation
+
+var base = "0123456789"
+var doublings = 0
+while doublings < 7:
+    base += base
+    doublings += 1
+
+var total = 0
+var i = 0
+while i < 40000:
+    line = base + string(i)
+    total += len(line)
+    i += 1
+print(len(base), total)

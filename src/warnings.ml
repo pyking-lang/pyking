@@ -60,6 +60,7 @@ type kind =
   | Unused_pattern_var
   | Unused_parameter
   | Unused_loop_var
+  | Shared_fill
 
 let kinds =
   [
@@ -70,6 +71,7 @@ let kinds =
     Unused_pattern_var;
     Unused_parameter;
     Unused_loop_var;
+    Shared_fill;
   ]
 
 let name = function
@@ -80,6 +82,7 @@ let name = function
   | Unused_pattern_var -> "unused-pattern-var"
   | Unused_parameter -> "unused-parameter"
   | Unused_loop_var -> "unused-loop-var"
+  | Shared_fill -> "shared-fill"
 
 let of_name text = List.find_opt (fun k -> name k = text) kinds
 
@@ -103,9 +106,12 @@ let description = function
   | Unused_loop_var ->
       "A loop's accumulator, a 'for' variable, or a name a comprehension \
        binds, that the loop never uses."
+  | Shared_fill ->
+      "An array filled with 'array(n, v)' where v is itself mutable -- an \
+       array -- so every element is one and the same v."
 
 let default_on = function
-  | Unused_binding | Unused_function | Unused_var | Shadowed_update -> true
+  | Unused_binding | Unused_function | Unused_var | Shadowed_update | Shared_fill -> true
   | Unused_pattern_var | Unused_parameter | Unused_loop_var -> false
 
 (* Which warnings are on, which kinds an `-Werror=` or `-Wno-error=` said
@@ -247,6 +253,8 @@ type walk = {
   mutable calls : (binding * binding list) list;
   (* every function, with the function it is defined in *)
   mutable parents : (binding * binding option) list;
+  (* every `array(n, v)` filled with one mutable v: where, and v's type *)
+  mutable shared : (Lexer.info * typ) list;
 }
 
 (* The walk's position: what is in scope, which block, and which
@@ -386,7 +394,16 @@ let rec expr w here e =
       go a;
       go b
   | ENeg (_, a, _) | EUnary (_, _, a, _) | EField (_, a, _, _) -> go a
-  | ECall (_, f, args, s) ->
+  | ECall (info, f, args, s) ->
+      (* `array(n, v)` with v an array fills n elements with one v --
+         unless n is the literal 0 or 1, where there is nothing to share
+         (PYKING.md, "Arrays"). What v holds is not looked into. *)
+      (match (IntMap.find_opt s w.qmap, arg_exprs args) with
+      | Some (Typesystem.Call (Some ("fill::array", TFunction (_, [ _; filled ], _, _, _, _, _)), _)), [ count; _ ]
+        when Typesystem.array_element filled <> None
+             && (match count with EInt (_, (0 | 1), _) -> false | _ -> true) ->
+          w.shared <- w.shared @ [ (info, filled) ]
+      | _ -> ());
       (* A call overload resolution settled is charged to the one
          definition it reaches, above; its unqualified name, walked, would
          be charged to every definition it may mean. *)
@@ -472,7 +489,14 @@ and statement w here ~toplevel stmt =
   | SVar (i, n, e, _) ->
       expr w here e;
       bind_ w here ~toplevel RVariable n (name_span w n i)
+  | SMutateTuple _ -> after_desugar "warnings"
+  | SSetIndex (_, owner, index, value, _) ->
+      expr w here owner;
+      expr w here index;
+      expr w here value;
+      here
   | SMutate (_, n, e, _) ->
+      (* `x += 1` is `x := x + 1`, and reads `x` as that does. *)
       expr w here e;
       Option.iter (fun b -> b.written <- true) (SMap.find_opt n here.env);
       here
@@ -580,7 +604,9 @@ let reaches w f g =
 
 let check ?(qmap = IntMap.empty) ?(toplevel_used = false) ?(public = []) ?(display = Fun.id)
     ?(outer = []) config tokens stmts =
-  let w = { tokens; qmap; toplevel_used; public; display; next = 0; all = []; calls = []; parents = [] } in
+  let w =
+    { tokens; qmap; toplevel_used; public; display; next = 0; all = []; calls = []; parents = []; shared = [] }
+  in
   (* What is in scope before the first statement -- an earlier REPL
      entry's names -- is bound in a block of its own, outside this one,
      and is never reported here. *)
@@ -672,5 +698,13 @@ let check ?(qmap = IntMap.empty) ?(toplevel_used = false) ?(public = []) ?(displ
           (Printf.sprintf "Unused loop variable '%s', bound on line %d: %s never uses it." shown
              (line b.span) what)
   in
-  List.filter_map report w.all
+  let shared (at, filled) =
+    say Shared_fill at
+      (Printf.sprintf
+         "Every element of this array is the same %s: 'array(n, v)' stores one v \
+          n times, so writing into one element is seen in all of them. To make \
+          n different ones, make each in a generator: 'array(n, lam _. array(...))'."
+         (Syntax.pprint_type Syntax.default_config filled))
+  in
+  List.filter_map report w.all @ List.filter_map shared w.shared
   |> List.sort (fun a b -> compare (a.at.row1, a.at.col1) (b.at.row1, b.at.col1))

@@ -239,8 +239,28 @@ element is the lambda rather than a lambda answering with a pair.
 
 **`use` lines** are read by `parse_uses` before the first statement,
 and `check_features` then walks the statements for anything of a
-feature the module did not turn on -- `var` and `:=` without
-`use mutation` -- and refuses it as a parse error. `parse_with` takes
+feature the module did not turn on -- `var`, `:=` and `+=` without
+`use mutation` -- and refuses it as a parse error.
+
+**Compound assignment** has no node of its own: `x += e` is parsed as
+the `SMutate` it means, `x := x + e`, by `Syntax.compound_expr`, with
+the `x` it reads given the span of the name the statement starts with.
+That span is how `Syntax.compound_parts` tells one apart from a `:=`
+written out -- for the printer, which writes it back as `x += e`, and for
+the messages that name the operator (`'+=' changes the mutable variable
+...`). A `:=` or `+=` inside brackets is refused before parsing starts,
+as a statement used for a value.
+
+**An element write** `a[i] := e` is the one statement that starts with
+an expression: `parse_expr_statement` parses `a[i]` and, seeing `:=` or
+a compound operator after an `EIndex`, makes an `SSetIndex` of its
+owner, index and value. `a[i] += e` is marked the way `x += e` is -- its
+value is `a[i] + e` with the `EIndex` spanning from where the statement
+starts -- which `Syntax.index_compound_parts` reads, and
+desugar_args.ml then works `a` and `i` out once into temporaries. `a[i]
+= v` is refused with "did you mean `a[i] := v`?". `check_features`
+refuses an element write, and a call to `array` (unless the module binds
+a name `array` of its own), without `use mutation`. `parse_with` takes
 features already on, which is how a REPL session keeps a `use` an
 earlier entry typed.
 

@@ -6,8 +6,9 @@
    A Bool is spelled differently by the two C targets, `int` for c89 and
    `bool` for c23, which is what the block below is for.
 
-   A line is read into memory that is never freed, which is what the C
-   backend does for Pyking's own `++` (docs/target_c.md). `printf`, which
+   A line is read into memory from the collector the program links,
+   bdwgc, as every String the C backend makes is (docs/target_c.md,
+   "Memory"): it is freed once nothing holds it. `printf`, which
    `print` compiles to, writes to the same stdout as `fputs` does here,
    so the two interleave in the order they ran. */
 
@@ -22,6 +23,7 @@ typedef int bool;
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <gc.h>
 
 void io_write(const char *text);
 void io_write_line(const char *text);
@@ -45,7 +47,7 @@ static char *append(char *buffer, size_t *length, size_t *capacity, int c)
 {
     if (*length + 1 >= *capacity) {
         *capacity = *capacity * 2;
-        buffer = realloc(buffer, *capacity);
+        buffer = GC_REALLOC(buffer, *capacity);
     }
     buffer[*length] = (char)c;
     *length = *length + 1;
@@ -56,7 +58,7 @@ const char *io_prompt_line(const char *prompt)
 {
     size_t length = 0;
     size_t capacity = 80;
-    char *buffer = malloc(capacity);
+    char *buffer = GC_MALLOC_ATOMIC(capacity);
     int c;
 
     fputs(prompt, stdout);
@@ -75,7 +77,7 @@ const char *io_read(void)
 {
     size_t length = 0;
     size_t capacity = 4096;
-    char *buffer = malloc(capacity);
+    char *buffer = GC_MALLOC_ATOMIC(capacity);
     int c;
 
     fflush(stdout);

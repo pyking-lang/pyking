@@ -1,0 +1,2 @@
+'tests/fail_typecheck_tuple_mutate_type.pyk' 10:0-10:5 Type error:
+  'count' is Int, but this ':=' gives String

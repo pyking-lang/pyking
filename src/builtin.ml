@@ -107,8 +107,20 @@ let all =
       max_args = Some 1;
       crosses_host = false;
       doc =
-        "Answer how many items a list holds, or how many characters -- \
-         Unicode code points, as `s[i]` counts them -- a String holds.";
+        "Answer how many items a list or an array holds, or how many \
+         characters -- Unicode code points, as `s[i]` counts them -- a \
+         String holds.";
+    };
+    {
+      name = "same";
+      min_args = 2;
+      max_args = Some 2;
+      crosses_host = false;
+      doc =
+        "Answer whether two arrays are the same array -- one array under \
+         two names, so writing an element through one is seen through the \
+         other -- rather than two arrays holding the same elements, which \
+         `array.equal` asks. `==` compares no arrays.";
     };
     {
       name = "float";
@@ -159,6 +171,36 @@ let all =
 
 (** Every builtin's name, in the order the table lists them. [string] *)
 let names = List.map (fun builtin -> builtin.name) all
+
+(** The builtin overload sets: a name a program calls unbound, and its
+    members, each a `::` definition the checker binds (typesystem.ml's
+    `builtin_env`) and resolves a call among by its arguments. After
+    elaborate.ml a call names a member's plain name -- `fill__array` --
+    and that is what the interpreter and every backend implement.
+    `array` makes an array (PYKING.md, "Arrays"). [(string, [string])] *)
+let overload_sets =
+  [ ("array", [ "list::array"; "fill::array"; "init::array"; "unfold::array" ]) ]
+
+(** The plain names the members of the builtin overload sets compile to.
+    [string] *)
+let member_names =
+  List.concat_map (fun (_, members) -> List.map Names.renamed members) overload_sets
+
+(** What a reader sees as builtin words: every builtin and every builtin
+    overload set's name, for highlighting and completion. [string] *)
+let words = names @ List.map fst overload_sets
+
+(** What a builtin overload set does, for the editor's hover. string ->
+    string option *)
+let overload_doc name =
+  match name with
+  | "array" ->
+      Some
+        "Make an array: `array(xs)` from a list, `array(n, v)` of n copies \
+         of v, `array(n, f)` with element i being f(i), and \
+         `array(n, seed, f)` unfolding an accumulator, f answering each \
+         element and the next accumulator. Needs `use mutation`."
+  | _ -> None
 
 (** The builtin a name denotes, or None if it is an ordinary Pyking
     name. string -> t option *)

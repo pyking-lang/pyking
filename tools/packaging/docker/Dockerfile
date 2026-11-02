@@ -5,8 +5,8 @@
 #
 #   slim  pyk and its tree on Debian: programs, the REPL, the notebook,
 #         the playground, the help and the language server.
-#   full  the same, with every target's host -- Python 3.14, node 24, gcc,
-#         a JDK and the OCaml pyk was built by -- so `pyk compile --run`
+#   full  the same, with every target's host -- Python 3.14, node 24, gcc
+#         with the bdwgc collector C programs link, a JDK and the OCaml pyk was built by -- so `pyk compile --run`
 #         runs every target, and a program's own external module compiles
 #         its plugin.
 #
@@ -56,7 +56,8 @@ LABEL org.opencontainers.image.title="Pyking (full)" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/pyking-lang/pyking-releases"
 RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc libc6-dev default-jdk-headless \
+ && apt-get install -y --no-install-recommends gcc libc6-dev libgc-dev pkg-config \
+      default-jdk-headless \
       curl ca-certificates xz-utils \
  && rm -rf /var/lib/apt/lists/*
 RUN case "$TARGETARCH" in \

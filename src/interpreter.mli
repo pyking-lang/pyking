@@ -101,6 +101,9 @@ type value =
   | VData of string * (string option * value) list
       (* a value of a datatype: its constructor, and each field with its
          name where it has one *)
+  | VArray of value array
+      (* an array: one store of elements, shared by every name holding
+         it and written in place *)
 
 (** A persistent chain of frames. Abstract: `extend`, `lookup` and the
     write-once cell a `def` binds are the machine's own, and

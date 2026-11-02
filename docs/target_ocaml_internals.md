@@ -123,6 +123,13 @@ finds `may_print` false for everything, takes the `len(effectful) < 2`
 early return, and pays nothing: operands stay exactly where the source
 wrote them.
 
+Arrays widen what counts. Where any of `exprs` reads an array element
+or makes an array (an `EIndex` on an `Array(T)`, or a call to one of
+`Builtin.member_names`), every expression that does either, or calls a
+function that is not a pure builtin, joins the ones to pin: such a read
+can fail, and it sees whatever a call before it wrote. A program with no
+array read among the operands is unaffected.
+
 ## Grouping mutually recursive functions
 
 `let rec ... and ...` binds a *group* of functions that has to be

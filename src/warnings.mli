@@ -42,6 +42,7 @@ type kind =
   | Unused_pattern_var
   | Unused_parameter
   | Unused_loop_var
+  | Shared_fill (* array(n, v) with v an array: every element one v *)
 
 (** Every kind, in the order help and the playground list them. [kind] *)
 val kinds : kind list

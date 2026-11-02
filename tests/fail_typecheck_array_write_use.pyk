@@ -1,0 +1,7 @@
+# Writing an element is mutation's too.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def zero(a: Array(Int)) -> ():
+    a[0] := 0

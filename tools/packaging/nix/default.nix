@@ -18,6 +18,8 @@
 , ocamlPackages
 , python3
 , makeWrapper
+, boehmgc
+, pkg-config
 }:
 
 let
@@ -132,7 +134,8 @@ stdenv.mkDerivation {
     mkdir -p $out/bin
     makeWrapper $out/libexec/pyking/pyk $out/bin/pyk \
       --set-default OCAMLOPT ${ocamlPackages.ocaml}/bin/ocamlopt \
-      --suffix PATH : ${lib.makeBinPath [ stdenv.cc ]}
+      --suffix PATH : ${lib.makeBinPath [ stdenv.cc pkg-config ]} \
+      --suffix PKG_CONFIG_PATH : ${boehmgc.dev}/lib/pkgconfig
     runHook postInstall
   '';
 

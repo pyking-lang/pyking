@@ -48,7 +48,7 @@ ace.define("ace/mode/pyking_highlight_rules", [], function (require, exports) {
           regex: "(\\bdef\\b)(\\s+)([A-Za-z_][A-Za-z_0-9]*)" },
         // The two-character operators first: ':=' must not lex as ':' + '=',
         // '<<' must not lex as two '<', and '&&' must not lex as two '&'.
-        { token: "keyword.operator", regex: ":=|->|\\.\\.|==|!=|<=|>=|<<|>>|&&|\\|\\||<|>|\\+|-|\\*|/|%|\\^|&|\\||~|!|=" },
+        { token: "keyword.operator", regex: "<<=|>>=|[-+*/%^&|]=|:=|->|\\.\\.|==|!=|<=|>=|<<|>>|&&|\\|\\||<|>|\\+|-|\\*|/|%|\\^|&|\\||~|!|=" },
         { token: keywordMapper, regex: "\\b[A-Za-z_][A-Za-z_0-9]*\\b" },
         { token: "paren.lparen", regex: "[\\[({]" },
         { token: "paren.rparen", regex: "[\\])}]" },

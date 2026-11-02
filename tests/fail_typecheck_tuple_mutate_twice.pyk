@@ -1,0 +1,10 @@
+# A tuple `:=` names each variable once: writing one twice would leave it
+# holding whichever part came last, which is never what was meant.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+var a = 1
+a, a := 1, 2

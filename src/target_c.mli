@@ -1,7 +1,7 @@
 (** The C code-generation backend, serving c89, c99 and c23. It infers
     no types of its own: every type it writes is read out of the
-    checker's tmap. C has no garbage collector, so it compiles what needs
-    none -- a polymorphic function once per type, a tuple as a struct, a
+    checker's tmap. Its Strings come from the bdwgc collector every
+    program links; it compiles a polymorphic function once per type, a tuple as a struct, a
     datatype that does not hold itself as a tagged union, a function
     value as a pointer and an environment on the stack -- and refuses a
     list and a function value that could outlive its environment. C also

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_array_index.pyk' 9:2-9:9 Type error: an array's
+  index is an Int, and this one is String

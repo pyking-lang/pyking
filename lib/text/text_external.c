@@ -7,11 +7,13 @@
    walking from the start: a code point begins at every byte that is not
    a continuation byte (10xxxxxx).
 
-   A String answered here is allocated and never freed, which is what the
-   C backend does for Pyking's own `++` (docs/target_c.md). */
+   A String answered here comes from the collector the program links,
+   bdwgc, as every String the C backend makes does (docs/target_c.md,
+   "Memory"). */
 
 #include <stdlib.h>
 #include <string.h>
+#include <gc.h>
 
 int text_host_length(const char *s);
 const char *text_host_slice(const char *s, int start, int stop);
@@ -50,7 +52,7 @@ static int text_points(const char *s, const char *stop)
 
 static char *text_copy(const char *from, size_t length)
 {
-    char *out = malloc(length + 1);
+    char *out = GC_MALLOC_ATOMIC(length + 1);
     memcpy(out, from, length);
     out[length] = '\0';
     return out;
@@ -105,7 +107,7 @@ const char *text_host_replace(const char *s, const char *old, const char *by)
         count++;
     }
     length = strlen(s) - count * m + count * k;
-    out = malloc(length + 1);
+    out = GC_MALLOC_ATOMIC(length + 1);
     end = out;
     for (at = s; (found = strstr(at, old)) != NULL; at = found + m) {
         memcpy(end, at, (size_t) (found - at));

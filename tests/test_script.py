@@ -46,6 +46,9 @@ with them:
   <name>.err       what it must write to standard error -- `debug`'s
                    lines -- on every target it lists.
   exit_code = N    the status it must end with, 0 by default.
+  c_peak_mb = N    the most memory, in MB, a C build of it may allocate
+                   (RLIMIT_DATA, which Linux enforces): what tests that
+                   the collector frees what a program drops.
   release = true   compile it with --release; every compiled target must
                    then write nothing to standard error.
   <name>.events    the events a page delivers to it once its top level
@@ -67,7 +70,8 @@ How each target is executed:
   esm     compile to a temp .js (plus its wrappers and package.json), run
           the generated node driver -- that wrapper is what a user would
           run, so that is what gets tested.
-  c89     compile to a temp .c, build it with `cc -std=c89`, run the
+  c89     compile to a temp .c, build it with `cc -std=c89` and the
+          bdwgc collector (found by pkg-config, as pyk finds it), run the
   c23     binary, compare stdout. Both standards run every C case: they
           share one backend and differ only in how the C is printed, so a
           difference between them is exactly the kind of bug worth
@@ -108,6 +112,7 @@ import re
 import shutil
 import subprocess
 import sys
+import resource
 import tempfile
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
@@ -419,6 +424,9 @@ def host(target):
 def missing_host(target):
     """Why `target` cannot run here, or None where it can.
     String -> String?"""
+    if target.startswith("c") and target[1:].isdigit() and COLLECTOR is None:
+        return ("no bdwgc found, which every C program links; install it "
+                "(brew install bdw-gc, apt install libgc-dev)")
     name = HOST_OF.get(target)
     if name is None or name in HOSTS:
         return None
@@ -427,6 +435,31 @@ def missing_host(target):
 
 # The compiler used for the C targets; `cc` is the standard name.
 C_COMPILER = os.environ.get("CC", "cc")
+
+
+def find_collector():
+    """Where bdwgc, the collector every C program links, is: the flags
+    finding its header and the ones linking it, found the way `pyk` finds
+    them (src/execution.ml) -- pkg-config, then the usual prefixes -- or
+    None. () -> ([String], [String])?"""
+    try:
+        cflags = subprocess.run(["pkg-config", "--cflags", "bdw-gc"],
+                                capture_output=True, text=True)
+        libs = subprocess.run(["pkg-config", "--libs", "bdw-gc"],
+                              capture_output=True, text=True)
+        if cflags.returncode == 0 and libs.returncode == 0 and libs.stdout.split():
+            return cflags.stdout.split(), libs.stdout.split()
+    except OSError:
+        pass
+    for prefix in ["/opt/homebrew", "/usr/local", "/opt/local", "/usr"]:
+        if os.path.exists(os.path.join(prefix, "include", "gc.h")):
+            if prefix == "/usr":
+                return [], ["-lgc"]
+            return ["-I" + os.path.join(prefix, "include")], ["-L" + os.path.join(prefix, "lib"), "-lgc"]
+    return None
+
+
+COLLECTOR = find_collector()
 
 # The JDK tools used for the Java targets; `javac`/`java` are the standard
 # names on `PATH`.
@@ -497,8 +530,11 @@ class Invocation:
     it is expected to end with."""
 
     def __init__(self, arguments=(), stdin=None, flags=(), exit_code=0,
-                 quiet=False):
+                 quiet=False, c_peak_mb=None):
         self.arguments = list(arguments)
+        # The most memory a C build of the program may hold at once, in
+        # MB: what the collector is tested by (docs/target_c.md, "Memory").
+        self.c_peak_mb = c_peak_mb
         self.stdin = stdin
         self.flags = list(flags)
         self.exit_code = exit_code
@@ -823,21 +859,48 @@ def run_c(source, workdir, modules, invocation, standard):
     if compiled.returncode != 0:
         return None, compiled.stderr
     binary = os.path.join(workdir, "program")
+    cflags, libs = COLLECTOR
     built = run(
-        [C_COMPILER, f"-std={standard}", "-pedantic", "-o", binary]
+        [C_COMPILER, f"-std={standard}", "-pedantic"] + cflags + ["-o", binary]
         + [os.path.join(workdir, name + ".c") for name in modules]
         + [generated]
-        # The math library's functions are libm's, which a Linux C
-        # library keeps apart; last, since a library resolves what the
-        # files before it left open.
-        + ["-lm"]
+        # The collector, then the math library's functions, which are
+        # libm's, which a Linux C library keeps apart; last, since a
+        # library resolves what the files before it left open.
+        + libs + ["-lm"]
     )
     if built.returncode != 0:
         return None, built.stderr
+    if invocation.c_peak_mb is not None:
+        result = run_limited([binary] + invocation.arguments, workdir,
+                             invocation.stdin, invocation.c_peak_mb)
+        if result.returncode != 0 and invocation.exit_code == 0:
+            return None, (f"the program needed more than the {invocation.c_peak_mb} MB "
+                          f"its case allows (status {result.returncode}): what it "
+                          f"dropped was not collected\n{result.stderr}")
+        return executed(result, invocation)
     return executed(
         run([binary] + invocation.arguments, cwd=workdir,
             stdin=invocation.stdin),
         invocation)
+
+
+def run_limited(cmd, cwd, stdin, megabytes):
+    """Runs cmd as `run` does, with the memory it may allocate held to
+    `megabytes` (RLIMIT_DATA): past it an allocation fails and the
+    program stops. Linux enforces the limit; macOS ignores it, so there
+    the case only checks the output. The kernel's own peak count is no
+    use here, since the child starts as a copy of this harness.
+    -> CompletedProcess"""
+    def limit():
+        cap = megabytes * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_DATA, (cap, cap))
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=STEP_TIMEOUT,
+                              cwd=cwd, input=stdin or "", preexec_fn=limit)
+    except subprocess.TimeoutExpired as expired:
+        return subprocess.CompletedProcess(cmd, 1, expired.stdout or "",
+                                           f"timed out after {STEP_TIMEOUT} seconds")
 
 
 def run_java(source, workdir, modules, invocation, version):
@@ -1244,6 +1307,7 @@ def invocation_for(case, target):
         flags=[RELEASE_FLAG] if release else [],
         exit_code=case.get("exit_code", 0),
         quiet=release and target != PYKING_TARGET,
+        c_peak_mb=case.get("c_peak_mb"),
     )
 
 

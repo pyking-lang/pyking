@@ -1,6 +1,7 @@
 Usage error: 'unused-everything' names no warning: the warnings are
   unused-binding, unused-function, unused-var, shadowed-update,
-  unused-pattern-var, unused-parameter, unused-loop-var, and 'all'
+  unused-pattern-var, unused-parameter, unused-loop-var, shared-fill,
+  and 'all'
 Usage: pyk [options] <filename> [-- args]   run it with the interpreter
        pyk repl                             start the REPL
        pyk compile [options] <filename>     compile it (alias: pyk c)

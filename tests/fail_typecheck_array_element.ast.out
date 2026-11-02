@@ -1,0 +1,2 @@
+'tests/fail_typecheck_array_element.pyk' 9:0-9:13 Type error: this
+  array's elements are Int, but this ':=' gives String

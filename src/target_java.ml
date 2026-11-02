@@ -2,8 +2,9 @@
     Like target_ocaml.ml it infers no types of its own: every type it
     writes is read out of the checker's tmap, so Pyking's polymorphism is
     Java's generics, a list is a `java.util.List`, a tuple a class of the
-    shared runtime, a datatype a class per constructor, and a function
-    value a `java.util.function` interface. The three versions are three
+    shared runtime, an array the runtime's `PykArray`, a datatype a class
+    per constructor, and a function value a `java.util.function`
+    interface. The three versions are three
     shapes of output: plain classes and casts for java8, records, sealed
     interfaces and `instanceof` patterns for java17, and records with a
     pattern `switch` for every `match` on java21.
@@ -359,6 +360,8 @@ let rec jt ctx ?(boxed = false) ?(erase = false) t =
   | TList (_, e, _) -> "java.util.List<" ^ jt ctx ~boxed:true e ^ ">"
   | TFunction (_, ps, r, _, _, _, imps) -> fn_type ctx (ps @ List.map (fun (IParam (_, t)) -> t) imps) r
   | TVar (_, v, _, _) -> if erase || (String.length v > 0 && (v.[0] = '?' || v.[0] = '_')) then "Object" else tvar ctx v
+  | TCon (_, _, [ e ], _) when Typesystem.array_element t <> None ->
+      runtime_class ^ ".PykArray<" ^ jt ctx ~boxed:true e ^ ">"
   | TCon (_, canonical, args, _) ->
       datatype_ref ctx canonical ^ if args = [] then "" else "<" ^ targs ctx args ^ ">"
   | TForall _ as p ->
@@ -660,7 +663,8 @@ let char_code (v : jexpr) =
   else atom (at p_atom v ^ ".code")
 
 (** A sequence a `for` walks: a String's Chars as a list of them, a
-    list as itself. typ -> jexpr -> jexpr *)
+    list or an array as itself -- an array is an Iterable whose iterator
+    reads each element as it is reached. typ -> jexpr -> jexpr *)
 let walked t (seq : jexpr) =
   match t with
   | TString _ -> atom (Printf.sprintf "%s.chars(%s)" runtime_class seq.text)
@@ -670,6 +674,7 @@ let walked t (seq : jexpr) =
 let item_type t =
   match t with
   | TList (_, el, _) -> el
+  | TCon _ when Typesystem.array_element t <> None -> Option.get (Typesystem.array_element t)
   | TString (i, _) -> TChar (i, 0)
   | _ -> TUnknown (no_info, 0)
 
@@ -1113,6 +1118,9 @@ let rec expr ctx st scope e =
   | ECall (_, EVar (_, name, _), args, _)
     when List.mem name Builtin.pure_names && not (SMap.mem name scope.names) ->
       builtin ctx st scope e name (arg_exprs args)
+  | ECall (_, EVar (_, name, _), args, _)
+    when List.mem name Builtin.member_names && not (SMap.mem name scope.names) ->
+      make_array ctx st scope e name (arg_exprs args)
   | ECall (_, func, args, _) -> call ctx st scope e func (arg_exprs args)
   | EConstruct (_, _, name, args, _) ->
       let t = type_of ctx scope e in
@@ -1452,6 +1460,9 @@ and builtin ctx st scope e name args =
       | TString _ -> (helper "len", st)
       | _ -> (atom (at p_atom v ^ ".size()"), st))
   | "string", [ v ] -> (printed ctx (arg_type 0) v, st)
+  | "same", [ a; b ] ->
+      (* Two arrays are the same array when they are one object. *)
+      (binary p_eq "==" (mk p_unary ("(Object) " ^ at p_unary a)) (mk p_unary ("(Object) " ^ at p_unary b)), st)
   | "int", [ v ] -> (
       match arg_type 0 with
       | TInt _ -> (v, st)
@@ -1483,6 +1494,59 @@ and builtin ctx st scope e name args =
       | TString _ -> (helper "charOfString", st)
       | _ -> unsupported info "`char` of this type")
   | _ -> unsupported info (Printf.sprintf "the builtin `%s` with these arguments" name)
+
+(** A call making an array -- `list__array`, `fill__array`,
+    `init__array` or `unfold__array`, the members of the builtin
+    `array` -- as the runtime's factory for it. The element type is
+    given explicitly where the checker settled it, which also gives a
+    lambda argument its interface; a lambda is cast to its own type
+    besides, for where Java has to infer.
+    ctx -> state -> scope -> expr -> string -> [expr] -> (jexpr, state) *)
+and make_array ctx st scope e name args =
+  let info = expr_info e in
+  let values, st = exprs ctx st scope args in
+  let values = List.map2 (fun a v -> typed_value ctx (type_of ctx scope a) v) args values in
+  let factory =
+    match name with
+    | "list__array" -> "arrayOfList"
+    | "fill__array" -> "arrayFill"
+    | "init__array" -> "arrayInit"
+    | "unfold__array" -> "arrayUnfold"
+    | _ -> unsupported info (Printf.sprintf "the builtin `%s`" name)
+  in
+  let t = type_of ctx scope e in
+  let st = need_type st t in
+  let st = if name = "unfold__array" then need_tuple st 2 else st in
+  let explicit =
+    match Typesystem.array_element t with
+    | Some el when settled ctx el ->
+        if name = "unfold__array" then
+          match List.map (type_of ctx scope) args with
+          | [ _; seed; _ ] when settled ctx seed -> Printf.sprintf "<%s, %s>" (jt ctx ~boxed:true el) (jt ctx ~boxed:true seed)
+          | _ -> ""
+        else "<" ^ jt ctx ~boxed:true el ^ ">"
+    | _ -> ""
+  in
+  ( atom
+      (Printf.sprintf "%s.%s%s(%s)" runtime_class explicit factory
+         (String.concat ", " (List.map (fun v -> v.text) values))),
+    st )
+
+(** v, a value of type t, as an expression Java knows the type of: a
+    lambda cast to its interface, everything else as it is.
+    ctx -> typ -> jexpr -> jexpr *)
+and typed_value ctx t v =
+  if v.prec = p_lambda && settled ctx t then
+    atom (Printf.sprintf "((%s) %s)" (jt ctx t) (at p_unary v))
+  else v
+
+(** Whether a type is one Java can be told: nothing in it left open, and
+    no variable where the top level erases them.
+    ctx -> typ -> bool *)
+and settled ctx t =
+  (not (has_unknown t))
+  && List.for_all (fun v -> String.length v > 0 && v.[0] <> '?' && v.[0] <> '_') (type_vars t)
+  && not (ctx.erase && type_vars t <> [])
 
 (** The line a print writes: its arguments' texts, a space between.
     ctx -> state -> scope -> [expr] -> (jexpr, state) *)
@@ -1799,6 +1863,31 @@ and stmt ctx st scope s =
         ( [ JLine (Printf.sprintf "%s %s = %s;" (jt ctx t) jname v.text) ],
           bind_value scope name { value = atom jname; kind = BMutable; btype = t; jname_ = jname },
           st )
+  | SMutateTuple _ -> after_desugar "target_java"
+  | SSetIndex (_, owner, index, value, _) ->
+      (* `owner[index] := value`: the array and the index held first, the
+         index checked, and only then the value worked out and written --
+         into the array held, whatever the value rebinds. Java's own
+         `a[i] = v` would work v out before it checks. *)
+      let o, st = expr ctx st scope owner in
+      let i, st = expr ctx st scope index in
+      let held, st = temp st "array" in
+      let place, st = temp st "index" in
+      let v, st = expr ctx st scope value in
+      let element =
+        match Typesystem.array_element (type_of ctx scope owner) with
+        | Some el -> el
+        | None -> type_of ctx scope value
+      in
+      let v = typed_value ctx element v in
+      ( [
+          JLine (Printf.sprintf "final %s.PykArray<?> %s = %s;" runtime_class held o.text);
+          JLine (Printf.sprintf "final int %s = %s;" place i.text);
+          JLine (Printf.sprintf "%s.check(%s);" held place);
+          JLine (Printf.sprintf "%s.set(%s, %s);" held place v.text);
+        ],
+        scope,
+        st )
   | SMutate (info, name, e, _) ->
       let v, st = expr ctx st scope e in
       let b = lookup scope info name in
@@ -2955,10 +3044,120 @@ let runtime_source programs version =
         "        return java.util.Collections.emptyList();";
         "    }";
         "";
-        "    public static <A, B> java.util.List<B> flatMap(java.util.List<A> items, java.util.function.Function<A, java.util.List<B>> f) {";
+        "    // A comprehension's `for`: over a list or an array.";
+        "    public static <A, B> java.util.List<B> flatMap(Iterable<A> items, java.util.function.Function<A, java.util.List<B>> f) {";
         "        java.util.ArrayList<B> out = new java.util.ArrayList<B>();";
         "        for (A item : items) out.addAll(f.apply(item));";
         "        return java.util.Collections.unmodifiableList(out);";
+        "    }";
+        "";
+        "    // A runtime error: what the program printed so far, then the";
+        "    // message on stderr, and status 1. Answers an exception only so";
+        "    // that a caller can `throw` it, which javac reads as the end.";
+        "    public static RuntimeException fail(String message) {";
+        "        System.out.flush();";
+        "        System.err.println(\"error: \" + message);";
+        "        System.err.flush();";
+        "        System.exit(1);";
+        "        return new IllegalStateException(message);";
+        "    }";
+        "";
+        "    // An array: a fixed number of elements, written in place and shared";
+        "    // by every name holding it. Every index is checked, a read's and a";
+        "    // write's alike, and walking it reads each element as it is reached.";
+        "    public static final class PykArray<T> implements Iterable<T> {";
+        "        private final Object[] items;";
+        "";
+        "        PykArray(Object[] items) {";
+        "            this.items = items;";
+        "        }";
+        "";
+        "        public int size() {";
+        "            return items.length;";
+        "        }";
+        "";
+        "        public void check(int i) {";
+        "            if (i < 0 || i >= items.length)";
+        "                throw fail(\"the index \" + i + \" is outside an array of \" + items.length";
+        "                    + (items.length == 1 ? \" element\" : \" elements\"));";
+        "        }";
+        "";
+        "        @SuppressWarnings(\"unchecked\")";
+        "        public T get(int i) {";
+        "            check(i);";
+        "            return (T) items[i];";
+        "        }";
+        "";
+        "        public void set(int i, Object value) {";
+        "            check(i);";
+        "            items[i] = value;";
+        "        }";
+        "";
+        "        public Object[] pykItems() {";
+        "            return items;";
+        "        }";
+        "";
+        "        @Override";
+        "        public java.util.Iterator<T> iterator() {";
+        "            return new java.util.Iterator<T>() {";
+        "                private int next = 0;";
+        "";
+        "                @Override";
+        "                public boolean hasNext() {";
+        "                    return next < items.length;";
+        "                }";
+        "";
+        "                @Override";
+        "                public T next() {";
+        "                    return get(next++);";
+        "                }";
+        "            };";
+        "        }";
+        "    }";
+        "";
+        "    // Room for an array of n elements, n checked first.";
+        "    private static Object[] slots(int n) {";
+        "        if (n < 0) throw fail(\"an array's size is never negative, and this one is \" + n);";
+        "        try {";
+        "            return new Object[n];";
+        "        } catch (OutOfMemoryError tooBig) {";
+        "            throw fail(\"an array of \" + n + \" elements is more than this machine can hold\");";
+        "        }";
+        "    }";
+        "";
+        "    // array(xs): the list's elements.";
+        "    public static <T> PykArray<T> arrayOfList(java.util.List<T> list) {";
+        "        Object[] items = slots(list.size());";
+        "        int i = 0;";
+        "        for (T item : list) items[i++] = item;";
+        "        return new PykArray<T>(items);";
+        "    }";
+        "";
+        "    // array(n, v): n elements, every one the value v.";
+        "    public static <T> PykArray<T> arrayFill(int n, T value) {";
+        "        Object[] items = slots(n);";
+        "        java.util.Arrays.fill(items, value);";
+        "        return new PykArray<T>(items);";
+        "    }";
+        "";
+        "    // array(n, f): element i is f(i), made in index order.";
+        "    public static <T> PykArray<T> arrayInit(int n, java.util.function.Function<Integer, T> f) {";
+        "        Object[] items = slots(n);";
+        "        for (int i = 0; i < n; i++) items[i] = f.apply(i);";
+        "        return new PykArray<T>(items);";
+        "    }";
+        "";
+        "    // array(n, seed, f): each element and the next state from f of the";
+        "    // state before; the last state is dropped.";
+        "    public static <T, S> PykArray<T> arrayUnfold(int n, S seed, java.util.function.Function<S, T2<T, S>> f) {";
+        "        Object[] items = slots(n);";
+        "        S state = seed;";
+        "        for (int i = 0; i < n; i++) {";
+        "            T2<T, S> step = f.apply(state);";
+        (match shape with Java8 -> "            items[i] = step.a0;" | _ -> "            items[i] = step.a0();");
+        (match shape with Java8 -> "            state = step.a1;" | _ -> "            state = step.a1();");
+        "        }";
+        "        return new PykArray<T>(items);";
         "    }";
         "";
         "    public static java.util.List<Integer> range(int stop) {";
@@ -3071,6 +3270,14 @@ let runtime_source programs version =
         "                write(out, item);";
         "            }";
         "            out.append(']');";
+        "        } else if (value instanceof PykArray) {";
+        "            Object[] items = ((PykArray<?>) value).pykItems();";
+        "            out.append(\"array([\");";
+        "            for (int i = 0; i < items.length; i++) {";
+        "                if (i > 0) out.append(\", \");";
+        "                write(out, items[i]);";
+        "            }";
+        "            out.append(\"])\");";
         "        } else if (value instanceof Data) {";
         "            Data data = (Data) value;";
         "            out.append(data.pykTag());";

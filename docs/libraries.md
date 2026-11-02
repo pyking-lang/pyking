@@ -141,7 +141,7 @@ on a page shows the time where the reader is (graphics5's), and a
 program that wants that has no other way to it.
 
 A declared type has to be one the target can carry. A list is refused
-on C, which has no garbage collector to free one ([modules.md](modules.md),
+on C, which does not compile lists yet ([modules.md](modules.md),
 "What may cross the boundary"), which is why most of `sys` does not
 reach it -- the shape a caller wants is worth more than one target that
 could not carry it. C and Java compile only what a program uses of a library
@@ -714,6 +714,7 @@ cannot provide").
 
 | | python | node | web | iweb | c89/99/23 | java8/17/21 | ocaml | interpret |
 |---|---|---|---|---|---|---|---|---|
+| `array` | yes | yes | yes | yes | yes, but not `to_list`, which answers a list | yes | yes | yes |
 | `fs` | yes | yes | not supported | not supported | yes | yes | yes | yes |
 | `io` | yes | yes | output only | output only | yes | yes | yes | yes |
 | `math` | yes | yes | yes | yes | yes | yes | yes | yes |
@@ -725,6 +726,9 @@ cannot provide").
 
 "Not supported" and "output only" are the browser implementations above:
 the import compiles and a function the page cannot provide says so.
+
+`array` is written in Pyking alone too, over the builtin arrays, so
+`sort` is one merge sort with the same comparisons everywhere.
 
 `random` is written in Pyking alone, a Park--Miller generator kept in
 32 bits, so a seed gives the same numbers on every target; without one it

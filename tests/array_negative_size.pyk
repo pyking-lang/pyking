@@ -1,0 +1,9 @@
+# An array's size is never negative: `array(n, v)` with n below 0 is a
+# runtime error on every target, before anything is made.
+
+use mutation
+
+n = int("-1")
+print("before")
+a = array(n, 0)
+print("never", len(a))

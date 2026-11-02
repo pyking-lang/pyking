@@ -551,7 +551,8 @@ const WARNINGS = `(async () => { ${HELPERS}
   $("[data-settings-tab=warnings]").click();
   const rows = $$(".pyk-warning");
   check("the Warnings tab names every warning's flag, its default and what it means",
-    rows.length === 7 && rows[0].textContent.includes("-Wunused-binding")
+    rows.length === 8 && rows[0].textContent.includes("-Wunused-binding")
+      && rows[7].textContent.includes("-Wshared-fill")
       && rows[0].textContent.includes("on by default") && rows[0].textContent.includes("-Werror=unused-binding")
       && rows[4].textContent.includes("-Wunused-pattern-var") && rows[4].textContent.includes("off by default")
       && rows.every((r) => r.querySelector(".pyk-hint").textContent.length > 20),

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_array_use.pyk' 8:4-8:9 Parsing error: 'array'
+  makes an array, which needs 'use mutation' at the top of this module

@@ -649,6 +649,8 @@ cask "{NAME}" do
   homepage "{HOMEPAGE}"
 
   depends_on macos: ">= :{MACOS_MINIMUM_NAME}"{only}
+  # The collector every program compiled to C links (docs/target_c.md).
+  depends_on formula: "bdw-gc"
 
   # The tree stays together: pyk finds lib/, share/ and tools/ beside its
   # own resolved path.
@@ -662,7 +664,7 @@ cask "{NAME}" do
   caveats <<~EOS
     Nothing else needs to be installed. Compiling for a target and
     running the result needs that target's own tools (node, cc,
-    javac, ...).
+    javac, ...); the C targets' collector, bdw-gc, came with this cask.
 
     To open a notebook (any Markdown file) in the browser:
       pyk notebook notes.md

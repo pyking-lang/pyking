@@ -1,0 +1,10 @@
+# A list is a value and is never changed, so its element cannot be
+# written: the message points at the array that can be.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+xs = [1, 2]
+xs[0] := 5

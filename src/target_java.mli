@@ -1,8 +1,8 @@
 (** The Java code-generation backend, serving java8, java17 and java21.
     It infers no types of its own: every type it writes is read out of
     the checker's tmap, so Pyking's polymorphism is Java's generics, a
-    list a `java.util.List`, a tuple a class of the shared runtime, a
-    datatype a class per constructor and a function value a
+    list a `java.util.List`, a tuple a class of the shared runtime, an
+    array the runtime's `PykArray`, a datatype a class per constructor and a function value a
     `java.util.function` interface. java8, java17 and java21 are three
     shapes of output: plain classes and casts, records with `instanceof`
     patterns, and records with a pattern `switch` for every `match`.

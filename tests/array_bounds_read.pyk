@@ -1,0 +1,10 @@
+# Reading outside an array is a runtime error on every target, and a
+# negative index is one too: there is no counting from the end. The
+# program stops with status 1 after what it printed before.
+
+use mutation
+
+a = array([1, 2])
+print("before", a[1])
+print(a[2])
+print("never")

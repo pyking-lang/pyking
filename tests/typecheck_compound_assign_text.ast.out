@@ -1,0 +1,14 @@
+use mutation
+var greeting = "hello"
+greeting += ", "
+greeting += "world"
+print(greeting)
+var xs = [1, 2]
+before: [Int] = xs
+xs += [3]
+xs += [4, 5]
+print(xs, before)
+var letters = ""
+for c in ["a", "b", "c"]:
+    letters += c
+print(letters)

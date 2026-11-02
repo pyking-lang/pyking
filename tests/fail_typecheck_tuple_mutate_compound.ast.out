@@ -1,0 +1,3 @@
+'tests/fail_typecheck_tuple_mutate_compound.pyk' 11:0-11:7 Parsing
+  error: '+=' updates one mutable variable; several are written at
+  once with ':=', as in 'a, b := b, a'

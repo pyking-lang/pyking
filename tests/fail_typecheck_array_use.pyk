@@ -1,0 +1,8 @@
+# Making an array is mutation's: `array(...)` in a module without `use
+# mutation` is refused where it is written. Reading, passing and holding
+# one are not gated -- a module may take an array it is given.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+a = array([1, 2])

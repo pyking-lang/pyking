@@ -99,6 +99,9 @@ and jsstmt =
   | JsReturn of info * jsexpr
   | JsLabeled of info * string * jsstmt list (* label: { ... } *)
   | JsBreakTo of info * string (* break label; *)
+  | JsSetIndex of info * jsexpr * jsexpr * jsexpr
+      (* target[index] = value; -- an element write into a Pyking
+         array, whose index was checked by the statement before it. *)
 
 (** Everything the packager decides and the core only names: how each
     runtime operation is called, and how what crosses a module boundary
@@ -173,17 +176,19 @@ let rec holds_float type_ =
   match type_ with
   | TFloat _ | TChar _ -> true
   | TList (_, element, _) -> holds_float element
+  | TCon (_, "Array", [ element ], _) -> holds_float element
   | TTuple (_, elements, _) -> List.exists holds_float elements
   | _ -> false
 
 (** Which positions of a value are Floats or Chars, as the descriptor
     `pykShaped` reads: `f` a Float, `c` a Char, `.` anything else, `[s]`
-    a list, `(s,s)` a tuple. typ -> string *)
+    a list, `{s}` an array, `(s,s)` a tuple. typ -> string *)
 let rec float_shape type_ =
   match type_ with
   | TFloat _ -> "f"
   | TChar _ -> "c"
   | TList (_, element, _) -> "[" ^ float_shape element ^ "]"
+  | TCon (_, "Array", [ element ], _) -> "{" ^ float_shape element ^ "}"
   | TTuple (_, elements, _) ->
       "(" ^ String.concat "," (List.map float_shape elements) ^ ")"
   | _ -> "."
@@ -193,6 +198,14 @@ let rec float_shape type_ =
     expr -> scope -> bool *)
 let is_string_expr e scope =
   match type_of e scope with Some (TString _) -> true | _ -> false
+
+(** Whether the checker settled this expression's type as an array, which
+    is what makes an index a checked one and `len` its length.
+    expr -> scope -> bool *)
+let is_array_expr e scope =
+  match type_of e scope with
+  | Some t -> Typesystem.array_element t <> None
+  | None -> false
 
 (** A sequence a `for` walks, as an array: a String's Chars are its code
     points, which `pykChars` lists. info -> jsexpr -> bool -> jsexpr *)
@@ -236,7 +249,9 @@ let reserved =
         pykConcat pykFormat pykList pykOutput pykQuote pykWrite require \
         pykData pykWithShape pykRange pykLen TextEncoder exports run runtime \
         init pykChars pykCharAt pykCharOfInt pykCharOfString pykFloatStr \
-        pykShaped pykParseInt pykTrunc pykParseFloat")
+        pykShaped pykParseInt pykTrunc pykParseFloat pykFail pykArray \
+        pykArraySize pykArrayOfList pykArrayFill pykArrayInit pykArrayUnfold \
+        pykAt pykCheckIndex pykIndexError")
 
 (** `name2`, `name3`, ... -- the first not already spoken for here.
     string -> scope -> string *)
@@ -343,6 +358,7 @@ let stmt_kind_name s =
   | SLet _ -> "SLet"
   | SLetStmt _ -> "SLetStmt"
   | SVar _ -> "SVar"
+  | SMutateTuple _ -> "SMutateTuple"
   | SMutate _ -> "SMutate"
   | SReturn _ -> "SReturn"
   | SReturnStmt _ -> "SReturnStmt"
@@ -356,6 +372,7 @@ let stmt_kind_name s =
   | SMatch _ -> "SMatch"
   | SImport _ -> "SImport"
   | SDatatype _ -> "SDatatype"
+  | SSetIndex _ -> "SSetIndex"
 
 let expr_kind_name e =
   match e with
@@ -466,6 +483,14 @@ let rec translate_expr e scope =
         ( info,
           JsVar (info, "pykCharAt"),
           [ translate_expr text scope; translate_expr index scope ] )
+  | EIndex (info, array_, index, _) when is_array_expr array_ scope ->
+      (* An array's element, checked: an index outside it is a runtime
+         error rather than JavaScript's `undefined` (docs/target_js.md,
+         "Arrays"). *)
+      JsCall
+        ( info,
+          JsVar (info, "pykAt"),
+          [ translate_expr array_ scope; translate_expr index scope ] )
   | EIndex (info, list, index, _) ->
       JsIndex (info, translate_expr list scope, translate_expr index scope)
   | EList (info, elements, _) ->
@@ -543,15 +568,47 @@ let rec translate_expr e scope =
       | _, Some (TChar _) -> JsBinary (info, "!==", translated, JsNum (info, 0))
       | _, Some (TString _) -> is (JsStr (info, "true"))
       | _, _ -> is (JsNum (info, 1)))
+  | ECall (info, EVar (_, "len", _), [ (_, argument) ], _)
+    when (not (SMap.mem "len" scope.names)) && is_array_expr argument scope ->
+      (* An array's length is its JavaScript array's: O(1), no helper. *)
+      JsMember (info, translate_expr argument scope, "length")
+  | ECall (info, EVar (_, "same", _), [ (_, left); (_, right) ], _)
+    when not (SMap.mem "same" scope.names) ->
+      (* Two arrays are the same array when they are one JavaScript
+         object. *)
+      JsBinary (info, "===", translate_expr left scope, translate_expr right scope)
+  | ECall (info, EVar (_, name, _), args, _)
+    when List.mem name Builtin.member_names && not (SMap.mem name scope.names) ->
+      (* `array(...)` in its four forms, each a helper of the module's
+         own: list__array -> pykArrayOfList, fill__array -> pykArrayFill,
+         and so on. The arguments are worked out left to right as any
+         call's are, and the helper checks the size before it calls or
+         allocates anything. *)
+      let helper =
+        match name with
+        | "list__array" -> "pykArrayOfList"
+        | "fill__array" -> "pykArrayFill"
+        | "init__array" -> "pykArrayInit"
+        | "unfold__array" -> "pykArrayUnfold"
+        | _ ->
+            unsupported_because (expr_info e)
+              (Printf.sprintf
+                 "the builtin `%s` is not supported by the JavaScript backends yet"
+                 name)
+      in
+      JsCall
+        ( info,
+          JsVar (info, helper),
+          List.map (fun a -> translate_expr a scope) (arg_exprs args) )
   | ECall (info, EVar (_, (("range" | "len") as name), _), args, _)
-    when lookup name scope = name ->
+    when not (SMap.mem name scope.names) ->
       (* Two helpers of the module's own, emitted where used. *)
       JsCall
         ( info,
           JsVar (info, if name = "range" then "pykRange" else "pykLen"),
           List.map (fun a -> translate_expr a scope) (arg_exprs args) )
   | ECall (info, EVar (_, name, _), _, _)
-    when List.mem name Builtin.pure_names && lookup name scope = name ->
+    when List.mem name Builtin.pure_names && not (SMap.mem name scope.names) ->
       ignore info;
       unsupported_because (expr_info e)
         (Printf.sprintf
@@ -1295,6 +1352,36 @@ and translate_stmt s scope =
         else [ JsConst (info, JsTargetName (info, lookup name scope), JsStr (info, name)) ]
       in
       (own_name @ functions, scope)
+  | SSetIndex (info, owner, index, value, _) ->
+      (* `a[i] := v`: the array, then the index, then the index checked,
+         then the value, then the write -- into the array first worked
+         out, even where the value rebinds the name it came from
+         (docs/target_js.md, "Arrays"). JavaScript's own `a[i] = v`
+         already evaluates `a` and `i` before `v`; what it cannot do is
+         check between them, so the check is a statement of its own, and
+         an owner or index that is not a plain name or number is held in
+         a `const` first so that it is worked out once. *)
+      let settled e =
+        match e with EVar _ | EInt _ -> true | _ -> false
+      in
+      let held base e scope =
+        let js = translate_expr e scope in
+        if settled e then ([], js, scope)
+        else
+          let name, scope = bind base scope in
+          ( [ JsConst (info, JsTargetName (info, name), js) ],
+            JsVar (info, name),
+            scope )
+      in
+      let owner_stmts, js_owner, scope = held "__array" owner scope in
+      let index_stmts, js_index, scope = held "__index" index scope in
+      let check =
+        JsExprStmt
+          (info, JsCall (info, JsVar (info, "pykCheckIndex"), [ js_owner; js_index ]))
+      in
+      ( owner_stmts @ index_stmts
+        @ [ check; JsSetIndex (info, js_owner, js_index, translate_expr value scope) ],
+        scope )
   | s -> unsupported (stmt_info s) (stmt_kind_name s)
 
 (** The assignment a `break x`/`continue x` makes before it jumps: x
@@ -1734,6 +1821,10 @@ and pprint_js_stmt ?(level = 0) s runtime =
           Printf.sprintf "%s}" pad;
         ]
   | JsBreakTo (_, label) -> Printf.sprintf "%sbreak %s;" pad label
+  | JsSetIndex (_, target, index, value) ->
+      Printf.sprintf "%s%s[%s] = %s;" pad
+        (pprint_js_expr ~min_prec:call_precedence target runtime)
+        (plain index) (plain value)
 
 let concat_helper =
   String.concat "\n"
@@ -1839,6 +1930,168 @@ let char_helpers =
         ] );
   ]
 
+(* A Pyking array is a JavaScript array with a marker on it, as a list
+   is: every array operation still works on it -- `for`, `flatMap`,
+   `length` -- and `pykFormat` can tell it from a list and a tuple. Each
+   helper is (name, the helpers it calls, its text), and is emitted
+   only where the program uses it, with what it calls beside it
+   (docs/target_js.md, "Arrays"). *)
+let array_helpers =
+  [
+    ( "pykFail",
+      [],
+      String.concat "\n"
+        [
+          "// A runtime error. Under node it writes `error: <message>` on";
+          "// stderr and ends the program with status 1 once what it printed";
+          "// is written out; in a browser it is an Error, reported by";
+          "// whatever started the program.";
+          "function pykFail(message) {";
+          "  const stop = new Error(message);";
+          "  if (typeof process === 'object' && process !== null && typeof process.on === 'function') {";
+          "    console.error('error: ' + message);";
+          "    stop.pykExit = 1;";
+          "    process.on('uncaughtException', (error) => {";
+          "      process.exitCode = 1;";
+          "      if (error !== stop) console.error(error && error.stack ? error.stack : error);";
+          "    });";
+          "  }";
+          "  throw stop;";
+          "}";
+        ] );
+    ( "pykArray",
+      [],
+      String.concat "\n"
+        [
+          "// A Pyking array: a JavaScript array with a marker on it, as a";
+          "// list is, so that `pykFormat` in another module can tell them apart.";
+          "function pykArray(items) {";
+          "  items.pykArray = true;";
+          "  return items;";
+          "}";
+        ] );
+    ( "pykArraySize",
+      [ "pykFail" ],
+      String.concat "\n"
+        [
+          "// An array's size, checked before anything is called or allocated.";
+          "function pykArraySize(n) {";
+          "  if (n < 0) pykFail(`an array's size is never negative, and this one is ${n}`);";
+          "  return n;";
+          "}";
+        ] );
+    ( "pykArrayOfList",
+      [ "pykArray" ],
+      String.concat "\n"
+        [
+          "// `array(xs)`: a new array holding the list's elements.";
+          "function pykArrayOfList(items) {";
+          "  return pykArray(items.slice());";
+          "}";
+        ] );
+    ( "pykArrayFill",
+      [ "pykArray"; "pykArraySize"; "pykFail" ],
+      String.concat "\n"
+        [
+          "// `array(n, v)`: n elements, every one the value v itself.";
+          "function pykArrayFill(n, value) {";
+          "  pykArraySize(n);";
+          "  let items;";
+          "  try {";
+          "    items = new Array(n).fill(value);";
+          "  } catch (error) {";
+          "    if (!(error instanceof RangeError)) throw error;";
+          "    pykFail(`an array of ${n} elements is more than this machine can hold`);";
+          "  }";
+          "  return pykArray(items);";
+          "}";
+        ] );
+    ( "pykArrayInit",
+      [ "pykArray"; "pykArraySize" ],
+      String.concat "\n"
+        [
+          "// `array(n, f)`: element i is f(i), f called in index order.";
+          "function pykArrayInit(n, f) {";
+          "  pykArraySize(n);";
+          "  const items = [];";
+          "  for (let i = 0; i < n; i++) items.push(f(i));";
+          "  return pykArray(items);";
+          "}";
+        ] );
+    ( "pykArrayUnfold",
+      [ "pykArray"; "pykArraySize" ],
+      String.concat "\n"
+        [
+          "// `array(n, seed, f)`: each call of f answers an element and the";
+          "// seed of the next; the last seed is dropped.";
+          "function pykArrayUnfold(n, seed, f) {";
+          "  pykArraySize(n);";
+          "  const items = [];";
+          "  let state = seed;";
+          "  for (let i = 0; i < n; i++) {";
+          "    const [element, next] = f(state);";
+          "    items.push(element);";
+          "    state = next;";
+          "  }";
+          "  return pykArray(items);";
+          "}";
+        ] );
+    ( "pykIndexError",
+      [ "pykFail" ],
+      String.concat "\n"
+        [
+          "function pykIndexError(items, index) {";
+          "  const n = items.length;";
+          "  pykFail(`the index ${index} is outside an array of ${n} element${n === 1 ? '' : 's'}`);";
+          "}";
+        ] );
+    ( "pykAt",
+      [ "pykIndexError" ],
+      String.concat "\n"
+        [
+          "// `a[i]` on an array: checked, never counted from the end.";
+          "function pykAt(items, index) {";
+          "  if (index < 0 || index >= items.length) pykIndexError(items, index);";
+          "  return items[index];";
+          "}";
+        ] );
+    ( "pykCheckIndex",
+      [ "pykIndexError" ],
+      String.concat "\n"
+        [
+          "// `a[i] := v`: the index checked before the value is worked out.";
+          "function pykCheckIndex(items, index) {";
+          "  if (index < 0 || index >= items.length) pykIndexError(items, index);";
+          "}";
+        ] );
+  ]
+
+(** The array helpers a program needs: each one it names, and each one
+    those call. (string -> bool) -> [string] *)
+let wanted_array_helpers named =
+  let rec close wanted =
+    let more =
+      List.fold_left
+        (fun wanted (name, calls, _) ->
+          if List.mem name wanted then
+            List.fold_left
+              (fun wanted call -> if List.mem call wanted then wanted else wanted @ [ call ])
+              wanted calls
+          else wanted)
+        wanted array_helpers
+    in
+    if List.length more = List.length wanted then wanted else close more
+  in
+  let wanted =
+    close
+      (List.filter_map
+         (fun (name, _, _) -> if named name then Some name else None)
+         array_helpers)
+  in
+  List.filter_map
+    (fun (name, _, text) -> if List.mem name wanted then Some text else None)
+    array_helpers
+
 let shape_helper =
   String.concat "\n"
     [
@@ -1878,6 +2131,8 @@ let uses p stmts =
     | JsConst (_, _, e) | JsLet (_, _, e) | JsAssign (_, _, e)
     | JsExprStmt (_, e) | JsReturn (_, e) ->
         in_expr e
+    | JsSetIndex (_, target, index, value) ->
+        in_expr target || in_expr index || in_expr value
     | JsIf (_, cond, then_body, else_body) ->
         in_expr cond || List.exists in_stmt then_body
         || (match else_body with
@@ -1923,6 +2178,10 @@ let js_helpers ?(level = 0) stmts =
       char_helpers
   in
   let uses_chars = uses (function JsVar (_, "pykChars") -> true | _ -> false) stmts in
+  let arrays =
+    wanted_array_helpers (fun name ->
+        uses (function JsVar (_, used) -> used = name | _ -> false) stmts)
+  in
   let wanted =
     (* `pykConcat` and `pykRange` build a list, so they need `pykList`
        beside them. *)
@@ -1931,6 +2190,7 @@ let js_helpers ?(level = 0) stmts =
     @ (if uses_range then [ range_helper ] else [])
     @ (if uses_len then [ len_helper ] else [])
     @ chars
+    @ arrays
     @ (if uses_concat then [ concat_helper ] else [])
     @ (if uses_data then [ data_helper ] else [])
     @ if uses_shape then [ shape_helper ] else []

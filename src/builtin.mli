@@ -48,6 +48,23 @@ type t = {
 (** Every builtin's name, in the order the table lists them. [string] *)
 val names : string list
 
+(** The builtin overload sets: a name a program calls unbound, and its
+    `::` members, which the checker resolves a call among by its
+    arguments; `array` is the one. [(string, [string])] *)
+val overload_sets : (string * string list) list
+
+(** The plain names the members compile to (`fill__array`, ...): what
+    the interpreter and every backend implement. [string] *)
+val member_names : string list
+
+(** Every builtin's name and every builtin overload set's: the words a
+    reader sees as builtin. [string] *)
+val words : string list
+
+(** What a builtin overload set does, for an editor's hover.
+    string -> string option *)
+val overload_doc : string -> string option
+
 (** The Int range a conversion answers within: signed 32 bits, the range
     the lexer bounds a literal by. int *)
 val int_min : int

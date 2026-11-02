@@ -17,7 +17,7 @@
 # Run `make help` for the full list. The compiler is OCaml in src/,
 # built by dune into the executable this directory calls ./pyk.
 
-.PHONY: all help pykhelp build libs test stest quicktest check-node check-python check-jsonschema playground vendor \
+.PHONY: all help pykhelp build libs test stest quicktest check-node check-python check-jsonschema check-gc playground vendor \
 	website website-dev website-release \
 	packaging packaging-setup packaging-install packaging-uninstall \
 	release \
@@ -210,6 +210,29 @@ check-node:
 	  exit 1; \
 	fi
 
+# Every C program links bdwgc, the collector (docs/target_c.md,
+# "Memory"), and the program and playground suites build C programs.
+# Found the way pyk finds it (src/execution.ml): pkg-config, then the
+# usual prefixes. Asked before the clean build, so a missing collector
+# is said at once rather than as every C test failing. Skipped for a
+# TARGET that is not C, and for a SUITE that builds no C.
+check-gc:
+	@case "$(TARGET)" in ""|c*) ;; *) exit 0 ;; esac; \
+	case ",$(SUITE)," in ",,"|*,programs,*|*,playground,*) ;; *) exit 0 ;; esac; \
+	if pkg-config --exists bdw-gc >/dev/null 2>&1; then exit 0; fi; \
+	for prefix in /opt/homebrew /usr/local /opt/local /usr; do \
+	  if [ -f "$$prefix/include/gc.h" ]; then exit 0; fi; \
+	done; \
+	echo "make: bdwgc, the garbage collector every C program links, is not"; \
+	echo "      installed, and the tests build and run C programs."; \
+	echo "      Install it with"; \
+	echo "          brew install bdw-gc"; \
+	echo "      on macOS, or"; \
+	echo "          sudo apt install libgc-dev"; \
+	echo "      on Debian and Ubuntu. To test without C, give a TARGET"; \
+	echo "      that is not C, or a SUITE other than programs and playground."; \
+	exit 1
+
 # Every run starts from a clean build: the tree may be shared between
 # machines (a Mac and a Linux VM), and a ./pyk, _build/ or plugin left by
 # the other one cannot run here. `clean-build` rather than `clean`, so
@@ -246,7 +269,7 @@ check-jsonschema:
 	  exit 1; \
 	fi
 
-test: check-node check-python check-jsonschema
+test: check-node check-python check-jsonschema check-gc
 	@$(MAKE) --no-print-directory clean-build
 	@$(MAKE) --no-print-directory all
 	@python3 tests/test_all.py $(if $(JOBS),--jobs $(JOBS)) \
@@ -254,7 +277,7 @@ test: check-node check-python check-jsonschema
 
 # The same suite with no pool at all, for when a parallel run's timing is
 # itself in question.
-stest: check-node check-python check-jsonschema
+stest: check-node check-python check-jsonschema check-gc
 	@$(MAKE) --no-print-directory clean-build
 	@$(MAKE) --no-print-directory all
 	@python3 tests/test_all.py --jobs 1 $(if $(TARGET),--target $(TARGET)) \
@@ -262,7 +285,7 @@ stest: check-node check-python check-jsonschema
 
 # A random sample of the suite (see tests/test_all.py, `--quick`). The
 # seed is printed, and SEED= repeats the same choice.
-quicktest: check-node check-python check-jsonschema
+quicktest: check-node check-python check-jsonschema check-gc
 	@$(MAKE) --no-print-directory clean-build
 	@$(MAKE) --no-print-directory all
 	@python3 tests/test_all.py --quick $(or $(PERCENT),5) $(if $(SEED),--seed $(SEED)) \

@@ -1,0 +1,16 @@
+# Writing outside an array is a runtime error on every target, and the
+# index is checked before the value is worked out: `noisy` never runs.
+
+use mutation
+
+a = array([1, 2])
+
+
+def noisy() -> Int:
+    print("the value ran")
+    3
+
+
+print("before")
+a[-1] := noisy()
+print("never")

@@ -206,7 +206,8 @@ including a binding that takes one apart; `if … then … else …`
 expressions; integers, strings and booleans; `+ - * /`, unary minus,
 comparisons, and calls. Tail position and `return if c:` are supported
 (see below); nested `def` and lambdas work too — JavaScript has
-closures.
+closures. Arrays (`array(...)`, `a[i]`, `a[i] := v`, `len`, `same`) are
+too; see "Arrays" below.
 
 ## Lists, `match` and value forms
 
@@ -686,7 +687,8 @@ Both answer a String, and a String at the top level prints bare, so
 
 **The descriptor** says which positions of a value are Floats, which is
 all `pykFormat` is missing: `f` a Float, `.` anything it already prints
-correctly, `[s]` a list of `s`, and `(s,s)` a tuple. It nests:
+correctly, `[s]` a list of `s`, `{s}` an array of `s`, and `(s,s)` a
+tuple. It nests:
 
 ```javascript
 print(pykShaped(xs, '[f]'));           // xs : [Float]
@@ -756,6 +758,89 @@ print(pykShaped(pair, '(c,.)'));       // (Char, String) -> ('a', "b")
 it is built, from the arguments' types there; one built inside a
 polymorphic function, where the field's type is a type variable, prints
 its Char as the code point.
+
+## Arrays
+
+**An array is a JavaScript array carrying a marker**, as a list is:
+`pykArray` sets `pykArray = true` on it, and `pykFormat` reads the
+marker to print `array([1, 2])` where a list prints `[1, 2]` and a
+tuple `(1, 2)`. A property rather than a class, for the reason a list's
+marker is one: the program and the formatter live in different modules.
+Everything else an array does is the JavaScript array's own -- `length`
+is O(1), `for..of` walks it, `flatMap` maps it -- and an array is a
+reference, so assigning, passing, returning and storing one never copy
+it. `same(a, b)` is `a === b`.
+
+```pyking            // generated JavaScript
+array(xs)            pykArrayOfList(xs)        // a copy, marked
+array(n, v)          pykArrayFill(n, v)        // n times the one v
+array(n, f)          pykArrayInit(n, f)        // f(0), f(1), ... in order
+array(n, s, f)       pykArrayUnfold(n, s, f)   // [element, next] = f(state)
+a[i]                 pykAt(a, i)
+len(a)               a.length
+same(a, b)           a === b
+for x in a:          for (const x of a) {
+[f(x) for x in a]    pykList(a.flatMap(...))
+```
+
+The four forms are the elaborated `list__array`, `fill__array`,
+`init__array` and `unfold__array`; their arguments are worked out left
+to right like any call's, and each helper checks the size before it
+calls `f` or allocates anything: a negative one is the runtime error
+`an array's size is never negative, and this one is -1`, and one the
+JavaScript engine refuses to allocate (a `RangeError`) is `an array of N
+elements is more than this machine can hold`. `f` is never called for
+`n = 0`, and an unfold's last state is dropped.
+
+**Reads are checked.** `pykAt` refuses an index below 0 or at
+`length` and above -- JavaScript would answer `undefined`, and a
+negative index never counts from the end -- with `the index 5 is
+outside an array of 2 elements` (`element` when there is one). `for`
+uses the array's own iterator, which reads `a[i]` as each turn is
+reached, so a write to a later element during the loop is seen, as the
+interpreter's walk by index does.
+
+**An element write** is `a[i] := v`, statement `SSetIndex`, and runs in
+the order PYKING.md lays down: the array, then the index, then the
+index checked, then the value, then the write -- into the array first
+worked out, even where working out the value rebinds the name it came
+from. JavaScript's own `a[i] = v` already evaluates `a` and `i` before
+`v` and writes into the object `a` held then; what it cannot do is
+check in between, so the check is a statement of its own
+(`pykCheckIndex`) and the write is a `JsSetIndex`:
+
+```javascript
+pykCheckIndex(held, 0);              // held[0] := replace_held()
+held[0] = replace_held();
+const __array = pykAt(grid, 1);      // grid[1][2] := 7
+pykCheckIndex(__array, 2);
+__array[2] = 7;
+```
+
+An owner or index that is a plain name or number is used as it is;
+anything else is held in a `const` first so it is worked out once. A
+compound `a[i] += e` arrives from desugar_args.ml with both already in
+temporaries, `element__array` and `element__index`, and its value reads
+the element through `pykAt`.
+
+**Printing** is `pykFormat`'s marker case, and an array whose elements
+are Floats or Chars goes through `pykShaped` with `{s}` in the
+descriptor, as a list does with `[s]`. Strings and Chars inside are
+quoted, an empty array is `array([])`, and nested ones nest.
+
+**A runtime error** goes through `pykFail`. Under node it writes
+`error: <message>` to stderr and throws an Error carrying `pykExit = 1`,
+with an `uncaughtException` handler that sets the status to 1 -- so
+the program stops with status 1 after what it printed, without node's
+stack trace, and without `process.exit`, which may drop output still
+going to a pipe (the `sys` module's handler reads the same `pykExit`).
+In a browser it throws a plain Error with the message, which the page
+reports the way it reports any other failure: the console, or the
+playground's error line.
+
+All of these helpers are the module's own, written where it uses them
+with whichever of the others they call (`array_helpers` in
+target_js_core.ml), as `pykRange` is.
 
 ## Modules
 

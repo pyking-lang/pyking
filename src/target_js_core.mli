@@ -94,6 +94,9 @@ and jsstmt =
   | JsReturn of info * jsexpr
   | JsLabeled of info * string * jsstmt list (* label: { ... } *)
   | JsBreakTo of info * string (* break label; *)
+  | JsSetIndex of info * jsexpr * jsexpr * jsexpr
+      (* target[index] = value; -- an element write into a Pyking
+         array, whose index was checked by the statement before it. *)
 
 (** Everything the packager decides and the core only names: how each
     runtime operation is called, and how what crosses a module boundary

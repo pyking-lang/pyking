@@ -616,6 +616,7 @@ let binding_types session =
         else
           match binding.Typesystem.btype with
           | TBuiltin _ -> found
+          | _ when List.mem (Names.renamed name) Builtin.member_names -> found
           | type_ -> found @ [ (name, settled type_) ])
       session.types []
 
@@ -635,13 +636,18 @@ let bindings session =
      (docs/overloading.md), so the machine is asked for that while the
      prompt shows what was typed. *)
   let held name = List.mem_assoc (Names.renamed name) values in
-  let names = List.filter (fun (name, _) -> held name) types |> List.map fst in
+  (* The builtin set's members (`fill::array`) are bound by every
+     session and typed by nobody. *)
+  let builtin name = List.mem (Names.renamed name) Builtin.member_names in
+  let names =
+    List.filter (fun (name, _) -> held name && not (builtin name)) types |> List.map fst
+  in
   let shown = List.map Names.renamed names in
   let names =
     names
     @ List.filter_map
         (fun (name, _) ->
-          if List.mem name shown || List.mem name Builtin.names then None
+          if List.mem name shown || List.mem name Builtin.names || builtin name then None
           else Some name)
         values
   in
@@ -889,7 +895,7 @@ let completions ?(terminal = false) session line col =
     | None ->
         List.map (fun (name, t) -> (name, Some (shown t))) (binding_types session)
         @ List.map (fun (alias, real) -> (alias, Some ("module " ^ real))) imported
-        @ List.map (fun name -> (name, Some "builtin")) Builtin.names
+        @ List.map (fun name -> (name, Some "builtin")) Builtin.words
         @ List.map (fun k -> (k, None)) Lexer.keywords
   in
   (start, Completion.matching prefix candidates)

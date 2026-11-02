@@ -1,0 +1,63 @@
+# Tuple `:=`: several `var`s written by one statement. The right-hand
+# side is worked out once, in full, and only then is each name written,
+# left to right -- so `a, b := b, a` swaps, where two `:=`s in a row
+# would not. The names may be nested to match the value's shape, and each
+# is named once.
+#
+# The `.ast.out` shows what the checker sees: the parts bound to
+# `name__new` temporaries, then one `:=` per name. The `.nosugar.ast.out`
+# shows it as written.
+
+use mutation
+
+var a = 1
+var b = 2
+a, b := b, a
+print(a, b)
+
+var x = 0
+var y = 0
+var z = 0
+(x, (y, z)) := (10, (20, 30))
+print(x, y, z)
+
+
+# The "return the new values" way of updating several variables, with a
+# function that answers a tuple.
+def divmod(n: Int, d: Int) -> (Int, Int):
+    (n / d, n % d)
+
+
+var q = 0
+var r = 0
+q, r := divmod(17, 5)
+print(q, r)
+
+
+# In a loop, the classic pair of running values.
+def fib(n: Int) -> Int:
+    var p = 0
+    var s = 1
+    var i = 0
+    while i < n:
+        p, s := s, p + s
+        i += 1
+    p
+
+
+print(fib(10), fib(20))
+
+
+# The right-hand side runs once, before anything is written.
+def noisy(v: Int) -> Int:
+    print("evaluating", v)
+    v
+
+
+x, y := noisy(x + 1), noisy(x + 2)
+print(x, y)
+
+# Twice in one block.
+a, b := b, a
+a, b := a * 10, b * 10
+print(a, b)

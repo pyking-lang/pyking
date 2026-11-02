@@ -1,0 +1,9 @@
+# A String is never changed either.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+s = "abc"
+s[0] := 'x'

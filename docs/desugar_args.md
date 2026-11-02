@@ -362,3 +362,48 @@ sugar's own printed form is pinned. The `pyking_rerun` target runs what
   around it makes the generated def a closure, which every backend
   compiles as it compiles any other -- C as a function taking what it
   captures (`docs/target_c.md`).
+
+## A tuple `:=`
+
+The pass removes one more piece of syntax, which has nothing to do with
+arguments but needs the same place in the pipeline: a tuple `:=`
+(PYKING.md, "Mutable variables"). The parser keeps it as
+`SMutateTuple`, so `-t pyking --no-typechecking` prints it as written,
+and the pass rewrites it into an `=` binding of the parts and one `:=`
+per name, left to right:
+
+```pyking                           # what the pass builds
+a, (b, c) := e                      (a__new, (b__new, c__new)) = e
+                                    a := a__new
+                                    b := b__new
+                                    c := c__new
+```
+
+That is the whole meaning: the value is worked out once, and every name
+is written after all of it is, which is what lets `a, b := b, a` swap.
+Every `:=` that comes out is an ordinary one, so the mutability
+analysis, the closures that capture a `var` and all six backends need
+nothing new. The temporaries' names have an empty span at the
+statement's end, so the language server finds nothing of theirs under
+the cursor; the tuple keeps its span, and the checker reports a value
+of the wrong shape as "this ':=' writes 2 values". A stage after this
+pass that still met an `SMutateTuple` would raise `Syntax.after_desugar`.
+
+## A compound element write
+
+`a[i] += e` reads the element it writes, so `a` and `i` must be worked
+out once, before `e`, and the write must go to the array `a` was even
+if `e` makes `a` name another (PYKING.md, "Arrays"). The pass binds both
+to temporaries first:
+
+```pyking                           # what the pass builds
+a[i] += e                           element__array = a
+                                    element__index = i
+                                    element__array[element__index] += e
+```
+
+The last line is still a compound `SSetIndex` -- its value
+`element__array[element__index] + e` is what every backend computes
+after checking the index -- so `-t pyking` prints it as one. A plain
+`a[i] := e` is left alone: each backend keeps its order (array, index,
+check, value, write) with temporaries of its own.

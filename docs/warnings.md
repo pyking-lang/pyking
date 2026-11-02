@@ -7,7 +7,7 @@ the pass sits in the pipeline, see [architecture.md](architecture.md).
 
 ## What it reports
 
-Seven warnings, each named by its flag:
+Eight warnings, each named by its flag:
 
 | flag | on by default | reports |
 |---|---|---|
@@ -18,6 +18,7 @@ Seven warnings, each named by its flag:
 | `unused-pattern-var` | no | a name a `case` pattern binds that its arm never uses |
 | `unused-parameter` | no | a parameter its function's or lambda's body never uses |
 | `unused-loop-var` | no | a `for` variable, a loop's accumulator, a comprehension's name, never used |
+| `shared-fill` | yes | `array(n, v)` with `v` an array, unless `n` is the literal 0 or 1: every element is one array. Read from the call's resolution in `qmap`, which records the argument types |
 
 A name starting with `_` is never reported, and neither is a top-level
 name a module exports (`public`), since another module uses it, nor a

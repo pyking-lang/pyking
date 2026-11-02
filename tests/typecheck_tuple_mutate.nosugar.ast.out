@@ -1,0 +1,33 @@
+use mutation
+var a = 1
+var b = 2
+(a, b) := (b, a)
+print(a, b)
+var x = 0
+var y = 0
+var z = 0
+(x, (y, z)) := (10, (20, 30))
+print(x, y, z)
+def divmod(n:Int, d:Int) -> (Int, Int):
+    (n / d, n % d)
+var q = 0
+var r = 0
+(q, r) := divmod(17, 5)
+print(q, r)
+def fib(n:Int) -> Int:
+    var p = 0
+    var s = 1
+    var i = 0
+    while i < n:
+        (p, s) := (s, p + s)
+        i += 1
+    p
+print(fib(10), fib(20))
+def noisy(v:Int) -> Int:
+    print("evaluating", v)
+    v
+(x, y) := (noisy(x + 1), noisy(x + 2))
+print(x, y)
+(a, b) := (b, a)
+(a, b) := (a * 10, b * 10)
+print(a, b)

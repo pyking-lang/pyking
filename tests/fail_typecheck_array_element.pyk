@@ -1,0 +1,9 @@
+# An element written is the array's element type.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+a = array([1, 2])
+a[0] := "one"

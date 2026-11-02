@@ -1,0 +1,11 @@
+# `==` compares no arrays: whether two are the same array is `same(a,
+# b)`, and whether they hold the same elements is `array.equal(a, b)`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+a = array([1])
+b = array([1])
+print(a == b)

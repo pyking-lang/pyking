@@ -903,7 +903,12 @@ let resolve_imports module_ loaded =
   let taken =
     List.fold_left
       (fun taken name -> assoc_set name None taken)
-      [] Builtin.names
+      []
+      (* `same` is younger than the programs and libraries that call
+         something of their own by that name -- tinyweb's `color.same`
+         among them -- so an import may bring one in, as a `def` may
+         define one: the module's own then means itself. *)
+      (List.filter (fun name -> name <> "same") Builtin.names)
   in
   let taken =
     List.fold_left
@@ -1258,7 +1263,8 @@ and qualified name type_ =
   let rec go t =
     match t with
     | TCon (i, n, args, s) ->
-        let n = if String.contains n '.' then n else name ^ "." ^ n in
+        (* `Array` is the builtin's, every module's alike. *)
+        let n = if String.contains n '.' || n = "Array" then n else name ^ "." ^ n in
         TCon (i, n, List.map go args, s)
     | TData (i, Datatype (n, params, constructors), s) ->
         let n = if String.contains n '.' then n else name ^ "." ^ n in

@@ -37,6 +37,62 @@ let ocaml_compiler () =
 
 let pyking_target = "pyking"
 
+(* --- the C targets' collector ---
+   Every C program links the Boehm-Demers-Weiser collector, bdwgc
+   (docs/target_c.md, "Memory"). It is a library the system provides:
+   pkg-config says where, when it has it, and otherwise the usual
+   prefixes are looked in -- Homebrew's, MacPorts' and /usr/local, which
+   a C compiler does not search by itself on every system. *)
+
+(** The words a shell command printed, or None where it failed.
+    string -> [string] option *)
+let command_words command =
+  match Unix.open_process_in command with
+  | exception Unix.Unix_error _ -> None
+  | channel -> (
+      let text = try In_channel.input_all channel with _ -> "" in
+      match Unix.close_process_in channel with
+      | Unix.WEXITED 0 ->
+          Some
+            (List.filter (fun w -> w <> "")
+               (String.split_on_char ' '
+                  (String.map (fun c -> if c = '\n' || c = '\t' then ' ' else c) text)))
+      | _ -> None
+      | exception Unix.Unix_error _ -> None)
+
+(** Where bdwgc is: the flags that find its header, and the ones that
+    link it -- or None where it is nowhere to be found. Asked once.
+    (([string] * [string]) option) Lazy.t *)
+let collector =
+  lazy
+    (match
+       ( command_words "pkg-config --cflags bdw-gc 2>/dev/null",
+         command_words "pkg-config --libs bdw-gc 2>/dev/null" )
+     with
+    | Some cflags, Some libs when libs <> [] -> Some (cflags, libs)
+    | _ ->
+        List.find_map
+          (fun prefix ->
+            let include_ = Filename.concat prefix "include" in
+            if Sys.file_exists (Filename.concat include_ "gc.h") then
+              if prefix = "/usr" then Some ([], [ "-lgc" ])
+              else Some ([ "-I" ^ include_ ], [ "-L" ^ Filename.concat prefix "lib"; "-lgc" ])
+            else None)
+          [ "/opt/homebrew"; "/usr/local"; "/opt/local"; "/usr" ])
+
+(** The flags a C program is built with to reach the collector: what
+    `collector` found, or the plain `-lgc` a system with it on the
+    compiler's own paths needs. [string] * [string] *)
+let collector_flags () =
+  match Lazy.force collector with Some flags -> flags | None -> ([], [ "-lgc" ])
+
+(** What is said where a C program is to be built and bdwgc is missing. *)
+let collector_missing =
+  "the C targets need the Boehm-Demers-Weiser garbage collector (bdwgc), \
+   and it was not found. Install it -- 'brew install bdw-gc' on macOS, \
+   'sudo apt install libgc-dev' on Debian and Ubuntu, 'sudo dnf install \
+   gc-devel' on Fedora -- or make 'pkg-config --libs bdw-gc' find it"
+
 (** The commands one target needs to turn its output into a running
     program: the ones run first, each of which must succeed; the program
     itself; where to run them; and a line to print before running, for a
@@ -88,14 +144,16 @@ let plan_for target path modules arguments =
     }
   else if Targets.family_of target = Targets.C then
     (* Every translation unit of the program, the modules first: each is
-       a file of its own, and `main` is in the last. `-lm` after them,
-       for the math library's functions, which a Linux C library keeps
-       in libm. *)
+       a file of its own, and `main` is in the last. The collector and
+       `-lm` after them -- libm for the math library's functions, which a
+       Linux C library keeps apart -- since a library resolves what the
+       files before it left open. *)
+    let cflags, libs = collector_flags () in
     {
       build =
         [
-          [ c_compiler (); "-std=" ^ target; "-o"; binary ]
-          @ others @ [ path; "-lm" ];
+          [ c_compiler (); "-std=" ^ target ] @ cflags @ [ "-o"; binary ]
+          @ others @ [ path ] @ libs @ [ "-lm" ];
         ];
       run = ([ binary ] @ arguments);
       directory;
@@ -223,14 +281,18 @@ let run_command command directory =
     status of the step that failed. string -> string -> [string] -> int *)
 let build target path modules =
   let plan = plan_for target path modules [] in
-  let rec go commands =
-    match commands with
-    | [] -> 0
-    | command :: rest ->
-        let status = run_command command plan.directory in
-        if status <> 0 then status else go rest
-  in
-  go plan.build
+  if Targets.family_of target = Targets.C && Lazy.force collector = None then (
+    Printf.eprintf "pyk: %s\n%!" collector_missing;
+    1)
+  else
+    let rec go commands =
+      match commands with
+      | [] -> 0
+      | command :: rest ->
+          let status = run_command command plan.directory in
+          if status <> 0 then status else go rest
+    in
+    go plan.build
 
 (** Runs the program built from path, printed first, in `directory`,
     passing it `arguments`. Answers its status.
@@ -348,16 +410,20 @@ let makefile target path modules =
     string -> string -> [string] -> [string] -> int *)
 let execute target path modules arguments =
   let plan = plan_for target path modules arguments in
-  (* Printed before the command, on stderr like the commands themselves,
-     since a served page's address is not something the server says. *)
-  (match plan.note with
-  | Some note -> Printf.eprintf "  %s\n%!" note
-  | None -> ());
-  let rec build commands =
-    match commands with
-    | [] -> run_command plan.run plan.directory
-    | command :: rest ->
-        let status = run_command command plan.directory in
-        if status <> 0 then status else build rest
-  in
-  build plan.build
+  if Targets.family_of target = Targets.C && Lazy.force collector = None then (
+    Printf.eprintf "pyk: %s\n%!" collector_missing;
+    1)
+  else (
+    (* Printed before the command, on stderr like the commands themselves,
+       since a served page's address is not something the server says. *)
+    (match plan.note with
+    | Some note -> Printf.eprintf "  %s\n%!" note
+    | None -> ());
+    let rec build commands =
+      match commands with
+      | [] -> run_command plan.run plan.directory
+      | command :: rest ->
+          let status = run_command command plan.directory in
+          if status <> 0 then status else build rest
+    in
+    build plan.build)

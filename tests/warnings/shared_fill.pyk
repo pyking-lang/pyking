@@ -1,0 +1,19 @@
+use mutation
+# shared-fill, on by default: `array(n, v)` stores one v n times, so a v
+# that is itself an array makes n names for one array. A fill of a
+# value that is not mutable, a size of 0 or 1, and a generator that makes
+# a new row each time are not reported.
+
+row = array(3, 0)
+grid = array(3, row)
+grid[0][0] := 1
+print(grid)
+
+same_one = fill::array(2, array([1]))
+print(same_one)
+
+fine = array(3, 0)
+one = array(1, row)
+none = array(0, row)
+rows = array(3, lam _. array(3, 0))
+print(fine, one, len(none), rows)

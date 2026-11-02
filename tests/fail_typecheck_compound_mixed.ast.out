@@ -1,0 +1,4 @@
+'tests/fail_typecheck_compound_mixed.pyk' 11:0-11:10 Type error: `/`
+  cannot be applied to Float and Int; it accepts Int / Int or Float /
+  Float. Pyking mixes no numbers on its own: `float(n)` makes an Int a
+  Float, and `int(x)` truncates a Float to an Int

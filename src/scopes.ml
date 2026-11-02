@@ -255,7 +255,14 @@ and resolve_stmt ctx env stmt found =
   | SVar (i, n, e, s) ->
       let found = resolve_expr ctx env e found in
       (SMap.add n (Bound ({ file = ctx.ctx_path; span = name_span ctx.ctx_tokens n i }, s, KVariable)) env, found)
-  | SMutate (i, n, e, _) ->
+  | SMutateTuple _ -> after_desugar "scopes"
+  | SSetIndex (_, owner, index, value, _) ->
+      let found = resolve_expr ctx env owner found in
+      let found = resolve_expr ctx env index found in
+      (env, resolve_expr ctx env value found)
+  | SMutate (i, n, e, _) as statement ->
+      (* `x += e` reads `x` where it writes it: one use, not two. *)
+      let e = match compound_parts statement with Some (_, right) -> right | None -> e in
       let found = resolve_expr ctx env e found in
       let use = { use_at = name_span ctx.ctx_tokens n i; use_name = n; use_meaning = lookup env n } in
       (env, { found with uses = use :: found.uses })
@@ -337,7 +344,7 @@ and resolve_stmt ctx env stmt found =
     [Module.t] -> Module.t -> found *)
 let resolve units (unit : Module.t) =
   let ctx = { ctx_path = unit.path; ctx_tokens = unit.tokens; ctx_units = units } in
-  let env = List.fold_left (fun env n -> SMap.add n Builtin env) SMap.empty Builtin.names in
+  let env = List.fold_left (fun env n -> SMap.add n Builtin env) SMap.empty Builtin.words in
   let env = List.fold_left (bind_import ctx) env unit.stmts in
   let env =
     List.fold_left

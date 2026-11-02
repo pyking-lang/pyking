@@ -10,8 +10,9 @@
   checker accepts, and `make test` runs every test program on all three
   versions.
 - Pyking's polymorphism is Java's generics; a list is a `java.util.List`;
-  a tuple is a class of the shared runtime; a datatype is a class per
-  constructor; a function value is a `java.util.function` interface.
+  a tuple is a class of the shared runtime; an array is the runtime's
+  `PykArray`; a datatype is a class per constructor; a function value is
+  a `java.util.function` interface.
 - The three versions are **three shapes of output**: plain classes and
   casts for java8, records, sealed interfaces and `instanceof` patterns
   for java17, records and a pattern `switch` for every `match` on java21.
@@ -112,6 +113,7 @@ java8 also spells every local's type, where java17 and java21 write
 | `Char` | `PykRuntime.PykChar`, a final class holding the code point as an `int` |
 | `()` | `Void`, whose one value is `null`; a function answering it is `void` |
 | `[T]` | `java.util.List<T>` |
+| `Array(T)` | `PykRuntime.PykArray<T>`, holding an `Object[]` (see "Arrays") |
 | `(A, B)` | `PykRuntime.T2<A, B>`, up to `T8` and beyond as a program needs |
 | `(A) -> R`, `(A, B) -> R`, `() -> R` | `java.util.function.Function`, `BiFunction`, `Supplier` |
 | a function of three or more parameters | `PykRuntime.Fn3`, `Fn4`, ... |
@@ -242,7 +244,8 @@ Int or Bool its `String.valueOf`, a Float `PykRuntime.floatStr` -- the
 shortest text that reads back as the same double, in Pyking's own
 spelling -- and anything else `PykRuntime.str`, which walks the value at
 run time: a boxed `Double` is a Float, a `PykChar` a Char, a `List` a
-list, a `Tuple` a tuple, a `Data` a datatype. A Java value carries its
+list, a `PykArray` an array (`array([1, 2])`), a `Tuple` a tuple, a
+`Data` a datatype. A Java value carries its
 class, so the walk needs nothing from the compiler. A Char at top level
 is its character (`PykChar.toString`); inside another value a String is
 written in double quotes and a Char in single quotes, escaped as
@@ -269,6 +272,72 @@ list. `int(c)` is `c.code`, `float(c)` `(double) c.code`, `bool(c)`
 Int that is no code point) or `PykRuntime.charOfString` (`'\0'` for
 `""`). No external module takes or answers a Char today; one that did
 would see a `PykRuntime.PykChar`.
+
+## Arrays
+
+An `Array(T)` (PYKING.md, "Arrays") is `PykRuntime.PykArray<T>`, a
+final class of the runtime holding its elements in an `Object[]`. There
+is no `int[]` or `double[]` for an array of Ints or Floats yet: every
+element is boxed, as in a list, so one class serves every element type
+and a generic function over `Array(t)` is an ordinary generic method.
+Assigning, passing, returning or storing an array copies the reference
+alone, so every name holding one sees a write through another; a `var`
+holding one that a closure captures is a cell holding the reference,
+like any other `var`.
+
+| Pyking | Java |
+|---|---|
+| `array(xs)` | `PykRuntime.<T>arrayOfList(xs)` |
+| `array(n, v)` | `PykRuntime.<T>arrayFill(n, v)`: every element the one `v` |
+| `array(n, f)` | `PykRuntime.<T>arrayInit(n, f)`: `f(0)`, `f(1)`, ... in order |
+| `array(n, seed, f)` | `PykRuntime.<T, S>arrayUnfold(n, seed, f)` |
+| `a[i]` | `a.get(i)` |
+| `a[i] := v` | the four statements below |
+| `len(a)` | `a.size()` |
+| `same(a, b)` | `(Object) a == (Object) b` |
+| `for x in a` | Java's enhanced `for` over the array, an `Iterable<T>` |
+
+The element type is written as an explicit type argument where the
+checker settled it, which also gives a lambda argument its interface;
+a lambda handed to a factory or written into an element is cast to its
+own type besides, since `Object` is no interface Java can type one by.
+
+**Every index is checked**, a read's and a write's: `get` and `set`
+call `check`, which stops the program with `the index 5 is outside an
+array of 2 elements` for an index below 0 or past the end -- there is
+no counting from the end. A negative size stops it with `an array's size
+is never negative, and this one is -1`, before the factory calls
+anything or makes anything, and an `OutOfMemoryError` making the
+elements with `an array of N elements is more than this machine can
+hold`. A runtime error is `PykRuntime.fail`: it flushes `System.out`,
+writes `error: ` and the message to `System.err` and exits with
+status 1.
+
+**An element write runs in Pyking's order**, not Java's: `a[i] = v`
+would work `v` out before it checks `i`. So `owner[index] := value` is
+
+```java
+        final PykRuntime.PykArray<?> array$1 = owner;
+        final int index$2 = index;
+        array$1.check(index$2);
+        array$1.set(index$2, value);
+```
+
+-- the array and the index held, the index checked, and only then the
+value worked out and written into the array held, even where working it
+out rebinds the variable the owner was read from. A compound `a[i] += e`
+arrives with its owner and index already in temporaries
+(`desugar_args.md`). `set` takes an `Object`, since the owner is held
+as `PykArray<?>`; the checker has already made sure the value fits.
+
+**Walking an array** is Java's enhanced `for`: `PykArray`'s iterator
+reads element `i` when turn `i` is reached, so a write to a later
+element during the loop is seen. A comprehension over an array is
+`PykRuntime.flatMap`, which takes any `Iterable`, and makes a list.
+
+**Printing** an array is `PykRuntime.str`'s walk: `array([` and the
+elements as they are written inside a list -- Strings and Chars quoted,
+an array inside nested -- then `])`.
 
 ## Naming the class
 

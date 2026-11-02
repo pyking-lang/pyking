@@ -347,8 +347,10 @@ executable, look in the `build/` there too.
 `--run` compiles for the selected target and then builds and runs the
 result the way a user would by hand. What each target needs to do that
 is that target's own knowledge — `node prog.js`, but `cc -std=c89 -o
-prog prog.c` *and then* `prog` — so it lives in `src/execution.ml`, not
-here. The driver's part is three calls at the end of
+prog prog.c -lgc -lm` *and then* `prog` — so it lives in
+`src/execution.ml`, not here. The C targets' collector, bdwgc, is found
+there too (`pkg-config bdw-gc`, then the usual prefixes), and a C build
+where it is missing stops with a message saying how to install it. The driver's part is three calls at the end of
 `command_compile`: `Execution.makefile`, written into `build/`;
 `Execution.build`, run there; and, for `--run`, `Execution.run`, in the
 directory the executable is in.

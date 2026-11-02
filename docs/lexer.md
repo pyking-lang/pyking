@@ -138,7 +138,10 @@ grouped:
   prefix.** `'-' :: '>' :: xs` (the `->` of a return annotation and of
   a function type) comes before `'-' :: xs`; `'<' :: '=' :: xs`
   before `'<' :: xs`; and so on for `>=`, `==`, `!=`, `:=`, `<<`, `>>`,
-  `&&`, `||`, `**`, `++` and `=>`. `match`
+  `&&`, `||`, `**`, `++` and `=>`. The compound assignments (`+=`,
+  `<<=`, ...) come before all of them, three-character ones first, as
+  one `TokCompound` carrying its operator; `xor=` is `xor` and `=`,
+  which the parser joins where they touch. `match`
   tries arms in order, so this is the whole of "maximal munch" here —
   get the longer alternative in front of the shorter one it would
   otherwise shadow. There is no separate longest-match algorithm.

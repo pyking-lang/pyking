@@ -8,10 +8,9 @@
    has to agree with whichever it is compiled under, which is what the
    block below is for.
 
-   read_text allocates and never frees, which is what the C backend does
-   for Pyking's own `++` (docs/target_c.md): Pyking has no ownership to
-   compile into a free, and an implementation on this side of the
-   boundary has none either. */
+   read_text's String comes from the collector the program links, bdwgc,
+   as every String the C backend makes does (docs/target_c.md, "Memory"):
+   it is freed once nothing holds it. */
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
 #include <stdbool.h>
@@ -23,6 +22,7 @@ typedef int bool;
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <gc.h>
 
 const char *fs_read_text(const char *filename);
 void fs_write_text(const char *filename, const char *text);
@@ -44,7 +44,7 @@ const char *fs_read_text(const char *filename)
     fseek(handle, 0L, SEEK_END);
     length = ftell(handle);
     fseek(handle, 0L, SEEK_SET);
-    buffer = malloc((size_t)length + 1);
+    buffer = GC_MALLOC_ATOMIC((size_t)length + 1);
     read = fread(buffer, 1, (size_t)length, handle);
     buffer[read] = '\0';
     fclose(handle);

@@ -49,6 +49,11 @@ let format_js =
       "  if (Array.isArray(value) && value.pykList === true) {";
       "    return '[' + value.map((element) => pykFormat(element, true)).join(', ') + ']';";
       "  }";
+      "  // A Pyking array carries a marker of its own (`pykArray`), and";
+      "  // prints as what makes one.";
+      "  if (Array.isArray(value) && value.pykArray === true) {";
+      "    return 'array([' + value.map((element) => pykFormat(element, true)).join(', ') + '])';";
+      "  }";
       "  if (Array.isArray(value)) {";
       "    const parts = value.map((element) => pykFormat(element, true));";
       "    return parts.length === 1 ? '(' + parts[0] + ',)' : '(' + parts.join(', ') + ')';";
@@ -135,8 +140,8 @@ let float_js =
       "  let start = 0;";
       "  for (let i = 0; i < body.length; i++) {";
       "    const c = body[i];";
-      "    if (c === '[' || c === '(') depth++;";
-      "    else if (c === ']' || c === ')') depth--;";
+      "    if (c === '[' || c === '(' || c === '{') depth++;";
+      "    else if (c === ']' || c === ')' || c === '}') depth--;";
       "    else if (c === ',' && depth === 0) {";
       "      parts.push(body.slice(start, i));";
       "      start = i + 1;";
@@ -147,7 +152,8 @@ let float_js =
       "}";
       "";
       "// `f` is a Float, `c` a Char (a code point), `.` anything pykFormat";
-      "// already prints right, `[s]` a list of s and `(s,s)` a tuple.";
+      "// already prints right, `[s]` a list of s, `{s}` an array of s and";
+      "// `(s,s)` a tuple.";
       "function pykShaped(value, shape, inner) {";
       "  if (shape === 'f') return pykFloatStr(value);";
       "  if (shape === 'c') return inner ? pykQuoteChar(value) : String.fromCodePoint(value);";
@@ -155,6 +161,9 @@ let float_js =
       "  const body = shape.slice(1, -1);";
       "  if (shape[0] === '[') {";
       "    return '[' + value.map((e) => pykShaped(e, body, true)).join(', ') + ']';";
+      "  }";
+      "  if (shape[0] === '{') {";
+      "    return 'array([' + value.map((e) => pykShaped(e, body, true)).join(', ') + '])';";
       "  }";
       "  const parts = pykShapeParts(body).map((s, i) => pykShaped(value[i], s, true));";
       "  return parts.length === 1 ? '(' + parts[0] + ',)' : '(' + parts.join(', ') + ')';";

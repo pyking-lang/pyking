@@ -1,0 +1,60 @@
+# Arrays without a single list, so the C targets -- which do not compile
+# lists yet -- run them too: `array([...])` from a list literal, the
+# other three forms, element writes, `len`, `for`, sharing, nested
+# arrays, printing, and lib/array, all as on every other target.
+
+use mutation
+import array
+
+a = array([4, 1, 2])
+a[0] := a[1] + a[2]
+a[1] += 10
+print(a, len(a), a[2])
+b = array(4, lam i. i * i)
+c = array(3, 2.5)
+d = array(5, 1, lam s. (s, s * 2))
+print(b, c, d)
+print(array(['p', 'y']), array(["k", "ing"]), array([true]), array([(1, 'x')]))
+
+alias = a
+alias[2] := 99
+print(a, same(a, alias), same(a, array.copy(a)))
+
+
+def bump(xs: Array(Int), at: Int) -> ():
+    xs[at] *= 3
+
+
+bump(a, 0)
+print(a)
+for x in b:
+    if x == 0:
+        b[3] := -9
+    print("for", x)
+
+grid = array(2, lam _. array(2, 0.0))
+grid[0][1] := 1.5
+print(grid)
+
+var sum = 0
+for row in grid:
+    for v in row:
+        if v > 1.0:
+            sum += 1
+print(sum)
+
+t = loop acc = array(1, 0) for k in range(4):
+    acc[0] += k
+    acc
+print(t)
+
+ordered = array([3, -1, 2, 0, 2, 10])
+array.sort(ordered)
+names = array(["pear", "Fig", "app", "apple"])
+array.sort(names)
+print(ordered, names)
+array.reverse(ordered)
+array.swap(names, 0, 3)
+print(ordered, names, array.concat(ordered, array([7])), array.resize(names, 5, "-"))
+array.fill(ordered, 0)
+print(ordered, array.equal(ordered, array(6, 0)), array.equal(names, array(["x"])))
