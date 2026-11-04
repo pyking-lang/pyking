@@ -7,6 +7,8 @@
 #                   SUITE=tinyweb for one suite)
 #   make stest      the same suite, one test at a time
 #   make quicktest  a random sample of it (PERCENT=10, 5 by default)
+#                   (all three: STOP_AT_ERROR=true to stop at the first
+#                   failure, LOG=FILE to keep the output in FILE too)
 #   make pykhelp    open the help (getting started, the language reference,
 #                   the libraries) in the browser
 #   make website    build the website into website/
@@ -101,7 +103,7 @@ help:
 	@echo "                  nbverify grading the notebooks' tasks, then"
 	@echo "                  pyk highlight's output and the browser's."
 	@echo "                  Every suite runs even"
-	@echo "                  if an earlier one failed"
+	@echo "                  if an earlier one failed, unless STOP_AT_ERROR"
 	@echo "                  TARGET=c23 runs one target; TARGET=c runs every"
 	@echo "                  version of that family (the last thirteen suites are"
 	@echo "                  skipped, since none of them is a target)"
@@ -109,15 +111,22 @@ help:
 	@echo "                  programs, repl, warnings, libpath, playground, notebook,"
 	@echo "                  packaging, site, tinyweb, lsp, dap, nbjson, nbverify,"
 	@echo "                  highlight"
-	@echo "make stest        the same suite, one test at a time (TARGET and"
-	@echo "                  SUITE as for make test)"
+	@echo "                  STOP_AT_ERROR=true stops at the first failure: the"
+	@echo "                  rest of its report is printed, the suite is"
+	@echo "                  interrupted, no later suite runs, and the summary"
+	@echo "                  says where it stopped"
+	@echo "                  LOG=myfile.log prints as usual and also writes"
+	@echo "                  everything -- the clean build and every suite --"
+	@echo "                  into myfile.log (started afresh each run)"
+	@echo "make stest        the same suite, one test at a time (TARGET, SUITE,"
+	@echo "                  STOP_AT_ERROR and LOG as for make test)"
 	@echo "make quicktest    a quick sample of make test: the latest version of"
 	@echo "                  each target family only, node, web, C and Java on"
 	@echo "                  PERCENT of their cases (PERCENT=10; 5 by default),"
 	@echo "                  the packaging, tinyweb and lsp suites on PERCENT of"
 	@echo "                  their checks, the rest whole. Chosen at random;"
-	@echo "                  SEED=n repeats a run. JOBS, TARGET, SUITE as for"
-	@echo "                  make test"
+	@echo "                  SEED=n repeats a run. JOBS, TARGET, SUITE,"
+	@echo "                  STOP_AT_ERROR and LOG as for make test"
 	@echo "make playground   serve the web playground (pyk playground), then print"
 	@echo "                  a link. PORT=n picks the port"
 	@echo "make pykhelp      serve the help (pyk pykhelp) -- getting started, the"
@@ -271,26 +280,37 @@ check-jsonschema:
 	  exit 1; \
 	fi
 
+# LOG=FILE runs each step of the three below under tests/tee.py, which
+# prints its output and appends it to FILE, emptied first. (A pipe into
+# tee would lose the step's exit status in make's /bin/sh.)
+# STOP_AT_ERROR=true (or anything but false, no or 0) ends the run at the
+# first failure; see tests/test_all.py, `--stop-at-error`.
+LOGGED = $(if $(LOG),python3 tests/tee.py $(LOG))
+STOP_FLAG = $(if $(filter-out false no 0,$(STOP_AT_ERROR)),--stop-at-error)
+
 test: check-node check-python check-jsonschema check-gc
-	@$(MAKE) --no-print-directory clean-build
-	@$(MAKE) --no-print-directory all
-	@python3 tests/test_all.py $(if $(JOBS),--jobs $(JOBS)) \
+	@$(if $(LOG),: > $(LOG))
+	@$(LOGGED) $(MAKE) --no-print-directory clean-build
+	@$(LOGGED) $(MAKE) --no-print-directory all
+	@$(LOGGED) python3 tests/test_all.py $(STOP_FLAG) $(if $(JOBS),--jobs $(JOBS)) \
 		$(if $(TARGET),--target $(TARGET)) $(if $(SUITE),--suite $(SUITE))
 
 # The same suite with no pool at all, for when a parallel run's timing is
 # itself in question.
 stest: check-node check-python check-jsonschema check-gc
-	@$(MAKE) --no-print-directory clean-build
-	@$(MAKE) --no-print-directory all
-	@python3 tests/test_all.py --jobs 1 $(if $(TARGET),--target $(TARGET)) \
-		$(if $(SUITE),--suite $(SUITE))
+	@$(if $(LOG),: > $(LOG))
+	@$(LOGGED) $(MAKE) --no-print-directory clean-build
+	@$(LOGGED) $(MAKE) --no-print-directory all
+	@$(LOGGED) python3 tests/test_all.py $(STOP_FLAG) --jobs 1 \
+		$(if $(TARGET),--target $(TARGET)) $(if $(SUITE),--suite $(SUITE))
 
 # A random sample of the suite (see tests/test_all.py, `--quick`). The
 # seed is printed, and SEED= repeats the same choice.
 quicktest: check-node check-python check-jsonschema check-gc
-	@$(MAKE) --no-print-directory clean-build
-	@$(MAKE) --no-print-directory all
-	@python3 tests/test_all.py --quick $(or $(PERCENT),5) $(if $(SEED),--seed $(SEED)) \
+	@$(if $(LOG),: > $(LOG))
+	@$(LOGGED) $(MAKE) --no-print-directory clean-build
+	@$(LOGGED) $(MAKE) --no-print-directory all
+	@$(LOGGED) python3 tests/test_all.py $(STOP_FLAG) --quick $(or $(PERCENT),5) $(if $(SEED),--seed $(SEED)) \
 		$(if $(JOBS),--jobs $(JOBS)) $(if $(TARGET),--target $(TARGET)) \
 		$(if $(SUITE),--suite $(SUITE))
 

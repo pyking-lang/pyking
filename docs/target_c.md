@@ -95,8 +95,9 @@ and nothing else manages memory.
   `tests/gc_lists.pyk` some forty MB of list cells, tree nodes and
   closure environments; each manifest entry (`c_peak_mb`) holds a
   c23-gc build to a small fraction of that: tests/test_script.py runs it
-  with its data segment limited to that much (`RLIMIT_DATA`, which Linux
-  enforces; macOS ignores it), so a build that freed nothing would fail.
+  with its data segment limited to that much (`RLIMIT_DATA`, set on Linux
+  only, which enforces it; macOS refuses the call, so there the case
+  checks only the output), so a build that freed nothing would fail.
   Memory is not compared across targets.
 
 ## What is refused

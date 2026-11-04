@@ -164,6 +164,8 @@ make            # dune build src/pyk.exe, copied here as ./pyk
 | `make test` | a clean build (`make clean-build`, then `make`), then the compiler's own suite: every program in `tests/` on every target it supports, comparing each against one shared `.out` file — run in parallel, one job per usable CPU (`JOBS=n` to say how many) — then the REPL's own cases in `tests/repl/`, the library path's, the playground's, the notebook's, the packaged tree's and the website's |
 | `make stest` | the same suite, one test at a time |
 | `make quicktest` | a random sample of it: the latest version of each target family, node, web, C and Java on `PERCENT` of their cases (5 by default), the packaging, tinyweb and lsp suites on `PERCENT` of their checks; `SEED=n` repeats a run |
+| `make test STOP_AT_ERROR=true` | stop at the first failure: its report is printed, no later suite runs, and the summary says where it stopped (also for `stest` and `quicktest`) |
+| `make test LOG=myfile.log` | print as usual and also write everything, the clean build and every suite, into `myfile.log`, started afresh (also for `stest` and `quicktest`) |
 | `make playground` | serve the [web playground](tools/playground/) (`pyk playground`), then print a link to open |
 | `make pykhelp` | serve the [help](tools/help/) (`pyk pykhelp`): getting started, the language reference and the libraries, with runnable examples |
 | `make vendor` | download Ace, KaTeX and Monaco into `tools/webrun/vendor/`, once; the two above run it first |

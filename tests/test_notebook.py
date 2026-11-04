@@ -825,6 +825,7 @@ def check_server(compiler):
         checks += 1
         if not ok:
             failures.append(label + (f": {detail}" if detail else ""))
+            suite.stop_at_error("notebook", failures[-1])
 
     # The browser libraries are not needed to answer these requests, and a
     # fresh checkout has not downloaded them.

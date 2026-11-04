@@ -128,6 +128,7 @@ class Checks:
             self.passed += 1
         else:
             self.failures.append(label + (f": {detail}" if detail else ""))
+            suite.stop_at_error("highlight", self.failures[-1])
         self.lines.append(suite.case_line("highlight", ok, label, detail))
         return ok
 

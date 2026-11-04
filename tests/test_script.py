@@ -894,16 +894,18 @@ def run_c(source, workdir, modules, invocation, target):
 def run_limited(cmd, cwd, stdin, megabytes):
     """Runs cmd as `run` does, with the memory it may allocate held to
     `megabytes` (RLIMIT_DATA): past it an allocation fails and the
-    program stops. Linux enforces the limit; macOS ignores it, so there
-    the case only checks the output. The kernel's own peak count is no
-    use here, since the child starts as a copy of this harness.
-    -> CompletedProcess"""
+    program stops. Only Linux enforces the limit, so only Linux sets it:
+    macOS refuses the setrlimit call outright (which surfaced as
+    "Exception occurred in preexec_fn"), and there the case only checks
+    the output. The kernel's own peak count is no use here, since the
+    child starts as a copy of this harness. -> CompletedProcess"""
     def limit():
         cap = megabytes * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_DATA, (cap, cap))
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=STEP_TIMEOUT,
-                              cwd=cwd, input=stdin or "", preexec_fn=limit)
+                              cwd=cwd, input=stdin or "",
+                              preexec_fn=limit if sys.platform.startswith("linux") else None)
     except subprocess.TimeoutExpired as expired:
         return subprocess.CompletedProcess(cmd, 1, expired.stdout or "",
                                            f"timed out after {STEP_TIMEOUT} seconds")

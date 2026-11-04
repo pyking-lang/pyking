@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `make test STOP_AT_ERROR=true` stops at the first failure: the rest
+  of that failure's report is printed, the suite is interrupted, no
+  later suite runs, and the summary says where it stopped.
+  `make test LOG=myfile.log` prints as usual and also writes everything,
+  the clean build and every suite, into `myfile.log`. Both work for
+  `make stest` and `make quicktest` too, and `make help` lists them.
 - Compound assignment under `use mutation` (mutation design, step 1):
   `count += 1` is `count := count + 1`, for `+=`, `-=`, `*=`, `/=`,
   `%=`, `^=`, `&=`, `|=`, `<<=`, `>>=` and `xor=`. It is typed as the

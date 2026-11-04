@@ -78,6 +78,7 @@ class Checks:
             self.passed += 1
         else:
             self.failures.append(label + (f": {detail}" if detail else ""))
+            suite.stop_at_error("nbverify", self.failures[-1])
         print(suite.case_line("nbverify", ok, label, detail), flush=True)
         return ok
 

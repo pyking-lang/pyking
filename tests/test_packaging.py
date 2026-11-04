@@ -123,6 +123,7 @@ class Checks:
         self.count += 1
         if not ok:
             self.failures.append(label + (f": {detail}" if detail else ""))
+            suite.stop_at_error("packaging", self.failures[-1])
         return ok
 
 

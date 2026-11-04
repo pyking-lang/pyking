@@ -145,6 +145,7 @@ class Checks:
             self.passed += 1
         else:
             self.failures.append(label + (f": {detail}" if detail else ""))
+            suite.stop_at_error("nbjson", self.failures[-1])
         self.lines.append(suite.case_line("nbjson", ok, label, detail))
         return ok
 

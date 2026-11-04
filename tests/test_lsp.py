@@ -405,6 +405,7 @@ def check_transport(compiler):
         checks += 1
         if not ok:
             failures.append(label + (f": {detail}" if detail else ""))
+            suite.stop_at_error("lsp", failures[-1])
 
     initialize = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     shutdown = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "shutdown"})
@@ -478,6 +479,7 @@ def check_editors():
         checks += 1
         if not ok:
             failures.append(label + (f": {detail}" if detail else ""))
+            suite.stop_at_error("lsp", failures[-1])
 
     manifest = json.loads((VSCODE / "package.json").read_text())
     languages = manifest.get("contributes", {}).get("languages", [])

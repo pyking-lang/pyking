@@ -10,6 +10,8 @@ make                build the compiler into ./pyk, then make libs
 make libs           build the interpreter's library plugins in lib/
 make test           the test suite (make stest for one at a time)
 make quicktest      a random sample of it (PERCENT=10; 5 by default)
+                    (all three: STOP_AT_ERROR=true stops at the first
+                    failure, LOG=FILE also writes the output to FILE)
 make playground     serve the web playground (pyk playground)
 make vendor         download the browser libraries the two above need
 make packaging      build the installable packages (on a Mac)
@@ -171,6 +173,18 @@ target that links it (`check-gc`, which looks where `pyk` does: pkg-config, then
 skipped when `TARGET` or `SUITE` leaves out what needs it: bdwgc is
 not asked for with a `TARGET` that is not C, or a `SUITE` other than
 `programs` and `playground`.
+
+`STOP_AT_ERROR=true` ends any of the three at the first failure.
+`tests/test_all.py --stop-at-error` reads each suite's output as it
+comes, and at the first `FAILED` line lets the rest of that failure's
+report through, interrupts the suite's whole process group (SIGINT, so
+its cleanup runs), runs no later suite, and says in the summary where
+it stopped. The suites that gather failures and print them at their end
+print each one at once in this mode (`suite.stop_at_error`).
+`LOG=FILE` runs each step, the clean build, the build and the suites,
+under `tests/tee.py`, which prints the output and appends it to FILE
+(emptied first) and keeps the step's exit status, which a pipe into
+`tee` would lose in make's `/bin/sh`.
 
 The website (`make website`) is the one part that needs packages from
 npm: Astro and Starlight, pinned in `tools/site/package-lock.json` and

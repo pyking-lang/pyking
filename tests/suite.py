@@ -15,6 +15,8 @@ Functions:
     footer name passed failed detail -- the one-line summary that closes
       it, and the tally the driver collects.
     read_tally path -- the tallies a run collected, in order.
+    stop_at_error name failure -- prints a gathered failure at once when
+      the run stops at its first one.
     target_tally target passed failed -- one target's counts, for the
       combined summary's per-target table.
     sample_flags argv -- `--sample PERCENT` and `--seed N` taken out of
@@ -73,6 +75,20 @@ def footer(name, passed, failed, detail=""):
     if path:
         with open(path, "a") as tally:
             tally.write(f"{name}\t{passed}\t{failed}\n")
+
+
+# Set by `test_all.py --stop-at-error` (`make test STOP_AT_ERROR=true`),
+# which ends the run at the first line that says FAILED.
+STOP_AT_ERROR = "PYK_TEST_STOP_AT_ERROR"
+
+
+def stop_at_error(name, failure):
+    """For a suite that gathers its failures and prints them at its end:
+    prints this one now, as `name: FAILED failure`, when the run is to
+    stop at its first failure, so the driver sees it then rather than
+    after every other check. String -> String -> ()"""
+    if os.environ.get(STOP_AT_ERROR):
+        print(f"{name}: FAILED {failure}", flush=True)
 
 
 def read_tally(path):

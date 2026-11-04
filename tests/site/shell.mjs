@@ -153,8 +153,13 @@ try {
   const ready = (key, page) => until(`${frame(key)}?.contentDocument?.readyState === "complete"
     && ${win(key)}.location.pathname === ${JSON.stringify(BASE + page)}
     && ${win(key)}.loads !== undefined`);
-  const click = (key, selector) => evaluate(
-    `${doc(key)}.querySelector(${JSON.stringify(selector)}).click()`);
+  // Clicks an element of a section's page once the page has it: a frame
+  // just navigated may still be parsing, with no header yet.
+  const click = async (key, selector) => {
+    const element = `${doc(key)}?.querySelector(${JSON.stringify(selector)})`;
+    if (!await until(`!!${element}`)) throw new Error(`no ${selector} in the ${key} section's page`);
+    await evaluate(`${element}.click()`);
+  };
   const tab = (key, label) => evaluate(`[...${doc(key)}.querySelectorAll(".pyking-nav a")]
     .find((a) => a.textContent === ${JSON.stringify(label)}).click()`);
   const where = () => evaluate("location.pathname + location.hash");
@@ -245,10 +250,14 @@ try {
     && await evaluate(`${win("playground")}.state === 7`));
   check("with the link's address", await until(`location.hash === "#code=abc"`), await where());
   await tab("playground", "Getting started");
+  // Already at its first page, so the page it is reloading looks ready
+  // too: marked, so the check waits until the new one has replaced it.
+  await evaluate(`${win("getstarted")}.left = true`);
   await tab("getstarted", "Getting started");
   check("a section's own tab goes to its first page, as without the shell",
-    await ready("getstarted", "/getstarted/overview/"));
-  await evaluate(`${doc("getstarted")}.querySelector(".site-title").click()`);
+    await until(`${win("getstarted")}.left === undefined`)
+    && await ready("getstarted", "/getstarted/overview/"));
+  await click("getstarted", ".site-title");
   check("the logo shows the start page", await ready("home", "/")
     && await shown() === "home" && await where() === `${BASE}/`, await where());
   await tab("home", "Getting started");

@@ -360,6 +360,7 @@ def check_transport(compiler):
         checks += 1
         if not ok:
             failures.append(label + (f": {detail}" if detail else ""))
+            suite.stop_at_error("dap", failures[-1])
 
     initialize = json.dumps({"seq": 1, "type": "request", "command": "initialize",
                              "arguments": {"adapterID": "pyking"}})
@@ -436,6 +437,7 @@ def check_editors():
         checks += 1
         if not ok:
             failures.append(label + (f": {detail}" if detail else ""))
+            suite.stop_at_error("dap", failures[-1])
 
     manifest = json.loads((VSCODE / "package.json").read_text())
     debuggers = manifest.get("contributes", {}).get("debuggers", [])
