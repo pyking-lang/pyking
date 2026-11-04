@@ -1,0 +1,18 @@
+# A generic datatype printed at several types, where a var struct of the
+# same group of declarations uses it at one: each print uses the type it
+# is given.
+
+use mutation
+
+datatype Opt(a):
+    No
+    Just(v: a)
+
+var struct Cellar(name: String, next: Opt(Cellar))
+
+c = Cellar("a", No)
+c.next := Just(Cellar("b", No))
+print(c)
+print(Just(3), Just("s"), Just(Just(c)), Just(true))
+inner: Opt(Int) = No
+print(inner, Just((1, "x")))

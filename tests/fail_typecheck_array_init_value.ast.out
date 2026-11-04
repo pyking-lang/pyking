@@ -1,0 +1,4 @@
+'tests/fail_typecheck_array_init_value.pyk' 11:4-11:20 Type error: no
+  definition of 'array_init' takes (Int, Int); the ones in scope are
+  'init::array_init' of type (Int, (Int) -> a) -> Array(a),
+  'unfold::array_init' of type (Int, s, (s) -> (a, s)) -> Array(a)

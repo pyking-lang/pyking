@@ -1,0 +1,11 @@
+# Only a struct is written in place: a datatype's values never change,
+# so `var datatype` is refused.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+var datatype Shape:
+    Circle(r: Float)
+    Square(side: Float)

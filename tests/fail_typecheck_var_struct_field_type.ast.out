@@ -1,0 +1,2 @@
+'tests/fail_typecheck_var_struct_field_type.pyk' 11:0-11:12 Type
+  error: the field 'y' holds Int, but this ':=' gives String

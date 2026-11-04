@@ -1,0 +1,9 @@
+# Pointers are `use pointers`'s: `&` in a module without it is refused.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+var x = 1
+p = &x

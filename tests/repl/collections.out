@@ -1,0 +1,14 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> > > > > Point(11, 2) : Point
+> > > 3 : Int
+> vec([1, 2]) : Vec(Int)
+> > > dict([("a", 1), ("b", 2)]) : Dict(String, Int)
+> ["a", "b"] : [String]
+> '<repl>' 1:0-1:8 Runtime error: the Dict has no key "zed"
+> true : Bool
+> > [20, 30] : [Int]
+> > view([1, 2]) : Slice(Int)
+> > > > > 6 : Int
+> Ptr(6) : Ptr(Int)
+> Some(3) : Option(Int)
+> 

@@ -1,0 +1,9 @@
+# A list's element never changes, so it has no address.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation, pointers
+
+var xs = [1, 2]
+p = &xs[0]

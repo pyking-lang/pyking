@@ -1,0 +1,137 @@
+# Mutable structs: a `var struct` is declared once, its fields written
+# with `:=` and the compound operators, and its values shared by every
+# name, element and parameter holding one -- a write through any of them
+# is seen through all. A `..` update and a pattern read the fields as they
+# are; printing stops a cycle with `...`. Every target prints the same.
+
+use mutation
+
+var struct Point(x: Int, y: Int = 0)
+
+p = Point(5)
+p.x := 10
+p.y += 1
+print(p, p.x, p.y)
+
+# Sharing: another name, a parameter, an element.
+q = p
+q.x *= 3
+print(p, same(p, q), same(p, Point(30, 1)))
+
+
+def nudge(pt: Point, by: Int) -> ():
+    pt.x += by
+    pt.y -= by
+
+
+nudge(p, 2)
+print(q)
+
+points = array([Point(1, 1), Point(2, 2)])
+points[0].x := 100
+points[1].y += 5
+print(points)
+first = points[0]
+first.y := -1
+print(points[0])
+
+# A field written through a call and through a field of a field.
+var struct Box(inner: Point, label: String)
+
+box = Box(Point(0, 0), "b")
+
+
+def inner_of(b: Box) -> Point:
+    b.inner
+
+
+inner_of(box).x := 7
+box.inner.y := 8
+box.label += "!"
+print(box)
+
+# `..` makes a new struct: the original is not changed, and a mutable
+# field it shares is still shared.
+copy = Box(label = "copy", ..box)
+copy.inner.x := 70
+copy.label := "changed"
+print(box, copy, same(box.inner, copy.inner))
+
+# A pattern reads the fields as they are when it is matched.
+match p:
+    case Point(x, y) if x > 30:
+        print("far", x, y)
+    case Point(x, y):
+        print("near", x, y)
+
+# Every operator form, in order.
+var struct Counter(n: Int, bits: Int, text: String)
+
+c = Counter(7, 12, "a")
+c.n -= 2
+c.n *= 3
+c.n /= 4
+c.n %= 3
+c.n ^= 3
+c.bits &= 10
+c.bits |= 1
+c.bits xor= 3
+c.bits <<= 2
+c.bits >>= 1
+c.text += "b"
+print(c)
+
+# The owner is worked out once, before the value: a compound write goes
+# to the struct the owner named.
+var pick = Point(1, 1)
+original = pick
+other = Point(2, 2)
+
+
+def switch() -> Int:
+    pick := other
+    10
+
+
+pick.x += switch()
+print(original, pick, other)
+
+# A generic var struct takes one type, fixed by its first use.
+var struct Cell(value: a)
+
+cell = Cell([])
+cell.value := [1, 2]
+print(cell, len(cell.value))
+
+# Cycles: a struct holding itself, through a datatype, prints `...` where
+# it repeats; a value only shared prints in full each time.
+datatype Link:
+    End
+    Next(node: Node)
+
+var struct Node(value: Int, next: Link)
+
+a = Node(1, End)
+b = Node(2, Next(a))
+a.next := Next(b)
+print(a)
+print(b)
+shared = Point(3, 3)
+print(array([shared, shared]), Box(shared, "s"))
+loop_back = Node(0, End)
+loop_back.next := Next(loop_back)
+print(loop_back, string(loop_back))
+
+# Walking a linked list of var structs.
+var walker = a
+var total = 0
+var steps = 0
+while steps < 5:
+    total += walker.value
+    match walker.next:
+        case Next(n):
+            walker := n
+        case End:
+            steps := 5
+    steps += 1
+print(total)

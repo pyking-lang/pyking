@@ -1,0 +1,67 @@
+# Pointers under `use mutation, pointers`: `&` takes the address of a
+# place -- a `var`, an array's or a view's element, a var struct's field,
+# or what a pointer points at -- `*p` reads what it points at now, and
+# `*p := v` and the compound forms write it. Two pointers are equal when
+# they name one place. A pointer prints as what it points at. Every
+# target prints the same.
+
+use mutation, pointers
+
+
+def swap(a: Ptr(Int), b: Ptr(Int)) -> ():
+    t = *a
+    *a := *b
+    *b := t
+
+
+var x = 1
+var y = 2
+swap(&x, &y)
+print(x, y)
+
+var p = &x
+*p += 10
+print(x, *p, p, p == &x, p == &y, p != &y)
+
+# An element of an array, and of a view, which is the array's.
+arr = array([1, 2, 3])
+q = &arr[1]
+*q := 20
+w = view(arr, 1, 3)
+s = &w[0]
+*s *= 2
+print(arr, *q, q == s)
+
+# A field of a var struct.
+var struct Point(x: Int, y: Int)
+
+pt = Point(1, 2)
+r = &pt.y
+*r := 7
+pt.y += 1
+print(pt, *r)
+
+# A pointer to a pointer, and `&*p`, which is `p`.
+pp = &p
+**pp := 5
+*pp := &y
+print(x, y, *p, &*p == p, **pp)
+
+# A pointer that may point nowhere is an Option, not a null.
+def first_negative(xs: Array(Int)) -> Option(Ptr(Int)):
+    var found = None
+    var i = len(xs) - 1
+    while i >= 0:
+        if xs[i] < 0:
+            found := Some(&xs[i])
+        i -= 1
+    found
+
+
+nums = array([3, -4, 5, -6])
+match first_negative(nums):
+    case Some(neg):
+        *neg := 0
+    case None:
+        print("none")
+print(nums, first_negative(array([1])))

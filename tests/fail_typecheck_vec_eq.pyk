@@ -1,0 +1,9 @@
+# `==` compares no Vecs: `same` asks whether two are one, and
+# `vec.equal` compares their elements.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+print(vec([1]) == vec([1]))

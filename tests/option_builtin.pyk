@@ -1,0 +1,29 @@
+# Option is builtin: a module that uses `Option`, `Some` or `None` and
+# declares none of them has lib/option's, as if it began `from option
+# import Option`; `import option` reaches its functions. Every target
+# prints the same.
+
+import option
+
+
+def find(xs: [Int], wanted: Int, at: Int) -> Option(Int):
+    match xs:
+        case []:
+            None
+        case [first, ..rest]:
+            if first == wanted:
+                Some(at)
+            else:
+                find(rest, wanted, at + 1)
+
+
+found = find([5, 6, 7], 7, 0)
+missing = find([1], 2, 0)
+print(found, missing, option.is_some(found), option.is_none(missing))
+print(option.or_else(found, -1), option.or_else(missing, -1), found == Some(2), missing != None)
+match found:
+    case Some(i):
+        print("at", i)
+    case None:
+        print("nowhere")
+print([Some(1), None, Some(3)], Some("text"), Some(Some(true)))

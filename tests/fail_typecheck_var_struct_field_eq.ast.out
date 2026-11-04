@@ -1,0 +1,4 @@
+'tests/fail_typecheck_var_struct_field_eq.pyk' 11:4-11:9 Parsing
+  error: a field is written with ':=', not '=': did you mean 'p.x :=
+  v'? '=' binds a name, and a dotted name defines a name in a
+  submodule only at the top level of a module

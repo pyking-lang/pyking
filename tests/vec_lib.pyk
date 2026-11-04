@@ -1,0 +1,31 @@
+# lib/vec: copying, converting, extending, reversing, comparing and
+# sorting Vecs, the same on every target.
+
+use mutation
+import vec
+
+v = vec([3, 1, 2])
+w = vec.copy(v)
+push(w, 0)
+print(v, w, same(v, w), vec.equal(v, w))
+vec.extend(v, [9, 8])
+print(v, vec.to_list(v), vec.to_array(v))
+vec.reverse(v)
+print(v)
+vec.sort(v)
+print(v)
+names = vec(["pear", "Fig", "apple", "app"])
+vec.sort(names)
+print(names, vec.equal(names, vec(["Fig", "app", "apple", "pear"])))
+nan = float("nan")
+inf = float("inf")
+xs = vec.from_array(array([2.5, nan, -1.0, inf, 0.0]))
+vec.sort(xs)
+print(xs, vec.equal(vec([nan]), vec([nan])))
+cs = vec(['c', 'a', 'b'])
+vec.sort(cs)
+print(cs, vec.equal(vec([true, false]), vec([true, false])))
+empty: Vec(Int) = vec()
+vec.reverse(empty)
+vec.sort(empty)
+print(empty, vec.equal(empty, vec([])))

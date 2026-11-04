@@ -1,0 +1,5 @@
+'tests/fail_typecheck_pointer_arithmetic.pyk' 10:7-10:14 Type error:
+  `+` cannot be applied to Ptr(Int) and Int; it accepts Int + Int or
+  Float + Float or String + String or two lists of one type. A pointer
+  has no arithmetic: a run of an array's elements is a view, 'view(a,
+  i, j)', and an element's address is '&a[i]'

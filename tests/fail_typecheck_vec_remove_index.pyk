@@ -1,0 +1,9 @@
+# `remove` takes an index, an Int: a Vec is not searched for a value.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+v = vec(["a", "b"])
+remove(v, "a")

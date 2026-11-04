@@ -1,0 +1,12 @@
+# A plain struct's field never changes, so it has no address: a var
+# struct's does.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation, pointers
+
+struct Point(x: Int, y: Int)
+
+pt = Point(1, 2)
+p = &pt.x

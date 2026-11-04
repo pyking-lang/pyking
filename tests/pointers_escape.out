@@ -1,0 +1,3 @@
+2 false
+[Ptr('a'), Ptr('b')] true false
+[Ptr(0), Ptr(1), Ptr(2)] false

@@ -1,0 +1,30 @@
+# A local whose address leaves its function lives on, as a closure's
+# captured `var` does; and pointers inside lists and tuples compare and
+# print as pointers. Plain C refuses an escaping address and has no lists;
+# every other target prints the same.
+
+use mutation, pointers
+
+# A local whose address leaves its function lives on.
+def counter() -> Ptr(Int):
+    var n = 0
+    &n
+
+
+c = counter()
+*c += 1
+*c += 1
+print(*c, c == counter())
+
+# Pointers in a list and a tuple, compared and printed.
+var a1 = 'a'
+var a2 = 'b'
+ptrs = [&a1, &a2]
+print(ptrs, (&a1, &a2) == (&a1, &a2), ptrs == [&a2, &a1])
+
+# A `var` declared in a loop is a new variable each turn, so each turn's
+# address is a place of its own.
+held = loop acc = [] for k in range(3):
+    var j = k
+    acc + [&j]
+print(held, held[0] == held[1])

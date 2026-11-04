@@ -1,0 +1,10 @@
+# `==` compares lists part by part, and a function has no equality: a
+# list of functions is not compared.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def twice(n: Int) -> Int:
+    n * 2
+
+print([twice] == [twice])

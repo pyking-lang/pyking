@@ -1,0 +1,8 @@
+# Making a view is mutation's: `view` in a module without `use
+# mutation` is refused.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def first_two(a: Array(Int)) -> Int:
+    len(view(a, 0, 2))

@@ -1,0 +1,22 @@
+# A comprehension's `for` takes a pattern apart: a list pattern, a tuple,
+# a constructor, nested ones, and a rest. An element the pattern does not
+# match gives nothing. Every target prints the same.
+
+datatype Shape:
+    Circle(r: Int)
+    Rect(w: Int, h: Int)
+
+xss = [[1], [2, 3], [4], [], [5]]
+print([x for [x] in xss])
+print([a + b for [a, b] in xss])
+print([len(rest) for [_, ..rest] in xss])
+
+pairs = [(1, "one"), (2, "two"), (3, "three")]
+print([name for (n, name) in pairs if n != 2])
+
+shapes = [Circle(1), Rect(2, 3), Circle(4), Rect(5, 5)]
+print([r for Circle(r) in shapes], [w * h for Rect(w, h) in shapes if w == h])
+
+nested = [([1, 2], Circle(7)), ([3], Rect(1, 1)), ([], Circle(8))]
+print([(first, len(more), r) for ([first, ..more], Circle(r)) in nested])
+print([[y, x] for [x, y] in [[1, 2], [3, 4]] for [z] in [[x]] if z > 1])

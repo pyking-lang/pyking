@@ -1,0 +1,4 @@
+'tests/fail_typecheck_pointers_need_mutation.pyk' 7:4-7:12 Parsing
+  error: 'use pointers' needs 'use mutation' in the same module: a
+  pointer is a way to write to a variable. Write 'use mutation,
+  pointers'

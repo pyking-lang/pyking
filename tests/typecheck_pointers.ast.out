@@ -1,0 +1,21 @@
+use mutation
+use pointers
+from option import Option, None, Some
+var total = 0
+var name = "ada"
+def add(into:Ptr(Int), amount:Int) -> Int:
+    pointer__target: Ptr(Int) = into
+    *pointer__target += amount
+    *into
+var ptr = &total
+handle: Ptr(Ptr(Int)) = &ptr
+maybe: Option(Ptr(String)) = Some(value = &name)
+add(ptr, 5)
+pointer__target: Ptr(Int) = *handle
+*pointer__target *= 2
+match maybe:
+    case Some(n):
+        *n := *n + "!"
+    case None:
+        print("none")
+print(total, name, *ptr == total, add(&total, 1))

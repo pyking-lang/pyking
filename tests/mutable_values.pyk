@@ -1,0 +1,103 @@
+# Var structs, Vecs and arrays together, with no list anywhere, so plain
+# C runs it as well as every other target: stores that hold themselves
+# through a datatype print `...` where they repeat, `print` works out
+# every argument before it writes any, and a field write takes its owner
+# before its value.
+
+use mutation
+
+var struct Counter(name: String, n: Int)
+
+datatype Slot:
+    Empty
+    Holds(items: Array(Slot))
+
+datatype Item:
+    Leaf(value: Int)
+    Many(items: Vec(Item))
+
+var struct Pair(left: Int, right: Pair2)
+var struct Pair2(label: String, back: Hold)
+
+datatype Hold:
+    Nothing
+    Back(pair: Pair)
+
+# An array and a Vec that hold themselves, and a cycle through two var
+# structs.
+a = array([Empty, Empty])
+a[1] := Holds(a)
+print(a)
+v = vec([Leaf(1)])
+push(v, Many(v))
+push(v, Many(vec([Leaf(2)])))
+print(v, len(v))
+p = Pair(1, Pair2("x", Nothing))
+p.right.back := Back(p)
+print(p)
+
+
+# `print` writes what its arguments are once every one is worked out.
+def bump(c: Counter) -> Int:
+    c.n += 1
+    c.n
+
+
+def take(xs: Vec(Int)) -> Int:
+    pop(xs)
+
+
+c = Counter("c", 0)
+print(c, bump(c), c.n, bump(c))
+nums = vec([1, 2, 3])
+print(nums, take(nums), nums)
+grid = array([0, 0])
+
+
+def mark(g: Array(Int)) -> Int:
+    g[0] := 9
+    1
+
+
+print(grid, mark(grid))
+
+# A field written through what a call answers, and a value that changes
+# the name the owner came from.
+var current = Counter("first", 1)
+first = current
+
+
+def switch() -> Int:
+    current := Counter("second", 2)
+    10
+
+
+current.n += switch()
+print(first, current)
+
+
+def pick(cs: Vec(Counter), i: Int) -> Counter:
+    cs[i]
+
+
+counters = vec([Counter("a", 1), Counter("b", 2)])
+pick(counters, 1).n := 20
+counters[0].name += "!"
+print(counters, same(pick(counters, 0), counters[0]))
+
+# Every Vec operation, and a walk that sees what it pushes.
+w: Vec(String) = vec()
+push(w, "x")
+insert(w, 0, "w")
+insert(w, 2, "z")
+w[1] := w[1] + "y"
+print(w, remove(w, 0), pop(w), w)
+for s in w:
+    if len(w) < 3:
+        push(w, s + "+")
+print(w)
+clear(w)
+print(w, len(w))
+table = vec([vec([1]), vec([])])
+push(table[1], 5)
+print(table, table[1][0])

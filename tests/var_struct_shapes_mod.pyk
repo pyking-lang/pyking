@@ -1,0 +1,19 @@
+# A module declaring a var struct, imported by
+# fail_typecheck_var_struct_make_use.pyk and var_struct_import.pyk.
+
+use mutation
+
+public var struct Rect(w: Int, h: Int)
+
+
+public def area(r: Rect) -> Int:
+    r.w * r.h
+
+
+public def grow(r: Rect) -> ():
+    r.w += 1
+    r.h += 1
+
+
+public def unit() -> Rect:
+    Rect(1, 1)

@@ -1,0 +1,8 @@
+# A slice's bounds are checked: 0 <= i <= j <= the length. Past the end
+# is a runtime error.
+
+use mutation
+
+a = array([1, 2, 3])
+print(a[1:3])
+print(a[2:4])

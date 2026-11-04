@@ -1,0 +1,69 @@
+# Vecs: arrays that grow. Made by `vec()` and `vec(xs)`, read and written
+# by index as an array is, grown and shrunk by `push`, `pop`, `insert`,
+# `remove` and `clear`, measured by `len`, walked by `for` while the
+# index is below the Vec's length as it is then, shared by every name
+# that holds one, and printed as what makes one. Every target prints the
+# same.
+
+use mutation
+
+v = vec([10, 20])
+push(v, 30)
+insert(v, 0, 5)
+insert(v, 4, 40)
+print(v, len(v), v[0], v[4])
+
+v[1] += 1
+v[2] := v[1] * 2
+print(v)
+print(pop(v), remove(v, 1), v, len(v))
+
+# Built up one element at a time: the linear way to make a collection.
+squares: Vec(Int) = vec()
+for i in range(6):
+    push(squares, i * i)
+print(squares, [x + 1 for x in squares])
+
+# Sharing: a second name, a parameter, an element of an array.
+alias = squares
+
+
+def drop_last(xs: Vec(Int)) -> Int:
+    pop(xs)
+
+
+print(drop_last(alias), len(squares), same(alias, squares), same(squares, vec([0])))
+held = array([squares, squares])
+push(held[0], 99)
+print(held[1])
+
+# A `for` reads each element as it is reached, and goes on while there
+# are more: what is pushed during the walk is walked too.
+words: Vec(String) = vec()
+push(words, "a")
+for w in words:
+    if len(words) < 4:
+        push(words, w + "b")
+print(words)
+
+# Removing from the front while walking ends the walk early, at the
+# length the Vec has then.
+var seen = 0
+shrinking = vec([1, 2, 3, 4, 5, 6])
+for x in shrinking:
+    seen += x
+    remove(shrinking, 0)
+print(seen, shrinking)
+
+# A Vec of Vecs, and one of var structs.
+var struct Score(name: String, points: Int)
+
+table = vec([vec([1]), vec([2, 3])])
+push(table[0], 4)
+scores = vec([Score("ada", 3)])
+push(scores, Score("bo", 1))
+scores[1].points += 10
+print(table, scores)
+
+clear(table)
+print(table, len(table))

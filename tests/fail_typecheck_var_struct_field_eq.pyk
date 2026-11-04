@@ -1,0 +1,11 @@
+# A field is written with `:=`, as a variable is: `=` binds a name.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+var struct Point(x: Int, y: Int)
+
+def f(p: Point) -> ():
+    p.x = 3

@@ -1,0 +1,9 @@
+# `get`'s default is a value of the Dict's value type.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+d = dict([("a", 1)])
+print(get(d, "b", "none"))

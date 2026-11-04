@@ -1,0 +1,10 @@
+# Making a var struct is mutation's too, even one another module
+# declares: this module reads and passes them freely, but may not make
+# one without `use mutation`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+import var_struct_shapes_mod
+
+print(var_struct_shapes_mod.area(var_struct_shapes_mod.Rect(2, 3)))

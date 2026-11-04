@@ -1,0 +1,13 @@
+# Only a var struct's field is written with `:=`: a tuple has no fields.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+pair = (1, 2)
+
+def first(p: (Int, Int)) -> (Int, Int):
+    p
+
+first(pair).x := 3

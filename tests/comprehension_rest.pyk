@@ -1,0 +1,14 @@
+# A comprehension's pattern may take a list apart with a rest it does
+# not name, `.._`, at any depth, beside other refutable parts; the
+# elements that do not match are skipped. Every target prints the same.
+
+datatype Shape:
+    Circle(r: Int)
+    Square(side: Int)
+
+none: [Int] = []
+nested = [([1, 2, 3], Circle(5)), (none, Circle(6)), ([4], Square(2)), ([7, 8], Circle(9))]
+print([(first, r) for ([first, .._], Circle(r)) in nested])
+print([last for [.._, last] in [[1, 2], none, [3]]])
+print([(a, b) for [a, .._, b] in [[1, 2, 3, 4], [5], [6, 7]]])
+print([n for (n, [.._]) in [(1, none), (2, [3])]])

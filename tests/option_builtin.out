@@ -1,0 +1,4 @@
+Some(2) None true true
+2 -1 true false
+at 2
+[Some(1), None, Some(3)] Some("text") Some(Some(true))

@@ -1,0 +1,11 @@
+# `array_init` generates an array: its second argument is a function
+# from the index to the element, or a seed followed by such a function.
+# A plain value is `array(n, v)`'s, so `array_init(n, v)` is refused,
+# naming both forms it has.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+a = array_init(3, 7)

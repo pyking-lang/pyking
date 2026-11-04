@@ -1,0 +1,9 @@
+# `use pointers` needs `use mutation` in the same module: a pointer is
+# a way to write to a variable.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use pointers
+
+x = 1

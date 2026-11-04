@@ -1,0 +1,2 @@
+'tests/fail_typecheck_slice_bound.pyk' 7:9-7:12 Type error: a slice's
+  bounds are Ints, and this one is String

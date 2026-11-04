@@ -1,0 +1,2 @@
+'tests/fail_typecheck_view_list.pyk' 9:9-9:18 Type error: 'view'
+  cannot be applied to [Int]; it accepts an array or a view

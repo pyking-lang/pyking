@@ -1,0 +1,10 @@
+# Writing a field is mutation's: without `use mutation` the write is
+# refused before anything else, whatever the struct is.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+struct Point(x: Int, y: Int)
+
+p = Point(1, 2)
+p.x := 3

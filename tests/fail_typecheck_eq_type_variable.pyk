@@ -1,0 +1,12 @@
+# A type variable may stand for a type `==` cannot compare, a function
+# for one, so `==` on one is refused.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def contains(xs: [a], x: a) -> Bool:
+    match xs:
+        case []:
+            false
+        case [first, ..rest]:
+            [first] == [x] or contains(rest, x)

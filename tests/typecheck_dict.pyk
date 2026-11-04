@@ -1,0 +1,23 @@
+# Dicts and structural `==` under the type checker. `Dict(K, V)` is a
+# type of its own: `dict()` takes its types from its use, `dict(pairs)`
+# from the pairs; `d[k]` gives a V for a K key, `d[k] := v` writes one,
+# and the builtins over Dicts give what they say. `==` on lists, tuples
+# and structs is a Bool. The `.ast.out` pins the types worked out.
+
+use mutation
+
+struct Pos(row: Int, col: Int)
+
+board: Dict(Pos, Char) = dict()
+board[Pos(0, 0)] := 'x'
+scores = dict([("ada", 3), ("bo", 1)])
+scores["cy"] := scores["ada"] + get(scores, "dee", 0)
+
+
+def winners(s: Dict(String, Int)) -> [String]:
+    [name for name in s if s[name] > 1]
+
+
+pairs = items(scores)
+print(winners(scores), keys(board), has(board, Pos(1, 1)), pairs == [("ada", 3), ("bo", 1), ("cy", 3)])
+print(remove(scores, "bo"), values(scores), Pos(0, 0) == Pos(0, 0), (1, [2.5]) != (1, [2.5]))

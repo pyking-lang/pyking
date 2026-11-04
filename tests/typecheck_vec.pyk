@@ -1,0 +1,26 @@
+# Vecs under the type checker. `Vec(T)` is a type of its own: `vec()`
+# takes its element type from its use, `vec(xs)` from the list, `push`
+# and `insert` take an element and `pop` and `remove` give one, and an
+# element is read and written by index. The `.ast.out` pins the types
+# worked out, and every call names the form it resolved to.
+
+use mutation
+
+names: Vec(String) = vec()
+push(names, "ada")
+insert(names, 0, "bo")
+counts = vec([1, 2, 3])
+counts[0] += len(names)
+
+
+def total(xs: Vec(Int)) -> Int:
+    var sum = 0
+    for x in xs:
+        sum += x
+    sum
+
+
+last = pop(counts)
+first = remove(names, 0)
+clear(names)
+print(total(counts), last, first, names, same(counts, counts), len(list::vec(["x"])))

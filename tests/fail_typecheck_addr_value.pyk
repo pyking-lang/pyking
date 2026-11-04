@@ -1,0 +1,11 @@
+# A call's result is a value, not a place: it has nowhere to write.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation, pointers
+
+def one() -> Int:
+    1
+
+p = &one()

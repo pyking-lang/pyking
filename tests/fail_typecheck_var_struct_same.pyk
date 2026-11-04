@@ -1,0 +1,11 @@
+# `same` asks whether two values are one, which only an array or a
+# var struct has an identity for; a plain struct is a value.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+struct Point(x: Int, y: Int)
+
+print(same(Point(1, 2), Point(1, 2)))

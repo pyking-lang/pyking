@@ -1,0 +1,5 @@
+'tests/fail_typecheck_vec_eq.pyk' 9:6-9:26 Type error: `==` cannot be
+  applied to Vec(Int) and Vec(Int); it accepts Int == Int or Float ==
+  Float or String == String or Char == Char or Bool == Bool. Vecs are
+  compared with 'same(a, b)', which asks whether they are one Vec, or
+  with 'vec.equal(a, b)' from lib/vec, which compares their elements

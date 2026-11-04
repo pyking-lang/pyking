@@ -1,0 +1,72 @@
+# Lists as values, and the shapes of them the other list tests reach
+# less: a comprehension over a String and over an array, with a pattern
+# that skips what it does not match; `range` as a value, counting down;
+# lists of lists, of datatypes and of functions printed and indexed;
+# `array` of a list worked out at run time; and closures that outlive
+# the call making them, one holding a `var` it keeps counting.
+
+use mutation
+
+datatype Shape:
+    Dot
+    Box(w: Int, h: Int)
+
+
+print([c for c in "héllo" if c != 'l'])
+pairs = [(1, "one"), (2, "two"), (3, "three")]
+print([name for (n, name) in pairs if n != 2])
+grid = array([[1, 2], [], [3]])
+print([len(row) for row in grid])
+
+print(range(5, 0, -2), range(3), range(2, 2), len(range(10)))
+print(if len(range(3)) > 5 then [] else [[k, k] for k in range(3)])
+
+shapes = [Dot, Box(2, 3), Box(1, 1)]
+print(shapes, shapes[1])
+print([w * h for Box(w, h) in shapes])
+print(string([["a"], ["b", "c"]]), string([]), [[]])
+
+a = array([n * n for n in range(4)])
+a[0] := 7
+print(a, len(a))
+
+fs = [lam x. x + 1, lam x. x * 2]
+print([f(10) for f in fs])
+
+
+def counter() -> () -> Int:
+    var count = 0
+    def next() -> Int:
+        count += 1
+        count
+    next
+
+
+tick = counter()
+other = counter()
+first = tick()
+second = tick()
+print(first, second, other(), tick())
+
+
+def times(x: Int, by: Int) -> () -> Int:
+    lam (). x * by
+
+
+def scaled(xs: [Int], by: Int) -> [() -> Int]:
+    [times(x, by) for x in xs]
+
+
+print([g() for g in scaled([1, 2, 3], 10)])
+
+empty = []
+print(empty + [1] + empty, [] + ["x"])
+match [1, 2, 3, 4, 5]:
+    case [a1, a2, ..mid, z]: print(a1, a2, mid, z)
+    case _: print("short")
+
+found = loop best = 0 for x in [4, 9, 2, 7]:
+    if x > 8:
+        break x
+    best + x
+print(found)

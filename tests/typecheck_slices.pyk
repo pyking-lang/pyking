@@ -1,0 +1,25 @@
+# Slices and views under the type checker: a slice is its sequence's own
+# kind -- a view's an array -- `view` makes a `Slice(T)`, and
+# `copy_into` takes arrays or views of one element type. The `.ast.out`
+# pins the types worked out.
+
+use mutation
+
+name = "Ada Lovelace"
+first = name[:3]
+nums = [3, 1, 4, 1, 5]
+middle = nums[1:4]
+store = array([0.5, 1.5, 2.5])
+part: Slice(Float) = view(store, 0, 2)
+part[1] *= 2.0
+
+
+def total(xs: Slice(Float)) -> Float:
+    var sum = 0.0
+    for x in xs:
+        sum += x
+    sum
+
+
+copy_into(store, part[1:])
+print(first, middle, total(part), store, len(part))

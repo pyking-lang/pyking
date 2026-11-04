@@ -1,0 +1,10 @@
+# `==` compares tuples part by part, and an array has an identity
+# rather than an equality: `same` asks whether two arrays are one.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+a = array([1])
+print((1, a) == (1, a))

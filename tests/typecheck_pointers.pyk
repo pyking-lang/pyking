@@ -1,0 +1,27 @@
+# Pointers under the type checker: `&` of an Int var is a Ptr(Int), `*`
+# of a Ptr(T) is a T, a pointer to a pointer is a Ptr(Ptr(T)), and an
+# optional pointer is an Option(Ptr(T)). The `.ast.out` pins the types,
+# and the printed program writes `&` and `*` again.
+
+use mutation, pointers
+
+var total = 0
+var name = "ada"
+
+
+def add(into: Ptr(Int), amount: Int) -> Int:
+    *into += amount
+    *into
+
+
+var ptr = &total
+handle = &ptr
+maybe: Option(Ptr(String)) = Some(&name)
+add(ptr, 5)
+**handle *= 2
+match maybe:
+    case Some(n):
+        *n := *n + "!"
+    case None:
+        print("none")
+print(total, name, *ptr == total, add(&total, 1))

@@ -1,0 +1,18 @@
+# Operands and arguments run left to right on every target, even where
+# none of them prints: a call that changes a variable is seen by the
+# operands after it, and not by the ones before.
+
+use mutation
+
+var count = 0
+
+
+def tick() -> Int:
+    count += 1
+    count
+
+
+print(tick(), tick())
+print(tick() + tick() * 10, count + tick())
+pair = (tick(), count, tick())
+print(pair, (tick(), tick()), string(tick()) + string(count))

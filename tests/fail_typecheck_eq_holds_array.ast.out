@@ -1,0 +1,4 @@
+'tests/fail_typecheck_eq_holds_array.pyk' 10:6-10:22 Type error: `==`
+  compares (Int, Array(Int)) part by part, and this one holds an
+  array, which `==` does not compare: 'same(a, b)' asks whether two of
+  those are one

@@ -1,0 +1,6 @@
+Just(Link(1, ...))
+Link(1, Just(...))
+(Just(Link(1, ...)), Link(1, Just(...)))
+Node(dict([("self", ...), ("leaf", Leaf)]))
+dict([("self", Node(...)), ("leaf", Leaf)])
+(Just(Link(2, No)), Just(Link(2, No)))

@@ -1,0 +1,24 @@
+# `==` and `!=` on lists, tuples, structs and datatypes compare them part
+# by part: the same constructor, then every field, every element, in
+# order. A Float inside compares by IEEE's rule, so NaN equals nothing
+# and the two zeros are equal. Every target prints the same.
+
+struct Point(x: Int, y: Int)
+
+datatype Shape:
+    Circle(r: Float)
+    Rect(w: Float, h: Float)
+
+datatype Tree:
+    Leaf
+    Node(left: Tree, value: Int, right: Tree)
+
+print([1, 2, 3] == [1, 2, 3], [1, 2] == [1, 2, 3], [] == [1], [[1], []] == [[1], []])
+print((1, "a", 'c') == (1, "a", 'c'), (1, true) != (1, false))
+print(Point(1, 2) == Point(1, 2), Point(1, 2) == Point(2, 1), [Point(0, 0)] != [Point(0, 0)])
+print(Circle(1.0) == Circle(1.0), Circle(1.0) == Rect(1.0, 1.0), Rect(0.0, 1.0) == Rect(-0.0, 1.0))
+nan = float("nan")
+print([nan] == [nan], (nan, 1) != (nan, 1), Circle(nan) == Circle(nan))
+small = Node(Leaf, 1, Leaf)
+print(Node(small, 2, Leaf) == Node(Node(Leaf, 1, Leaf), 2, Leaf), Node(small, 2, Leaf) == Node(Leaf, 2, small))
+print(["a", "b"] == ["a", "b"], [Leaf] == [Leaf], [(1, [2])] == [(1, [2])])

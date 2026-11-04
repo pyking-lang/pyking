@@ -1,0 +1,10 @@
+# A pointer has no arithmetic: a run of an array is a view.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation, pointers
+
+a = array([1, 2, 3])
+p = &a[0]
+print(*(p + 1))

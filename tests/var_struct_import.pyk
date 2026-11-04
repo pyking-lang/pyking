@@ -1,0 +1,19 @@
+# A var struct another module declares: this module has no `use
+# mutation`, so it does not make one, but it holds one it is given,
+# reads its fields, passes it on, and sees what the other module writes.
+
+import var_struct_shapes_mod as shapes
+
+
+def show(r: shapes.Rect) -> String:
+    string(r.w) + "x" + string(r.h)
+
+
+def made() -> shapes.Rect:
+    shapes.unit()
+
+
+r = made()
+print(show(r), shapes.area(r))
+shapes.grow(r)
+print(show(r), shapes.area(r), r)

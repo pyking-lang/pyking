@@ -1,0 +1,17 @@
+use mutation
+names: Vec(String) = empty::vec()
+push(names, "ada")
+insert(names, 0, "bo")
+counts: Vec(Int) = list::vec([1, 2, 3])
+element__array: Vec(Int) = counts
+element__index: Int = 0
+element__array[element__index] += len(names)
+def total(xs:Vec(Int)) -> Int:
+    var sum = 0
+    for x in xs:
+        sum += x
+    sum
+last: Int = pop(counts)
+first: String = remove(names, 0)
+clear(names)
+print(total(counts), last, first, names, same(counts, counts), len(list::vec(["x"])))

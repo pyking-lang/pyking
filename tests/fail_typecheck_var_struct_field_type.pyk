@@ -1,0 +1,11 @@
+# A field holds one type: a write gives a value of it.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+var struct Point(x: Int, y: Int)
+
+p = Point(1, 2)
+p.y := "two"

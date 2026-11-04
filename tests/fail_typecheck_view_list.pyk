@@ -1,0 +1,9 @@
+# A view shares an array's elements; a list never changes, so there is
+# nothing to share: slice it instead.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+w = view([1, 2, 3], 0, 2)

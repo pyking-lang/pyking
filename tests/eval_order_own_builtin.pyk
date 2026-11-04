@@ -1,0 +1,26 @@
+# A program's own function named like a builtin -- `get`, `keys` -- is
+# called as any of its functions is: it may read what another operand
+# changes, so operands still run left to right around it.
+
+use mutation
+
+var count = 0
+
+
+def tick() -> Int:
+    count += 1
+    count
+
+
+def get() -> Int:
+    count
+
+
+def keys(scale: Int) -> Int:
+    count * scale
+
+
+print(get() + tick(), tick() + get())
+print(get() * 10 + tick(), keys(100) + tick())
+pair = (get(), tick(), keys(2))
+print(pair)

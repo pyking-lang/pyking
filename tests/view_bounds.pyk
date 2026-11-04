@@ -1,0 +1,10 @@
+# A view's bounds are checked when it is made, and its index when it is
+# read: an index past the view's end is an error even where the array
+# goes on.
+
+use mutation
+
+a = array([1, 2, 3, 4])
+w = view(a, 0, 2)
+print(w[1])
+print(w[2])

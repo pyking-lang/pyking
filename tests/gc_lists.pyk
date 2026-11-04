@@ -1,0 +1,56 @@
+# Lists, trees and closures made and dropped, many times over: each turn
+# builds a list of a few hundred elements, a tree of them and a function
+# value capturing the list, keeps only a number from each, and drops the
+# rest -- some forty MB of cells, environments and nodes by the end. On
+# c23-gc every one of those comes from the bdwgc collector, and the
+# manifest's `c_peak_mb` holds the program to a fraction of that: what
+# tests that the collector frees the lists, the datatypes holding
+# themselves and the heap environments a program drops.
+
+datatype Tree:
+    Leaf
+    Node(left: Tree, value: Int, right: Tree)
+
+
+# Recursion as deep as the list is long.
+def total(xs: [Int]) -> Int:
+    match xs:
+        case []: 0
+        case [x, ..rest]: x + total(rest)
+
+
+# A balanced tree of the list's elements, built from its two halves.
+def build(xs: [Int]) -> Tree:
+    match xs:
+        case []: Leaf
+        case _:
+            half = len(xs) / 2
+            Node(build([xs[k] for k in range(half)]), xs[half], build([xs[k] for k in range(half + 1, len(xs))]))
+
+
+def tree_sum(t: Tree) -> Int:
+    match t:
+        case Leaf: 0
+        case Node(l, v, r): tree_sum(l) + v + tree_sum(r)
+
+
+# A function value that outlives the call making it, and the list it
+# captures with it.
+def adder(xs: [Int]) -> (Int) -> Int:
+    lam n. n + total(xs)
+
+
+def turn(i: Int) -> Int:
+    xs = [(k * i) % 7 for k in range(400)]
+    ys = xs + [i % 5]
+    t = build([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, i % 3])
+    f = adder(ys)
+    match ys:
+        case [first, ..middle, last]: f(first + last + len(middle)) + tree_sum(t)
+        case _: 0
+
+
+grand = loop acc = 0 for i in range(1000):
+    (acc + turn(i)) % 1000003
+print(grand)
+print(total([k for k in range(10)]), tree_sum(build(range(5))))

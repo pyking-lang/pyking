@@ -1,0 +1,8 @@
+# `copy_into` copies between arrays or views of one element type.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+copy_into(array([1, 2]), array(["a"]))

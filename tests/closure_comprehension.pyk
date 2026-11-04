@@ -1,0 +1,25 @@
+# A function value made in a comprehension keeps the element of the turn
+# that made it, not the last one: every turn binds the comprehension's
+# names afresh, as a loop's are. Every target prints the same.
+
+use mutation
+
+def scaled(xs: [Int], by: Int) -> [() -> Int]:
+    [lam (). x * by for x in xs]
+
+
+print([f() for f in scaled([1, 2, 3], 10)])
+
+# Two `for` clauses, a pattern, and a condition: each function keeps all
+# that its turn bound.
+pairs = [lam (). (a, b) for a in [1, 2] for b in ["x", "y"] if a != 2 or b != "x"]
+print([p() for p in pairs])
+adders = [lam (n: Int). n + left - right for (left, right) in [(10, 1), (20, 2)]]
+print([add(100) for add in adders])
+
+# Made in a comprehension inside a loop: each keeps its own turn's `i`
+# and its own element.
+var made = []
+for i in range(3):
+    made := made + [lam (). i * 100 + x for x in [1, 2]]
+print([g() for g in made])

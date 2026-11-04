@@ -1,0 +1,6 @@
+'tests/fail_typecheck_var_struct_eq.pyk' 11:6-11:32 Type error: `==`
+  cannot be applied to Point and Point; it accepts Int == Int or Float
+  == Float or String == String or Char == Char or Bool == Bool. A
+  struct or a datatype's value is compared field by field, by a
+  function the program writes; 'same(a, b)' asks whether two var
+  structs are one

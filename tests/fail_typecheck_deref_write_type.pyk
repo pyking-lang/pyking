@@ -1,0 +1,10 @@
+# A pointer points at one type: a write through it gives one.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation, pointers
+
+var x = 1
+p = &x
+*p := "one"

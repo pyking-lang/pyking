@@ -1,0 +1,4 @@
+'tests/fail_typecheck_eq_type_variable.pyk' 12:12-12:26 Type error:
+  `==` compares [a] part by part, and this one holds the type variable
+  'a', which `==` does not compare: it may stand for a function, or
+  another type with no equality

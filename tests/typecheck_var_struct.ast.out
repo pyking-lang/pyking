@@ -1,0 +1,17 @@
+use mutation
+var struct Account(owner: String, balance: Int)
+var struct Cell(value: a)
+acct: Account = Account(owner = "ada", balance = 0)
+field__owner: Account = acct
+field__owner.balance += 100
+acct.owner := acct.owner + " l."
+def deposit(a:Account, amount:Int) -> Int:
+    field__owner: Account = a
+    field__owner.balance += amount
+    a.balance
+cell: Cell(Float) = Cell(value = 1.5)
+field__owner: Cell(Float) = cell
+field__owner.value *= 2.0
+names: Cell([String]) = Cell(value = [])
+names.value := ["x"]
+print(acct, deposit(acct, 5), cell, names, same(acct, acct))

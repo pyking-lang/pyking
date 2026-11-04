@@ -1,0 +1,24 @@
+# A `var` declared in a loop of the top level is a new variable each
+# turn: a closure capturing it keeps its own, and writes it, in every
+# turn and inside a function alike. Every target prints the same.
+
+use mutation
+
+fs = loop acc = [] for k in range(3):
+    var j = k
+    def bump() -> Int:
+        j += 10
+        j
+    acc + [bump]
+print([f() for f in fs], [f() for f in fs])
+
+def inside() -> [() -> Int]:
+    loop acc = [] for k in range(3):
+        var j = k
+        def bump() -> Int:
+            j += 10
+            j
+        acc + [bump]
+
+gs = inside()
+print([g() for g in gs], [g() for g in gs])

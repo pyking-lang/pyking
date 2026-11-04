@@ -1,0 +1,9 @@
+# `*` reads through a pointer; an Int is not one.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation, pointers
+
+n = 3
+print(*n)

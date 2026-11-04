@@ -1,0 +1,26 @@
+use mutation
+var struct Point(x: Int, y: Int)
+p = Point(1, 2)
+p.x += 10
+p
+v = vec([1, 2])
+push(v, 3)
+pop(v)
+v
+d = dict([("a", 1)])
+d["b"] := 2
+d
+keys(d)
+d["zed"]
+[1, 2] == [1, 2]
+xs = [10, 20, 30]
+xs[1:]
+w = view(array([1, 2, 3]), 0, 2)
+w
+use pointers
+var n = 5
+ptr = &n
+*ptr += 1
+n
+ptr
+Some(3)
