@@ -303,7 +303,8 @@ let analyse state document previous =
               match
                 let declared = Module.external_signatures unit.declarations in
                 let tmap, qmap =
-                  Typesystem.type_check ~declared unit.stmts (Module.sigmaps_for unit sigmaps)
+                  Typesystem.type_check ~declared ~mutation:(Module.uses_mutation unit) unit.stmts
+                    (Module.sigmaps_for unit sigmaps)
                 in
                 Analyses.analyze_mutability unit.stmts;
                 (tmap, qmap, Module.module_sigmap unit.name unit.stmts unit.declarations tmap)
@@ -957,13 +958,33 @@ let builtin_signatures name =
         ("range(start: Int, stop: Int, step: Int) -> [Int]", [ "start: Int"; "stop: Int"; "step: Int" ]);
       ]
   | "len" -> [ ("len(items) -> Int", [ "items" ]) ]
-  | "same" -> [ ("same(a: Array(t), b: Array(t)) -> Bool", [ "a: Array(t)"; "b: Array(t)" ]) ]
+  | "same" -> [ ("same(a: t, b: t) -> Bool", [ "a: t"; "b: t" ]) ]
+  | "vec" -> [ ("vec() -> Vec(t)", []); ("vec(xs: [t]) -> Vec(t)", [ "xs: [t]" ]) ]
+  | "push" -> [ ("push(v: Vec(t), x: t) -> ()", [ "v: Vec(t)"; "x: t" ]) ]
+  | "pop" -> [ ("pop(v: Vec(t)) -> t", [ "v: Vec(t)" ]) ]
+  | "insert" -> [ ("insert(v: Vec(t), i: Int, x: t) -> ()", [ "v: Vec(t)"; "i: Int"; "x: t" ]) ]
+  | "remove" ->
+      [
+        ("remove(v: Vec(t), i: Int) -> t", [ "v: Vec(t)"; "i: Int" ]);
+        ("remove(d: Dict(k, v), key: k) -> v", [ "d: Dict(k, v)"; "key: k" ]);
+      ]
+  | "clear" -> [ ("clear(v: Vec(t)) -> ()", [ "v: Vec(t)" ]); ("clear(d: Dict(k, v)) -> ()", [ "d: Dict(k, v)" ]) ]
+  | "dict" -> [ ("dict() -> Dict(k, v)", []); ("dict(pairs: [(k, v)]) -> Dict(k, v)", [ "pairs: [(k, v)]" ]) ]
+  | "get" -> [ ("get(d: Dict(k, v), key: k, default: v) -> v", [ "d: Dict(k, v)"; "key: k"; "default: v" ]) ]
+  | "has" -> [ ("has(d: Dict(k, v), key: k) -> Bool", [ "d: Dict(k, v)"; "key: k" ]) ]
+  | "discard" -> [ ("discard(d: Dict(k, v), key: k) -> ()", [ "d: Dict(k, v)"; "key: k" ]) ]
+  | "keys" -> [ ("keys(d: Dict(k, v)) -> [k]", [ "d: Dict(k, v)" ]) ]
+  | "values" -> [ ("values(d: Dict(k, v)) -> [v]", [ "d: Dict(k, v)" ]) ]
+  | "items" -> [ ("items(d: Dict(k, v)) -> [(k, v)]", [ "d: Dict(k, v)" ]) ]
   | "array" ->
       [
         ("array(xs: [t]) -> Array(t)", [ "xs: [t]" ]);
         ("array(n: Int, v: t) -> Array(t)", [ "n: Int"; "v: t" ]);
-        ("array(n: Int, f: (Int) -> t) -> Array(t)", [ "n: Int"; "f: (Int) -> t" ]);
-        ( "array(n: Int, seed: s, f: (s) -> (t, s)) -> Array(t)",
+      ]
+  | "array_init" ->
+      [
+        ("array_init(n: Int, f: (Int) -> t) -> Array(t)", [ "n: Int"; "f: (Int) -> t" ]);
+        ( "array_init(n: Int, seed: s, f: (s) -> (t, s)) -> Array(t)",
           [ "n: Int"; "seed: s"; "f: (s) -> (t, s)" ] );
       ]
   | "string" -> [ ("string(value) -> String", [ "value" ]) ]
@@ -1351,7 +1372,7 @@ let folding_ranges state document =
               | Walk.NStmt (SIf (i, _, _, _, _))
               | Walk.NStmt (SLoop (i, _, _, _, _, _, _))
               | Walk.NStmt (SMatch (i, _, _, _))
-              | Walk.NStmt (SDatatype (i, _, _, _, _, _))
+              | Walk.NStmt (SDatatype (i, _, _, _, _, _, _))
               | Walk.NMatchCase (MatchCase (i, _, _, _, _)) ->
                   Some i
               | _ -> None
@@ -1442,7 +1463,7 @@ let semantic_tokens state document =
             | Walk.NPattern (PConstructor (i, _, name, _, _, _)) -> out @ [ (named name i, index "enumMember", 0) ]
             | Walk.NConstructor (Constructor (i, name, _, _)) ->
                 out @ [ (named name i, index "enumMember", bit "declaration") ]
-            | Walk.NStmt (SDatatype (i, name, _, _, _, _)) -> out @ [ (named name i, index "type", bit "declaration") ]
+            | Walk.NStmt (SDatatype (i, name, _, _, _, _, _)) -> out @ [ (named name i, index "type", bit "declaration") ]
             | Walk.NType (TCon (i, name, _, _)) when not (String.contains name '.') ->
                 out @ [ (named name i, index "type", 0) ]
             | Walk.NExpr (EField (_, record, name, _)) ->

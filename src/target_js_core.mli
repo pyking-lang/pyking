@@ -63,6 +63,7 @@ type jsexpr =
   | JsIndex of info * jsexpr * jsexpr (* target[index] *)
   | JsMember of info * jsexpr * string (* target.name *)
   | JsCond of info * jsexpr * jsexpr * jsexpr (* cond ? a : b *)
+  | JsSetter of info * string (* (pykNew) => { name = pykNew; } *)
   | JsRuntimeCall of info * string * jsexpr list
       (* A call that crosses the runtime interface, e.g. `print`. The
          operation is named, not spelled: the packager decides whether
@@ -97,6 +98,8 @@ and jsstmt =
   | JsSetIndex of info * jsexpr * jsexpr * jsexpr
       (* target[index] = value; -- an element write into a Pyking
          array, whose index was checked by the statement before it. *)
+  | JsSetField of info * jsexpr * string * jsexpr
+      (* target.name = value; -- a field write into a `var struct`. *)
 
 (** Everything the packager decides and the core only names: how each
     runtime operation is called, and how what crosses a module boundary

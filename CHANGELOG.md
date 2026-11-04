@@ -24,25 +24,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after it, left to right, so it swaps; each name is a `var`, named
   once. It is how a function updates several variables: return the new
   values and store them with one `:=`.
-- The C targets link the Boehm–Demers–Weiser garbage collector, bdwgc
-  (mutation design, step 3): every String a C program makes, and every
-  one the `io`, `fs` and `text` libraries answer, is freed once nothing
-  holds it, where before it was never freed. bdwgc is a system library
-  (`brew install bdw-gc`, `apt install libgc-dev`); `pyk compile --run`
-  finds it with pkg-config or in the usual prefixes, and says how to
-  install it where it is missing. The Homebrew cask depends on it, the
-  `full` Docker image and the Nix package carry it, and
-  `tests/gc_strings.pyk` runs a C build that drops over fifty MB of
-  Strings within 32 MB.
+- A new target, `c23-gc` (alias `c-gc`): C23 linking the
+  Boehm–Demers–Weiser garbage collector, bdwgc (mutation design, step
+  3). Every String, array and `var struct` it makes, and every String
+  the `io`, `fs` and `text` libraries answer, is freed once nothing
+  holds it, and every index and array size is checked, as on the other
+  targets. bdwgc is a system library (`brew install bdw-gc`, `apt
+  install libgc-dev`); `pyk compile --run` finds it with pkg-config or
+  in the usual prefixes and builds with `-DPYKING_GC`, which the
+  libraries' C files read, and says how to install it where it is
+  missing. `make test` and `make quicktest` stop at once when it is
+  missing and a suite would build `c23-gc` programs. The Homebrew cask
+  depends on it, the `full` Docker image and the Nix package carry it,
+  and `tests/gc_strings.pyk` runs a `c23-gc` build that drops over fifty
+  MB of Strings within 32 MB. The plain C targets, `c89`, `c99` and
+  `c23`, stay without a collector: they allocate with malloc and never
+  free, and check no index -- C as a course writes it.
 - Arrays under `use mutation` (mutation design, step 4): `Array(T)`, a
   fixed-size store written in place and shared by every name holding
-  it. `array(xs)`, `array(n, v)`, `array(n, f)` (element i is f(i)) and
-  `array(n, seed, f)` (unfolding an accumulator) make one -- `array` is
-  a builtin overload set (`list::array`, `fill::array`, `init::array`,
-  `unfold::array`), and an argument whose type is open is refused
-  rather than guessed. `a[i]` reads, `a[i] := v` and `a[i] += v` write
-  (array and index first, the index checked before the value runs),
-  every index is checked on every target, `len`, `for` and
+  it. `array(xs)` and `array(n, v)` make one from a list or of one
+  value, and `array_init(n, f)` (element i is f(i)) and
+  `array_init(n, seed, f)` (unfolding an accumulator) generate one --
+  each name is a builtin overload set (`list::array` and `fill::array`;
+  `init::array_init` and `unfold::array_init`) whose forms take
+  different numbers of arguments. `a[i]` reads, `a[i] := v`, `a[i] += v`
+  and `a[i] xor= v` write (array and index first, the index checked
+  before the value runs), every index is checked on every target but
+  plain C, `len`, `for` and
   comprehensions take arrays, `same(a, b)` is identity, `==` is refused
   with what to write instead, and an array prints as `array([1, 2])`.
   An array binding whose element type nothing decides is refused. The
@@ -53,6 +61,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `array(n, v)` filling with one array. Every target, the interpreter,
   the REPL, the debugger, the language server's hover and completion,
   `pyk highlight`, the playground and the editors know them.
+- Pointers under `use mutation, pointers` (mutation design, step 9):
+  `&x` is a `Ptr(T)` to a `var`, an array's or a view's element, a
+  `var struct`'s field, or what a pointer points at; `*p` reads it and
+  `*p := v` and the compound forms write it. There is no null, no
+  arithmetic and no freeing: a pointer that may point nowhere is an
+  `Option(Ptr(T))`. `p == q` asks whether two name one place, a pointer
+  prints as `Ptr(<what it points at>)`, and a `var` whose address is
+  taken lives as long as a pointer to it -- except on plain C, which
+  refuses a pointer to a local that would outlive its function, and
+  writes every other pointer as C's own. A line starting with `*` or
+  `&` starts a statement. `use pointers` without `use mutation` is
+  refused, and `use` suggests the feature a misspelled one was meant
+  to be. docs/pointers.md is a new guide to them, with their internals.
+- `Option(a)`, `Some(value)` and `None` are builtin, from the new
+  library lib/option (with `is_some`, `is_none` and `or_else`): a module
+  that uses them and declares none of its own has them, as if it began
+  `from option import Option`. A program declaring its own Option keeps
+  it.
+- Slices and views (mutation design, step 8): `s[i:j]` copies elements
+  i up to j of a list, a String (by character), an array or a Vec into a
+  new value of its kind, either bound left out for the start or the
+  end, and checked (`0 <= i <= j <= len(s)`) on every target but plain
+  C. Under `use mutation`, `view(a, i, j)` is a `Slice(T)` sharing
+  elements i up to j of an array: reading and writing it reads and
+  writes the array, `len`, `for`, comprehensions and `same` take it,
+  and it prints as `view([...])`. `copy_into(dst, src)` copies an
+  array's or a view's elements over another's, as `memmove` does.
+- Structural `==` and `!=` (mutation design, step 7): two lists,
+  tuples, structs or datatype values are equal when they are built the
+  same way from equal parts, Floats inside by IEEE's rule (`[nan] ==
+  [nan]` is false). `==` on a value holding a function, an array, a
+  Vec, a Dict or a `var struct`, or on a type variable, is refused,
+  naming what it holds.
+- Dicts under `use mutation` (mutation design, step 7): `Dict(K, V)`, a
+  map that keeps the order its keys were put in. `dict()` and
+  `dict(pairs)` make one; `d[k]` reads (a missing key is a runtime
+  error), `d[k] := v` and the compound forms write; `get`, `has`,
+  `remove`, `discard`, `keys`, `values`, `items`, `clear`, `len` and
+  `same` are builtins, and a module's own definition or import of one
+  of those names wins there. `for k in d` walks the keys in order, and
+  adding or removing a key during the walk is a runtime error. A key's
+  type is one whose values never change and equal themselves -- no
+  Float, function or mutable value -- which the checker says when it is
+  not. A Dict prints as `dict([(k, v), ...])`.
+- Vecs under `use mutation` (mutation design, step 6): `Vec(T)`, an
+  array that grows, for building a collection in linear time. `vec()`
+  and `vec(xs)` make one; the builtins `push`, `pop`, `insert`,
+  `remove` and `clear` change it; `v[i]`, `v[i] := x`, the compound
+  writes, `len`, `same` and comprehensions are an array's; a `for` walks
+  it while its index is below the length the Vec has at that turn. An
+  index outside one and `pop` of an empty one are runtime errors on
+  every target but plain C. A module's own definition or import named
+  `push`, `pop`, `insert`, `remove`, `clear` or `same` means itself
+  there, so existing programs and libraries (tinyweb's `push`) keep
+  their names. The new library `lib/vec` has `copy`, `to_list`,
+  `to_array`, `from_array`, `extend`, `reverse`, `equal` and `sort`.
+- Mutable structs under `use mutation` (mutation design, step 5): `var
+  struct Point(x: Int, y: Int = 0)` declares a struct whose fields are
+  written in place, `p.x := 1`, `ps[i].x += 2`, `get().n -= 1` and every
+  compound form, the owner worked out once and before the value. Its
+  values are shared by every name, parameter, element and field holding
+  one, and whether a field may be written is its type's question, not
+  the name's: `p = Point(1, 2)` and then `p.x := 3` writes. `same(p, q)`
+  asks whether two are one; `==` is refused, with what to write instead.
+  A `..` update makes a new struct, a pattern reads the fields as they
+  are, and a `var struct` may hold its own type through a datatype,
+  which builds linked lists and graphs. Printing is cycle-safe on every
+  target: a struct or array met again inside itself prints `...`, a
+  shared one prints in full each time. Writing a plain struct's field is
+  refused with how to build a changed copy; a `var struct` with no
+  fields, one in a block and `var datatype` are refused; making a `var
+  struct` needs `use mutation` wherever it was declared, and one whose
+  type parameter nothing decides is refused at its binding. Every
+  target, the interpreter, the REPL, the debugger and the language
+  server know them. docs/mutation.md is a new guide to all of the
+  mutation features, with their internals.
 
 - Warnings: what a program that checks may still have wrong, reported
   without stopping it. An `=` binding nothing in its scope uses

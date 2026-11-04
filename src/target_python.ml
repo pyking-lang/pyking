@@ -111,6 +111,7 @@ and pytarget =
   | PyTargetName of info * string (* name *)
   | PyTargetTuple of info * pytarget list (* (t1, t2, ...) *)
   | PyTargetIndex of info * pyexpr * pyexpr (* a[i], an array's element *)
+  | PyTargetAttr of info * pyexpr * string (* p.x, a var struct's field *)
 
 and pycompclause =
   | PyCompFor of info * pytarget * pyexpr (* for target in sequence *)
@@ -137,10 +138,12 @@ and pystmt =
       (* def name(params...): body *)
   | PyMatch of info * pyexpr * pymatchcase list
       (* match subject: case pattern: body ... *)
-  | PyDataclass of info * string * string list * (string * string) list * string option
+  | PyDataclass of info * string * string list * (string * string) list * string option * bool
       (* @dataclass(frozen=True, slots=True) class Name[params]: field:
          annotation ... -- and `_pyk_tag = 'Tag'` where the constructor's
-         Pyking name is not the class's *)
+         Pyking name is not the class's. The bool is a `var struct`'s:
+         @dataclass(slots=True, eq=False) instead, its fields written in
+         place and two values equal only when they are one object *)
   | PyTypeAlias of info * string * string list * string
       (* type Name[params] = annotation *)
 
@@ -152,6 +155,7 @@ type pyprogram = {
   formats : bool;  (* whether the prelude holds the Bool walker *)
   floats : bool;  (* whether the prelude holds the Float formatter *)
   float_helper : string;  (* what that formatter is called *)
+  format_helper : string;  (* what the Bool walker is called, where there is one *)
   conversions : string list;  (* the conversion helpers the prelude holds *)
   stmts : pystmt list;
 }
@@ -314,6 +318,7 @@ and pprint_py_target t =
           Printf.sprintf "(%s)"
             (String.concat ", " (List.map pprint_py_target elements)))
   | PyTargetIndex (info, owner, index) -> pprint_py_expr (PyIndex (info, owner, index))
+  | PyTargetAttr (info, owner, field) -> pprint_py_expr (PyAttr (info, owner, field))
 
 (** p as Python source text. pypattern -> string *)
 let rec pprint_py_pattern p =
@@ -455,7 +460,7 @@ and pprint_py_stmt ?(level = 0) s =
       String.concat "\n"
         ([ Printf.sprintf "%sdef %s(%s):" pad name (String.concat ", " params) ]
         @ render_block body (level + 1))
-  | PyDataclass (info, name, params, fields, tag) ->
+  | PyDataclass (info, name, params, fields, tag, writable) ->
       let body =
         List.map (fun (field, annotation) -> Printf.sprintf "%s    %s: %s" pad field annotation) fields
         @ (match tag with
@@ -464,7 +469,8 @@ and pprint_py_stmt ?(level = 0) s =
       in
       String.concat "\n"
         ([
-           Printf.sprintf "%s@dataclass(frozen=True, slots=True)" pad;
+           (if writable then Printf.sprintf "%s@dataclass(slots=True, eq=False)" pad
+            else Printf.sprintf "%s@dataclass(frozen=True, slots=True)" pad);
            Printf.sprintf "%sclass %s%s:" pad name (type_params params);
          ]
         @ if body = [] then [ pad ^ "    pass" ] else body)
@@ -632,14 +638,98 @@ let array_makers =
   [
     ("list__array", "__pyk_array_list");
     ("fill__array", "__pyk_array_fill");
-    ("init__array", "__pyk_array_init");
-    ("unfold__array", "__pyk_array_unfold");
+    ("init__array_init", "__pyk_array_init");
+    ("unfold__array_init", "__pyk_array_unfold");
   ]
+
+(* A Vec is a Python list of a class of its own too, grown and shrunk
+   by the list's own methods; its index checks and the Vec builtins that
+   can fail are helpers here (docs/target_python.md, "Vecs"). The class
+   is called directly to make one: `__PykVec()` and `__PykVec(xs)`. *)
+let vec_class = "__PykVec"
+let vec_index_helper = "__pyk_vec_index"
+let vec_get_helper = "__pyk_vec_get"
+let vec_pop_helper = "__pyk_vec_pop"
+let vec_insert_helper = "__pyk_vec_insert"
+let vec_remove_helper = "__pyk_vec_remove"
+
+(** The two makers of `vec`, by the plain name elaborate.ml gives them. *)
+let vec_makers = [ "empty__vec"; "list__vec" ]
+
+(* A Dict is a Python dict of a class of its own, which keeps its keys in
+   the order they were put in as Pyking's does, and counts the keys put
+   in and taken out for a `for` over it to check (docs/target_python.md,
+   "Dicts"). A key holding a list, which Python cannot hash, is held in a
+   `__PykKey` that hashes a form of it made of tuples; every helper that
+   takes a key goes through `__pyk_key`, and every one that gives keys
+   back through `__pyk_unkey`. *)
+let dict_class = "__PykDict"
+let key_class = "__PykKey"
+let frozen_helper = "__pyk_frozen"
+let key_helper = "__pyk_key"
+let unkey_helper = "__pyk_unkey"
+let dict_list_helper = "__pyk_dict_list"
+let dict_get_helper = "__pyk_dict_get"
+let dict_set_helper = "__pyk_dict_set"
+let dict_has_helper = "__pyk_dict_has"
+let dict_remove_helper = "__pyk_dict_remove"
+let dict_discard_helper = "__pyk_dict_discard"
+let dict_clear_helper = "__pyk_dict_clear"
+let dict_keys_helper = "__pyk_dict_keys"
+let dict_items_helper = "__pyk_dict_items"
+let dict_walk_helper = "__pyk_dict_walk"
+
+(* A view is an object of a class of its own holding the array, the
+   offset of its first element and its length; it answers `len` and a
+   `for` itself, and its index reads and writes go through helpers
+   (docs/target_python.md, "Slices and views"). A slice of anything is
+   one helper, which checks the bounds and copies. *)
+let view_class = "__PykView"
+let view_helper = "__pyk_view"
+let view_index_helper = "__pyk_view_index"
+let view_get_helper = "__pyk_view_get"
+let copy_into_helper = "__pyk_copy_into"
+let slice_helper = "__pyk_slice"
+
+(* A pointer is an object of a class of its own naming a place: a slot
+   of a store -- an array's element by index, or a field by name of a
+   var struct or of a `var`'s box (docs/target_python.md, "Pointers").
+   `*p` is `p.get()` and `*p := v` is `p.set(v)`. A `var` whose address
+   the module takes anywhere lives in a box, made afresh where it is
+   declared, so each turn of a loop has its own and the box outlives the
+   function it was made in for as long as a pointer holds it. *)
+let ptr_class = "__PykPtr"
+let box_class = "__PykBox"
+let array_addr_helper = "__pyk_array_addr"
+let view_addr_helper = "__pyk_view_addr"
+
+(* Structural `==` where Python's own would differ: Python takes an
+   object to equal itself before comparing, so a NaN inside a list or a
+   datatype equals itself there (docs/target_python.md, "Equality"). *)
+let equal_helper = "__pyk_eq"
 
 (** The helpers a helper calls, which the prelude has to hold beside it.
     string -> [string] *)
 let conversion_needs name =
-  if name = fail_helper || name = array_class then []
+  let keyed = [ key_helper; key_class; frozen_helper ] in
+  if name = view_class || name = ptr_class || name = box_class then []
+  else if name = array_addr_helper then [ ptr_class; array_index_helper; fail_helper ]
+  else if name = view_addr_helper then [ ptr_class; view_index_helper; fail_helper ]
+  else if name = view_helper then [ view_class; fail_helper ]
+  else if name = view_index_helper then [ fail_helper ]
+  else if name = view_get_helper then [ view_index_helper; fail_helper ]
+  else if name = copy_into_helper then [ fail_helper ]
+  else if name = slice_helper then [ array_class; fail_helper ]
+  else if name = key_helper then [ key_class; frozen_helper ]
+  else if name = dict_list_helper then dict_class :: keyed
+  else if name = dict_get_helper || name = dict_remove_helper then keyed @ [ fail_helper ]
+  else if name = dict_set_helper || name = dict_has_helper || name = dict_discard_helper then keyed
+  else if name = dict_keys_helper || name = dict_items_helper then [ unkey_helper ]
+  else if name = dict_walk_helper then [ unkey_helper; fail_helper ]
+  else if name = fail_helper || name = array_class || name = vec_class then []
+  else if name = vec_index_helper || name = vec_pop_helper || name = vec_insert_helper then
+    [ fail_helper ]
+  else if name = vec_get_helper || name = vec_remove_helper then [ vec_index_helper; fail_helper ]
   else if name = array_size_helper || name = array_index_helper then [ fail_helper ]
   else if name = array_get_helper then [ array_index_helper; fail_helper ]
   else if name = List.assoc "list__array" array_makers then [ array_class ]
@@ -647,14 +737,318 @@ let conversion_needs name =
     [ array_class; array_size_helper; fail_helper ]
   else []
 
-(** The text of one conversion helper. string -> string *)
-let conversion_def name =
+(** The text of one conversion helper; `formatter` is what the print
+    walker is called, which a Dict's missing-key error shows the key
+    with. ?formatter:string -> string -> string *)
+let conversion_def ?(formatter = "__pyk_str") name =
   String.concat "\n"
-    (if name = array_class then
+    (if name = ptr_class then
+       [
+         Printf.sprintf "class %s:" name;
+         "    # A pointer: the place `slot` of `store` -- an array's element by";
+         "    # index, or a field by name of a var struct or of a var's box.";
+         "    __slots__ = ('store', 'slot')";
+         "";
+         "    def __init__(self, store, slot):";
+         "        self.store = store";
+         "        self.slot = slot";
+         "";
+         "    def get(self):";
+         "        if isinstance(self.store, list):";
+         "            return self.store[self.slot]";
+         "        return getattr(self.store, self.slot)";
+         "";
+         "    def set(self, value):";
+         "        if isinstance(self.store, list):";
+         "            self.store[self.slot] = value";
+         "        else:";
+         "            setattr(self.store, self.slot, value)";
+         "";
+         "    def __eq__(self, other):";
+         "        # Equal when the two name one place.";
+         Printf.sprintf "        return (type(other).__name__ == '%s' and self.store is other.store" name;
+         "                and self.slot == other.slot)";
+       ]
+     else if name = box_class then
+       [
+         Printf.sprintf "class %s:" name;
+         "    # A var whose address is taken: its value, in a place of its own.";
+         "    __slots__ = ('value',)";
+         "";
+         "    def __init__(self, value):";
+         "        self.value = value";
+       ]
+     else if name = array_addr_helper then
+       [
+         Printf.sprintf "def %s(a, i):" name;
+         Printf.sprintf "    return %s(a, %s(a, i))" ptr_class array_index_helper;
+       ]
+     else if name = view_addr_helper then
+       [
+         Printf.sprintf "def %s(w, k):" name;
+         "    # A view's element is its array's.";
+         Printf.sprintf "    return %s(w.owner, %s(w, k))" ptr_class view_index_helper;
+       ]
+     else if name = view_class then
+       [
+         Printf.sprintf "class %s:" name;
+         "    # A view: elements offset up to offset + length of an array, shared.";
+         "    __slots__ = ('owner', 'offset', 'length')";
+         "";
+         "    def __len__(self):";
+         "        return self.length";
+         "";
+         "    def __iter__(self):";
+         "        # Each element read as its turn comes.";
+         "        for i in range(self.offset, self.offset + self.length):";
+         "            yield self.owner[i]";
+       ]
+     else if name = view_helper then
+       [
+         Printf.sprintf "def %s(a, i, j):" name;
+         "    # A view of a view is one of the same array, the offsets added.";
+         Printf.sprintf "    if type(a).__name__ == '%s':" view_class;
+         "        owner, offset, n, what = a.owner, a.offset, a.length, 'a view'";
+         "    else:";
+         "        owner, offset, n, what = a, 0, len(a), 'an array'";
+         "    if not 0 <= i <= j <= n:";
+         Printf.sprintf
+           "        %s('the view ' + str(i) + ':' + str(j) + ' is outside ' + what + ' of ' + str(n)"
+           fail_helper;
+         "            + (' element' if n == 1 else ' elements'))";
+         Printf.sprintf "    w = %s()" view_class;
+         "    w.owner, w.offset, w.length = owner, offset + i, j - i";
+         "    return w";
+       ]
+     else if name = view_index_helper then
+       [
+         Printf.sprintf "def %s(w, k):" name;
+         "    # Where the view's element k is in its array, k checked against";
+         "    # the view's length.";
+         "    if 0 <= k < w.length:";
+         "        return w.offset + k";
+         Printf.sprintf
+           "    %s('the index ' + str(k) + ' is outside a view of ' + str(w.length)" fail_helper;
+         "        + (' element' if w.length == 1 else ' elements'))";
+       ]
+     else if name = view_get_helper then
+       [
+         Printf.sprintf "def %s(w, k):" name;
+         Printf.sprintf "    return w.owner[%s(w, k)]" view_index_helper;
+       ]
+     else if name = copy_into_helper then
+       [
+         Printf.sprintf "def %s(dst, src):" name;
+         "    # As memmove: src is read whole before anything is written, so";
+         "    # it is right where the two overlap.";
+         "    elements = list(src)";
+         "    if len(elements) > len(dst):";
+         Printf.sprintf "        %s('copy_into copies ' + str(len(elements))" fail_helper;
+         "            + (' element' if len(elements) == 1 else ' elements') + ' into ' + str(len(dst)))";
+         Printf.sprintf "    if type(dst).__name__ == '%s':" view_class;
+         "        dst.owner[dst.offset:dst.offset + len(elements)] = elements";
+         "    else:";
+         "        dst[:len(elements)] = elements";
+       ]
+     else if name = slice_helper then
+       [
+         Printf.sprintf "def %s(s, low, high):" name;
+         "    # A copy of elements low up to high (the end where it is None), of";
+         "    # s's own kind -- a view's is an array -- the bounds checked first.";
+         "    n = len(s)";
+         "    if high is None:";
+         "        high = n";
+         "    if not 0 <= low <= high <= n:";
+         "        kind = type(s).__name__";
+         Printf.sprintf
+           "        what = {'str': 'a String', 'list': 'a list', '%s': 'an array', '%s': 'a Vec'}.get(kind, 'a view')"
+           array_class vec_class;
+         Printf.sprintf
+           "        %s('the slice ' + str(low) + ':' + str(high) + ' is outside ' + what + ' of ' + str(n)"
+           fail_helper;
+         "            + (' element' if n == 1 else ' elements'))";
+         Printf.sprintf "    if type(s).__name__ == '%s':" view_class;
+         Printf.sprintf "        return %s(s.owner[s.offset + low:s.offset + high])" array_class;
+         "    if type(s) is list or isinstance(s, str):";
+         "        return s[low:high]";
+         "    return type(s)(s[low:high])";
+       ]
+     else if name = dict_class then
+       [
+         Printf.sprintf "class %s(dict):" name;
+         "    # A Dict: a dict, in the order its keys were put in, and a count";
+         "    # of the keys put in and taken out, which a for loop over it checks.";
+         "    __slots__ = ('changes',)";
+         "";
+         "    def __init__(self):";
+         "        self.changes = 0";
+       ]
+     else if name = key_class then
+       [
+         Printf.sprintf "class %s:" name;
+         "    # A key holding a list, which Python cannot hash: hashed and";
+         "    # compared by a form of it made of tuples, and given back as it was.";
+         "    __slots__ = ('key', 'frozen')";
+         "";
+         "    def __eq__(self, other):";
+         Printf.sprintf "        return type(other).__name__ == '%s' and self.frozen == other.frozen" name;
+         "";
+         "    def __hash__(self):";
+         "        return hash(self.frozen)";
+       ]
+     else if name = frozen_helper then
+       [
+         Printf.sprintf "def %s(v):" name;
+         "    if isinstance(v, (list, tuple)):";
+         Printf.sprintf "        return tuple(%s(e) for e in v)" name;
+         "    if hasattr(v, '__dataclass_fields__'):";
+         Printf.sprintf "        return (type(v),) + tuple(%s(getattr(v, f)) for f in v.__match_args__)" name;
+         "    return v";
+       ]
+     else if name = key_helper then
+       [
+         Printf.sprintf "def %s(k):" name;
+         "    try:";
+         "        hash(k)";
+         "        return k";
+         "    except TypeError:";
+         Printf.sprintf "        key = %s()" key_class;
+         "        key.key = k";
+         Printf.sprintf "        key.frozen = %s(k)" frozen_helper;
+         "        return key";
+       ]
+     else if name = unkey_helper then
+       [
+         Printf.sprintf "def %s(k):" name;
+         Printf.sprintf "    return k.key if type(k).__name__ == '%s' else k" key_class;
+       ]
+     else if name = dict_list_helper then
+       [
+         Printf.sprintf "def %s(pairs):" name;
+         "    # A key written twice keeps its first place and its last value.";
+         Printf.sprintf "    d = %s()" dict_class;
+         "    for k, v in pairs:";
+         Printf.sprintf "        d[%s(k)] = v" key_helper;
+         "    return d";
+       ]
+     else if name = dict_get_helper then
+       [
+         Printf.sprintf "def %s(d, k):" name;
+         Printf.sprintf "    key = %s(k)" key_helper;
+         "    if key in d:";
+         "        return d[key]";
+         Printf.sprintf "    %s('the Dict has no key ' + %s(k, False))" fail_helper formatter;
+       ]
+     else if name = dict_set_helper then
+       [
+         Printf.sprintf "def %s(d, k, v):" name;
+         "    # A new key goes at the end; an existing one keeps its place.";
+         Printf.sprintf "    key = %s(k)" key_helper;
+         "    if key not in d:";
+         "        d.changes += 1";
+         "    d[key] = v";
+       ]
+     else if name = dict_has_helper then
+       [ Printf.sprintf "def %s(d, k):" name; Printf.sprintf "    return %s(k) in d" key_helper ]
+     else if name = dict_remove_helper then
+       [
+         Printf.sprintf "def %s(d, k):" name;
+         Printf.sprintf "    key = %s(k)" key_helper;
+         "    if key in d:";
+         "        d.changes += 1";
+         "        return d.pop(key)";
+         Printf.sprintf "    %s('the Dict has no key ' + %s(k, False) + ' to remove')" fail_helper formatter;
+       ]
+     else if name = dict_discard_helper then
+       [
+         Printf.sprintf "def %s(d, k):" name;
+         Printf.sprintf "    key = %s(k)" key_helper;
+         "    if key in d:";
+         "        d.changes += 1";
+         "        del d[key]";
+       ]
+     else if name = dict_clear_helper then
+       [ Printf.sprintf "def %s(d):" name; "    d.changes += 1"; "    d.clear()" ]
+     else if name = dict_keys_helper then
+       [ Printf.sprintf "def %s(d):" name; Printf.sprintf "    return [%s(k) for k in d]" unkey_helper ]
+     else if name = dict_items_helper then
+       [
+         Printf.sprintf "def %s(d):" name;
+         Printf.sprintf "    return [(%s(k), v) for k, v in d.items()]" unkey_helper;
+       ]
+     else if name = dict_walk_helper then
+       [
+         Printf.sprintf "def %s(d):" name;
+         "    # Each key in order. A key put in or taken out while the loop";
+         "    # runs is an error at its next step, the last one included.";
+         "    changes = d.changes";
+         "    for k in list(d):";
+         Printf.sprintf "        yield %s(k)" unkey_helper;
+         "        if d.changes != changes:";
+         Printf.sprintf "            %s('the Dict changed while a for loop was reading it')" fail_helper;
+       ]
+     else if name = equal_helper then
+       [
+         Printf.sprintf "def %s(a, b):" name;
+         "    # Part by part: Python's own == takes an object to equal itself,";
+         "    # which a NaN does not.";
+         "    if isinstance(a, (list, tuple)):";
+         Printf.sprintf "        return len(a) == len(b) and all(%s(x, y) for x, y in zip(a, b))" name;
+         "    if hasattr(a, '__dataclass_fields__'):";
+         "        return type(a) is type(b) and all(";
+         Printf.sprintf "            %s(getattr(a, f), getattr(b, f)) for f in a.__match_args__)" name;
+         "    return a == b";
+       ]
+     else if name = array_class then
        [
          Printf.sprintf "class %s(list):" name;
          "    # An array: a list never grown, told from a list when printed.";
          "    __slots__ = ()";
+       ]
+     else if name = vec_class then
+       [
+         Printf.sprintf "class %s(list):" name;
+         "    # A Vec: an array that grows, told from a list when printed.";
+         "    __slots__ = ()";
+       ]
+     else if name = vec_index_helper then
+       [
+         Printf.sprintf "def %s(v, i):" name;
+         "    # Checked against the length the Vec has now.";
+         "    n = len(v)";
+         "    if 0 <= i < n:";
+         "        return i";
+         Printf.sprintf
+           "    %s('the index ' + str(i) + ' is outside a Vec of ' + str(n)" fail_helper;
+         "        + (' element' if n == 1 else ' elements'))";
+       ]
+     else if name = vec_get_helper then
+       [
+         Printf.sprintf "def %s(v, i):" name;
+         "    if 0 <= i < len(v):";
+         "        return v[i]";
+         Printf.sprintf "    %s(v, i)" vec_index_helper;
+       ]
+     else if name = vec_pop_helper then
+       [
+         Printf.sprintf "def %s(v):" name;
+         "    if not v:";
+         Printf.sprintf "        %s('pop from an empty Vec')" fail_helper;
+         "    return v.pop()";
+       ]
+     else if name = vec_insert_helper then
+       [
+         Printf.sprintf "def %s(v, i, x):" name;
+         "    if not 0 <= i <= len(v):";
+         Printf.sprintf
+           "        %s(\"insert's index \" + str(i) + ' is outside 0 to ' + str(len(v))" fail_helper;
+         "            + \", the Vec's length\")";
+         "    v.insert(i, x)";
+       ]
+     else if name = vec_remove_helper then
+       [
+         Printf.sprintf "def %s(v, i):" name;
+         Printf.sprintf "    return v.pop(%s(v, i))" vec_index_helper;
        ]
      else if name = fail_helper then
        [
@@ -705,13 +1099,13 @@ let conversion_def name =
            "        %s('an array of ' + str(n) + ' elements is more than this machine can hold')"
            fail_helper;
        ]
-     else if name = List.assoc "init__array" array_makers then
+     else if name = List.assoc "init__array_init" array_makers then
        [
          Printf.sprintf "def %s(n, f):" name;
          Printf.sprintf "    %s(n)" array_size_helper;
          Printf.sprintf "    return %s([f(i) for i in range(n)])" array_class;
        ]
-     else if name = List.assoc "unfold__array" array_makers then
+     else if name = List.assoc "unfold__array_init" array_makers then
        [
          Printf.sprintf "def %s(n, s, f):" name;
          Printf.sprintf "    %s(n)" array_size_helper;
@@ -809,7 +1203,8 @@ and pprint_py_body program =
     let rendered =
       List.fold_left
         (fun rendered name ->
-          rendered @ (if rendered = [] then [] else [ "" ]) @ [ conversion_def name ])
+          rendered @ (if rendered = [] then [] else [ "" ])
+          @ [ conversion_def ~formatter:program.format_helper name ])
         rendered program.conversions
     in
     let prelude_body = String.concat "\n" rendered in
@@ -870,6 +1265,9 @@ type gen = {
   dataclasses : bool;
   callables : bool;
   declared : StringSet.t;
+  (* The `var`s whose address the module takes somewhere, by name: each
+     lives in a box (docs/target_python.md, "Pointers"). *)
+  boxed : StringSet.t;
 }
 
 (** Every identifier used anywhere in a program: what a generated name
@@ -945,7 +1343,8 @@ let rec pattern_captured_names pattern =
   | PList (_, prefix, rest, suffix, _) ->
       List.concat_map pattern_captured_names prefix
       @ (match rest with
-        | Some (ListRest (_, Some name, _)) -> [ name ]
+        (* `.._` names nothing: it is the anonymous rest. *)
+        | Some (ListRest (_, Some name, _)) when name <> "_" -> [ name ]
         | _ -> [])
       @ List.concat_map pattern_captured_names suffix
   | PConstructor (_, _, _, fields, _, _) -> List.concat_map pattern_captured_names fields
@@ -1266,6 +1665,13 @@ let rec free_in_expr e bound free =
   | EConstruct (_, _, _, args, _) ->
       List.fold_left (fun free arg -> free_in_expr arg bound free) free (arg_exprs args)
   | EField (_, record, _, _) -> free_in_expr record bound free
+  | ESlice (_, seq, low, high, _) ->
+      List.fold_left
+        (fun free e -> free_in_expr e bound free)
+        free
+        (seq :: List.filter_map (fun b -> b) [ low; high ])
+  | EAddr (_, place, _) -> free_in_expr place bound free
+  | EDeref (_, pointer, _) -> free_in_expr pointer bound free
   | e -> (
       match Interpreter.binary_operands e with
       | Some (left, right) -> free_in_expr right bound (free_in_expr left bound free)
@@ -1317,6 +1723,8 @@ and free_in_stmt s bound free =
       in
       (bound, free_in_expr e bound free)
   | SReturn (_, e, _) | SExprStmt (_, e, _) -> (bound, free_in_expr e bound free)
+  | SSetDeref (_, owner, value, _) -> (bound, free_in_expr value bound (free_in_expr owner bound free))
+  | SSetField (_, owner, _, value, _) -> (bound, free_in_expr value bound (free_in_expr owner bound free))
   | SSetIndex (_, owner, index, value, _) ->
       (* An element write binds nothing: the array is written, not the
          name it was reached through. *)
@@ -1689,7 +2097,25 @@ let build_format_helper info name floats =
         List.fold_left (fun result part -> PyAdd (info, result, part)) first rest
   in
   let v, top, out, element = (var "v", var "top", var "out", var "e") in
-  let inner = PyCall (info, var name, [ element; PyBool (info, false) ]) in
+  let inner = PyCall (info, var name, [ element; PyBool (info, false); var "path" ]) in
+  (* The recursion-path guard: `path` holds the id of every array and
+     datatype value the walk is inside of. One met again on that path is
+     a cycle, which only a var struct or an array can make, and prints
+     as `...`; one that is merely shared prints in full wherever it is.
+     An id is a safe key here, since everything on the path is alive. *)
+  let enter =
+    [
+      PyIf
+        ( info,
+          PyBinOp (info, "in", 1, 2, 2, call "id" [ v ], var "path"),
+          [ PyReturn (info, text "...") ],
+          None );
+      PyAssign
+        ( info,
+          PyTargetName (info, "path"),
+          PyAdd (info, var "path", PyTuple (info, [ call "id" [ v ] ])) );
+    ]
+  in
   (* out = out + (', ' if out != '' else '') + <the element> *)
   let step =
     PyAssign
@@ -1763,14 +2189,36 @@ let build_format_helper info name floats =
         ( info,
           isa v "list",
           [
-            PyAssign (info, PyTargetName (info, "out"), text "");
-            PyFor (info, "e", v, [ step ], None);
-            (* An array is a list of a class of its own (`array_class`),
-               written as what makes one. *)
+            (* An array or a Vec is a list of a class of its own
+               (`array_class`, `vec_class`), which may hold itself; a
+               list never does. *)
             PyIf
               ( info,
                 PyBinOp (info, "is not", 1, 2, 2, call "type" [ v ], var "list"),
-                [ PyReturn (info, joined [ text "array(["; out; text "])" ]) ],
+                enter,
+                None );
+            PyAssign (info, PyTargetName (info, "out"), text "");
+            PyFor (info, "e", v, [ step ], None);
+            (* An array or a Vec is written as what makes one. A Vec's
+               class is asked for by name, so one made in any module
+               prints right. *)
+            PyIf
+              ( info,
+                PyBinOp (info, "is not", 1, 2, 2, call "type" [ v ], var "list"),
+                [
+                  PyReturn
+                    ( info,
+                      joined
+                        [
+                          PyIfExp
+                            ( info,
+                              PyEq (info, PyAttr (info, call "type" [ v ], "__name__"), text vec_class),
+                              text "vec([",
+                              text "array([" );
+                          out;
+                          text "])";
+                        ] );
+                ],
                 None );
             PyReturn (info, joined [ text "["; out; text "]" ]);
           ],
@@ -1796,7 +2244,8 @@ let build_format_helper info name floats =
       PyIf
         ( info,
           call "hasattr" [ v; text "__dataclass_fields__" ],
-          [
+          enter
+          @ [
             PyAssign (info, PyTargetName (info, "out"), text "");
             PyFor
               ( info,
@@ -1819,10 +2268,91 @@ let build_format_helper info name floats =
                         text "" ) ) );
           ],
           None );
+      (* A pointer is written as what it points at now; on the path it
+         is the store it points into. *)
+      PyIf
+        ( info,
+          PyEq (info, PyAttr (info, call "type" [ v ], "__name__"), text ptr_class),
+          [
+            PyIf
+              ( info,
+                PyBinOp (info, "in", 1, 2, 2, call "id" [ PyAttr (info, v, "store") ], var "path"),
+                [ PyReturn (info, text "...") ],
+                None );
+            PyAssign
+              ( info,
+                PyTargetName (info, "path"),
+                PyAdd (info, var "path", PyTuple (info, [ call "id" [ PyAttr (info, v, "store") ] ])) );
+            PyReturn
+              ( info,
+                joined
+                  [
+                    text "Ptr(";
+                    PyCall (info, var name, [ PyCall (info, PyAttr (info, v, "get"), []); PyBool (info, false); var "path" ]);
+                    text ")";
+                  ] );
+          ],
+          None );
+      (* A view is written as its elements are now, marked as a view; on
+         the path it is the array it shares. *)
+      PyIf
+        ( info,
+          PyEq (info, PyAttr (info, call "type" [ v ], "__name__"), text view_class),
+          [
+            PyIf
+              ( info,
+                PyBinOp (info, "in", 1, 2, 2, call "id" [ PyAttr (info, v, "owner") ], var "path"),
+                [ PyReturn (info, text "...") ],
+                None );
+            PyAssign
+              ( info,
+                PyTargetName (info, "path"),
+                PyAdd (info, var "path", PyTuple (info, [ call "id" [ PyAttr (info, v, "owner") ] ])) );
+            PyAssign (info, PyTargetName (info, "out"), text "");
+            PyFor (info, "e", v, [ step ], None);
+            PyReturn (info, joined [ text "view(["; out; text "])" ]);
+          ],
+          None );
+      (* A Dict is written as what makes one: its entries, in order, as
+         (key, value) tuples. A key held as a `key_class` is shown as it
+         was. *)
+      PyIf
+        ( info,
+          isa v "dict",
+          enter
+          @ [
+              PyAssign (info, PyTargetName (info, "out"), text "");
+              PyFor
+                ( info,
+                  "k",
+                  v,
+                  [
+                    PyAssign
+                      ( info,
+                        PyTargetName (info, "e"),
+                        PyTuple
+                          ( info,
+                            [
+                              PyIfExp
+                                ( info,
+                                  PyEq
+                                    ( info,
+                                      PyAttr (info, call "type" [ var "k" ], "__name__"),
+                                      text key_class ),
+                                  PyAttr (info, var "k", "key"),
+                                  var "k" );
+                              PyIndex (info, v, var "k");
+                            ] ) );
+                    step;
+                  ],
+                  None );
+              PyReturn (info, joined [ text "dict(["; out; text "])" ]);
+            ],
+          None );
       PyReturn (info, call "str" [ v ]);
     ]
   in
-  PyFunctionDef (info, name, [ "v"; "top" ], body)
+  PyFunctionDef (info, name, [ "v"; "top"; "path=()" ], body)
 
 (** The name of the print-formatting helper for a value that might hold
     a Bool at runtime and cannot be proven either way from its Pyking
@@ -1874,6 +2404,12 @@ let is_array_expr e gen =
   | Some t -> Typesystem.array_element t <> None
   | None -> false
 
+(** Whether the checker gave this expression a Vec type. expr -> gen -> bool *)
+let is_vec_expr e gen =
+  match IntMap.find_opt (expr_sym e) gen.types with
+  | Some (TCon (_, "Vec", [ _ ], _)) -> true
+  | _ -> false
+
 (** Whether a type is exactly Float, which is the one case a bare
     Python `str` gets wrong. typ option -> bool *)
 let is_float_type type_ =
@@ -1889,8 +2425,75 @@ let rec holds_float type_ =
   | TFunction (_, params, result, _, _, _, _) ->
       List.exists holds_float params || holds_float result
   | TForall (_, _, body, _) -> holds_float body
-  | TCon (_, "Array", args, _) -> List.exists holds_float args
+  | TCon (_, ("Array" | "Vec" | "Dict" | "Slice" | "Ptr"), args, _) -> List.exists holds_float args
   | _ -> false
+
+(** Whether a value of this type can be changed after it is made --
+    an array, a var struct, or something holding one -- so that when it
+    is formatted can be seen. A datatype of this module is looked up in
+    `types` by name; one from elsewhere, or a type nothing decided, is
+    taken to be changeable. typ -> typ IntMap.t -> bool *)
+let changeable type_ types =
+  let local =
+    IntMap.fold
+      (fun _ t found ->
+        match t with
+        | TData (_, (Datatype (name, _, _, _) as d), _) -> (name, d) :: found
+        | _ -> found)
+      types []
+  in
+  let rec go seen type_ =
+    match type_ with
+    | TInt _ | TFloat _ | TString _ | TChar _ | TBool _ | TFunction _ | TBuiltin _ -> false
+    | TList (_, element, _) -> go seen element
+    | TTuple (_, elements, _) -> List.exists (go seen) elements
+    | TCon (_, name, args, _) when name <> "Array" && List.mem name seen ->
+        List.exists (go seen) args
+    | TCon (_, name, args, _) -> (
+        match List.assoc_opt name local with
+        | Some (Datatype (_, _, constructors, false)) ->
+            List.exists (go (name :: seen)) args
+            || List.exists
+                 (fun (_, fields) -> List.exists (fun (_, t) -> go (name :: seen) t) fields)
+                 constructors
+        | _ -> true)
+    | _ -> true
+  in
+  go [] type_
+
+(** Whether `==` on values of this type needs `equal_helper`: a Float
+    sits somewhere inside it -- not the type itself, which Python's `==`
+    already compares by IEEE. A datatype of this module is looked up in
+    `types`; one from elsewhere, or a type nothing decided, is taken to
+    hold one. typ -> typ IntMap.t -> bool *)
+let float_inside type_ types =
+  let local =
+    IntMap.fold
+      (fun _ t found ->
+        match t with
+        | TData (_, (Datatype (name, _, _, _) as d), _) -> (name, d) :: found
+        | _ -> found)
+      types []
+  in
+  let rec go seen type_ =
+    match type_ with
+    | TFloat _ -> true
+    | TInt _ | TString _ | TChar _ | TBool _ | TFunction _ | TBuiltin _ -> false
+    | TList (_, element, _) -> go seen element
+    | TTuple (_, elements, _) -> List.exists (go seen) elements
+    | TCon (_, "Ptr", _, _) -> false (* compared by the place it names *)
+    | TCon (_, name, args, _) when List.mem name seen -> List.exists (go seen) args
+    | TCon (_, name, args, _) -> (
+        match List.assoc_opt name local with
+        | Some (Datatype (_, _, constructors, _)) ->
+            List.exists (go (name :: seen)) args
+            || List.exists
+                 (fun (_, fields) -> List.exists (fun (_, t) -> go (name :: seen) t) fields)
+                 constructors
+        | None -> true)
+    | _ -> true
+  in
+  match type_ with TFloat _ -> false | _ -> go [] type_
 
 (** "bool" for a Bool, "not-bool" for a type with no Bool anywhere
     inside it, "unknown" otherwise. typ option -> string *)
@@ -2207,14 +2810,26 @@ let is_builtin_range e scope =
   | ECall (_, EVar (_, "range", _), _, _) -> not (is_bound "range" scope)
   | _ -> false
 
+(* The Vec builtins worth unit, which are a list method's call (or a
+   helper's) answering None: like print, written bare as a statement and
+   followed by the unit they are worth in value position. *)
+let vec_unit_builtins = [ "push"; "insert"; "clear"; "discard"; "copy_into" ]
+
+(* Every builtin that changes a Vec or a Dict. *)
+let vec_changers = vec_unit_builtins @ [ "pop"; "remove" ]
+
+(* The builtins over Vecs and Dicts that answer a value. *)
+let store_value_builtins = [ "pop"; "remove"; "get"; "has"; "keys"; "values"; "items"; "view" ]
+
 (** Whether expr is a call that crosses the host boundary (print or
-    debug, and not a definition of the program's own by that name),
-    which needs no return emitted in tail position.
+    debug), or a Vec builtin worth unit -- and not a definition of the
+    program's own by that name -- which needs no return emitted in tail
+    position.
     expr -> scope -> bool *)
 let yields_unit e scope =
   match e with
   | ECall (_, EVar (_, name, _), _, _) ->
-      Builtin.crosses_host name && not (is_bound name scope)
+      (Builtin.crosses_host name || List.mem name vec_unit_builtins) && not (is_bound name scope)
   | _ -> false
 
 (** A target read back as an expression: what a loop's accumulator holds
@@ -2225,6 +2840,7 @@ let rec target_as_expr target =
   | PyTargetTuple (info, elements) ->
       PyTuple (info, List.map target_as_expr elements)
   | PyTargetIndex (info, owner, index) -> PyIndex (info, owner, index)
+  | PyTargetAttr (info, owner, field) -> PyAttr (info, owner, field)
 
 (** Whether control can reach the end of py_body without returning -- if
     so, an explicit `return ()` is needed, since unit is the empty tuple
@@ -2275,9 +2891,10 @@ let loop_captures s loop_names =
 
 (** Everything a turn of the loop rebinds, as seen positionally from
     index in this block: what the loop already carries, plus what the
-    block binds above that point (`var` excluded).
-    [stmt] -> int -> scope -> StringSet.t option *)
-let loop_names_before stmts index scope =
+    block binds above that point (`var` excluded, but for one in a box,
+    which each turn makes afresh: `boxed`).
+    [stmt] -> int -> scope -> StringSet.t -> StringSet.t option *)
+let loop_names_before stmts index scope boxed =
   match scope.loop_names with
   | None -> None
   | Some names ->
@@ -2287,7 +2904,7 @@ let loop_names_before stmts index scope =
              if position >= index then names
              else
                match statement with
-               | SVar _ -> names
+               | SVar (_, name, _, _) when not (StringSet.mem name boxed) -> names
                | statement ->
                    StringSet.union names (set_of (stmt_bound_names statement)))
            names
@@ -2355,8 +2972,8 @@ let absorbed stmts defs members captures =
     a time, keyed by the index each group starts at: the connected
     components of "names another def of this block" that capture
     something the loop rebinds (docs/gap.md).
-    [stmt] -> scope -> [(int, ([int], [int], StringSet.t))] *)
-let turn_groups stmts scope =
+    [stmt] -> scope -> StringSet.t -> [(int, ([int], [int], StringSet.t))] *)
+let turn_groups stmts scope boxed =
   match scope.loop_names with
   | None -> []
   | Some _ ->
@@ -2413,7 +3030,7 @@ let turn_groups stmts scope =
         let captured_by =
           List.map
             (fun (index, s) ->
-              (index, loop_captures s (loop_names_before stmts index scope)))
+              (index, loop_captures s (loop_names_before stmts index scope boxed)))
             defs
         in
         List.filter_map
@@ -2466,7 +3083,68 @@ let add_conversion name gen =
     else gen
   in
   let gen = List.fold_left (fun gen need -> add need gen) gen (conversion_needs name) in
+  (* A missing key is shown as the print walker shows it. *)
+  let gen =
+    if name = dict_get_helper || name = dict_remove_helper then
+      snd (format_helper_name Lexer.{ file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 } gen)
+    else gen
+  in
   add name gen
+
+(** The `var`s declared inside a loop's body that a function or a lambda
+    written in that body names -- by name, over-approximated. Each turn
+    declares one afresh, and a function made in a turn has to keep that
+    turn's, which in Python takes a box handed to the turn's factory
+    (docs/target_python.md, "A def inside a loop"). [stmt] -> StringSet.t *)
+let loop_vars_captured stmts =
+  let names_in node =
+    Walk.fold
+      (fun found n ->
+        match n with
+        | Walk.NExpr (EVar (_, name, _)) | Walk.NStmt (SMutate (_, name, _, _)) -> StringSet.add name found
+        | _ -> found)
+      StringSet.empty node
+  in
+  Walk.fold_stmts
+    (fun found node ->
+      match node with
+      | Walk.NStmt (SLoop (_, _, _, _, _, body, _)) ->
+          let declared =
+            Walk.fold_stmts
+              (fun declared n ->
+                match n with Walk.NStmt (SVar (_, name, _, _)) -> StringSet.add name declared | _ -> declared)
+              StringSet.empty body
+          in
+          let in_functions =
+            Walk.fold_stmts
+              (fun names n ->
+                match n with
+                | Walk.NStmt (SFunctionDef _) | Walk.NExpr (ELambda _) -> StringSet.union names (names_in n)
+                | _ -> names)
+              StringSet.empty body
+          in
+          StringSet.union found (StringSet.inter declared in_functions)
+      | _ -> found)
+    StringSet.empty stmts
+
+(** Whether name is, here, a `var` that lives in a box: one this module
+    takes the address of somewhere (`gen.boxed`, by name), and the
+    binding in scope is a `var`. string -> scope -> gen -> bool *)
+let is_boxed name scope gen = StringSet.mem name gen.boxed && SMap.mem name scope.mutables
+
+(** Whether the checker gave this expression a view's type, `Slice(T)`.
+    expr -> gen -> bool *)
+let is_view_expr e gen =
+  match IntMap.find_opt (expr_sym e) gen.types with
+  | Some (TCon (_, "Slice", [ _ ], _)) -> true
+  | _ -> false
+
+(** Whether the checker gave this expression a Dict type.
+    expr -> gen -> bool *)
+let is_dict_expr e gen =
+  match IntMap.find_opt (expr_sym e) gen.types with
+  | Some (TCon (_, "Dict", [ _; _ ], _)) -> true
+  | _ -> false
 
 (** Whether the checker gave this expression the type String -- what
     makes a `for` walk its Chars. expr -> gen -> bool *)
@@ -2479,7 +3157,11 @@ let is_string_expr e gen =
     characters are made Chars on the way. expr -> pyexpr -> gen ->
     (pyexpr, gen) *)
 let walked sequence py_sequence gen =
-  if is_string_expr sequence gen then
+  if is_dict_expr sequence gen then
+    (* A Dict's keys, in order, checked for a change at every step. *)
+    ( PyCall (expr_info sequence, PyVar (expr_info sequence, dict_walk_helper), [ py_sequence ]),
+      add_conversion dict_walk_helper gen )
+  else if is_string_expr sequence gen then
     ( PyCall (expr_info sequence, PyVar (expr_info sequence, chars_helper), [ py_sequence ]),
       add_conversion chars_helper gen )
   else (py_sequence, gen)
@@ -2504,6 +3186,13 @@ let rec translate_expr e scope gen =
       (* `array(...)` in its four forms, each a prelude helper. *)
       let helper = List.assoc name array_makers in
       (PyVar (info, helper), add_conversion helper gen)
+  | EVar (info, "empty__dict", _) when not (is_bound "empty__dict" scope) ->
+      (PyVar (info, dict_class), add_conversion dict_class gen)
+  | EVar (info, "list__dict", _) when not (is_bound "list__dict" scope) ->
+      (PyVar (info, dict_list_helper), add_conversion dict_list_helper gen)
+  | EVar (info, name, _) when List.mem name vec_makers && not (is_bound name scope) ->
+      (* `vec()` and `vec(xs)` are the class itself, called. *)
+      (PyVar (info, vec_class), add_conversion vec_class gen)
   | EVar (info, name, _) ->
       (* A name this module *declared* rather than defined is the host's,
          and lives in the implementation beside this file -- the two
@@ -2511,6 +3200,8 @@ let rec translate_expr e scope gen =
          reached through `<module>_external` in the output. *)
       if List.mem name gen.own_external then
         (PyAttr (info, PyVar (info, gen.own_module ^ "_external"), name), gen)
+      else if is_boxed name scope gen then
+        (PyAttr (info, PyVar (info, lookup name scope), "value"), gen)
       else (PyVar (info, lookup name scope), gen)
   | EQualified (info, module_name, name, _) ->
       (* `m.f` is Python's own attribute access on the imported module,
@@ -2583,6 +3274,17 @@ let rec translate_expr e scope gen =
       binary (fun i a b -> PyGreatThan (i, a, b)) info l r
   | EGreatThanEq (info, l, r, _) ->
       binary (fun i a b -> PyGreatThanEq (i, a, b)) info l r
+  | (EEq (info, l, r, _) | EBinary (info, BNeq, l, r, _))
+    when float_inside
+           (Option.value (IntMap.find_opt (expr_sym l) gen.types) ~default:(TUnknown (info, 0)))
+           gen.types ->
+      (* A Float inside: compared part by part, so a NaN there equals
+         nothing, itself included. *)
+      let py_l, gen = translate_expr l scope gen in
+      let py_r, gen = translate_expr r scope gen in
+      let equal = PyCall (info, PyVar (info, equal_helper), [ py_l; py_r ]) in
+      ( (match e with EEq _ -> equal | _ -> PyUnOp (info, "not ", 0, 1, equal)),
+        add_conversion equal_helper gen )
   | EEq (info, l, r, _) -> binary (fun i a b -> PyEq (i, a, b)) info l r
   | EBinary (info, op, l, r, _) -> (
       (* Python's levels, at this printer's scale: `and`/`or` 0, a
@@ -2627,6 +3329,39 @@ let rec translate_expr e scope gen =
         | UNot _ -> PyUnOp (info, "not ", 0, 1, py_operand)
         | UBitNot _ -> PyUnOp (info, "~", 4, 5, py_operand)),
         gen )
+  | EAddr (_, EDeref (_, pointer, _), _) -> translate_expr pointer scope gen
+  | EAddr (info, EVar (_, name, _), _) ->
+      (* The `var`'s box, whose `value` is the place. *)
+      ( PyCall
+          ( info,
+            PyVar (info, ptr_class),
+            [ PyVar (info, lookup name scope); PyString (info, "value") ] ),
+        add_conversion ptr_class gen )
+  | EAddr (info, EIndex (_, owner, index, _), _) ->
+      (* An element's place: the owner, then the index, then the check. *)
+      let helper = if is_view_expr owner gen then view_addr_helper else array_addr_helper in
+      let py_args, gen = translate_each [ owner; index ] scope gen in
+      (PyCall (info, PyVar (info, helper), py_args), add_conversion helper gen)
+  | EAddr (info, EField (_, owner, field, _), _) ->
+      let py_owner, gen = translate_expr owner scope gen in
+      ( PyCall (info, PyVar (info, ptr_class), [ py_owner; PyString (info, public_py_name field) ]),
+        add_conversion ptr_class gen )
+  | EAddr (info, _, _) -> raise (Unsupported (info, "an address of something that is not a place"))
+  | EDeref (info, pointer, _) ->
+      let py_pointer, gen = translate_expr pointer scope gen in
+      (PyCall (info, PyAttr (info, py_pointer, "get"), []), gen)
+  | ESlice (info, seq, low, high, _) ->
+      (* One helper for every kind: Python's own slice clamps where
+         Pyking checks, and an array's or a Vec's would be a plain list.
+         The sequence, then the bounds, then the check. *)
+      let py_seq, gen = translate_expr seq scope gen in
+      let bound b default gen =
+        match b with Some e -> translate_expr e scope gen | None -> (default, gen)
+      in
+      let py_low, gen = bound low (PyInt (info, 0)) gen in
+      let py_high, gen = bound high (PyVar (info, "None")) gen in
+      ( PyCall (info, PyVar (info, slice_helper), [ py_seq; py_low; py_high ]),
+        add_conversion slice_helper gen )
   | EIndex (info, l, index, _) when is_array_expr l gen ->
       (* Every read of an array is checked: a Python list would count a
          negative index from the end, and raise its own error past it. *)
@@ -2634,6 +3369,24 @@ let rec translate_expr e scope gen =
       let py_index, gen = translate_expr index scope gen in
       ( PyCall (info, PyVar (info, array_get_helper), [ py_l; py_index ]),
         add_conversion array_get_helper gen )
+  | EIndex (info, l, index, _) when is_view_expr l gen ->
+      (* A view's index is checked against the view's length. *)
+      let py_l, gen = translate_expr l scope gen in
+      let py_index, gen = translate_expr index scope gen in
+      ( PyCall (info, PyVar (info, view_get_helper), [ py_l; py_index ]),
+        add_conversion view_get_helper gen )
+  | EIndex (info, l, index, _) when is_dict_expr l gen ->
+      (* A missing key is an error, not Python's KeyError. *)
+      let py_l, gen = translate_expr l scope gen in
+      let py_index, gen = translate_expr index scope gen in
+      ( PyCall (info, PyVar (info, dict_get_helper), [ py_l; py_index ]),
+        add_conversion dict_get_helper gen )
+  | EIndex (info, l, index, _) when is_vec_expr l gen ->
+      (* A Vec's index is checked against its length as it is now. *)
+      let py_l, gen = translate_expr l scope gen in
+      let py_index, gen = translate_expr index scope gen in
+      ( PyCall (info, PyVar (info, vec_get_helper), [ py_l; py_index ]),
+        add_conversion vec_get_helper gen )
   | EIndex (info, l, index, sym) -> (
       (* A String's s[i] is its i-th code point, which a Python str
          indexes too; it is made a Char. *)
@@ -2653,6 +3406,17 @@ let rec translate_expr e scope gen =
       | Some (TString _) -> helper char_of_string_helper
       | _ -> helper char_of_int_helper)
   | ECall (info, EVar (_, name, _), args, _)
+    when List.mem name vec_unit_builtins && not (is_bound name scope) ->
+      (* push, insert and clear answer None, so in value position the
+         call is followed by the unit it is worth, as print's is. *)
+      let call, gen = vec_call info name (arg_exprs args) scope gen in
+      ( PyIndex
+          (info, PyTuple (info, [ call; PyTuple (info, []) ]), PyInt (info, 1)),
+        gen )
+  | ECall (info, EVar (_, name, _), args, _)
+    when List.mem name store_value_builtins && not (is_bound name scope) ->
+      vec_call info name (arg_exprs args) scope gen
+  | ECall (info, EVar (_, name, _), args, _)
     when Builtin.crosses_host name && not (is_bound name scope) ->
       (* Python's own `print` answers None, and Pyking's answers unit --
          which this backend spells `()`, as the `return ()` on a
@@ -2668,7 +3432,8 @@ let rec translate_expr e scope gen =
     when not (is_bound name scope) ->
       conversion info name argument scope gen
   | ECall (info, EVar (_, "same", _), [ (_, l); (_, r) ], _) when not (is_bound "same" scope) ->
-      (* Two arrays are the same array when they are one Python object. *)
+      (* Two arrays, or two var structs, are the same when they are one
+         Python object. *)
       binary (fun i a b -> PyBinOp (i, "is", 1, 2, 2, a, b)) info l r
   | ECall (info, EVar (_, "string", _), [ (_, argument) ], _)
     when not (is_bound "string" scope) ->
@@ -2713,13 +3478,40 @@ let rec translate_expr e scope gen =
       let comp_scope =
         function_scope scope StringSet.empty StringSet.empty
       in
+      (* A Python comprehension has one variable for all its turns, where
+         Pyking binds it afresh each turn, so a lambda in it reading one
+         would see the last turn's value: what a `for` clause binds is
+         treated as a loop's names are, and a lambda reading it pins it
+         (see ELambda). So is what a loop around the comprehension
+         rebinds each turn. A `let` taken apart by a one-element
+         comprehension has one turn, and needs none of this. *)
+      let one_turn =
+        match clauses with
+        | [ CompFor (_, _, EList (_, [ _ ], _), _) ] -> true
+        | _ -> false
+      in
+      let comp_scope =
+        if one_turn then comp_scope else { comp_scope with loop_names = scope.loop_names }
+      in
       let py_clauses, comp_scope, gen =
         List.fold_left
           (fun (out, comp_scope, gen) clause ->
             match clause with
-            | CompFor _ ->
+            | CompFor (_, pattern, _, _) ->
                 let clause_py, comp_scope, gen =
                   translate_comp_for clause comp_scope gen
+                in
+                let comp_scope =
+                  if one_turn then comp_scope
+                  else
+                    {
+                      comp_scope with
+                      loop_names =
+                        Some
+                          (StringSet.union
+                             (Option.value comp_scope.loop_names ~default:StringSet.empty)
+                             (set_of (pattern_captured_names pattern)));
+                    }
                 in
                 (out @ clause_py, comp_scope, gen)
             | CompIf (clause_info, condition, _) ->
@@ -2855,13 +3647,67 @@ and conversion info name argument scope gen =
     `wrap_print_argument`.
     info -> string -> [expr] -> scope -> gen -> (pyexpr, gen) *)
 and runtime_call info name args scope gen =
-  let py_args, gen =
+  let formatted, gen =
     List.fold_left
       (fun (out, gen) a ->
         let translated, gen = translate_expr a scope gen in
         let wrapped, gen = wrap_print_argument a translated info gen in
-        (out @ [ wrapped ], gen))
+        (out @ [ (a, translated, wrapped) ], gen))
       ([], gen) args
+  in
+  (* Every argument is worked out before any is formatted
+     (docs/target_python.md, "Mutable structs"). Python formats each as
+     it reaches it, so where an argument the walker formats can still be
+     changed -- it holds an array or a var struct -- and a later one makes
+     a call that could change it, the arguments are handed to a lambda
+     first and formatted inside it. *)
+  let rec late = function
+    | [] -> false
+    | (a, _, wrapped) :: rest ->
+        ((match wrapped with
+         | PyCall (_, PyVar (_, helper), _) -> Some helper = gen.format_helper
+         | _ -> false)
+        && changeable
+             (Option.value (IntMap.find_opt (expr_sym a) gen.types) ~default:(TUnknown (info, 0)))
+             gen.types
+        && List.exists
+             (fun (later, _, _) ->
+               Walk.exists
+                 (function
+                   | Walk.NExpr (ECall (_, EVar (_, name, _), _, _))
+                     when List.mem name Builtin.names
+                          && (not (List.mem name vec_changers))
+                          && not (is_bound name scope) ->
+                       (* len, string and the like change nothing. *)
+                       false
+                   | Walk.NExpr (ECall _) -> true
+                   | _ -> false)
+                 (Walk.NExpr later))
+             rest)
+        || late rest
+  in
+  let py_args, bind_first =
+    if late formatted then
+      let named =
+        List.mapi
+          (fun i (a, translated, _) ->
+            let param = Printf.sprintf "__pyk_arg%d" (i + 1) in
+            let wrapped, _ = wrap_print_argument a (PyVar (info, param)) info gen in
+            (param, translated, wrapped))
+          formatted
+      in
+      ( List.map (fun (_, _, wrapped) -> wrapped) named,
+        Some (List.map (fun (param, translated, _) -> (param, translated)) named) )
+    else (List.map (fun (_, _, wrapped) -> wrapped) formatted, None)
+  in
+  let first_bound call =
+    match bind_first with
+    | None -> call
+    | Some named ->
+        PyCall
+          ( info,
+            PyLambda (info, List.map (fun (param, _) -> (param, None)) named, call),
+            List.map snd named )
   in
   (* `debug` is Python's own `print`, sent to standard error. The host's
      `sys` is reached through `__import__`, since a Pyking module may be
@@ -2873,12 +3719,13 @@ and runtime_call info name args scope gen =
           PyCall (info, PyVar (info, "__import__"), [ PyString (info, "sys") ]),
           "stderr" )
     in
-    ( PyCall
-        ( info,
-          PyVar (info, "print"),
-          py_args @ [ PyKeyword (info, "file", stderr) ] ),
+    ( first_bound
+        (PyCall
+           ( info,
+             PyVar (info, "print"),
+             py_args @ [ PyKeyword (info, "file", stderr) ] )),
       gen )
-  else (PyCall (info, PyVar (info, name), py_args), gen)
+  else (first_bound (PyCall (info, PyVar (info, name), py_args)), gen)
 
 (** Expands one Pyking CompFor into one or two Python comprehension
     clauses -- one for an irrefutable pattern, two (raw items, then a
@@ -2888,7 +3735,16 @@ and translate_comp_for clause scope gen =
   match clause with
   | CompFor (info, pattern, sequence, _) ->
       let py_sequence, gen = translate_expr sequence scope gen in
-      let py_sequence, gen = walked sequence py_sequence gen in
+      (* A comprehension walks the Vec's elements, or the Dict's keys, as
+         they are when it starts, which a call in it cannot change. *)
+      let py_sequence, gen =
+        if is_dict_expr sequence gen then
+          ( PyCall (info, PyVar (info, dict_keys_helper), [ py_sequence ]),
+            add_conversion dict_keys_helper gen )
+        else if is_vec_expr sequence gen || is_view_expr sequence gen then
+          (PyCall (info, PyVar (info, "list"), [ py_sequence ]), gen)
+        else walked sequence py_sequence gen
+      in
       if is_irrefutable pattern then
         let target, scope = pattern_to_target pattern scope in
         ([ PyCompFor (info, target, py_sequence) ], scope, gen)
@@ -2929,11 +3785,54 @@ and lazy_range call scope gen =
       (PyCall (info, PyVar (info, "range"), py_args), gen)
   | e -> translate_expr e scope gen
 
+(** One of the builtins over Vecs and Dicts, as the bare Python call: a
+    list or dict method where Python's agrees, a helper where an index, a
+    length or a key has to be checked first or a Dict counts the change.
+    `remove` and `clear` are a Vec's or a Dict's by their first
+    argument's type. Every argument is worked out first, left to right,
+    as for any call.
+    info -> string -> [expr] -> scope -> gen -> (pyexpr, gen) *)
+and vec_call info name args scope gen =
+  let on_dict = match args with first :: _ -> is_dict_expr first gen | [] -> false in
+  let py_args, gen = translate_each args scope gen in
+  let method_ m = function
+    | owner :: rest -> PyCall (info, PyAttr (info, owner, m), rest)
+    | [] -> PyCall (info, PyVar (info, m), [])
+  in
+  let helper h = (PyCall (info, PyVar (info, h), py_args), add_conversion h gen) in
+  match name with
+  | "get" -> (
+      match py_args with
+      | [ d; k; default ] ->
+          ( PyCall
+              ( info,
+                PyAttr (info, d, "get"),
+                [ PyCall (info, PyVar (info, key_helper), [ k ]); default ] ),
+            add_conversion key_helper gen )
+      | _ -> (PyCall (info, PyVar (info, "get"), py_args), gen))
+  | "has" -> helper dict_has_helper
+  | "view" -> helper view_helper
+  | "copy_into" -> helper copy_into_helper
+  | "keys" -> helper dict_keys_helper
+  | "values" -> (PyCall (info, PyVar (info, "list"), [ method_ "values" py_args ]), gen)
+  | "items" -> helper dict_items_helper
+  | "discard" -> helper dict_discard_helper
+  | "clear" when on_dict -> helper dict_clear_helper
+  | "remove" when on_dict -> helper dict_remove_helper
+  | "push" -> (method_ "append" py_args, gen)
+  | "clear" -> (method_ "clear" py_args, gen)
+  | "insert" -> helper vec_insert_helper
+  | "pop" -> helper vec_pop_helper
+  | _ -> helper vec_remove_helper
+
 (** A host-crossing call written as a statement: the bare call, with
     none of the unit `translate_expr` adds for value position.
     expr -> scope -> gen -> (pystmt, gen) *)
 and runtime_call_stmt e scope gen =
   match e with
+  | ECall (info, EVar (_, name, _), args, _) when List.mem name vec_unit_builtins ->
+      let call, gen = vec_call info name (arg_exprs args) scope gen in
+      (PyExprStmt (info, call), gen)
   | ECall (info, EVar (_, name, _), args, _) ->
       let call, gen = runtime_call info name (arg_exprs args) scope gen in
       (PyExprStmt (info, call), gen)
@@ -2966,7 +3865,7 @@ and declare_functions stmts scope =
     answered scope. [stmt] -> scope -> gen -> ([pystmt], scope, gen) *)
 and translate_stmts stmts scope gen =
   let scope = declare_functions stmts scope in
-  let groups = turn_groups stmts scope in
+  let groups = turn_groups stmts scope gen.boxed in
   (* Everything a group takes with it is emitted where the group starts,
      so those statements are passed over when the walk reaches them. *)
   let covered =
@@ -3165,8 +4064,18 @@ and translate_stmt s scope gen =
          -- a copy handed to a factory would freeze at the value it had
          when the turn's functions were built, which is the opposite of
          what `var` means. *)
+      (* A boxed `var` declared in a loop is carried per turn after all:
+         the box is this turn's, and a function made in the turn is handed
+         it, so it keeps writing this turn's variable. *)
+      let boxed_here = StringSet.mem name gen.boxed in
       let py_name, scope =
-        bind ~rebinding:true ~loop_carried:false ~mutable_:true name scope
+        bind ~rebinding:true ~loop_carried:boxed_here ~mutable_:true name scope
+      in
+      (* A `var` whose address is taken lives in a box, made afresh here. *)
+      let py_expr, gen =
+        if is_boxed name scope gen then
+          (PyCall (info, PyVar (info, box_class), [ py_expr ]), add_conversion box_class gen)
+        else (py_expr, gen)
       in
       ([ PyAssign (info, PyTargetName (info, py_name), py_expr) ], scope, gen)
   | SMutateTuple _ -> after_desugar "target_python"
@@ -3175,10 +4084,85 @@ and translate_stmt s scope gen =
          whatever renaming that variable got when it was declared. *)
       let py_expr, gen = translate_expr e scope gen in
       let py_name = lookup name scope in
-      ([ PyAssign (info, PyTargetName (info, py_name), py_expr) ], scope, gen)
+      if is_boxed name scope gen then
+        ([ PyAssign (info, PyTargetAttr (info, PyVar (info, py_name), "value"), py_expr) ], scope, gen)
+      else ([ PyAssign (info, PyTargetName (info, py_name), py_expr) ], scope, gen)
   | SReturn (info, e, _) ->
       let py_expr, gen = translate_expr e scope gen in
       ([ PyReturn (info, py_expr) ], scope, gen)
+  | SSetDeref (info, pointer, value, _) ->
+      (* `*p := v`: the pointer, then the value, then the write. *)
+      let py_pointer, gen = translate_expr pointer scope gen in
+      let py_value, gen = translate_expr value scope gen in
+      ([ PyExprStmt (info, PyCall (info, PyAttr (info, py_pointer, "set"), [ py_value ])) ], scope, gen)
+  | SSetField (info, owner, field, value, _) ->
+      (* `owner.field := value`: the owner first, then the value, then
+         the write -- into the struct the owner was when it was worked
+         out (docs/target_python.md, "Mutable structs"). Python's own
+         `o.f = v` works the value out first, so where the order could
+         be seen -- the owner is not a name no `:=` writes, and the value
+         is not a literal or such a name -- the owner is held in a
+         temporary ahead of the write. *)
+      let stable e =
+        match e with
+        | EVar (_, name, _) -> not (SMap.mem name scope.mutables)
+        | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ -> true
+        | _ -> false
+      in
+      let py_owner, gen = translate_expr owner scope gen in
+      let setup, py_owner, gen =
+        if stable owner || stable value then ([], py_owner, gen)
+        else
+          let held, _, gen = fresh_write_names gen in
+          ([ PyAssign (info, PyTargetName (info, held), py_owner) ], PyVar (info, held), gen)
+      in
+      let py_value, gen = translate_expr value scope gen in
+      ( setup @ [ PyAssign (info, PyTargetAttr (info, py_owner, public_py_name field), py_value) ],
+        scope,
+        gen )
+  | SSetIndex (info, owner, index, value, _) when is_view_expr owner gen ->
+      (* `w[k] := x` writes the array's element: the view and the index,
+         then the index checked against the view's length, then the
+         value, then the write -- as an array's, the check a statement
+         ahead of a value that could be seen to come first
+         (docs/target_python.md, "Slices and views"). *)
+      let stable e =
+        match e with
+        | EVar (_, name, _) -> not (SMap.mem name scope.mutables)
+        | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ -> true
+        | _ -> false
+      in
+      let py_owner, gen = translate_expr owner scope gen in
+      let py_index, gen = translate_expr index scope gen in
+      let gen = add_conversion view_index_helper gen in
+      let place owner_ index_ = PyCall (info, PyVar (info, view_index_helper), [ owner_; index_ ]) in
+      let setup, target, gen =
+        if stable owner && stable index then
+          if stable value then
+            ([], PyTargetIndex (info, PyAttr (info, py_owner, "owner"), place py_owner py_index), gen)
+          else
+            ( [ PyExprStmt (info, place py_owner py_index) ],
+              PyTargetIndex
+                (info, PyAttr (info, py_owner, "owner"), PyAdd (info, PyAttr (info, py_owner, "offset"), py_index)),
+              gen )
+        else
+          let held, at, gen = fresh_write_names gen in
+          ( [
+              PyAssign (info, PyTargetName (info, held), py_owner);
+              PyAssign (info, PyTargetName (info, at), place (PyVar (info, held)) py_index);
+            ],
+            PyTargetIndex (info, PyAttr (info, PyVar (info, held), "owner"), PyVar (info, at)),
+            gen )
+      in
+      let py_value, gen = translate_expr value scope gen in
+      (setup @ [ PyAssign (info, target, py_value) ], scope, gen)
+  | SSetIndex (info, owner, index, value, _) when is_dict_expr owner gen ->
+      (* `d[k] := v`: the Dict, the key, the value, then the write -- a
+         call's own order, with nothing to check ahead of the value. *)
+      let py_args, gen = translate_each [ owner; index; value ] scope gen in
+      ( [ PyExprStmt (info, PyCall (info, PyVar (info, dict_set_helper), py_args)) ],
+        scope,
+        add_conversion dict_set_helper gen )
   | SSetIndex (info, owner, index, value, _) ->
       (* `owner[index] := value`: the array and the index first, then the
          index checked, then the value, then the write -- into the array
@@ -3191,14 +4175,19 @@ and translate_stmt s scope gen =
       let stable e =
         match e with
         | EVar (_, name, _) -> not (SMap.mem name scope.mutables)
-        | EInt _ -> true
+        | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ -> true
         | _ -> false
       in
       let py_owner, gen = translate_expr owner scope gen in
       let py_index, gen = translate_expr index scope gen in
-      let gen = add_conversion array_index_helper gen in
+      (* A Vec's index is checked against its length as it is now, and
+         checked again at the write where the value's own work could
+         have shrunk it (docs/target_python.md, "Vecs"). *)
+      let vec = is_vec_expr owner gen in
+      let index_helper = if vec then vec_index_helper else array_index_helper in
+      let gen = add_conversion index_helper gen in
       let check owner_ index_ =
-        PyCall (info, PyVar (info, array_index_helper), [ owner_; index_ ])
+        PyCall (info, PyVar (info, index_helper), [ owner_; index_ ])
       in
       let setup, py_owner, py_index, gen =
         if stable owner && stable index then
@@ -3214,6 +4203,15 @@ and translate_stmt s scope gen =
             gen )
       in
       let py_value, gen = translate_expr value scope gen in
+      let setup, py_index =
+        match setup with
+        | _ when (not vec) || not (stable value) -> (setup, if vec then check py_owner py_index else py_index)
+        | [ PyExprStmt _ ] ->
+            (* Nothing can happen between the check and the write: the
+               one check goes in the write itself. *)
+            ([], check py_owner py_index)
+        | _ -> (setup, py_index)
+      in
       ( setup @ [ PyAssign (info, PyTargetIndex (info, py_owner, py_index), py_value) ],
         scope,
         gen )
@@ -3272,7 +4270,12 @@ and translate_stmt s scope gen =
       (* Before anything in the body is translated, since the
          declarations name the variables as they are known *outside* it
          -- which is what `body_scope` still holds here. *)
-      let declarations = scope_declarations (mutated_names body) body_scope info in
+      let declarations =
+        (* A boxed `var` is written through its box, never rebound. *)
+        scope_declarations
+          (StringSet.filter (fun name -> not (is_boxed name body_scope gen)) (mutated_names body))
+          body_scope info
+      in
       let py_body, gen = translate_tail_block body body_scope gen in
       let py_body =
         if falls_through py_body then
@@ -3299,14 +4302,16 @@ and translate_stmt s scope gen =
       in
       ([ PyMatch (info, py_subject, py_cases) ], scope, gen)
   | SFunctionSig _ -> ([], scope, gen)
-  | SDatatype (info, name, params, constructors, sym, _) ->
+  | SDatatype (info, name, params, constructors, sym, _, writable) ->
       (* A frozen dataclass per constructor, and the datatype's own name
          a type alias for their union -- what an import of it imports.
          Written at the top of the program, since a datatype is in scope
-         throughout its module. *)
+         throughout its module. A `var struct`'s one class is not
+         frozen, and compares by identity (docs/target_python.md,
+         "Mutable structs"). *)
       let fields_of cname =
         match IntMap.find_opt sym gen.types with
-        | Some (TData (_, Datatype (_, _, typed), _)) ->
+        | Some (TData (_, Datatype (_, _, typed, _), _)) ->
             Option.value (List.assoc_opt cname typed) ~default:[]
         | _ -> []
       in
@@ -3340,7 +4345,7 @@ and translate_stmt s scope gen =
             in
             let py_name = lookup cname scope in
             let tag = if py_name = cname then None else Some cname in
-            (out @ [ PyDataclass (ci, py_name, tparams, annotated, tag) ], gen))
+            (out @ [ PyDataclass (ci, py_name, tparams, annotated, tag, writable) ], gen))
           ([], gen) constructors
       in
       let own =
@@ -3392,10 +4397,20 @@ and annotation t scope gen =
           f1 || f2 )
     | TVar (_, v, _, _) -> (public_py_name v, gen, false)
     | TForall (_, _, body, _) -> text body gen
-    | TCon (_, _, [ element ], _) when Typesystem.array_element t <> None ->
-        (* An array is a list of a class of its own. *)
+    | TCon (_, _, [ element ], _) when Typesystem.array_element t <> None
+                                        || (match t with TCon (_, "Vec", _, _) -> true | _ -> false) ->
+        (* An array, or a Vec, is a list of a class of its own. *)
         let e, gen, f = text element gen in
         ("list[" ^ e ^ "]", gen, f)
+    | TCon (_, ("Slice" | "Ptr"), _, _) ->
+        (* A view is an object of the prelude's class, which a module
+           handed one need not have. *)
+        ("object", gen, false)
+    | TCon (_, "Dict", [ k; v ], _) ->
+        (* A Dict is a dict of a class of its own. *)
+        let k, gen, f1 = text k gen in
+        let v, gen, f2 = text v gen in
+        ("dict[" ^ k ^ ", " ^ v ^ "]", gen, f1 || f2)
     | TCon (_, canonical, args, _) ->
         let head, forward =
           match String.rindex_opt canonical '.' with
@@ -3771,6 +4786,15 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
       dataclasses = false;
       callables = false;
       declared = StringSet.empty;
+      boxed =
+        StringSet.union
+          (Walk.fold_stmts
+             (fun found node ->
+               match node with
+               | Walk.NExpr (EAddr (_, EVar (_, name, _), _)) -> StringSet.add name found
+               | _ -> found)
+             StringSet.empty stmts)
+          (loop_vars_captured stmts);
       own_module = own;
       own_external =
         Option.value (List.assoc_opt own external_fields) ~default:[];
@@ -3815,6 +4839,7 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
     formats = gen.format_def <> None;
     floats = gen.floats;
     float_helper = gen.float_name;
+    format_helper = Option.value gen.format_helper ~default:"__pyk_str";
     conversions = gen.conversions;
     stmts = own_import @ gen.pending @ translated;
   }

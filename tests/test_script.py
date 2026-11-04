@@ -46,9 +46,9 @@ with them:
   <name>.err       what it must write to standard error -- `debug`'s
                    lines -- on every target it lists.
   exit_code = N    the status it must end with, 0 by default.
-  c_peak_mb = N    the most memory, in MB, a C build of it may allocate
-                   (RLIMIT_DATA, which Linux enforces): what tests that
-                   the collector frees what a program drops.
+  c_peak_mb = N    the most memory, in MB, a c23-gc build of it may
+                   allocate (RLIMIT_DATA, which Linux enforces): what
+                   tests that the collector frees what a program drops.
   release = true   compile it with --release; every compiled target must
                    then write nothing to standard error.
   <name>.events    the events a page delivers to it once its top level
@@ -70,12 +70,15 @@ How each target is executed:
   esm     compile to a temp .js (plus its wrappers and package.json), run
           the generated node driver -- that wrapper is what a user would
           run, so that is what gets tested.
-  c89     compile to a temp .c, build it with `cc -std=c89` and the
-          bdwgc collector (found by pkg-config, as pyk finds it), run the
-  c23     binary, compare stdout. Both standards run every C case: they
-          share one backend and differ only in how the C is printed, so a
-          difference between them is exactly the kind of bug worth
+  c89     compile to a temp .c, build it with `cc -std=c89`, run the
+  c23     binary, compare stdout. All three standards run every C case:
+          they share one backend and differ only in how the C is printed,
+          so a difference between them is exactly the kind of bug worth
           catching.
+  c23-gc  the same with `-std=c23 -DPYKING_GC` and the bdwgc collector
+          (found by pkg-config, as pyk finds it): the C target with a
+          collector, checked indexes, and the lists and closures plain C
+          has no heap for.
   java8   compile to a temp .java, build it with `javac --release <8|17|21>`,
   java17  run the class with `java`, compare stdout. All three share one
   java21  backend and differ only in how the Java is printed, the same
@@ -239,8 +242,8 @@ def expected_path(source, target):
 # after them compile nothing (see the notes above each).
 TARGETS = (
     "python12", "python14", "node22", "node24", "web2020", "web2024",
-    "iweb2020", "iweb2024", "c89", "c99", "c23", "java8", "java17", "java21",
-    "ocaml4.14", "ocaml5.5", INTERPRET_TARGET, PYKING_TARGET,
+    "iweb2020", "iweb2024", "c89", "c99", "c23", "c23-gc", "java8", "java17",
+    "java21", "ocaml4.14", "ocaml5.5", INTERPRET_TARGET, PYKING_TARGET,
     PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET, PYKING_NOSUGAR_TARGET,
     PYKING_RERUN_TARGET,
 )
@@ -254,6 +257,7 @@ FAMILIES = {
     "web": ["web2020", "web2024"],
     "iweb": ["iweb2020", "iweb2024"],
     "c": ["c89", "c99", "c23"],
+    "c-gc": ["c23-gc"],
     "java": ["java8", "java17", "java21"],
     "ocaml": ["ocaml4.14", "ocaml5.5"],
 }
@@ -272,8 +276,8 @@ PYTHON_TARGET = "python12"
 # `pyking_rerun`) are added with `also`.
 DEFAULT_TARGETS = (
     "python12", "python14", "node22", "node24", "web2020", "web2024",
-    "iweb2020", "iweb2024", "c89", "c99", "c23", "java8", "java17", "java21",
-    "ocaml4.14", "ocaml5.5", INTERPRET_TARGET,
+    "iweb2020", "iweb2024", "c89", "c99", "c23", "c23-gc", "java8", "java17",
+    "java21", "ocaml4.14", "ocaml5.5", INTERPRET_TARGET,
 )
 OPTIONAL_TARGETS = (PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET, PYKING_NOSUGAR_TARGET,
                     PYKING_RERUN_TARGET)
@@ -282,7 +286,7 @@ OPTIONAL_TARGETS = (PYTHON_NOTAIL_TARGET, PYKING_NOTAIL_TARGET, PYKING_NOSUGAR_T
 # Under `--sample` (`make quicktest`): the latest version of each family
 # and the targets that compile nothing. These four run on a random share
 # of their cases, the rest on every case.
-SAMPLED_TARGETS = tuple(FAMILIES[f][-1] for f in ("node", "web", "c", "java"))
+SAMPLED_TARGETS = tuple(FAMILIES[f][-1] for f in ("node", "web", "c", "c-gc", "java"))
 QUICK_TARGETS = tuple(
     t for t in TARGETS
     if not any(t in members[:-1] for members in FAMILIES.values())
@@ -424,8 +428,8 @@ def host(target):
 def missing_host(target):
     """Why `target` cannot run here, or None where it can.
     String -> String?"""
-    if target.startswith("c") and target[1:].isdigit() and COLLECTOR is None:
-        return ("no bdwgc found, which every C program links; install it "
+    if target in FAMILIES["c-gc"] and COLLECTOR is None:
+        return ("no bdwgc found, which every c23-gc program links; install it "
                 "(brew install bdw-gc, apt install libgc-dev)")
     name = HOST_OF.get(target)
     if name is None or name in HOSTS:
@@ -849,17 +853,19 @@ def run_iweb(source, workdir, modules, invocation, target):
         invocation)
 
 
-def run_c(source, workdir, modules, invocation, standard):
+def run_c(source, workdir, modules, invocation, target):
     """Compiles to C, builds it with the system compiler, runs the binary.
     `-pedantic` is on: the point of having a `c89` target at all is that
     its output really is C89, and a compiler that merely tolerates it
-    would hide the difference from `c23`."""
+    would hide the difference from `c23`. c23-gc is built as c23 with
+    the collector, and with PYKING_GC, which the libraries' C reads."""
     generated = os.path.join(workdir, "program.c")
-    compiled = compile_to(source, standard, generated, invocation.flags)
+    compiled = compile_to(source, target, generated, invocation.flags)
     if compiled.returncode != 0:
         return None, compiled.stderr
     binary = os.path.join(workdir, "program")
-    cflags, libs = COLLECTOR
+    standard = target.removesuffix("-gc")
+    cflags, libs = (COLLECTOR[0] + ["-DPYKING_GC"], COLLECTOR[1]) if target != standard else ([], [])
     built = run(
         [C_COMPILER, f"-std={standard}", "-pedantic"] + cflags + ["-o", binary]
         + [os.path.join(workdir, name + ".c") for name in modules]
@@ -1139,6 +1145,7 @@ RUNNERS = {
     "c89": lambda s, w, m, a: run_c(s, w, m, a, "c89"),
     "c99": lambda s, w, m, a: run_c(s, w, m, a, "c99"),
     "c23": lambda s, w, m, a: run_c(s, w, m, a, "c23"),
+    "c23-gc": lambda s, w, m, a: run_c(s, w, m, a, "c23-gc"),
     "java8": lambda s, w, m, a: run_java(s, w, m, a, "java8"),
     "java17": lambda s, w, m, a: run_java(s, w, m, a, "java17"),
     "java21": lambda s, w, m, a: run_java(s, w, m, a, "java21"),

@@ -98,12 +98,45 @@ type value =
       (* <module>.<field> of an external module: a function the host
          implements in a target language *)
   | VUndefined of string (* a hoisted `def` whose definition has not run *)
-  | VData of string * (string option * value) list
+  | VData of string * (string option * value) array
       (* a value of a datatype: its constructor, and each field with its
-         name where it has one *)
+         name where it has one. A `var struct`'s fields are written in
+         place, and the value is shared by every name holding it; no other
+         datatype's ever are, so for them the sharing is never seen *)
   | VArray of value array
       (* an array: one store of elements, shared by every name holding
          it and written in place *)
+  | VVec of vec
+      (* a Vec: an array that grows, shared by every name holding it *)
+  | VDict of dict
+      (* a Dict: a map that keeps the order its keys were put in *)
+  | VView of view
+      (* a view of a run of an array's elements, which it shares *)
+  | VPtr of location
+      (* a pointer: the place it points at (PYKING.md, "Pointers") *)
+
+(** A Vec's storage: `items` has room for at least `size` elements, and
+    only the first `size` are its elements; the rest are never read. *)
+and vec = { mutable items : value array; mutable size : int }
+
+(** A view: elements `offset` up to `offset + length` of `owner`. *)
+and view = { owner : value array; offset : int; length : int }
+
+(* Where a pointer points: a `var`'s cell, an element of an array (a
+   view's is its array's), or a field of a var struct. Two pointers are
+   equal when they name one place. *)
+and location = LCell of value ref | LElem of value array * int | LField of (string option * value) array * int
+
+(** A Dict's storage: its entries in insertion order, `None` where one
+    was removed, an index from key to position, and a count of the
+    insertions and removals, which a `for` over the Dict watches. *)
+and dict = {
+  mutable entries : (value * value) option array;
+  mutable used : int;
+  mutable live : int;
+  index : (value, int) Hashtbl.t;
+  mutable version : int;
+}
 
 (** A persistent chain of frames. Abstract: `extend`, `lookup` and the
     write-once cell a `def` binds are the machine's own, and
@@ -296,6 +329,9 @@ val format_value : value -> string
     Iterative, so nesting cannot overflow the host stack.
     value -> string *)
 val display_value : value -> string
+
+(** What a pointer points at, now. location -> value *)
+val read_location : location -> value
 
 (** A value's type name, as Pyking spells it, for an error message.
     value -> string *)

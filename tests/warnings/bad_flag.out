@@ -50,6 +50,6 @@ Options:
                         command does, and what each target writes
 
 Targets:
-python, node, web, iweb, c, java, ocaml, pyking -- each its family's
-  default version; `pyk --help` lists the versions.
+python, node, web, iweb, c, c-gc, java, ocaml, pyking -- each its
+  family's default version; `pyk --help` lists the versions.
 exit 1

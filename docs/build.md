@@ -149,9 +149,9 @@ Building the compiler needs OCaml and dune, and nothing else. Building
 the browser bundle additionally needs js_of_ocaml.
 
 Running the *generated code* needs whatever that target's host needs —
-`node` for the JavaScript targets, a C compiler and the bdwgc
-collector (`brew install bdw-gc`, `apt install libgc-dev`) for the C
-targets, a JDK
+`node` for the JavaScript targets, a C compiler for the C targets
+(and for `c23-gc` the bdwgc collector: `brew install bdw-gc`, `apt
+install libgc-dev`; plain C needs none), a JDK
 for the Java ones, `ocamlopt` for `ocaml` — but none of that is needed
 to *produce* the code, and none at all to run a program with
 `pyk <file>`, which is the interpreter. The one exception is a program
@@ -165,8 +165,8 @@ compiler, not part of it.
 `make test`, `make stest` and `make quicktest` check their tools before
 the clean build, and stop at once, saying what to install, when one is
 missing: Python 3.11, node 22.7 for the JavaScript targets, python's
-`jsonschema` for the nbjson suite, and bdwgc for the C targets
-(`check-gc`, which looks where `pyk` does: pkg-config, then
+`jsonschema` for the nbjson suite, and bdwgc for `c23-gc`, the one C
+target that links it (`check-gc`, which looks where `pyk` does: pkg-config, then
 `/opt/homebrew`, `/usr/local`, `/opt/local` and `/usr`). Each check is
 skipped when `TARGET` or `SUITE` leaves out what needs it: bdwgc is
 not asked for with a `TARGET` that is not C, or a `SUITE` other than

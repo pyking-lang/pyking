@@ -52,6 +52,15 @@ type expr =
       (* left op right, for every other binary operator *)
   | EUnary of info * unop * expr * int (* op operand: not, !, ~ *)
   | EIndex of info * expr * expr * int (* list[index] *)
+  | EAddr of info * expr * int
+      (* &place -- a pointer to a `var`, an array's or a view's element, a
+         var struct's field, or what a pointer points at (PYKING.md,
+         "Pointers") *)
+  | EDeref of info * expr * int (* *p -- what a pointer points at, now *)
+  | ESlice of info * expr * expr option * expr option * int
+      (* seq[low:high] -- a copy of the elements from low up to high of a
+         list, a String, an array, a Vec or a view; an omitted bound is
+         the start or the end (PYKING.md, "Slices") *)
   | ECall of info * expr * (string option * expr) list * int
       (* func(args...). Each argument carries the parameter name it was
          written with, where one was: `f(x, n = 1)`. Desugar_args
@@ -144,10 +153,11 @@ and typ =
       (* what a module's signature says about a datatype it exports.
          Never written in source, never printed. *)
 
-and datatype = Datatype of string * string list * (string * (string option * typ) list) list
+and datatype = Datatype of string * string list * (string * (string option * typ) list) list * bool
 (* a datatype as another module sees it: its canonical name, its
-   parameters, and each constructor with its fields (the name, where the
-   field has one, and the type). *)
+   parameters, each constructor with its fields (the name, where the
+   field has one, and the type), and whether it is a `var struct`, whose
+   fields are written in place. *)
 
 and implicit_param = IParam of string * typ
 (* `implicit name: type`, in a function type. It carries no info and no
@@ -224,6 +234,14 @@ and stmt =
          owner and the index are worked out, the index checked, then the
          value, and the element of the owner first worked out is written
          (PYKING.md, "Arrays"). *)
+  | SSetDeref of info * expr * expr * int
+      (* *p := value -- what a pointer points at, written. The pointer is
+         worked out, then the value, and the place the pointer was is
+         written (PYKING.md, "Pointers"). *)
+  | SSetField of info * expr * string * expr * int
+      (* owner.field := value -- a field of a `var struct` written. The
+         owner is worked out, then the value, and the field of the owner
+         first worked out is written (PYKING.md, "Mutable structs"). *)
   | SMutateTuple of info * assign_target * expr * int
       (* a, (b, c) := expr -- several `var`s written at once. Desugar_args
          rewrites it into an `=` binding of the parts and one `:=` per
@@ -267,9 +285,9 @@ and stmt =
       (* [public] def name : type -- a def's type on a line of its own *)
   | SMatch of info * expr * match_case list * int
       (* match subject: case pattern: body ... *)
-  | SDatatype of info * string * string list * constructor list * int * bool
+  | SDatatype of info * string * string list * constructor list * int * bool * bool
       (* [public] datatype Name(a, b): one constructor per line. The
-         flag is `public`. *)
+         flags are `public`, and whether it is a `var struct`. *)
   | SImport of info * string * string * bool * (string * string) list * int
       (* import module [as name] / from module import field [as name].
          The fields are the module's own name for each thing taken and
@@ -306,6 +324,8 @@ let expr_info e =
   | EBinary (i, _, _, _, _) -> i
   | EUnary (i, _, _, _) -> i
   | EIndex (i, _, _, _) -> i
+  | ESlice (i, _, _, _, _) -> i
+  | EAddr (i, _, _) | EDeref (i, _, _) -> i
   | ECall (i, _, _, _) -> i
   | EList (i, _, _) -> i
   | ETuple (i, _, _) -> i
@@ -340,6 +360,8 @@ let expr_sym e =
   | EBinary (_, _, _, _, s) -> s
   | EUnary (_, _, _, s) -> s
   | EIndex (_, _, _, s) -> s
+  | ESlice (_, _, _, _, s) -> s
+  | EAddr (_, _, s) | EDeref (_, _, s) -> s
   | ECall (_, _, _, s) -> s
   | EList (_, _, s) -> s
   | ETuple (_, _, s) -> s
@@ -479,6 +501,8 @@ let stmt_info s =
   | SMutate (i, _, _, _) -> i
   | SMutateTuple (i, _, _, _) -> i
   | SSetIndex (i, _, _, _, _) -> i
+  | SSetField (i, _, _, _, _) -> i
+  | SSetDeref (i, _, _, _) -> i
   | SReturn (i, _, _) -> i
   | SReturnStmt (i, _, _) -> i
   | SExprStmt (i, _, _) -> i
@@ -490,7 +514,7 @@ let stmt_info s =
   | SFunctionSig (i, _, _, _, _) -> i
   | SMatch (i, _, _, _) -> i
   | SImport (i, _, _, _, _, _) -> i
-  | SDatatype (i, _, _, _, _, _) -> i
+  | SDatatype (i, _, _, _, _, _, _) -> i
 
 (** The symbol of one statement. stmt -> int *)
 let stmt_sym s =
@@ -501,6 +525,8 @@ let stmt_sym s =
   | SMutate (_, _, _, s) -> s
   | SMutateTuple (_, _, _, s) -> s
   | SSetIndex (_, _, _, _, s) -> s
+  | SSetField (_, _, _, _, s) -> s
+  | SSetDeref (_, _, _, s) -> s
   | SReturn (_, _, s) -> s
   | SReturnStmt (_, _, s) -> s
   | SExprStmt (_, _, s) -> s
@@ -512,7 +538,7 @@ let stmt_sym s =
   | SFunctionSig (_, _, _, s, _) -> s
   | SMatch (_, _, _, s) -> s
   | SImport (_, _, _, _, _, s) -> s
-  | SDatatype (_, _, _, _, s, _) -> s
+  | SDatatype (_, _, _, _, s, _, _) -> s
 
 (* --- compound assignment ---
    `x += e` is parsed as the `x := x + e` it means, so nothing after the
@@ -580,16 +606,18 @@ let compound_parts stmt =
 let after_desugar stage =
   invalid_arg (stage ^ ": a tuple ':=' reached a stage after desugar_args")
 
-(** The operator and right-hand side of an element write written as a
-    compound assignment (`a[i] op= e`), or None for one written out with
-    `:=`: the element a compound assignment reads is written where the
-    statement starts. stmt -> (string * expr) option *)
+(** The operator and right-hand side of an element or field write
+    written as a compound assignment (`a[i] op= e`, `p.x op= e`), or None
+    for one written out with `:=`: the element or field a compound
+    assignment reads is written where the statement starts.
+    stmt -> (string * expr) option *)
 let index_compound_parts stmt =
   match stmt with
-  | SSetIndex (i, _, _, e, _) -> (
+  | SSetIndex (i, _, _, e, _) | SSetField (i, _, _, e, _) | SSetDeref (i, _, e, _) -> (
       let starts (left : expr) =
-        match left with
-        | EIndex (vi, _, _, _) -> vi.row1 = i.row1 && vi.col1 = i.col1
+        match (stmt, left) with
+        | SSetIndex _, EIndex (vi, _, _, _) | SSetField _, EField (vi, _, _, _) | SSetDeref _, EDeref (vi, _, _) ->
+            vi.row1 = i.row1 && vi.col1 = i.col1
         | _ -> false
       in
       match e with
@@ -645,6 +673,9 @@ let set_expr_info i e =
   | EBinary (_, op, l, r, s) -> EBinary (i, op, l, r, s)
   | EUnary (_, op, o, s) -> EUnary (i, op, o, s)
   | EIndex (_, l, x, s) -> EIndex (i, l, x, s)
+  | ESlice (_, l, a, b, s) -> ESlice (i, l, a, b, s)
+  | EAddr (_, e, s) -> EAddr (i, e, s)
+  | EDeref (_, e, s) -> EDeref (i, e, s)
   | ECall (_, f, a, s) -> ECall (i, f, a, s)
   | EList (_, es, s) -> EList (i, es, s)
   | ETuple (_, es, s) -> ETuple (i, es, s)
@@ -716,10 +747,13 @@ type config = {
   symbols : bool;
   tmap : typ IntMap.t option;
   signed : IntSet.t;
+  local_names : (string * string) list;
+      (* a type a `from` line brought in, `module.Name`, and the name it
+         has here *)
 }
 
 (** What every printer starts from: no symbols, no inferred types. *)
-let default_config = { symbols = false; tmap = None; signed = IntSet.empty }
+let default_config = { symbols = false; tmap = None; signed = IntSet.empty; local_names = [] }
 
 (** Appends a node's symbol number to text if symbols were asked for.
     A node whose printed form is not already one token or already
@@ -735,7 +769,7 @@ let with_sym cfg sym self_delimited text =
 let expr_self_delimited e =
   match e with
   | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ | EVar _ | EQualified _ | EList _
-  | ETuple _ | EListComp _ | EConstruct _ | EField _ | EIndex _ ->
+  | ETuple _ | EListComp _ | EConstruct _ | EField _ | EIndex _ | ESlice _ ->
       true
   | _ -> false
 
@@ -819,6 +853,16 @@ let binop_prec op =
    round-trips. *)
 let quote_string s = Builtin.quote_string s
 
+(** A type's name as this module spells it: `option.Option` is `Option`
+    where a `from option import Option` brought it in. config -> string
+    -> string *)
+let local_name cfg name =
+  match List.assoc_opt name cfg.local_names with
+  | Some local -> local
+  (* The builtin option is every module's, so it is written as one. *)
+  | None when name = "option.Option" -> "Option"
+  | None -> name
+
 let rec pprint_type cfg t =
   (* The outermost `all` is not printed: every free variable of a
      written annotation is quantified there, so the quantifier carries
@@ -882,10 +926,10 @@ and pprint_type_body cfg t =
   | TForall (_, vars, body, _) ->
       Printf.sprintf "all %s. %s" (String.concat " " vars)
         (pprint_type cfg body)
-  | TCon (_, name, [], _) -> name
+  | TCon (_, name, [], _) -> local_name cfg name
   | TCon (_, name, args, _) ->
-      name ^ "(" ^ String.concat ", " (List.map (grouped cfg) args) ^ ")"
-  | TData (_, Datatype (name, _, _), _) -> "datatype " ^ name
+      local_name cfg name ^ "(" ^ String.concat ", " (List.map (grouped cfg) args) ^ ")"
+  | TData (_, Datatype (name, _, _, _), _) -> "datatype " ^ name
 
 (** Formats a type in annotation position, without a symbol suffix when
     it came from tmap (a checker-built type has no symbol of its own).
@@ -983,6 +1027,15 @@ and pprint_expr_body cfg e min_prec =
   | EField (_, record, name, _) -> pprint_expr cfg record prec_atom ^ "." ^ name
   | EIndex (_, list, index, _) ->
       pprint_expr cfg list prec_atom ^ "[" ^ pprint_expr cfg index prec_low ^ "]"
+  | EAddr (_, e, _) ->
+      (* `&` and `*` take what follows them, an index or a field
+         included: `&a[i]` is the element's, and a field through a
+         pointer needs parentheses around the `*`. *)
+      wrap_prec prec_unary min_prec ("&" ^ pprint_expr cfg e prec_unary)
+  | EDeref (_, e, _) -> wrap_prec prec_unary min_prec ("*" ^ pprint_expr cfg e prec_unary)
+  | ESlice (_, seq, low, high, _) ->
+      let bound b = match b with Some e -> pprint_expr cfg e prec_low | None -> "" in
+      pprint_expr cfg seq prec_atom ^ "[" ^ bound low ^ ":" ^ bound high ^ "]"
   | EAdd (_, l, r, _) | EConcat (_, l, r, _) ->
       (* Concatenation is written `+` as addition is: the checker tells
          the two apart, and elaborate.ml is what made an EConcat. *)
@@ -1285,6 +1338,16 @@ and pprint_stmt_body cfg s level =
       match index_compound_parts s with
       | Some (op, right) -> Printf.sprintf "%s%s %s= %s" pad element op (pprint_expr cfg right 0)
       | None -> Printf.sprintf "%s%s := %s" pad element (pprint_expr cfg value 0))
+  | SSetDeref (_, pointer, value, _) -> (
+      let place = "*" ^ pprint_expr cfg pointer prec_atom in
+      match index_compound_parts s with
+      | Some (op, right) -> Printf.sprintf "%s%s %s= %s" pad place op (pprint_expr cfg right 0)
+      | None -> Printf.sprintf "%s%s := %s" pad place (pprint_expr cfg value 0))
+  | SSetField (_, owner, field, value, _) -> (
+      let place = pprint_expr cfg owner prec_atom ^ "." ^ field in
+      match index_compound_parts s with
+      | Some (op, right) -> Printf.sprintf "%s%s %s= %s" pad place op (pprint_expr cfg right 0)
+      | None -> Printf.sprintf "%s%s := %s" pad place (pprint_expr cfg value 0))
   | SReturn (_, expr, _) ->
       Printf.sprintf "%sreturn %s" pad (pprint_expr cfg expr 0)
   | SReturnStmt (_, stmt, _) ->
@@ -1369,7 +1432,14 @@ and pprint_stmt_body cfg s level =
         :: List.map (fun st -> pprint_stmt cfg st (level + 2)) body
       in
       String.concat "\n" (lines @ List.concat_map case_lines cases)
-  | SDatatype (_, name, params, constructors, _, public) ->
+  | SDatatype (_, name, _, [ (Constructor (_, cname, _, _) as c) ], _, public, true) ->
+      (* A `var struct` is written as one -- its name, then its one
+         constructor's fields -- since a datatype has no way to say its
+         fields are written in place. *)
+      let constructor = pprint_constructor cfg c in
+      let fields = String.sub constructor (String.length cname) (String.length constructor - String.length cname) in
+      Printf.sprintf "%s%svar struct %s%s" pad (public_prefix public) name fields
+  | SDatatype (_, name, params, constructors, _, public, _) ->
       let params =
         if params = [] then "" else "(" ^ String.concat ", " params ^ ")"
       in
@@ -1459,5 +1529,13 @@ let signed_defs stmts =
     type table; every annotation then comes from it instead of from the
     source. [stmt] -> bool -> typ IntMap.t option -> string *)
 let pprint_program stmts symbols tmap =
-  let cfg = { symbols; tmap; signed = signed_defs stmts } in
+  let local_names =
+    List.concat_map
+      (function
+        | SImport (_, module_, _, true, fields, _) ->
+            List.map (fun (field, local) -> (module_ ^ "." ^ field, local)) fields
+        | _ -> [])
+      stmts
+  in
+  let cfg = { symbols; tmap; signed = signed_defs stmts; local_names } in
   String.concat "\n" (List.map (fun s -> pprint_stmt cfg s 0) stmts)

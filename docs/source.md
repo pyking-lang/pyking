@@ -61,7 +61,7 @@ and which module calls which.
 | [`target_python.ml`](#target_pythonml) | ~2410 | The Python backend, and the only one that compiles the whole language. |
 | [`target_js_core.ml`](#target_js_coreml) | ~1280 | The JavaScript backend's language half: a `Js*` AST, translation, printer. |
 | [`target_js_packaging.ml`](#target_js_packagingml) | ~300 | Its packaging half: `node`, `web`, `iweb`, and the JavaScript side of the runtime interface. |
-| [`target_c.ml`](#target_cml) | ~1990 | The C backend, for `c89` and `c23`. Infers the types C insists on, and pins down the evaluation order C leaves open. |
+| [`target_c.ml`](#target_cml) | ~4000 | The C backend, for plain C (`c89`, `c99`, `c23`) and `c23-gc`. Infers the types C insists on, and pins down the evaluation order C leaves open. |
 | [`target_java.ml`](#target_javaml) | ~1690 | The Java backend, for `java8`/`java17`/`java21`. Also proves every function returns. |
 | [`target_ocaml.ml`](#target_ocamlml) | ~2900 | The OCaml backend. Infers nothing: it reads the checker's `tmap`. |
 | [`execution.ml`](#executionml) | ~200 | What `--run` runs: the commands each target's host uses to build and run what was compiled. |
@@ -1824,18 +1824,21 @@ instead.
 
 ## `target_c.ml`
 
-**The C backend**, serving `c89`, `c99` and `c23`. One backend because
-the standards disagree about *printing* -- comments, where declarations
-go, how a boolean is spelled -- not about meaning.
+**The C backend**, serving plain C (`c89`, `c99`, `c23`) and `c23-gc`.
+One backend because the standards disagree about *printing* --
+comments, where declarations go, how a boolean is spelled -- not about
+meaning; `c23-gc` is c23 with the bdwgc collector, and compiles what
+needs a heap that is freed.
 
 **Design, in depth:** [target_c_internals.md](target_c_internals.md);
 [target_c.md](target_c.md) (what compiles to what, and what is refused).
 
-- **`translate_program ?requested stmts tmap context standard`** -- one
-  module, its types read from `tmap`. Strings come from the bdwgc
-  collector; it refuses a list, a datatype holding itself and a
-  function value that could outlive its environment, which are steps
-  after the collector.
+- **`translate_program ?requested stmts tmap context target`** -- one
+  module, its types read from `tmap`. On plain C it allocates with
+  `malloc` and refuses a list, a datatype holding itself and a function
+  value that could outlive its environment; on c23-gc (`ctx.gc`) it
+  allocates from bdwgc, checks indexes, and compiles those as typed cons
+  cells, pointers to collected structs and heap environments.
 - **`translate_all units standard`** -- every module of a program, each
   compiling the instances of its polymorphic functions the others call.
 - **`ctype` / `code`** -- a type as C, every compound one declared once
@@ -1843,6 +1846,9 @@ go, how a boolean is spelled -- not about meaning.
   function that prints one.
 - **`instance` / `drain`** -- a polymorphic def compiled once per type a
   call asks for.
+- **`list_helper` / `comprehension` / `each`** -- c23-gc's lists: the
+  per-type helpers (`pyk_length_`, `pyk_nth_`, `pyk_append_`, ...), and a
+  comprehension as loops.
 - **`lift` / `function_value`** -- a nested def or a lambda as a function
   taking what it captures, and a function value as a closure.
 - **`in_order` / `sequenced`** -- operands that can print, put in

@@ -117,10 +117,129 @@ let all =
       max_args = Some 2;
       crosses_host = false;
       doc =
-        "Answer whether two arrays are the same array -- one array under \
-         two names, so writing an element through one is seen through the \
-         other -- rather than two arrays holding the same elements, which \
-         `array.equal` asks. `==` compares no arrays.";
+        "Answer whether two arrays, two Vecs or two var structs are the \
+         same one -- one value under two names, so writing through one is \
+         seen through the other -- rather than two holding the same \
+         elements or fields, which `array.equal` asks of arrays. `==` \
+         compares none of them.";
+    };
+    {
+      name = "push";
+      min_args = 2;
+      max_args = Some 2;
+      crosses_host = false;
+      doc =
+        "Add a value to the end of a Vec: `push(v, x)`. Needs `use \
+         mutation`.";
+    };
+    {
+      name = "pop";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc =
+        "Remove a Vec's last element and answer it: `pop(v)`. Popping an \
+         empty Vec is a runtime error. Needs `use mutation`.";
+    };
+    {
+      name = "insert";
+      min_args = 3;
+      max_args = Some 3;
+      crosses_host = false;
+      doc =
+        "Put a value into a Vec before index i, moving the elements from i \
+         on one place up: `insert(v, i, x)`, with 0 <= i <= len(v). Needs \
+         `use mutation`.";
+    };
+    {
+      name = "remove";
+      min_args = 2;
+      max_args = Some 2;
+      crosses_host = false;
+      doc =
+        "Take the element at index i out of a Vec and answer it, moving \
+         the ones after it one place down: `remove(v, i)`; or take a key's \
+         entry out of a Dict and answer its value, `remove(d, k)`, which \
+         is a runtime error where there is none. Needs `use mutation`.";
+    };
+    {
+      name = "clear";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc = "Remove every element of a Vec, or every entry of a Dict: `clear(v)`. Needs `use mutation`.";
+    };
+    {
+      name = "view";
+      min_args = 3;
+      max_args = Some 3;
+      crosses_host = false;
+      doc =
+        "A view of elements i up to j of an array, or of another view: \
+         `view(a, i, j)`, with 0 <= i <= j <= len(a). It holds no elements \
+         of its own: reading and writing it reads and writes the array. \
+         Needs `use mutation`.";
+    };
+    {
+      name = "copy_into";
+      min_args = 2;
+      max_args = Some 2;
+      crosses_host = false;
+      doc =
+        "Write an array's or a view's elements over the first ones of \
+         another: `copy_into(dst, src)`, with len(src) <= len(dst). Where \
+         the two share elements it copies as if through a copy of src. \
+         Needs `use mutation`.";
+    };
+    {
+      name = "get";
+      min_args = 3;
+      max_args = Some 3;
+      crosses_host = false;
+      doc =
+        "A Dict's value for a key, or a default where it has none: `get(d, \
+         k, default)`. The default is worked out whether it is needed or \
+         not.";
+    };
+    {
+      name = "has";
+      min_args = 2;
+      max_args = Some 2;
+      crosses_host = false;
+      doc = "Whether a Dict has an entry for a key: `has(d, k)`.";
+    };
+    {
+      name = "discard";
+      min_args = 2;
+      max_args = Some 2;
+      crosses_host = false;
+      doc =
+        "Remove a Dict's entry for a key, if it has one: `discard(d, k)`. \
+         `remove(d, k)` is the form that requires one. Needs `use \
+         mutation`.";
+    };
+    {
+      name = "keys";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc = "A Dict's keys, as a list, in the order they were put in: `keys(d)`.";
+    };
+    {
+      name = "values";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc = "A Dict's values, as a list, in the order of their keys: `values(d)`.";
+    };
+    {
+      name = "items";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc =
+        "A Dict's entries, as a list of (key, value) pairs, in the order \
+         they were put in: `items(d)`.";
     };
     {
       name = "float";
@@ -177,9 +296,27 @@ let names = List.map (fun builtin -> builtin.name) all
     `builtin_env`) and resolves a call among by its arguments. After
     elaborate.ml a call names a member's plain name -- `fill__array` --
     and that is what the interpreter and every backend implement.
-    `array` makes an array (PYKING.md, "Arrays"). [(string, [string])] *)
+    `array` makes an array from a list or of one value, and `array_init`
+    generates one, from the index or from an accumulator (PYKING.md,
+    "Arrays"). Each set's members differ in how many arguments they take.
+    [(string, [string])] *)
 let overload_sets =
-  [ ("array", [ "list::array"; "fill::array"; "init::array"; "unfold::array" ]) ]
+  [
+    ("array", [ "list::array"; "fill::array" ]);
+    ("array_init", [ "init::array_init"; "unfold::array_init" ]);
+    ("vec", [ "empty::vec"; "list::vec" ]);
+    ("dict", [ "empty::dict"; "list::dict" ]);
+  ]
+
+(** The builtins that change a mutable collection in place, which need
+    `use mutation` to call (PYKING.md, "Vecs", "Dicts"). [string] *)
+let writers = [ "push"; "pop"; "insert"; "remove"; "clear"; "discard"; "view"; "copy_into" ]
+
+(** The builtins younger than the programs and libraries that use the
+    name for something of their own -- tinyweb's `push` and `remove`,
+    `color.same` -- so a module's own definition or import of the name
+    is allowed, and then means itself there. [string] *)
+let yielding = [ "same"; "get"; "has"; "keys"; "values"; "items" ] @ writers
 
 (** The plain names the members of the builtin overload sets compile to.
     [string] *)
@@ -196,10 +333,24 @@ let overload_doc name =
   match name with
   | "array" ->
       Some
-        "Make an array: `array(xs)` from a list, `array(n, v)` of n copies \
-         of v, `array(n, f)` with element i being f(i), and \
-         `array(n, seed, f)` unfolding an accumulator, f answering each \
-         element and the next accumulator. Needs `use mutation`."
+        "Make an array: `array(xs)` from a list, and `array(n, v)` of n \
+         copies of v. `array_init` generates one. Needs `use mutation`."
+  | "array_init" ->
+      Some
+        "Generate an array: `array_init(n, f)` with element i being f(i), \
+         and `array_init(n, seed, f)` unfolding an accumulator, f answering \
+         each element and the next accumulator. Needs `use mutation`."
+  | "dict" ->
+      Some
+        "Make a Dict, a mutable map from keys to values that remembers the \
+         order its keys were put in: `dict()` with no entries, and \
+         `dict(pairs)` from a list of (key, value) pairs. `d[k]` reads, \
+         `d[k] := v` writes. Needs `use mutation`."
+  | "vec" ->
+      Some
+        "Make a Vec, an array that grows: `vec()` with no elements, and \
+         `vec(xs)` from a list. `push`, `pop`, `insert`, `remove` and \
+         `clear` change it. Needs `use mutation`."
   | _ -> None
 
 (** The builtin a name denotes, or None if it is an ordinary Pyking

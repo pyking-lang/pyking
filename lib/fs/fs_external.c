@@ -8,9 +8,7 @@
    has to agree with whichever it is compiled under, which is what the
    block below is for.
 
-   read_text's String comes from the collector the program links, bdwgc,
-   as every String the C backend makes does (docs/target_c.md, "Memory"):
-   it is freed once nothing holds it. */
+   read_text's String is allocated as the block below says. */
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
 #include <stdbool.h>
@@ -22,7 +20,19 @@ typedef int bool;
 
 #include <stdio.h>
 #include <stdlib.h>
+/* c23-gc compiles this file with PYKING_GC defined: a String then comes
+   from bdwgc, the collector the program links, and is freed once nothing
+   holds it. Plain C (c89, c99, c23) mallocs it and never frees it, as
+   the C backend does for the Strings it makes (docs/target_c.md,
+   "Memory"). */
+#ifdef PYKING_GC
 #include <gc.h>
+#define PYK_ALLOC GC_MALLOC_ATOMIC
+#define PYK_REALLOC GC_REALLOC
+#else
+#define PYK_ALLOC malloc
+#define PYK_REALLOC realloc
+#endif
 
 const char *fs_read_text(const char *filename);
 void fs_write_text(const char *filename, const char *text);
@@ -44,7 +54,7 @@ const char *fs_read_text(const char *filename)
     fseek(handle, 0L, SEEK_END);
     length = ftell(handle);
     fseek(handle, 0L, SEEK_SET);
-    buffer = GC_MALLOC_ATOMIC((size_t)length + 1);
+    buffer = PYK_ALLOC((size_t)length + 1);
     read = fread(buffer, 1, (size_t)length, handle);
     buffer[read] = '\0';
     fclose(handle);

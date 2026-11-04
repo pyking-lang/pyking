@@ -1,12 +1,12 @@
 # Which targets each test program runs on, and why any it does not.
 #
 # A case runs on every target -- python12, python14, node22, node24,
-# web2020, web2024, iweb2020, iweb2024, c89, c99, c23, java8, java17,
-# java21, ocaml4.14, ocaml5.5 and interpret -- and on
+# web2020, web2024, iweb2020, iweb2024, c89, c99, c23, c23-gc, java8,
+# java17, java21, ocaml4.14, ocaml5.5 and interpret -- and on
 # `pyking` too where it is a `typecheck_*` program. The one way to leave
 # a target out is `excluded`, a table from a target or a family (`c`,
-# `java`, `web`, ...) to the reason, which tests/test_script.py prints in
-# its summary. A `fail_typecheck_*` program, written to be refused, runs
+# `"c-gc"`, `java`, `web`, ...) to the reason, which tests/test_script.py
+# prints in its summary. A `fail_typecheck_*` program, written to be refused, runs
 # on `pyking` alone. `also` adds the targets that turn a pass off
 # (`python12_notail`, `pyking_notail`, `pyking_nosugar`), and
 # `pyking_rerun`, which runs what `pyking` printed and compares its output
@@ -31,11 +31,11 @@ file = "boolean_literals.pyk"
 
 [[cases]]
 file = "boolean_literals_patterns.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "concatenation.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "else_if.pyk"
@@ -45,7 +45,7 @@ file = "else_if_nested.pyk"
 
 [[cases]]
 file = "else_if_nested_loop.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "escapes.pyk"
@@ -133,7 +133,7 @@ file = "char_basic.pyk"
 
 [[cases]]
 file = "char_lists.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "fail_typecheck_char_long.pyk"
@@ -293,7 +293,7 @@ file = "function_types.pyk"
 
 [[cases]]
 file = "if_expr.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "ifelse.pyk"
@@ -306,57 +306,57 @@ file = "lexical_capture.pyk"
 
 [[cases]]
 file = "lexical_capture_group.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lexical_capture_loop.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lexical_capture_nested.pyk"
 
 [[cases]]
 file = "list_complex.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "list_comprehension_basic.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "list_comprehension_filter.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "list_comprehension_nested.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "list_comprehension_pattern_helper.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "list_literals.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "list_pattern_match.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "list_pattern_recursive.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "list_pattern_recursive_short.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "loop_corner_cases.pyk"
 
 [[cases]]
 file = "loop_def_capture.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "loop_early_return.pyk"
@@ -369,27 +369,27 @@ file = "loop_break_value.pyk"
 
 [[cases]]
 file = "loop_break_value_lists.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "match_int_simple.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "match_int_simple_new.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "match_string_simple.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "negative_numbers.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "nested_for_mutation.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "recursion_forward.pyk"
@@ -411,25 +411,25 @@ file = "renaming_keywords.pyk"
 
 [[cases]]
 file = "renaming_shadowing.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "scopes.pyk"
 
 [[cases]]
 file = "shadowing.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "shadowing_blocks.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "shadowing_functions.pyk"
 
 [[cases]]
 file = "shadowing_mutable.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "short_function.pyk"
@@ -466,14 +466,14 @@ file = "tuples_assign_destructure.pyk"
 
 [[cases]]
 file = "tuples_complex.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "tuples_functions.pyk"
 
 [[cases]]
 file = "tuples_lists.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "tuples_literals.pyk"
@@ -483,7 +483,7 @@ file = "tuples_match_destructure.pyk"
 
 [[cases]]
 file = "typecheck_builtins.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_function_if.pyk"
@@ -493,18 +493,18 @@ file = "typecheck_function_types.pyk"
 
 [[cases]]
 file = "typecheck_for_value.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_loop_combined.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_functions.pyk"
 
 [[cases]]
 file = "typecheck_higher_order.pyk"
-excluded = { c = "a function value outliving the stack frame it captures from needs a heap" }
+excluded = { c = "a function value outliving the stack frame it captures from needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_if.pyk"
@@ -539,19 +539,19 @@ also = ["pyking_notail"]
 
 [[cases]]
 file = "typecheck_infer_polymorphic.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_infer_variables.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_infer_pinned.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_infer_empty.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "fail_typecheck_infer_pinned.pyk"
@@ -561,23 +561,23 @@ file = "fail_typecheck_infer_returns.pyk"
 
 [[cases]]
 file = "typecheck_infer_polymorphic_arg.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_infer_generic_lists.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_infer_pipeline.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_annotated_rank2.pyk"
-excluded = { c = "a polymorphic parameter needs one function for every type; C compiles one per type" }
+excluded = { c = "a polymorphic parameter (all a. ...) needs one function serving every type; C compiles a polymorphic function once per type", "c-gc" = "a polymorphic parameter (all a. ...) needs one function serving every type; C compiles a polymorphic function once per type" }
 
 [[cases]]
 file = "typecheck_hm_annotation_agrees.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_apply.pyk"
@@ -590,7 +590,7 @@ file = "typecheck_hm_compose.pyk"
 
 [[cases]]
 file = "typecheck_hm_fold.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_generalisation.pyk"
@@ -603,39 +603,39 @@ file = "typecheck_hm_letpoly.pyk"
 
 [[cases]]
 file = "typecheck_hm_lists.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_loops.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_map.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_mutual.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_nested.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_order.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_pipeline.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_recursion.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_shadowed.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_hm_tuples.pyk"
@@ -669,21 +669,21 @@ file = "typecheck_loop_break.pyk"
 
 [[cases]]
 file = "typecheck_loop_iteration.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_infer_loop_return.pyk"
 
 [[cases]]
 file = "typecheck_loop_simple.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_loop_basic.pyk"
 
 [[cases]]
 file = "typecheck_loop_continue.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_loop_nested.pyk"
@@ -765,15 +765,15 @@ file = "fail_typecheck_type_first_class.pyk"
 
 [[cases]]
 file = "typecheck_type_first_class_twice.pyk"
-excluded = { c = "a polymorphic parameter needs one function for every type; C compiles one per type" }
+excluded = { c = "a polymorphic parameter (all a. ...) needs one function serving every type; C compiles a polymorphic function once per type", "c-gc" = "a polymorphic parameter (all a. ...) needs one function serving every type; C compiles a polymorphic function once per type" }
 
 [[cases]]
 file = "typecheck_type_first_class_outer.pyk"
-excluded = { c = "a polymorphic parameter needs one function for every type; C compiles one per type" }
+excluded = { c = "a polymorphic parameter (all a. ...) needs one function serving every type; C compiles a polymorphic function once per type", "c-gc" = "a polymorphic parameter (all a. ...) needs one function serving every type; C compiles a polymorphic function once per type" }
 
 [[cases]]
 file = "typecheck_type_first_class.pyk"
-excluded = { c = "a polymorphic parameter needs one function for every type; C compiles one per type" }
+excluded = { c = "a polymorphic parameter (all a. ...) needs one function serving every type; C compiles a polymorphic function once per type", "c-gc" = "a polymorphic parameter (all a. ...) needs one function serving every type; C compiles a polymorphic function once per type" }
 
 [[cases]]
 file = "typecheck_type_signature.pyk"
@@ -792,57 +792,57 @@ file = "typecheck_type_variables.pyk"
 
 [[cases]]
 file = "typecheck_comprehensions.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_concat_nested.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_concat_parse.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_concat_patterns.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_division.pyk"
 
 [[cases]]
 file = "typecheck_expr_evaluator.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_list_pipeline.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_lists.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_map_fold.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_match_exhaustive.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_match_lists.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_match_polymorphic.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_match_scalars.pyk"
 
 [[cases]]
 file = "typecheck_match_suffix.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_match_value.pyk"
@@ -855,11 +855,11 @@ file = "types_atoms.pyk"
 
 [[cases]]
 file = "types_complex.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "types_lists.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "types_mixed.pyk"
@@ -869,14 +869,14 @@ file = "types_tuples.pyk"
 
 [[cases]]
 file = "unit_values.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "value_if.pyk"
 
 [[cases]]
 file = "value_match.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "value_next_line.pyk"
@@ -901,7 +901,7 @@ file = "inline_blocks_value.pyk"
 
 [[cases]]
 file = "inline_match.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "fail_typecheck_inline_two_statements.pyk"
@@ -911,7 +911,7 @@ file = "fail_typecheck_inline_then_indented.pyk"
 
 [[cases]]
 file = "nbsp_spaces.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "fail_typecheck_nbsp_indent.pyk"
@@ -939,12 +939,12 @@ file = "typecheck_var_basic.pyk"
 # them without a list, which is what C compiles.
 [[cases]]
 file = "array_basic.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector (array_nolist.pyk is this without them)" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it (array_nolist.pyk is this without them)" }
 
 [[cases]]
 file = "array_lib.pyk"
 libs = ["array"]
-excluded = { c = "lists are not compiled to C yet: they come after its collector (array_nolist.pyk is this without them)" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it (array_nolist.pyk is this without them)" }
 
 [[cases]]
 file = "array_nolist.pyk"
@@ -955,25 +955,38 @@ libs = ["array"]
 [[cases]]
 file = "array_bounds_read.pyk"
 exit_code = 1
+excluded = { c = "plain C checks no index: c23-gc does" }
 
 [[cases]]
 file = "array_bounds_write.pyk"
 exit_code = 1
+excluded = { c = "plain C checks no index: c23-gc does" }
 
 [[cases]]
 file = "array_negative_size.pyk"
 exit_code = 1
+excluded = { c = "plain C checks no size: c23-gc does" }
 
 [[cases]]
 file = "typecheck_array.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector (array_nolist.pyk is this without them)" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it (array_nolist.pyk is this without them)" }
 also = ["pyking_rerun"]
 
-# The C collector: a program that drops over fifty MB of Strings
-# must stay small on C (tests/test_script.py, `c_peak_mb`).
+# The collector: a program that drops over fifty MB of Strings must
+# stay small on c23-gc (tests/test_script.py, `c_peak_mb`).
 [[cases]]
 file = "gc_strings.pyk"
 c_peak_mb = 32
+excluded = { c = "plain C never frees what it allocates: c23-gc collects it" }
+
+[[cases]]
+file = "gc_lists.pyk"
+c_peak_mb = 16
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "list_values.pyk"
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_compound_assign.pyk"
@@ -985,11 +998,11 @@ also = ["pyking_rerun", "pyking_nosugar"]
 
 [[cases]]
 file = "typecheck_compound_assign_text.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_var_scope.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "fail_typecheck_var_mutate_type.pyk"
@@ -1005,7 +1018,7 @@ file = "typecheck_var_functions.pyk"
 
 [[cases]]
 file = "typecheck_var_nested.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "negative_nested.pyk"
@@ -1021,23 +1034,23 @@ file = "shadowing_depth_loops.pyk"
 
 [[cases]]
 file = "printing_quotes.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "printing_quotes_str.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_pyking_reparse.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "match_exhaustive_tuple.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_singleton_tuple.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 # The unannotated twins: each is a `typecheck_*` program above with
 # every annotation taken off, so its `.ast.out` pins what inference
@@ -1045,7 +1058,7 @@ excluded = { c = "lists are not compiled to C yet: they come after its collector
 
 [[cases]]
 file = "typecheck_noann_builtins.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_noann_division.pyk"
@@ -1058,11 +1071,11 @@ file = "typecheck_noann_lexical_capture.pyk"
 
 [[cases]]
 file = "typecheck_noann_list_pipeline.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_noann_lists.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_noann_loop_basic.pyk"
@@ -1072,7 +1085,7 @@ file = "typecheck_noann_loop_break.pyk"
 
 [[cases]]
 file = "typecheck_noann_loop_iteration.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_noann_loop_nested.pyk"
@@ -1086,11 +1099,11 @@ also = ["pyking_rerun", "pyking_nosugar"]
 
 [[cases]]
 file = "typecheck_noann_map_fold.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_noann_match_lists.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_noann_match_scalars.pyk"
@@ -1109,7 +1122,7 @@ file = "typecheck_noann_tco_mutual.pyk"
 
 [[cases]]
 file = "typecheck_noann_var_scope.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 
 [[cases]]
@@ -1193,7 +1206,7 @@ modules = ["external_all_mod1_external.pyk"]
 [[cases]]
 file = "external_shapes.pyk"
 modules = ["external_shapes_mod1_external.pyk"]
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "fail_typecheck_external_body.pyk"
@@ -1259,12 +1272,12 @@ excluded = { web = "a browser page has no file system", iweb = "a browser page h
 [[cases]]
 file = "lib_sys_arguments.pyk"
 libs = ["sys"]
-excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lib_sys_environment.pyk"
 libs = ["sys"]
-excluded = { web = "a browser page has no environment variables", iweb = "a browser page has no environment variables", c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { web = "a browser page has no environment variables", iweb = "a browser page has no environment variables", c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lib_time_format.pyk"
@@ -1309,7 +1322,7 @@ modules = ["module_reserved_export_mod1.pyk"]
 file = "lib_sys_arguments_passed.pyk"
 libs = ["sys"]
 arguments = ["alpha", "beta gamma"]
-excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 # The examples `pyk example` hands out (src/examples.toml): hello.pyk,
 # and use_args.pyk, which follows.
@@ -1324,12 +1337,12 @@ file = "hello_world.pyk"
 file = "lib_sys_use_args.pyk"
 libs = ["sys"]
 arguments = ["3", "Hello world!"]
-excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lib_sys_use_args_usage.pyk"
 libs = ["sys"]
-excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { web = "a browser page has no command-line arguments", iweb = "a browser page has no command-line arguments", c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 # Two libraries at once. `sys` is named before `fs` on purpose: it puts
 # a module `Sys` on the OCaml include path before fs.ml is compiled,
@@ -1339,7 +1352,7 @@ excluded = { web = "a browser page has no command-line arguments", iweb = "a bro
 [[cases]]
 file = "lib_two_libraries.pyk"
 libs = ["sys", "fs"]
-excluded = { web = "a browser page has no environment variables", iweb = "a browser page has no environment variables", c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { web = "a browser page has no environment variables", iweb = "a browser page has no environment variables", c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 # The io library: standard output beside `print`, and standard input.
 # A case reading its input has a sibling .in file, which is what it is
@@ -1373,7 +1386,7 @@ file = "debug_basic.pyk"
 
 [[cases]]
 file = "debug_values.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 # `release = true` compiles with --release: every call to `debug` is
 # removed, so each compiled target must write nothing to standard error,
@@ -1457,11 +1470,11 @@ file = "float_printing.pyk"
 
 [[cases]]
 file = "float_shapes.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "float_str.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "float_var.pyk"
@@ -1502,7 +1515,7 @@ also = ["pyking_nosugar", "pyking_rerun"]
 
 [[cases]]
 file = "typecheck_defaults_complex.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 also = ["pyking_nosugar"]
 
 [[cases]]
@@ -1552,19 +1565,19 @@ modules = ["external_all_mod1_external.pyk"]
 
 [[cases]]
 file = "lambda_basic.pyk"
-excluded = { c = "a function value outliving the stack frame it captures from needs a heap" }
+excluded = { c = "a function value outliving the stack frame it captures from needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lambda_capture.pyk"
-excluded = { c = "a function value outliving the stack frame it captures from needs a heap" }
+excluded = { c = "a function value outliving the stack frame it captures from needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lambda_loop_capture.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_lambda.pyk"
-excluded = { c = "a function value outliving the stack frame it captures from needs a heap" }
+excluded = { c = "a function value outliving the stack frame it captures from needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "fail_typecheck_lambda_poly.pyk"
@@ -1580,11 +1593,11 @@ file = "overload_basic.pyk"
 
 [[cases]]
 file = "overload_poly.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_overload.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "implicit_value.pyk"
@@ -1597,12 +1610,12 @@ file = "implicit_explicit_arg.pyk"
 
 [[cases]]
 file = "typecheck_implicit_nested.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "module_implicit.pyk"
 modules = ["module_implicit_mod.pyk"]
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_module_implicit.pyk"
@@ -1718,7 +1731,7 @@ file = "conversions.pyk"
 
 [[cases]]
 file = "conversions_values.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_conversions.pyk"
@@ -1750,7 +1763,7 @@ libs = ["text"]
 [[cases]]
 file = "lib_text_lists.pyk"
 libs = ["text"]
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lib_tinyweb_timers.pyk"
@@ -1788,7 +1801,7 @@ excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks 
 [[cases]]
 file = "lib_tinyweb_polygons.pyk"
 libs = ["math", "text", "tinyweb"]
-excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lib_tinyweb_transform.pyk"
@@ -1818,7 +1831,7 @@ excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks 
 [[cases]]
 file = "lib_tinyweb_choice.pyk"
 libs = ["math", "text", "tinyweb"]
-excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 # random: a generator written in Pyking, so a seed gives the same numbers
 # on every target.
@@ -1829,7 +1842,7 @@ libs = ["time", "random"]
 [[cases]]
 file = "lib_random_lists.pyk"
 libs = ["time", "random"]
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lib_tinyweb_splash.pyk"
@@ -1852,47 +1865,47 @@ excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks 
 
 [[cases]]
 file = "adt_basic.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "adt_option.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "adt_tree.pyk"
-excluded = { c = "a datatype holding itself is not compiled to C yet: it comes after its collector, with lists" }
+excluded = { c = "a datatype holding itself needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "adt_expr.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "adt_mutual.pyk"
-excluded = { c = "a datatype holding itself is not compiled to C yet: it comes after its collector, with lists" }
+excluded = { c = "a datatype holding itself needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "adt_list.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "adt_fields.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "adt_redblack.pyk"
-excluded = { c = "a datatype holding itself is not compiled to C yet: it comes after its collector, with lists" }
+excluded = { c = "a datatype holding itself needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "pattern_or.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "pattern_guard.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "pattern_as.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "pattern_guard_scalar.pyk"
@@ -1903,7 +1916,7 @@ file = "typecheck_adt_infer.pyk"
 [[cases]]
 file = "module_adt.pyk"
 modules = ["module_adt_mod1.pyk"]
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "fail_typecheck_module_adt_private.pyk"
@@ -2032,7 +2045,7 @@ file = "var_values.pyk"
 
 [[cases]]
 file = "var_lists.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lib_tinyweb_pointer.pyk"
@@ -2052,7 +2065,7 @@ excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks 
 [[cases]]
 file = "lib_tinyweb_smooth.pyk"
 libs = ["math", "text", "tinyweb"]
-excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks in a browser", c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "lib_tinyweb_layout.pyk"
@@ -2165,32 +2178,32 @@ excluded = { web = "a web page draws itself, which tests/test_tinyweb.py checks 
 
 [[cases]]
 file = "operators_boolean.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "operators_bitwise.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "operators_arithmetic.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "list_index.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "concatenation_plus.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "use_mutation.pyk"
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "typecheck_operators.pyk"
 also = ["pyking_rerun"]
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "operators_scalar.pyk"
@@ -2201,7 +2214,7 @@ file = "operators_xor_bool.pyk"
 [[cases]]
 file = "use_mutation_module.pyk"
 modules = ["use_mutation_module_mod1.pyk"]
-excluded = { c = "lists are not compiled to C yet: they come after its collector" }
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "fail_typecheck_and_mixed.pyk"
@@ -2326,8 +2339,292 @@ file = "fail_typecheck_array_eq.pyk"
 [[cases]]
 file = "fail_typecheck_array_open.pyk"
 
+# Mutable structs: `var struct`, field writes and their compound forms,
+# sharing, patterns, `..` and cycle-safe printing.
 [[cases]]
-file = "fail_typecheck_array_undecided.pyk"
+file = "var_struct.pyk"
+excluded = { c = "a var struct holding a list (Cell([])): a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "var_struct_import.pyk"
+modules = ["var_struct_shapes_mod.pyk"]
+
+[[cases]]
+file = "typecheck_var_struct.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "a var struct holding a list (Cell([])): a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "fail_typecheck_var_struct_make_use.pyk"
+modules = ["var_struct_shapes_mod.pyk"]
+
+[[cases]]
+file = "fail_typecheck_var_struct_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_struct_write_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_write.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_struct_field_type.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_struct_no_field.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_struct_not_struct.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_struct_open.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_struct_same.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_struct_eq.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_struct_empty.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_datatype.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_struct_field_eq.pyk"
+
+# Vecs: `vec`, `push`, `pop`, `insert`, `remove`, `clear`, indexing,
+# `for` over a growing Vec, sharing, and lib/vec.
+[[cases]]
+file = "vec_basic.pyk"
+excluded = { c = "a comprehension over a Vec makes a list, which needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "vec_lib.pyk"
+libs = ["array", "vec"]
+excluded = { c = "vec.extend and vec.to_list take and make lists: a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "vec_bounds.pyk"
+exit_code = 1
+excluded = { c = "plain C checks no index: c23-gc does" }
+
+[[cases]]
+file = "vec_pop_empty.pyk"
+exit_code = 1
+excluded = { c = "plain C checks nothing a pop takes: c23-gc does" }
+
+[[cases]]
+file = "typecheck_vec.pyk"
+also = ["pyking_rerun"]
+
+# Var structs, Vecs and arrays holding themselves, with no list, so plain
+# C runs it too: printing a cycle, `print`'s arguments all worked out
+# first, and a field write's owner before its value.
+[[cases]]
+file = "mutable_values.pyk"
+
+[[cases]]
+file = "fail_typecheck_vec_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_vec_push_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_vec_push_type.pyk"
+
+[[cases]]
+file = "fail_typecheck_vec_not_vec.pyk"
+
+[[cases]]
+file = "fail_typecheck_vec_open.pyk"
+
+[[cases]]
+file = "fail_typecheck_vec_eq.pyk"
+
+[[cases]]
+file = "fail_typecheck_vec_remove_index.pyk"
+
+# Slices, views and copy_into.
+[[cases]]
+file = "slices.pyk"
+excluded = { c = "it slices lists: a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "slice_bounds.pyk"
+exit_code = 1
+excluded = { c = "plain C checks no slice: c23-gc does" }
+
+[[cases]]
+file = "view_bounds.pyk"
+exit_code = 1
+excluded = { c = "plain C checks no index: c23-gc does" }
+
+[[cases]]
+file = "typecheck_slices.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "it slices a list: a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "fail_typecheck_slice_dict.pyk"
+
+[[cases]]
+file = "fail_typecheck_slice_bound.pyk"
+
+[[cases]]
+file = "fail_typecheck_view_list.pyk"
+
+[[cases]]
+file = "fail_typecheck_view_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_copy_into_type.pyk"
+
+# Option, builtin from lib/option.
+[[cases]]
+file = "option_builtin.pyk"
+libs = ["option"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+# Pointers: `&`, `*`, `*p := v`, pointers to elements, fields and
+# pointers, and Option(Ptr(T)).
+[[cases]]
+file = "pointers.pyk"
+libs = ["option"]
+
+# A `var` declared in a top-level loop is a new one each turn, for a
+# closure capturing it.
+[[cases]]
+file = "loop_local_vars.pyk"
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "pointers_escape.pyk"
+excluded = { c = "a pointer to a local that outlives its function, and a list: plain C refuses the one and has no heap for the other; c23-gc runs both" }
+
+[[cases]]
+file = "typecheck_pointers.pyk"
+libs = ["option"]
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "fail_typecheck_pointers_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_pointers_need_mutation.pyk"
+
+[[cases]]
+file = "fail_typecheck_addr_binding.pyk"
+
+[[cases]]
+file = "fail_typecheck_addr_list.pyk"
+
+[[cases]]
+file = "fail_typecheck_addr_vec.pyk"
+
+[[cases]]
+file = "fail_typecheck_addr_struct.pyk"
+
+[[cases]]
+file = "fail_typecheck_addr_value.pyk"
+
+[[cases]]
+file = "fail_typecheck_deref_not_pointer.pyk"
+
+[[cases]]
+file = "fail_typecheck_deref_write_type.pyk"
+
+[[cases]]
+file = "fail_typecheck_pointer_key.pyk"
+
+[[cases]]
+file = "fail_typecheck_pointer_arithmetic.pyk"
+
+# Left to right, even where nothing prints.
+[[cases]]
+file = "eval_order_calls.pyk"
+
+# Dicts, structural `==`, slices and views with no list, so plain C runs
+# it too.
+[[cases]]
+file = "dict_slice_nolist.pyk"
+
+# A program's own `get` and `keys`, named like builtins, are ordered as
+# any of its functions are.
+[[cases]]
+file = "eval_order_own_builtin.pyk"
+
+# Printing a cycle that an immutable value closes -- a generic datatype
+# through a var struct, a datatype through a Dict -- stops at the value
+# that repeats first.
+[[cases]]
+file = "cycle_immutable.pyk"
+
+# A generic datatype printed at several types where a var struct in its
+# group of declarations uses it at one.
+[[cases]]
+file = "generic_printer_types.pyk"
+
+# Structural `==` on lists, tuples, structs and datatypes, and Dicts.
+[[cases]]
+file = "equality.pyk"
+excluded = { c = "it compares lists: a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "dict_basic.pyk"
+excluded = { c = "keys, values and items make lists: a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "dict_changed.pyk"
+exit_code = 1
+excluded = { c = "plain C does not watch a Dict for changes during a walk: c23-gc does" }
+
+[[cases]]
+file = "dict_missing.pyk"
+exit_code = 1
+excluded = { c = "plain C checks no key: c23-gc does" }
+
+[[cases]]
+file = "typecheck_dict.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "fail_typecheck_dict_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_dict_float_key.pyk"
+
+[[cases]]
+file = "fail_typecheck_dict_mutable_key.pyk"
+
+[[cases]]
+file = "fail_typecheck_dict_key_type.pyk"
+
+[[cases]]
+file = "fail_typecheck_dict_value_type.pyk"
+
+[[cases]]
+file = "fail_typecheck_dict_open.pyk"
+
+[[cases]]
+file = "fail_typecheck_dict_eq.pyk"
+
+[[cases]]
+file = "fail_typecheck_dict_get_default.pyk"
+
+[[cases]]
+file = "fail_typecheck_eq_function.pyk"
+
+[[cases]]
+file = "fail_typecheck_eq_holds_array.pyk"
+
+[[cases]]
+file = "fail_typecheck_eq_type_variable.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_init_value.pyk"
 
 [[cases]]
 file = "fail_typecheck_array_element.pyk"
@@ -2385,3 +2682,23 @@ file = "fail_typecheck_use_var.pyk"
 
 [[cases]]
 file = "fail_typecheck_xor_mixed.pyk"
+
+[[cases]]
+file = "closure_comprehension.pyk"
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+# A comprehension whose `for` takes each element apart with a pattern:
+# list, tuple and constructor patterns, nested, with rests and guards.
+[[cases]]
+file = "comprehension_patterns.pyk"
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "comprehension_rest.pyk"
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+# An empty list next to non-empty ones in a list literal, a tuple and a
+# constructor takes the element type of the others.
+[[cases]]
+file = "empty_list_literals.pyk"
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }

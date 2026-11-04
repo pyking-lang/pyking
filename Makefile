@@ -210,27 +210,29 @@ check-node:
 	  exit 1; \
 	fi
 
-# Every C program links bdwgc, the collector (docs/target_c.md,
-# "Memory"), and the program and playground suites build C programs.
-# Found the way pyk finds it (src/execution.ml): pkg-config, then the
-# usual prefixes. Asked before the clean build, so a missing collector
-# is said at once rather than as every C test failing. Skipped for a
-# TARGET that is not C, and for a SUITE that builds no C.
+# A c23-gc program links bdwgc, the collector (docs/target_c.md,
+# "Memory"), and the program and playground suites build them. Found
+# the way pyk finds it (src/execution.ml): pkg-config, then the usual
+# prefixes. Asked before the clean build, so a missing collector is
+# said at once rather than as every c23-gc test failing. Skipped for a
+# TARGET other than c23-gc, and for a SUITE that builds no C. Plain C
+# (c89, c99, c23) needs no collector.
 check-gc:
-	@case "$(TARGET)" in ""|c*) ;; *) exit 0 ;; esac; \
+	@case "$(TARGET)" in ""|c-gc|c23-gc) ;; *) exit 0 ;; esac; \
 	case ",$(SUITE)," in ",,"|*,programs,*|*,playground,*) ;; *) exit 0 ;; esac; \
 	if pkg-config --exists bdw-gc >/dev/null 2>&1; then exit 0; fi; \
 	for prefix in /opt/homebrew /usr/local /opt/local /usr; do \
 	  if [ -f "$$prefix/include/gc.h" ]; then exit 0; fi; \
 	done; \
-	echo "make: bdwgc, the garbage collector every C program links, is not"; \
-	echo "      installed, and the tests build and run C programs."; \
+	echo "make: bdwgc, the garbage collector every c23-gc program links, is"; \
+	echo "      not installed, and the tests build and run c23-gc programs."; \
 	echo "      Install it with"; \
 	echo "          brew install bdw-gc"; \
 	echo "      on macOS, or"; \
 	echo "          sudo apt install libgc-dev"; \
-	echo "      on Debian and Ubuntu. To test without C, give a TARGET"; \
-	echo "      that is not C, or a SUITE other than programs and playground."; \
+	echo "      on Debian and Ubuntu. To test without it, give a TARGET"; \
+	echo "      other than c23-gc, or a SUITE other than programs and"; \
+	echo "      playground."; \
 	exit 1
 
 # Every run starts from a clean build: the tree may be shared between

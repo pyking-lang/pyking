@@ -541,7 +541,7 @@ LANGUAGES = [
               "./program"]),
     Language("c", "C", "c", "c23", "example.c",
              ["cc -o example example.c tinyweb.c", "./example"],
-             ["cc -std=c23 -o program tinyweb_external.c tinyweb.c program.c -lgc -lm", "./program"]),
+             ["cc -std=c23 -o program tinyweb_external.c tinyweb.c program.c", "./program"]),
     Language("java", "Java", "java", "java21", "Example.java",
              ["javac Tinyweb.java Example.java", "java Example"],
              ["javac TinywebExternal.java Tinyweb.java Program.java", "java Program"]),

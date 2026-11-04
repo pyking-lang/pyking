@@ -87,6 +87,10 @@ type oexpr =
   | OTyped of oexpr * typ (* (e : t) -- what OCaml could not tell *)
   | OField of oexpr * string (* e.field -- a polymorphic parameter, used *)
   | ORecord of string * oexpr (* { field = e } -- one, passed *)
+  | OBuild of string * (string * oexpr) list
+      (* C { f = e; ... } -- a var struct made, its fields named *)
+  | OSetField of oexpr * string * oexpr (* e.field <- v -- one written *)
+  | OSend of oexpr * string (* e#method -- a pointer's *)
   | OEscape of string * string * string * oexpr
       (* a function body a `return` leaves early: the exception it is
          left by, the cell the value is put in, the name the value comes
@@ -337,6 +341,37 @@ let is_unit t = match t with TTuple (_, [], _) -> true | _ -> false
 
 let is_list t = match t with TList _ -> true | _ -> false
 
+let vec_element = Typesystem.vec_element
+let dict_parts = Typesystem.dict_parts
+
+(** The type a pointer type, `Ptr(T)`, points at, or None for any other
+    type. typ -> typ option *)
+let ptr_target t = match t with TCon (_, "Ptr", [ target ], _) -> Some target | _ -> None
+
+(** The element type of a view's type, `Slice(T)`, or None for any
+    other type. typ -> typ option *)
+let slice_element t = match t with TCon (_, "Slice", [ element ], _) -> Some element | _ -> None
+
+(** The element type of an array, a Vec or a view, or None for any other
+    type. typ -> typ option *)
+let store_element t =
+  match Typesystem.array_element t with
+  | Some element -> Some element
+  | None -> ( match vec_element t with Some element -> Some element | None -> slice_element t)
+
+(** What a container of mutable values holds, as printing and the path
+    see it: an array's or a Vec's element, a Dict's `(key, value)`
+    entry. typ -> typ option *)
+let held_element t =
+  match store_element t with
+  | Some element -> Some element
+  | None when ptr_target t <> None -> ptr_target t
+  | None -> (
+      match dict_parts t with
+      | Some (key, value) -> Some
+          (TTuple ({ file = "<ocaml>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }, [ key; value ], 0))
+      | None -> None)
+
 (** t as it would be written in source. typ -> string *)
 let name_of t = pprint_type default_config t
 
@@ -417,6 +452,9 @@ let rec free e =
   | OInt _ | OFloat _ | OStr _ | OBool _ | OUnit -> StringSet.empty
   | OVar name -> StringSet.singleton name
   | OIgnore e | ORef e | OField (e, _) | ORecord (_, e) | OTyped (e, _) -> free e
+  | OBuild (_, fields) -> union_all (List.map (fun (_, e) -> free e) fields)
+  | OSetField (owner, _, value) -> StringSet.union (free owner) (free value)
+  | OSend (e, _) -> free e
   | ODeref name -> StringSet.singleton name
   | OAssign (name, value) -> StringSet.add name (free value)
   | OApp (func, args) -> union_all (free func :: List.map free args)
@@ -595,6 +633,12 @@ type ctx = {
   polys : (string * string) list;
   poly_params : string SMap.t;
   printing : Analyses.effects;
+  (* The program's functions that can change what a caller sees, and
+     whether a call this module cannot follow is taken to (see
+     `changing_functions`). *)
+  defined : StringSet.t;
+  changing : StringSet.t;
+  unknown_changes : bool;
   prefix : string;
   (* The names currently declared `var`, which are OCaml `ref`s: a read
      of one is `!x` rather than `x`. Pyking refuses to shadow a `var`,
@@ -626,6 +670,12 @@ type ctx = {
      type variables is printed with. *)
   datatypes : datatype SMap.t;
   shows : (string * oexpr) list;
+  (* Whether those printers are handed the path as well (a printer that
+     takes one passes it on), and the path a value formatted here is
+     inside: the arrays and var structs being formatted further out,
+     `[]` where formatting starts (docs/target_ocaml.md, "Var structs"). *)
+  shows_path : bool;
+  path : oexpr;
   (* Whether the Stdlib has `List.take` and `List.drop` (OCaml 5.3 on). *)
   slices : bool;
 }
@@ -872,6 +922,8 @@ let stmt_kind_name s =
   | SMutateTuple _ -> "SMutateTuple"
   | SMutate _ -> "SMutate"
   | SSetIndex _ -> "SSetIndex"
+  | SSetDeref _ -> "SSetDeref"
+  | SSetField _ -> "SSetField"
   | SReturn _ -> "SReturn"
   | SReturnStmt _ -> "SReturnStmt"
   | SExprStmt _ -> "SExprStmt"
@@ -1284,10 +1336,98 @@ let array_fill_helper = "pyk_array_fill"
 let array_init_helper = "pyk_array_init"
 let array_unfold_helper = "pyk_array_unfold"
 
+(* Not an array helper, but it lives with them: what stops a cycle of
+   arrays and var structs from printing forever. *)
+let guard_helper = "pyk_guard"
+
+(* A Vec's helpers (docs/target_ocaml.md, "Vecs"). *)
+let vec_of_list_helper = "pyk_vec_of_list"
+let vec_length_helper = "pyk_vec_length"
+let vec_item_helper = "pyk_vec_item"
+let vec_check_helper = "pyk_vec_check"
+let vec_get_helper = "pyk_vec_get"
+let vec_set_helper = "pyk_vec_set"
+let vec_room_helper = "pyk_vec_room"
+let vec_push_helper = "pyk_vec_push"
+let vec_pop_helper = "pyk_vec_pop"
+let vec_insert_helper = "pyk_vec_insert"
+let vec_remove_helper = "pyk_vec_remove"
+let vec_clear_helper = "pyk_vec_clear"
+let vec_to_list_helper = "pyk_vec_to_list"
+
+(* Slices', views' and copy_into's helpers (docs/target_ocaml.md,
+   "Slices and views"). *)
+let slice_bounds_helper = "pyk_slice_bounds"
+let view_helper = "pyk_view"
+let view_of_view_helper = "pyk_view_of_view"
+let view_length_helper = "pyk_view_length"
+let view_owner_helper = "pyk_view_owner"
+let view_item_helper = "pyk_view_item"
+let view_check_helper = "pyk_view_check"
+let view_get_helper = "pyk_view_get"
+let view_set_helper = "pyk_view_set"
+let view_to_list_helper = "pyk_view_to_list"
+let whole_helper = "pyk_whole"
+let copy_into_helper = "pyk_copy_into"
+
+(* Pointers' helpers (docs/target_ocaml.md, "Pointers"). *)
+let ptr_cell_helper = "pyk_ptr_cell"
+let ptr_elem_helper = "pyk_ptr_elem"
+let ptr_view_elem_helper = "pyk_ptr_view_elem"
+let ptr_field_helper = "pyk_ptr_field"
+let ptr_same_helper = "pyk_ptr_same"
+let ptr_store_helper = "pyk_ptr_store"
+let equal_helper = "pyk_equal"
+
+(** The helper that slices a value of this kind. string -> string *)
+let slice_helper kind = "pyk_slice_" ^ kind
+
+(* A Dict's helpers (docs/target_ocaml.md, "Dicts"). *)
+let dict_set_helper = "pyk_dict_set"
+let dict_of_list_helper = "pyk_dict_of_list"
+let dict_items_helper = "pyk_dict_items"
+let dict_keys_helper = "pyk_dict_keys"
+let dict_values_helper = "pyk_dict_values"
+let dict_get_helper = "pyk_dict_get"
+let dict_get_or_helper = "pyk_dict_get_or"
+let dict_has_helper = "pyk_dict_has"
+let dict_length_helper = "pyk_dict_length"
+let dict_remove_helper = "pyk_dict_remove"
+let dict_discard_helper = "pyk_dict_discard"
+let dict_clear_helper = "pyk_dict_clear"
+let dict_walk_helper = "pyk_dict_walk"
+let dict_walk_length_helper = "pyk_dict_walk_length"
+let dict_walk_key_helper = "pyk_dict_walk_key"
+
 (** The helpers each array helper calls, nearest first. string -> [string] *)
 let array_helper_needs name =
   if name = array_size_helper || name = array_check_helper then [ array_fail_helper ]
   else if name = array_get_helper then [ array_fail_helper; array_check_helper ]
+  else if name = vec_check_helper then [ array_fail_helper; vec_length_helper ]
+  else if name = vec_get_helper || name = vec_set_helper then
+    [ array_fail_helper; vec_length_helper; vec_check_helper; vec_item_helper ]
+  else if name = vec_push_helper then [ vec_room_helper ]
+  else if name = vec_pop_helper then [ array_fail_helper; vec_item_helper ]
+  else if name = vec_insert_helper then [ array_fail_helper; vec_room_helper ]
+  else if name = vec_remove_helper then
+    [ array_fail_helper; vec_length_helper; vec_check_helper; vec_item_helper ]
+  else if name = vec_to_list_helper then [ vec_item_helper ]
+  else if name = view_helper || name = view_of_view_helper || name = copy_into_helper then
+    [ array_fail_helper ]
+  else if name = view_check_helper then [ array_fail_helper ]
+  else if name = view_get_helper || name = view_set_helper then [ array_fail_helper; view_check_helper ]
+  else if name = slice_helper "string" then
+    [ array_fail_helper; slice_bounds_helper; chars_helper; char_text_helper ]
+  else if String.length name > 10 && String.sub name 0 10 = "pyk_slice_" && name <> slice_bounds_helper
+  then [ array_fail_helper; slice_bounds_helper ]
+  else if name = ptr_elem_helper then [ array_fail_helper ]
+  else if name = ptr_view_elem_helper then [ array_fail_helper; ptr_elem_helper ]
+  else if name = equal_helper then [ ptr_same_helper ]
+  else if name = dict_of_list_helper then [ dict_set_helper ]
+  else if name = dict_keys_helper || name = dict_values_helper then [ dict_items_helper ]
+  else if name = dict_get_helper || name = dict_remove_helper then [ array_fail_helper ]
+  else if name = dict_walk_helper then [ dict_items_helper; dict_keys_helper ]
+  else if name = dict_walk_length_helper then [ array_fail_helper ]
   else if name = array_fill_helper || name = array_init_helper || name = array_unfold_helper
   then [ array_fail_helper; array_size_helper ]
   else []
@@ -1374,6 +1514,438 @@ let array_helper_lines name =
         "    done;";
         "    a";
         "  end";
+      ]
+  else if name = vec_of_list_helper then
+    Some
+      [
+        "(* A Vec is a cell holding its storage and its length. The storage";
+        "   has room for at least the length, and a slot past it is None,";
+        "   so it keeps no value alive; the cell is what every holder of";
+        "   the Vec shares. *)";
+        Printf.sprintf "let %s xs =" name;
+        "  let items = Stdlib.Array.of_list (List.map Option.some xs) in";
+        "  ref (items, Stdlib.Array.length items)";
+      ]
+  else if name = vec_length_helper then
+    Some [ Printf.sprintf "let %s v = snd !v" name ]
+  else if name = vec_item_helper then
+    Some
+      [
+        "(* The element at i, which is below the length. *)";
+        Printf.sprintf "let %s v i =" name;
+        "  match Stdlib.Array.unsafe_get (fst !v) i with Some x -> x | None -> assert false";
+      ]
+  else if name = vec_check_helper then
+    Some
+      [
+        Printf.sprintf "let %s v i =" name;
+        "  let n = pyk_vec_length v in";
+        "  if i < 0 || i >= n then";
+        "    pyk_array_fail";
+        "      (\"the index \" ^ string_of_int i ^ \" is outside a Vec of \" ^ string_of_int n";
+        "       ^ (if n = 1 then \" element\" else \" elements\"))";
+      ]
+  else if name = vec_get_helper then
+    Some
+      [
+        Printf.sprintf "let %s v i =" name;
+        "  pyk_vec_check v i;";
+        "  pyk_vec_item v i";
+      ]
+  else if name = vec_set_helper then
+    Some
+      [
+        Printf.sprintf "let %s v i x =" name;
+        "  pyk_vec_check v i;";
+        "  Stdlib.Array.unsafe_set (fst !v) i (Some x)";
+      ]
+  else if name = vec_room_helper then
+    Some
+      [
+        "(* The Vec's storage with room for one more element: doubled where";
+        "   it is full. *)";
+        Printf.sprintf "let %s v =" name;
+        "  let items, n = !v in";
+        "  if n < Stdlib.Array.length items then items";
+        "  else begin";
+        "    let grown = Stdlib.Array.make (max 4 (2 * n)) None in";
+        "    Stdlib.Array.blit items 0 grown 0 n;";
+        "    grown";
+        "  end";
+      ]
+  else if name = vec_push_helper then
+    Some
+      [
+        Printf.sprintf "let %s v x =" name;
+        "  let items = pyk_vec_room v in";
+        "  let n = snd !v in";
+        "  Stdlib.Array.unsafe_set items n (Some x);";
+        "  v := (items, n + 1)";
+      ]
+  else if name = vec_pop_helper then
+    Some
+      [
+        Printf.sprintf "let %s v =" name;
+        "  let items, n = !v in";
+        "  if n = 0 then pyk_array_fail \"pop from an empty Vec\";";
+        "  let last = pyk_vec_item v (n - 1) in";
+        "  Stdlib.Array.unsafe_set items (n - 1) None;";
+        "  v := (items, n - 1);";
+        "  last";
+      ]
+  else if name = vec_insert_helper then
+    Some
+      [
+        Printf.sprintf "let %s v i x =" name;
+        "  let n = snd !v in";
+        "  if i < 0 || i > n then";
+        "    pyk_array_fail";
+        "      (\"insert's index \" ^ string_of_int i ^ \" is outside 0 to \" ^ string_of_int n";
+        "       ^ \", the Vec's length\");";
+        "  let items = pyk_vec_room v in";
+        "  Stdlib.Array.blit items i items (i + 1) (n - i);";
+        "  Stdlib.Array.unsafe_set items i (Some x);";
+        "  v := (items, n + 1)";
+      ]
+  else if name = vec_remove_helper then
+    Some
+      [
+        Printf.sprintf "let %s v i =" name;
+        "  pyk_vec_check v i;";
+        "  let items, n = !v in";
+        "  let taken = pyk_vec_item v i in";
+        "  Stdlib.Array.blit items (i + 1) items i (n - i - 1);";
+        "  Stdlib.Array.unsafe_set items (n - 1) None;";
+        "  v := (items, n - 1);";
+        "  taken";
+      ]
+  else if name = vec_clear_helper then
+    Some [ Printf.sprintf "let %s v = v := ([||], 0)" name ]
+  else if name = vec_to_list_helper then
+    Some
+      [
+        "(* The elements as they are now. *)";
+        Printf.sprintf "let %s v = List.init (snd !v) (pyk_vec_item v)" name;
+      ]
+  else if name = ptr_cell_helper then
+    Some
+      [
+        "(* A pointer is an object naming a place: what is there now, a way";
+        "   to write it, and the place itself -- the store it is in and its";
+        "   slot there -- which is what two pointers are compared by. A";
+        "   `var` is a ref already, so a pointer to one is to the ref, which";
+        "   lives as long as anything holds it. *)";
+        Printf.sprintf "let %s r =" name;
+        "  object method get = !r method set v = r := v method place = (Obj.repr r, 0) end";
+      ]
+  else if name = ptr_elem_helper then
+    Some
+      [
+        "(* An array's element, the index checked as the address is taken. *)";
+        Printf.sprintf "let %s a i =" name;
+        "  let n = Stdlib.Array.length a in";
+        "  if i < 0 || i >= n then";
+        "    pyk_array_fail";
+        "      (\"the index \" ^ string_of_int i ^ \" is outside an array of \" ^ string_of_int n ^ \" elements\");";
+        "  object";
+        "    method get = Stdlib.Array.unsafe_get a i";
+        "    method set v = Stdlib.Array.unsafe_set a i v";
+        "    method place = (Obj.repr a, i)";
+        "  end";
+      ]
+  else if name = ptr_view_elem_helper then
+    Some
+      [
+        "(* A view's element, which is its array's. *)";
+        Printf.sprintf "let %s (owner, offset, length) i =" name;
+        "  if i < 0 || i >= length then";
+        "    pyk_array_fail";
+        "      (\"the index \" ^ string_of_int i ^ \" is outside a view of \" ^ string_of_int length ^ \" elements\");";
+        "  pyk_ptr_elem owner (offset + i)";
+      ]
+  else if name = ptr_field_helper then
+    Some
+      [
+        "(* A var struct's field: the struct, the field's position, and how";
+        "   to read and write it. *)";
+        Printf.sprintf "let %s owner slot get set =" name;
+        "  object method get = get () method set v = set v method place = (Obj.repr owner, slot) end";
+      ]
+  else if name = ptr_same_helper then
+    Some
+      [
+        Printf.sprintf "let %s p q =" name;
+        "  let store, slot = p#place and store', slot' = q#place in";
+        "  store == store' && slot = slot'";
+      ]
+  else if name = ptr_store_helper then
+    Some
+      [
+        "(* What a pointer is on the printing path as: the store it is in. *)";
+        Printf.sprintf "let %s p = fst p#place" name;
+      ]
+  else if name = equal_helper then
+    Some
+      [
+        "(* `==` on values that can hold a pointer: structural, as OCaml's `=`";
+        "   is, except that two pointers are equal where they name one place.";
+        "   A pointer is the only object a Pyking value holds. *)";
+        Printf.sprintf "let %s a b =" name;
+        "  let rec equal a b =";
+        "    if Obj.is_int a || Obj.is_int b then a == b";
+        "    else";
+        "      let tag = Obj.tag a in";
+        "      if tag <> Obj.tag b then false";
+        "      else if tag = Obj.object_tag then";
+        "        pyk_ptr_same (Obj.obj a : < place : Obj.t * int >) (Obj.obj b : < place : Obj.t * int >)";
+        "      else if tag = Obj.double_tag then (Obj.obj a : float) = (Obj.obj b : float)";
+        "      else if tag = Obj.string_tag then (Obj.obj a : string) = (Obj.obj b : string)";
+        "      else if tag = Obj.double_array_tag then (Obj.obj a : float array) = (Obj.obj b : float array)";
+        "      else";
+        "        let n = Obj.size a in";
+        "        let rec fields i = i >= n || (equal (Obj.field a i) (Obj.field b i) && fields (i + 1)) in";
+        "        n = Obj.size b && fields 0";
+        "  in";
+        "  equal (Obj.repr a) (Obj.repr b)";
+      ]
+  else if name = slice_bounds_helper then
+    Some
+      [
+        "(* A slice's end, the length where it was left out, once both";
+        "   bounds are checked: 0 <= low <= high <= the length. *)";
+        Printf.sprintf "let %s what length low high =" name;
+        "  let high = match high with Some high -> high | None -> length in";
+        "  if low < 0 || low > high || high > length then";
+        "    pyk_array_fail";
+        "      (\"the slice \" ^ string_of_int low ^ \":\" ^ string_of_int high ^ \" is outside \" ^ what";
+        "       ^ \" of \" ^ string_of_int length ^ (if length = 1 then \" element\" else \" elements\"));";
+        "  high";
+      ]
+  else if name = slice_helper "list" then
+    Some
+      [
+        Printf.sprintf "let %s xs low high =" name;
+        "  let high = pyk_slice_bounds \"a list\" (List.length xs) low high in";
+        "  List.filteri (fun i _ -> i >= low && i < high) xs";
+      ]
+  else if name = slice_helper "string" then
+    Some
+      [
+        "(* By code point. *)";
+        Printf.sprintf "let %s s low high =" name;
+        "  let chars = pyk_chars s in";
+        "  let high = pyk_slice_bounds \"a String\" (List.length chars) low high in";
+        "  String.concat \"\" (List.map pyk_char_text (List.filteri (fun i _ -> i >= low && i < high) chars))";
+      ]
+  else if name = slice_helper "array" then
+    Some
+      [
+        Printf.sprintf "let %s a low high =" name;
+        "  let high = pyk_slice_bounds \"an array\" (Stdlib.Array.length a) low high in";
+        "  Stdlib.Array.sub a low (high - low)";
+      ]
+  else if name = slice_helper "vec" then
+    Some
+      [
+        Printf.sprintf "let %s v low high =" name;
+        "  let items, n = !v in";
+        "  let high = pyk_slice_bounds \"a Vec\" n low high in";
+        "  ref (Stdlib.Array.sub items low (high - low), high - low)";
+      ]
+  else if name = slice_helper "view" then
+    Some
+      [
+        "(* A view's slice is an array. *)";
+        Printf.sprintf "let %s (owner, offset, length) low high =" name;
+        "  let high = pyk_slice_bounds \"a view\" length low high in";
+        "  Stdlib.Array.sub owner (offset + low) (high - low)";
+      ]
+  else if name = view_helper || name = view_of_view_helper then
+    let what, whole =
+      if name = view_helper then ("an array", "a") else ("a view", "(owner, offset, length)")
+    in
+    Some
+      ((if name = view_helper then
+          [
+            "(* A view is its array, where it starts in it, and its length: one";
+            "   made once and shared, like the array's elements. *)";
+          ]
+        else [])
+      @ [
+          Printf.sprintf "let %s %s i j =" name whole;
+        ]
+      @ (if name = view_helper then
+           [ "  let owner, offset, length = (a, 0, Stdlib.Array.length a) in" ]
+         else [])
+      @ [
+          "  if i < 0 || i > j || j > length then";
+          "    pyk_array_fail";
+          Printf.sprintf
+            "      (\"the view \" ^ string_of_int i ^ \":\" ^ string_of_int j ^ \" is outside %s of \""
+            what;
+          "       ^ string_of_int length ^ (if length = 1 then \" element\" else \" elements\"));";
+          "  (owner, offset + i, j - i)";
+        ])
+  else if name = view_length_helper then
+    Some [ Printf.sprintf "let %s (_, _, length) = length" name ]
+  else if name = view_owner_helper then
+    Some [ Printf.sprintf "let %s (owner, _, _) = owner" name ]
+  else if name = view_item_helper then
+    Some
+      [
+        Printf.sprintf "let %s (owner, offset, _) k = Stdlib.Array.unsafe_get owner (offset + k)" name;
+      ]
+  else if name = view_check_helper then
+    Some
+      [
+        Printf.sprintf "let %s (_, _, n) i =" name;
+        "  if i < 0 || i >= n then";
+        "    pyk_array_fail";
+        "      (\"the index \" ^ string_of_int i ^ \" is outside a view of \" ^ string_of_int n";
+        "       ^ (if n = 1 then \" element\" else \" elements\"))";
+      ]
+  else if name = view_get_helper then
+    Some
+      [
+        Printf.sprintf "let %s ((owner, offset, _) as w) k =" name;
+        "  pyk_view_check w k;";
+        "  Stdlib.Array.unsafe_get owner (offset + k)";
+      ]
+  else if name = view_set_helper then
+    Some
+      [
+        Printf.sprintf "let %s ((owner, offset, _) as w) k x =" name;
+        "  pyk_view_check w k;";
+        "  Stdlib.Array.unsafe_set owner (offset + k) x";
+      ]
+  else if name = view_to_list_helper then
+    Some
+      [
+        Printf.sprintf "let %s (owner, offset, length) =" name;
+        "  List.init length (fun k -> Stdlib.Array.unsafe_get owner (offset + k))";
+      ]
+  else if name = whole_helper then
+    Some
+      [
+        "(* An array as copy_into takes it: all of it. *)";
+        Printf.sprintf "let %s a = (a, 0, Stdlib.Array.length a)" name;
+      ]
+  else if name = copy_into_helper then
+    Some
+      [
+        "(* Stdlib.Array.blit is memmove: right where the two overlap. *)";
+        Printf.sprintf "let %s (downer, doffset, dlength) (sowner, soffset, slength) =" name;
+        "  if slength > dlength then";
+        "    pyk_array_fail";
+        "      (\"copy_into copies \" ^ string_of_int slength";
+        "       ^ (if slength = 1 then \" element\" else \" elements\")";
+        "       ^ \" into \" ^ string_of_int dlength);";
+        "  Stdlib.Array.blit sowner soffset downer doffset slength";
+      ]
+  else if name = dict_set_helper then
+    Some
+      [
+        "(* A Dict is a table from each key to its stamp and its value,";
+        "   beside a counter. Putting a new key in or taking one out moves";
+        "   the counter on, and a new key is stamped with it, so the stamps";
+        "   are the order the keys were put in, and a `for` sees the counter";
+        "   move. Replacing a value keeps the stamp. *)";
+        Printf.sprintf "let %s (table, counter) k v =" name;
+        "  match Stdlib.Hashtbl.find_opt table k with";
+        "  | Some (stamp, _) -> Stdlib.Hashtbl.replace table k (stamp, v)";
+        "  | None -> incr counter; Stdlib.Hashtbl.replace table k (!counter, v)";
+      ]
+  else if name = dict_of_list_helper then
+    Some
+      [
+        Printf.sprintf "let %s pairs =" name;
+        "  let d = (Stdlib.Hashtbl.create 8, ref 0) in";
+        "  List.iter (fun (k, v) -> pyk_dict_set d k v) pairs;";
+        "  d";
+      ]
+  else if name = dict_items_helper then
+    Some
+      [
+        "(* The entries, in the order their keys were put in. *)";
+        Printf.sprintf "let %s (table, _) =" name;
+        "  Stdlib.Hashtbl.fold (fun k (stamp, v) out -> (stamp, (k, v)) :: out) table []";
+        "  |> List.sort (fun (a, _) (b, _) -> compare (a : int) b)";
+        "  |> List.map snd";
+      ]
+  else if name = dict_keys_helper then
+    Some [ Printf.sprintf "let %s d = List.map fst (pyk_dict_items d)" name ]
+  else if name = dict_values_helper then
+    Some [ Printf.sprintf "let %s d = List.map snd (pyk_dict_items d)" name ]
+  else if name = dict_get_helper then
+    Some
+      [
+        "(* k's value; show writes a key as an error names it. *)";
+        Printf.sprintf "let %s show (table, _) k =" name;
+        "  match Stdlib.Hashtbl.find_opt table k with";
+        "  | Some (_, v) -> v";
+        "  | None -> pyk_array_fail (\"the Dict has no key \" ^ show k)";
+      ]
+  else if name = dict_has_helper then
+    Some [ Printf.sprintf "let %s (table, _) k = Stdlib.Hashtbl.mem table k" name ]
+  else if name = dict_length_helper then
+    Some [ Printf.sprintf "let %s (table, _) = Stdlib.Hashtbl.length table" name ]
+  else if name = dict_get_or_helper then
+    Some
+      [
+        Printf.sprintf "let %s (table, _) k default =" name;
+        "  match Stdlib.Hashtbl.find_opt table k with Some (_, v) -> v | None -> default";
+      ]
+  else if name = dict_remove_helper then
+    Some
+      [
+        Printf.sprintf "let %s show (table, counter) k =" name;
+        "  match Stdlib.Hashtbl.find_opt table k with";
+        "  | Some (_, v) -> Stdlib.Hashtbl.remove table k; incr counter; v";
+        "  | None -> pyk_array_fail (\"the Dict has no key \" ^ show k ^ \" to remove\")";
+      ]
+  else if name = dict_discard_helper then
+    Some
+      [
+        Printf.sprintf "let %s (table, counter) k =" name;
+        "  if Stdlib.Hashtbl.mem table k then (Stdlib.Hashtbl.remove table k; incr counter)";
+      ]
+  else if name = dict_clear_helper then
+    Some
+      [
+        Printf.sprintf "let %s (table, counter) =" name;
+        "  Stdlib.Hashtbl.reset table;";
+        "  incr counter";
+      ]
+  else if name = dict_walk_helper then
+    Some
+      [
+        "(* What a `for` walks: the keys as the walk begins, and the counter";
+        "   as it was then. *)";
+        Printf.sprintf "let %s ((_, counter) as d) =" name;
+        "  (Stdlib.Array.of_list (pyk_dict_keys d), counter, !counter)";
+      ]
+  else if name = dict_walk_length_helper then
+    Some
+      [
+        "(* Asked at every advance, the last included. *)";
+        Printf.sprintf "let %s (keys, counter, start) =" name;
+        "  if !counter <> start then";
+        "    pyk_array_fail \"the Dict changed while a for loop was reading it\";";
+        "  Stdlib.Array.length keys";
+      ]
+  else if name = dict_walk_key_helper then
+    Some [ Printf.sprintf "let %s (keys, _, _) i = Stdlib.Array.unsafe_get keys i" name ]
+  else if name = guard_helper then
+    (* The path is what formatting is inside of, innermost first: an
+       array or var struct met again on it is a cycle, and stops there.
+       One only shared is not on it, so it prints in full each time. *)
+    Some
+      [
+        "(* show, handed the path with value on it -- or `...` where value";
+        "   is already being formatted further out. *)";
+        Printf.sprintf "let %s path value show =" name;
+        "  let key = Obj.repr value in";
+        "  if List.memq key path then \"...\" else show (key :: path)";
       ]
   else None
 
@@ -1501,6 +2073,256 @@ let numeric ctx operand spelling =
     ctx -> string -> datatype? *)
 let datatype_of ctx canonical = SMap.find_opt canonical ctx.datatypes
 
+(** A var struct field's label in the OCaml record it is kept in: its
+    own name, or its position where it has none.
+    int -> string option -> string *)
+let field_label index label =
+  match label with Some name -> mangle_base name | None -> Printf.sprintf "f%d" index
+
+(** The labels of the var struct `canonical`'s fields, in order, or None
+    where it is not a var struct. ctx -> string -> [string]? *)
+let var_struct_labels ctx canonical =
+  match datatype_of ctx canonical with
+  | Some (Datatype (_, _, [ (_, fields) ], true)) ->
+      Some (List.mapi (fun index (label, _) -> field_label index label) fields)
+  | _ -> None
+
+(** `C { a = x; b = y }` as pattern text, with `; _` where it names only
+    some of the fields. string -> [(string, string)] -> bool -> string *)
+let record_pattern ctor pairs some =
+  Printf.sprintf "%s { %s%s }" ctor
+    (String.concat "; " (List.map (fun (label, p) -> label ^ " = " ^ p) pairs))
+    (if some then "; _" else "")
+
+(** Whether the printer of the datatype `canonical` is handed the path
+    (docs/target_ocaml.md, "Var structs"): whether a value of it can hold
+    a cycle -- one that leads back through an array, a Vec, a Dict or a
+    var struct to where it started -- or a type variable's value, which
+    may. Such a value goes on the path itself before its fields are
+    formatted, as the interpreter's does, so the cycle stops at whatever
+    on it repeats first. Worked out from the
+    declarations of the datatype's own module alone -- a type of another
+    module counts as holding a cycle -- so every module that sees the
+    datatype answers the same for it. ctx -> string -> bool *)
+let takes_path ctx canonical =
+  let home = fst (split_canonical canonical) in
+  (* `around` is what the walk is inside of, innermost first: a
+     datatype's name, or None for an array. Meeting a datatype again is a
+     cycle, which counts where something mutable is on it. *)
+  let rec datatype around c =
+    match datatype_of ctx c with
+    | None -> true
+    | Some (Datatype (_, _, constructors, _)) ->
+        List.exists
+          (fun (_, fields) -> List.exists (fun (_, t) -> reaches (Some c :: around) t) fields)
+          constructors
+  and reaches around t =
+    match t with
+    | TVar _ -> true
+    | TList (_, element, _) -> reaches around element
+    | TTuple (_, elements, _) -> List.exists (reaches around) elements
+    | TCon _ when held_element t <> None ->
+        reaches (None :: around) (Option.get (held_element t))
+    | TCon (_, c, args, _) -> (
+        List.exists (reaches around) args
+        || fst (split_canonical c) <> home
+        ||
+        let rec cycle around =
+          match around with
+          | [] -> None
+          | Some d :: _ when d = c -> Some (mutable_ d)
+          | None :: rest -> Option.map (fun _ -> true) (cycle rest)
+          | Some d :: rest -> Option.map (fun m -> m || mutable_ d) (cycle rest)
+        in
+        match cycle around with
+        | Some through_mutable -> through_mutable
+        | None -> datatype around c)
+    | _ -> false
+  and mutable_ c =
+    match datatype_of ctx c with
+    | None | Some (Datatype (_, _, _, true)) -> true
+    | Some _ -> false
+  in
+  datatype [] canonical
+
+(** Whether a value of type t can hold a pointer, which `==` compares by
+    the place it names rather than by what is there. A datatype this
+    module cannot see counts as holding one. ctx -> typ -> bool *)
+let holds_pointer ctx t =
+  let rec go seen t =
+    match t with
+    | TList (_, element, _) -> go seen element
+    | TTuple (_, elements, _) -> List.exists (go seen) elements
+    | TCon _ when ptr_target t <> None -> true
+    | TCon (_, c, args, _) -> (
+        List.exists (go seen) args
+        || (not (List.mem c seen))
+           &&
+           match datatype_of ctx c with
+           | None -> held_element t = None
+           | Some (Datatype (_, _, constructors, _)) ->
+               List.exists
+                 (fun (_, fields) -> List.exists (fun (_, t) -> go (c :: seen) t) fields)
+                 constructors)
+    | _ -> false
+  in
+  go [] t
+
+(** Whether a value of type t can hold an array or a var struct: one a
+    call can change between the moment it is worked out and the moment
+    it is formatted. ctx -> typ -> bool *)
+let rec holds_mutable ctx t =
+  match t with
+  | TVar (_, _, _, constrained) -> constrained
+  | TList (_, element, _) -> holds_mutable ctx element
+  | TTuple (_, elements, _) -> List.exists (holds_mutable ctx) elements
+  | TCon _ when held_element t <> None -> true
+  | TCon (_, c, args, _) -> (
+      List.exists (holds_mutable ctx) args
+      ||
+      match datatype_of ctx c with
+      | None | Some (Datatype (_, _, _, true)) -> true
+      | Some _ -> takes_path ctx c)
+  | _ -> false
+
+(** Whether one call can change what a caller sees: a builtin that
+    changes a Vec, a function of the program's own that is in `known`, a
+    function of another module, and -- where `unknown` -- one reached
+    some other way, a parameter or a name brought in by a `from` line.
+    StringSet.t -> StringSet.t -> bool -> typ IntMap.t -> expr -> bool *)
+let call_changes defined known unknown tmap e =
+  match e with
+  | ECall (_, EVar (_, name, callee), _, _) ->
+      if (not (IntMap.mem callee tmap)) && List.mem name Builtin.names then
+        List.mem name Builtin.writers
+      else if StringSet.mem name defined then StringSet.mem name known
+      else unknown
+  | ECall (_, EQualified _, _, _) -> true
+  | ECall _ -> unknown
+  | _ -> false
+
+(** The functions of a program that can change something a caller can
+    see -- a `var` they did not declare themselves, an element of an
+    array or a Vec, a field of a var struct, a Vec's length -- directly
+    or through a call, worked out to a fixed point over the call graph;
+    and whether a call that cannot be followed is taken to change
+    something, which it is where the program imports a module or any of
+    its own functions changes something. The same shape as
+    Analyses.effects, for writes rather than output.
+    Answers the names of its functions too.
+    [stmt] -> typ IntMap.t -> (StringSet.t, StringSet.t, bool) *)
+let changing_functions stmts tmap =
+  let definitions =
+    Walk.fold_stmts
+      (fun found node ->
+        match node with
+        | Walk.NStmt (SFunctionDef (_, name, _, body, _, _, _, _, _)) -> (name, body) :: found
+        | _ -> found)
+      [] stmts
+  in
+  let defined = StringSet.of_list (List.map fst definitions) in
+  let changes known unknown body =
+    let locals =
+      Walk.fold_stmts
+        (fun found node ->
+          match node with
+          | Walk.NStmt (SVar (_, name, _, _)) -> StringSet.add name found
+          | _ -> found)
+        StringSet.empty body
+    in
+    Walk.exists_stmts
+      (fun node ->
+        match node with
+        | Walk.NStmt (SMutate (_, name, _, _)) -> not (StringSet.mem name locals)
+        | Walk.NStmt (SSetIndex _ | SSetField _ | SSetDeref _) -> true
+        | Walk.NExpr e -> call_changes defined known unknown tmap e
+        | _ -> false)
+      body
+  in
+  let rec settle known unknown =
+    let grown =
+      List.fold_left
+        (fun known (name, body) ->
+          if (not (StringSet.mem name known)) && changes known unknown body then
+            StringSet.add name known
+          else known)
+        known definitions
+    in
+    let unknown_now = unknown || not (StringSet.is_empty grown) in
+    if StringSet.equal grown known && unknown_now = unknown then (defined, known, unknown)
+    else settle grown unknown_now
+  in
+  settle StringSet.empty (List.exists (function SImport _ -> true | _ -> false) stmts)
+
+(** Whether any node of e, outside the lambdas it makes, satisfies pred.
+    (Walk.node -> bool) -> expr -> bool *)
+let touches pred e =
+  let rec go node =
+    match node with
+    | Walk.NExpr (ELambda _) -> false
+    | node -> pred node || List.exists go (Walk.children node)
+  in
+  go (Walk.NExpr e)
+
+(** Whether e's type, as this definition is translated, satisfies pred.
+    ctx -> (typ -> bool) -> expr -> bool *)
+let typed ctx pred e =
+  match IntMap.find_opt (expr_sym e) ctx.tmap with
+  | Some t -> pred (substituted ctx.specialised t)
+  | None -> false
+
+(** Whether working out e can do something another operand could see or
+    be seen by (docs/target_ocaml.md, "Evaluation order"): print, change
+    something through a call, or fail -- an element read of an array or a
+    Vec, or making an array of a size that may be refused.
+    ctx -> expr -> bool *)
+let writes ctx e =
+  Analyses.may_print ctx.printing e
+  || touches
+       (fun node ->
+         match node with
+         | Walk.NExpr (EIndex (_, owner, _, _)) ->
+             typed ctx (fun t -> store_element t <> None || dict_parts t <> None) owner
+         (* An element's address checks the index. *)
+         | Walk.NExpr (EAddr (_, EIndex _, _)) -> true
+         | Walk.NExpr (ECall (_, EVar (_, name, _), _, _))
+           when List.mem name Builtin.member_names ->
+             true
+         | Walk.NExpr e -> call_changes ctx.defined ctx.changing ctx.unknown_changes ctx.tmap e
+         | _ -> false)
+       e
+
+(** Whether e can see what another operand does: whether it writes, or
+    reads a `var`, a var struct's field, a Vec's length, or anything
+    `string` formats that can hold an array or a var struct, or calls a
+    function, which may read any of those. ctx -> expr -> bool *)
+let observes ctx e =
+  writes ctx e
+  || touches
+       (fun node ->
+         match node with
+         | Walk.NExpr (EVar (_, name, _)) -> StringSet.mem name ctx.refs
+         | Walk.NExpr (EDeref _) -> true
+         | Walk.NExpr (EField (_, owner, _, _)) ->
+             typed ctx
+               (function TCon (_, c, _, _) -> var_struct_labels ctx c <> None | _ -> false)
+               owner
+         | Walk.NExpr (ECall (_, EVar (_, "string", _), [ (_, value) ], _)) ->
+             holds_mutable ctx (type_of ctx value)
+         | Walk.NExpr (ECall (_, EVar (_, name, callee), args, _))
+           when List.mem name Builtin.pure_names && not (IntMap.mem callee ctx.tmap) -> (
+             (* A builtin -- the checker gave a program's own function of
+                the name a type, and none to the builtin. `len`, `get`,
+                `has`, `keys`, ... read a Vec or a Dict. *)
+             match args with
+             | (_, first) :: _ ->
+                 vec_element (type_of ctx first) <> None || dict_parts (type_of ctx first) <> None
+             | [] -> false)
+         | Walk.NExpr (ECall (_, EVar _, _, _)) -> true
+         | Walk.NExpr (ECall _) -> true
+         | _ -> false)
+       e
+
 (** Translates one expression. ctx -> acc -> expr -> (oexpr, acc) *)
 let rec expr ctx acc e =
   match e with
@@ -1549,7 +2371,7 @@ let rec expr ctx acc e =
          (* `same` is a newer builtin than many a program's own `same`,
             which the checker gave a type and which is called as any
             definition is. *)
-         && not (name = "same" && IntMap.mem callee ctx.tmap) ->
+         && not (List.mem name Builtin.yielding && IntMap.mem callee ctx.tmap) ->
       builtin_call ctx acc e name (arg_exprs args)
   (* The four ways to make an array (docs/target_ocaml.md, "Arrays"):
      the arguments are worked out left to right like any call's, then
@@ -1560,19 +2382,29 @@ let rec expr ctx acc e =
         match name with
         | "list__array" -> ("Stdlib.Array.of_list", acc)
         | "fill__array" -> (array_fill_helper, need acc array_fill_helper)
-        | "init__array" -> (array_init_helper, need acc array_init_helper)
-        | "unfold__array" -> (array_unfold_helper, need acc array_unfold_helper)
+        | "init__array_init" -> (array_init_helper, need acc array_init_helper)
+        | "unfold__array_init" -> (array_unfold_helper, need acc array_unfold_helper)
+        | "list__vec" -> (vec_of_list_helper, need acc vec_of_list_helper)
+        | "empty__vec" -> ("ref", acc)
+        | "list__dict" -> (dict_of_list_helper, need acc dict_of_list_helper)
+        | "empty__dict" -> ("Stdlib.Hashtbl.create", acc)
         | _ ->
             unsupported (expr_info e)
               (Printf.sprintf "the builtin `%s` is not supported yet" name)
       in
-      let made = sequence (OApp (OVar helper, pieces)) in
+      let made =
+        if name = "empty__vec" then OApp (OVar "ref", [ OTuple [ OVar "[||]"; OInt 0 ] ])
+        else if name = "empty__dict" then
+          OTuple [ OApp (OVar "Stdlib.Hashtbl.create", [ OInt 8 ]); OApp (OVar "ref", [ OInt 0 ]) ]
+        else sequence (OApp (OVar helper, pieces))
+      in
       (* `array([])` says nothing of its element type to OCaml, which
          would leave a top-level one with a type it refuses to
          generalise: the checker's type is written on it instead. *)
       let made =
         match (name, arg_exprs args) with
-        | "list__array", [ EList (_, [], _) ] ->
+        | ("list__array" | "list__vec" | "list__dict"), [ EList (_, [], _) ]
+        | ("empty__vec" | "empty__dict"), [] ->
             (* Only a type written the same in every module, with no
                variable left in it, is written. *)
             let rec plain t =
@@ -1581,9 +2413,10 @@ let rec expr ctx acc e =
               | TList (_, element, _) -> plain element
               | TTuple (_, elements, _) -> List.for_all plain elements
               | t -> (
-                  match Typesystem.array_element t with
-                  | Some element -> plain element
-                  | None -> false)
+                  match (store_element t, dict_parts t) with
+                  | Some element, _ -> plain element
+                  | None, Some (key, value) -> plain key && plain value
+                  | None, None -> false)
             in
             if plain (type_of ctx e) then OTyped (made, type_of ctx e) else made
         | _ -> made
@@ -1660,7 +2493,7 @@ let rec expr ctx acc e =
   | EGreatThanEq (_, left, right, _) -> binary ctx acc ">=" left right
   (* OCaml's `=` is structural equality, which is what Pyking's `==`
      means for every type it compares. *)
-  | EEq (_, left, right, _) -> binary ctx acc "=" left right
+  | EEq (_, left, right, _) -> equality ctx acc left right
   | EBinary (_, op, left, right, _) -> (
       let float = match IntMap.find_opt (expr_sym left) ctx.tmap with Some (TFloat _) -> true | _ -> false in
       match op with
@@ -1672,6 +2505,9 @@ let rec expr ctx acc e =
           let b, acc = expr ctx acc right in
           (OBin ((match op with BAnd _ -> "&&" | _ -> "||"), a, b), acc)
       (* `<>` is structural, as `=` is, and IEEE's on two floats. *)
+      | BNeq when holds_pointer ctx (type_of ctx left) ->
+          let same, acc = equality ctx acc left right in
+          (OApp (OVar "not", [ same ]), acc)
       | BNeq | BBoolXor -> binary ctx acc "<>" left right
       | BMod when float ->
           let pieces, sequence, acc = in_order ctx acc [ left; right ] in
@@ -1694,6 +2530,102 @@ let rec expr ctx acc e =
   | EUnary (_, op, operand, _) ->
       let o_operand, acc = expr ctx acc operand in
       (OApp (OVar (match op with UNot _ -> "not" | UBitNot _ -> "lnot"), [ o_operand ]), acc)
+  (* Pointers (docs/target_ocaml.md, "Pointers"). *)
+  | EDeref (_, pointer, _) ->
+      let o, acc = expr ctx acc pointer in
+      (OSend (o, "get"), acc)
+  | EAddr (info, place, _) -> (
+      match place with
+      | EVar (_, name, _) when StringSet.mem name ctx.refs ->
+          (* The `var`'s ref itself, not what is in it. *)
+          (OApp (OVar ptr_cell_helper, [ OVar (mangle ctx name) ]), need acc ptr_cell_helper)
+      | EIndex (_, owner, index, _) ->
+          let helper =
+            if slice_element (type_of ctx owner) <> None then ptr_view_elem_helper
+            else ptr_elem_helper
+          in
+          let pieces, pin, acc = in_order ctx acc [ owner; index ] in
+          (pin (OApp (OVar helper, pieces)), need acc helper)
+      | EField (_, owner, field, _) -> (
+          match type_of ctx owner with
+          | TCon (_, canonical, _, _) -> (
+              match datatype_of ctx canonical with
+              | Some (Datatype (_, _, [ (cname, fields) ], true)) ->
+                  let o_owner, acc = expr ctx acc owner in
+                  let held, acc =
+                    match o_owner with
+                    | OVar _ -> (o_owner, acc)
+                    | _ ->
+                        let name, acc = fresh_name ctx acc in
+                        (OVar name, acc)
+                  in
+                  let index =
+                    Option.get (List.find_index (fun (label, _) -> label = Some field) fields)
+                  in
+                  let label = field_label index (Some field) in
+                  let ctor = constructor_name canonical cname in
+                  let read, acc = fresh_name ctx acc in
+                  let record, acc = fresh_name ctx acc in
+                  let value, acc = fresh_name ctx acc in
+                  let get =
+                    OLambda
+                      ( [],
+                        OMatch
+                          ( held,
+                            [
+                              ( record_pattern ctor [ (label, read) ] (List.length fields > 1),
+                                None,
+                                OVar read );
+                            ] ) )
+                  in
+                  let set =
+                    OLambda
+                      ( [ OPatName value ],
+                        OMatch
+                          ( held,
+                            [ (ctor ^ " " ^ record, None, OSetField (OVar record, label, OVar value)) ]
+                          ) )
+                  in
+                  let made = OApp (OVar ptr_field_helper, [ held; OInt index; get; set ]) in
+                  let made =
+                    if held == o_owner then made
+                    else
+                      OLet
+                        ( [ { bound = OPatName (match held with OVar n -> n | _ -> ""); params = []; value = o_owner } ],
+                          made,
+                          false )
+                  in
+                  (made, need acc ptr_field_helper)
+              | _ -> unsupported info "the address of a field of a value that is not a var struct")
+          | _ -> unsupported info "the address of a field of a value whose type is not settled")
+      | EDeref (_, pointer, _) -> expr ctx acc pointer
+      | _ -> unsupported info "the address of something that is not a place")
+  | ESlice (info, sequence, low, high, _) ->
+      (* `s[i:j]` (docs/target_ocaml.md, "Slices and views"): the
+         sequence, then the bounds, worked out in that order, then the
+         helper that checks them and copies. *)
+      let t = type_of ctx sequence in
+      let kind =
+        if is_list t then "list"
+        else if is_string t then "string"
+        else if Typesystem.array_element t <> None then "array"
+        else if vec_element t <> None then "vec"
+        else if slice_element t <> None then "view"
+        else unsupported info (Printf.sprintf "a slice of a value of type %s" (name_of t))
+      in
+      let given = sequence :: (Option.to_list low @ Option.to_list high) in
+      let pieces, pin, acc = in_order ctx acc given in
+      let o_sequence = List.hd pieces in
+      let rest = List.tl pieces in
+      let o_low, o_high =
+        match (low, high, rest) with
+        | Some _, Some _, [ l; h ] -> (l, OApp (OVar "Some", [ h ]))
+        | Some _, None, [ l ] -> (l, OVar "None")
+        | None, Some _, [ h ] -> (OInt 0, OApp (OVar "Some", [ h ]))
+        | _ -> (OInt 0, OVar "None")
+      in
+      let helper = slice_helper kind in
+      (pin (OApp (OVar helper, [ o_sequence; o_low; o_high ])), need acc helper)
   | EIndex (_, list, index, _) ->
       let pieces, sequence, acc = in_order ctx acc [ list; index ] in
       if is_string (type_of ctx list) then
@@ -1702,6 +2634,14 @@ let rec expr ctx acc e =
       else if Typesystem.array_element (type_of ctx list) <> None then
         (* Checked, so a bad index stops with Pyking's message. *)
         (sequence (OApp (OVar array_get_helper, pieces)), need acc array_get_helper)
+      else if vec_element (type_of ctx list) <> None then
+        (* Checked against the length the Vec has now. *)
+        (sequence (OApp (OVar vec_get_helper, pieces)), need acc vec_get_helper)
+      else if slice_element (type_of ctx list) <> None then
+        (sequence (OApp (OVar view_get_helper, pieces)), need acc view_get_helper)
+      else if dict_parts (type_of ctx list) <> None then
+        let show, acc = key_printer ctx acc (type_of ctx index) in
+        (sequence (OApp (OVar dict_get_helper, show :: pieces)), need acc dict_get_helper)
       else (sequence (OApp (OVar "List.nth", pieces)), acc)
   | EConstruct (_, _, name, args, _) -> (
       let canonical =
@@ -1709,6 +2649,14 @@ let rec expr ctx acc e =
       in
       let pieces, sequence, acc = in_order ctx acc (arg_exprs args) in
       let ctor = OVar (constructor_name canonical name) in
+      match (var_struct_labels ctx canonical, pieces) with
+      | Some labels, _ ->
+          (* A var struct is a record of mutable fields, and making one
+             allocates the object every holder of it shares. *)
+          ( sequence
+              (OBuild (constructor_name canonical name, List.combine labels pieces)),
+            acc )
+      | None, pieces ->
       match pieces with
       | [] -> (ctor, acc)
       | [ one ] -> (sequence (OApp (ctor, [ one ])), acc)
@@ -1719,7 +2667,23 @@ let rec expr ctx acc e =
       match type_of ctx record with
       | TCon (_, canonical, _, _) -> (
           match SMap.find_opt canonical ctx.datatypes with
-          | Some (Datatype (_, _, constructors)) ->
+          | Some (Datatype (_, _, [ (cname, fields) ], true)) ->
+              (* A var struct's field, read where it is now:
+                 `let Point { x = tmp1; _ } = p in tmp1`. *)
+              let o_record, acc = expr ctx acc record in
+              let name, acc = fresh_name ctx acc in
+              let index =
+                Option.get
+                  (List.find_index (fun (label, _) -> label = Some field) fields)
+              in
+              let text =
+                record_pattern
+                  (constructor_name canonical cname)
+                  [ (field_label index (Some field), name) ]
+                  (List.length fields > 1)
+              in
+              (OMatch (o_record, [ (text, None, OVar name) ]), acc)
+          | Some (Datatype (_, _, constructors, _)) ->
               let o_record, acc = expr ctx acc record in
               let name, acc = fresh_name ctx acc in
               let arms =
@@ -1745,12 +2709,32 @@ let rec expr ctx acc e =
           | None -> unsupported (expr_info e) "a field of a datatype this module cannot see")
       | _ -> unsupported (expr_info e) "a field of a value whose type is not settled")
 
+(** A function writing a Dict's key as an error message names it: as
+    it is written inside a value, a String quoted.
+    ctx -> acc -> typ -> (oexpr, acc) *)
+and key_printer ctx acc key_type =
+  let name, acc = fresh_name ctx acc in
+  let shown, acc = string_of { ctx with path = OList [] } acc key_type (OVar name) no_info false in
+  (OFun [ (name, shown) ], acc)
+
 (** A `for`'s sequence as the list it walks: a String's Chars, or the
     list itself. ctx -> acc -> expr -> oexpr -> (oexpr, acc) *)
 and walked_chars ctx acc sequence o_sequence =
   if is_string (type_of ctx sequence) then
     (OApp (OVar chars_helper, [ o_sequence ]), need acc chars_helper)
   else (o_sequence, acc)
+
+(** `left == right`: OCaml's structural `=`, but where the values can
+    hold a pointer, two pointers are equal where they name one place
+    (docs/target_ocaml.md, "Pointers"). ctx -> acc -> expr -> expr ->
+    (oexpr, acc) *)
+and equality ctx acc left right =
+  let t = type_of ctx left in
+  if not (holds_pointer ctx t) then binary ctx acc "=" left right
+  else
+    let helper = if ptr_target t <> None then ptr_same_helper else equal_helper in
+    let pieces, sequence, acc = in_order ctx acc [ left; right ] in
+    (sequence (OApp (OVar helper, pieces)), need acc helper)
 
 (** One binary operator application.
     ctx -> acc -> string -> expr -> expr -> (oexpr, acc) *)
@@ -1771,47 +2755,13 @@ and in_order ctx acc exprs =
         (out @ [ o ], acc))
       ([], acc) exprs
   in
-  (* An array read can fail, and sees a write made before it, so it is
-     pinned like a print -- and, beside one, so is anything that calls a
-     function, which may be what writes (docs/target_ocaml.md, "Arrays"). *)
-  let touches pred e =
-    let rec go node =
-      match node with
-      | Walk.NExpr (ELambda _) -> false
-      | node -> pred node || List.exists go (Walk.children node)
-    in
-    go (Walk.NExpr e)
-  in
-  let is_array e =
-    match IntMap.find_opt (expr_sym e) ctx.tmap with
-    | Some t -> Typesystem.array_element (substituted ctx.specialised t) <> None
-    | None -> false
-  in
-  let reads_array =
-    touches (fun node ->
-        match node with
-        | Walk.NExpr (EIndex (_, owner, _, _)) -> is_array owner
-        | Walk.NExpr (ECall (_, EVar (_, name, _), _, _)) -> List.mem name Builtin.member_names
-        | _ -> false)
-  in
-  let calls =
-    touches (fun node ->
-        match node with
-        | Walk.NExpr (ECall (_, EVar (_, name, _), _, _)) -> not (List.mem name Builtin.pure_names)
-        | Walk.NExpr (ECall _) -> true
-        | _ -> false)
-  in
-  let any_array_read = List.exists reads_array exprs in
+  (* Where one of them can print, change something, or fail, every one
+     that can see that -- or be seen by it -- is pinned
+     (docs/target_ocaml.md, "Evaluation order"). *)
   let effectful =
-    List.concat
-      (List.mapi
-         (fun index e ->
-           if
-             Analyses.may_print ctx.printing e
-             || (any_array_read && (reads_array e || calls e))
-           then [ index ]
-           else [])
-         exprs)
+    if not (List.exists (writes ctx) exprs) then []
+    else
+      List.concat (List.mapi (fun index e -> if observes ctx e then [ index ] else []) exprs)
   in
   if List.length effectful < 2 then (translated, (fun result -> result), acc)
   else
@@ -1866,7 +2816,37 @@ and print_call ctx acc call args =
   in
   if args = [] then (OApp (OVar newline, [ OUnit ]), acc)
   else
-    let ordered, sequence, acc = in_order ctx acc args in
+    (* Every argument is worked out before any is formatted: where one
+       can hold an array or a var struct and another makes a call, which
+       could change it, each is held in turn, left to right, and the
+       line is made from what was held. *)
+    let late =
+      List.length args > 1
+      && List.exists (fun a -> holds_mutable ctx (type_of ctx a)) args
+      && List.exists (writes ctx) args
+    in
+    let ordered, sequence, acc =
+      if not late then in_order ctx acc args
+      else
+        let bindings, ordered, acc =
+          List.fold_left
+            (fun (bindings, ordered, acc) a ->
+              let o, acc = expr ctx acc a in
+              match o with
+              | OVar _ | OInt _ | OFloat _ | OStr _ | OBool _ | OUnit ->
+                  (bindings, ordered @ [ o ], acc)
+              | _ ->
+                  let name, acc = fresh_name ctx acc in
+                  ( bindings @ [ { bound = OPatName name; params = []; value = o } ],
+                    ordered @ [ OVar name ],
+                    acc ))
+            ([], [], acc) args
+        in
+        ( ordered,
+          (fun result ->
+            List.fold_right (fun b result -> OLet ([ b ], result, false)) bindings result),
+          acc )
+    in
     let pieces, acc =
       List.fold_left2
         (fun (out, acc) a t ->
@@ -1937,29 +2917,114 @@ and string_of ctx acc type_ translated info top =
            the Pyking it came from. *)
         (OSeq (OIgnore translated, OStr ""), acc)
     | TVar (_, variable, _, true) when List.mem_assoc variable ctx.shows ->
-        (OApp (List.assoc variable ctx.shows, [ translated ]), acc)
-    | TCon _ when Typesystem.array_element type_ <> None ->
-        (* What makes one: `array([` and the elements as a list writes
-           them. *)
-        let element = Option.get (Typesystem.array_element type_) in
+        let path = if ctx.shows_path then [ ctx.path ] else [] in
+        (OApp (List.assoc variable ctx.shows, path @ [ translated ]), acc)
+    | TCon _ when ptr_target type_ <> None ->
+        (* What it points at now, never an address: `Ptr(12)`. On the
+           path it is the store it points into. *)
+        let target = Option.get (ptr_target type_) in
+        let held, acc =
+          match translated with
+          | OVar name when name <> "path" -> (None, acc)
+          | _ ->
+              let name, acc = fresh_name ctx acc in
+              (Some name, acc)
+        in
+        let pointer = match held with Some name -> OVar name | None -> translated in
+        let shown, acc =
+          string_of { ctx with path = OVar "path" } acc target (OSend (pointer, "get")) info false
+        in
+        let written = OBin ("^", OStr "Ptr(", OBin ("^", shown, OStr ")")) in
+        let made, acc =
+          if not (StringSet.mem "path" (free shown)) then (written, acc)
+          else
+            ( OApp
+                ( OVar guard_helper,
+                  [
+                    ctx.path;
+                    OApp (OVar ptr_store_helper, [ pointer ]);
+                    OLambda ([ OPatName "path" ], written);
+                  ] ),
+              need (need acc guard_helper) ptr_store_helper )
+        in
+        ( (match held with
+          | None -> made
+          | Some name ->
+              OLet ([ { bound = OPatName name; params = []; value = translated } ], made, false)),
+          acc )
+    | TCon _ when held_element type_ <> None ->
+        (* What makes one: `array([`, `vec([` or `dict([`, and the
+           elements -- a Dict's entries, as `(key, value)` tuples -- as a
+           list writes them. *)
+        let element = Option.get (held_element type_) in
+        let opening, lister, acc =
+          if vec_element type_ <> None then ("vec([", vec_to_list_helper, need acc vec_to_list_helper)
+          else if dict_parts type_ <> None then
+            ("dict([", dict_items_helper, need acc dict_items_helper)
+          else if slice_element type_ <> None then
+            ("view([", view_to_list_helper, need acc view_to_list_helper)
+          else ("array([", "Stdlib.Array.to_list", acc)
+        in
+        let is_view = slice_element type_ <> None in
         let name, acc = fresh_name ctx acc in
-        let shown, acc = string_of ctx acc element (OVar name) info false in
-        let listed = OApp (OVar "Stdlib.Array.to_list", [ translated ]) in
-        let mapped = OApp (OVar "List.map", [ OFun [ (name, shown) ]; listed ]) in
-        let joined = OApp (OVar "String.concat", [ OStr ", "; mapped ]) in
-        (OBin ("^", OStr "array([", OBin ("^", joined, OStr "])")), acc)
+        let shown, acc =
+          string_of { ctx with path = OVar "path" } acc element (OVar name) info false
+        in
+        let written array =
+          let listed = OApp (OVar lister, [ array ]) in
+          let mapped = OApp (OVar "List.map", [ OFun [ (name, shown) ]; listed ]) in
+          let joined = OApp (OVar "String.concat", [ OStr ", "; mapped ]) in
+          OBin ("^", OStr opening, OBin ("^", joined, OStr "])"))
+        in
+        if not (StringSet.mem "path" (free shown)) then (written translated, acc)
+        else
+          (* An element that can hold this array again: the array goes on
+             the path, so it prints `...` where it repeats
+             (docs/target_ocaml.md, "Var structs"). *)
+          let held, acc =
+            match translated with
+            | OVar held when held <> "path" -> (None, acc)
+            | _ ->
+                let held, acc = fresh_name ctx acc in
+                (Some held, acc)
+          in
+          let array = match held with Some held -> OVar held | None -> translated in
+          (* A view is on the path as the array it is a view of. *)
+          let key, acc =
+            if is_view then (OApp (OVar view_owner_helper, [ array ]), need acc view_owner_helper)
+            else (array, acc)
+          in
+          let guarded =
+            OApp
+              ( OVar guard_helper,
+                [ ctx.path; key; OLambda ([ OPatName "path" ], written array) ] )
+          in
+          ( (match held with
+            | None -> guarded
+            | Some held ->
+                OLet ([ { bound = OPatName held; params = []; value = translated } ], guarded, false)),
+            need acc guard_helper )
     | TCon (_, canonical, args, _) ->
         (* A datatype's values print through the printer written beside
-           its declaration, handed one printer per type it is applied to. *)
+           its declaration, handed one printer per type it is applied to
+           -- and the path, where the printer takes it, which those
+           printers then take too. *)
+        let takes = takes_path ctx canonical in
+        let inner = if takes then { ctx with path = OVar "path" } else ctx in
         let printers, acc =
           List.fold_left
             (fun (out, acc) arg ->
               let name, acc = fresh_name ctx acc in
-              let shown, acc = string_of ctx acc arg (OVar name) info false in
-              (out @ [ OFun [ (name, shown) ] ], acc))
+              let shown, acc = string_of inner acc arg (OVar name) info false in
+              let printer =
+                if takes then OLambda ([ OPatName "path"; OPatName name ], shown)
+                else OFun [ (name, shown) ]
+              in
+              (out @ [ printer ], acc))
             ([], acc) args
         in
-        (OApp (OVar (printer_name canonical), printers @ [ translated ]), acc)
+        let path = if takes then [ ctx.path ] else [] in
+        (OApp (OVar (printer_name canonical), printers @ path @ [ translated ]), acc)
     | type_ ->
         unsupported info
           (Printf.sprintf "printing a value of type %s" (name_of type_))
@@ -2060,6 +3125,12 @@ and builtin_call ctx acc call name args =
         (OApp (OVar "List.length", [ o_value ]), acc)
       else if Typesystem.array_element type_ <> None then
         (OApp (OVar "Stdlib.Array.length", [ o_value ]), acc)
+      else if vec_element type_ <> None then
+        (OApp (OVar vec_length_helper, [ o_value ]), need acc vec_length_helper)
+      else if dict_parts type_ <> None then
+        (OApp (OVar dict_length_helper, [ o_value ]), need acc dict_length_helper)
+      else if slice_element type_ <> None then
+        (OApp (OVar view_length_helper, [ o_value ]), need acc view_length_helper)
       else
         unsupported (expr_info call)
           (Printf.sprintf "`len` of a value of type %s" (name_of type_)))
@@ -2078,6 +3149,48 @@ and builtin_call ctx acc call name args =
             (Printf.sprintf "`char` of a value of type %s" (name_of type_)))
   (* One array under two names: identity, which OCaml's `==` is. *)
   | "same", [ left; right ] -> binary ctx acc "==" left right
+  (* What changes a Vec (docs/target_ocaml.md, "Vecs"): its arguments
+     worked out left to right, then the helper. *)
+  | ("push" | "pop" | "insert" | "remove" | "clear"), first :: _
+    when vec_element (type_of ctx first) <> None ->
+      let helper = "pyk_vec_" ^ name in
+      let pieces, pin, acc = in_order ctx acc args in
+      (pin (OApp (OVar helper, pieces)), need acc helper)
+  (* A view of an array or of a view, and copy_into
+     (docs/target_ocaml.md, "Slices and views"). *)
+  | "view", [ first; _; _ ] ->
+      let helper =
+        if slice_element (type_of ctx first) <> None then view_of_view_helper else view_helper
+      in
+      let pieces, pin, acc = in_order ctx acc args in
+      (pin (OApp (OVar helper, pieces)), need acc helper)
+  | "copy_into", [ dst; src ] ->
+      let pieces, pin, acc = in_order ctx acc args in
+      let run e o acc =
+        if slice_element (type_of ctx e) <> None then (o, acc)
+        else (OApp (OVar whole_helper, [ o ]), need acc whole_helper)
+      in
+      let o_dst, o_src =
+        match pieces with [ d; s ] -> (d, s) | _ -> (OUnit, OUnit)
+      in
+      let o_dst, acc = run dst o_dst acc in
+      let o_src, acc = run src o_src acc in
+      (pin (OApp (OVar copy_into_helper, [ o_dst; o_src ])), need acc copy_into_helper)
+  (* What reads or changes a Dict (docs/target_ocaml.md, "Dicts"). *)
+  | ("remove" | "discard" | "clear" | "get" | "has" | "keys" | "values" | "items"), first :: _
+    when dict_parts (type_of ctx first) <> None -> (
+      let key_type = fst (Option.get (dict_parts (type_of ctx first))) in
+      let pieces, pin, acc = in_order ctx acc args in
+      match (name, pieces) with
+      | "remove", _ ->
+          let show, acc = key_printer ctx acc key_type in
+          (pin (OApp (OVar dict_remove_helper, show :: pieces)), need acc dict_remove_helper)
+      | "get", _ ->
+          (* The default is an argument, worked out before the look-up. *)
+          (pin (OApp (OVar dict_get_or_helper, pieces)), need acc dict_get_or_helper)
+      | _ ->
+          let helper = "pyk_dict_" ^ name in
+          (pin (OApp (OVar helper, pieces)), need acc helper))
   | "range", [ count ] ->
       (* `List.init` refuses a negative length where `range` answers with
          nothing, so the count is floored here. *)
@@ -2321,6 +3434,10 @@ and matcher ctx acc p used =
       in
       let ctor = constructor_name canonical name in
       let text =
+        match (var_struct_labels ctx canonical, parts) with
+        (* A var struct's fields are matched as they are now. *)
+        | Some labels, _ -> record_pattern ctor (List.combine labels parts) false
+        | None, parts ->
         match parts with
         | [] -> ctor
         | [ one ] -> Printf.sprintf "%s (%s)" ctor one
@@ -2424,10 +3541,17 @@ and clauses ctx acc clause_list element =
       let o_sequence, acc = walked_chars ctx acc sequence o_sequence in
       (* A comprehension over an array walks the elements it holds when
          the walk begins, as interpreter.ml's does. *)
-      let o_sequence =
+      let o_sequence, acc =
         if Typesystem.array_element (type_of ctx sequence) <> None then
-          OApp (OVar "Stdlib.Array.to_list", [ o_sequence ])
-        else o_sequence
+          (OApp (OVar "Stdlib.Array.to_list", [ o_sequence ]), acc)
+        else if vec_element (type_of ctx sequence) <> None then
+          (OApp (OVar vec_to_list_helper, [ o_sequence ]), need acc vec_to_list_helper)
+        else if slice_element (type_of ctx sequence) <> None then
+          (OApp (OVar view_to_list_helper, [ o_sequence ]), need acc view_to_list_helper)
+        else if dict_parts (type_of ctx sequence) <> None then
+          (* A Dict's keys as they are. *)
+          (OApp (OVar dict_keys_helper, [ o_sequence ]), need acc dict_keys_helper)
+        else (o_sequence, acc)
       in
       (* A `function` takes no `when`, so a guarded pattern is matched
          inside the body instead. *)
@@ -2671,7 +3795,7 @@ and last ctx acc statement where =
                 OUnit,
                 false ),
             acc )
-      | SMutate _ | SSetIndex _ ->
+      | SMutate _ | SSetIndex _ | SSetField _ | SSetDeref _ ->
           (* A mutation is worth unit, which is what a block run for what
              it does supplies anyway. *)
           discard ctx acc statement
@@ -2723,7 +3847,11 @@ and loop ctx acc s returning =
         match (o_sequence, walked) with
         | Some o, [ sequence ] ->
             let o, acc = walked_chars ctx acc sequence o in
-            (Some o, acc)
+            (* A Dict is walked through its keys as the walk begins and
+               the counter it had then (docs/target_ocaml.md, "Dicts"). *)
+            if dict_parts (type_of ctx sequence) <> None then
+              (Some (OApp (OVar dict_walk_helper, [ o ])), need acc dict_walk_helper)
+            else (Some o, acc)
         | _ -> (o_sequence, acc)
       in
       (* An array is walked by index rather than as a list, so that each
@@ -2732,7 +3860,9 @@ and loop ctx acc s returning =
          under a name of its own, which the turns read. *)
       let walked_array, acc =
         match walked with
-        | [ sequence ] when Typesystem.array_element (type_of ctx sequence) <> None -> (
+        | [ sequence ]
+          when store_element (type_of ctx sequence) <> None
+               || dict_parts (type_of ctx sequence) <> None -> (
             (* One a plain name holds is read through that name, unless
                the loop binds the same name over it. *)
             let shadowed plain =
@@ -2791,9 +3921,28 @@ and loop ctx acc s returning =
             (* The second parameter is the index of the turn, and walking
                off the end is leaving the loop. *)
             let held = OVar (Option.get walked_array) in
+            (* A Vec is walked while the index is below the length it has
+               at that turn, so what is pushed during the walk is walked
+               too (docs/target_ocaml.md, "Vecs"). *)
+            let walked_type =
+              match walked with [ sequence ] -> Some (type_of ctx sequence) | _ -> None
+            in
+            let is t pred = match t with Some t -> pred t <> None | None -> false in
+            let length, reader, acc =
+              if is walked_type vec_element then
+                (vec_length_helper, vec_item_helper, need (need acc vec_length_helper) vec_item_helper)
+              else if is walked_type slice_element then
+                (view_length_helper, view_item_helper, need (need acc view_length_helper) view_item_helper)
+              else if is walked_type dict_parts then
+                (* The counter is asked at every advance. *)
+                ( dict_walk_length_helper,
+                  dict_walk_key_helper,
+                  need (need acc dict_walk_length_helper) dict_walk_key_helper )
+              else ("Stdlib.Array.length", "Stdlib.Array.unsafe_get", acc)
+            in
             ( [ parameter; OPatName index ],
               OIf
-                ( OBin (">=", OVar index, OApp (OVar "Stdlib.Array.length", [ held ])),
+                ( OBin (">=", OVar index, OApp (OVar length, [ held ])),
                   accumulator,
                   Some
                     (OLet
@@ -2801,7 +3950,7 @@ and loop ctx acc s returning =
                            {
                              bound = OPatName (unread (mangle ctx element) (Some read));
                              params = [];
-                             value = OApp (OVar "Stdlib.Array.unsafe_get", [ held; OVar index ]);
+                             value = OApp (OVar reader, [ held; OVar index ]);
                            };
                          ],
                          o_body,
@@ -3018,6 +4167,48 @@ and discard ctx acc statement =
   | SMutate (_, name, e, _) ->
       let value, acc = expr ctx acc e in
       (OAssign (mangle ctx name, value), acc)
+  | SSetDeref (_, pointer, value, _) ->
+      (* `*p := v`: the pointer, then the value, then the write -- the
+         pointer held first where it is more than a plain name, since
+         OCaml works out a call's argument before what it calls. *)
+      let o_pointer, acc = expr ctx acc pointer in
+      let o_value, acc = expr ctx acc value in
+      (match o_pointer with
+      | OVar _ -> (OApp (OSend (o_pointer, "set"), [ o_value ]), acc)
+      | _ ->
+          let name, acc = fresh_name ctx acc in
+          ( OLet
+              ( [ { bound = OPatName name; params = []; value = o_pointer } ],
+                OApp (OSend (OVar name, "set"), [ o_value ]),
+                false ),
+            acc ))
+  | SSetField (info, owner, field, value, _) -> (
+      (* `p.x := v` (docs/target_ocaml.md, "Var structs"): the struct is
+         taken out of `p` first, then the value is worked out, then it is
+         written -- into the struct taken, whatever the value did to the
+         name it came from. `let Point tmp1 = p in tmp1.x <- v` says that
+         order, since OCaml runs a `let`'s value before its body. *)
+      match type_of ctx owner with
+      | TCon (_, canonical, _, _) -> (
+          match datatype_of ctx canonical with
+          | Some (Datatype (_, _, [ (cname, fields) ], true)) ->
+              let o_owner, acc = expr ctx acc owner in
+              let o_value, acc = expr ctx acc value in
+              let name, acc = fresh_name ctx acc in
+              let index =
+                Option.get
+                  (List.find_index (fun (label, _) -> label = Some field) fields)
+              in
+              ( OMatch
+                  ( o_owner,
+                    [
+                      ( constructor_name canonical cname ^ " " ^ name,
+                        None,
+                        OSetField (OVar name, field_label index (Some field), o_value) );
+                    ] ),
+                acc )
+          | _ -> unsupported info "a field written in a value that is not a var struct")
+      | _ -> unsupported info "a field written in a value whose type is not settled")
   | SSetIndex (_, owner, index, value, _) ->
       (* `a[i] := v` (docs/target_ocaml.md, "Arrays"): the array and the
          index are held first, the index is checked, and only then is the
@@ -3028,23 +4219,37 @@ and discard ctx acc statement =
       let o_value, acc = expr ctx acc value in
       let held o acc =
         match o with
-        | OVar _ | OInt _ -> (o, [], acc)
+        | OVar _ | OInt _ | OStr _ | OBool _ | OUnit -> (o, [], acc)
         | _ ->
             let name, acc = fresh_name ctx acc in
             (OVar name, [ { bound = OPatName name; params = []; value = o } ], acc)
       in
       let o_owner, owner_binding, acc = held o_owner acc in
       let o_index, index_binding, acc = held o_index acc in
-      let write =
-        OSeq
-          ( OApp (OVar array_check_helper, [ o_owner; o_index ]),
-            OApp (OVar "Stdlib.Array.unsafe_set", [ o_owner; o_index; o_value ]) )
+      (* A Vec's index is checked again as it is written: working out
+         the value may have shrunk the Vec. *)
+      let check, set =
+        if vec_element (type_of ctx owner) <> None then (vec_check_helper, vec_set_helper)
+        else if slice_element (type_of ctx owner) <> None then (view_check_helper, view_set_helper)
+        else (array_check_helper, "Stdlib.Array.unsafe_set")
       in
+      let is_dict = dict_parts (type_of ctx owner) <> None in
+      let write =
+        if is_dict then
+          (* `d[k] := v` checks nothing: it puts the entry in, or
+             replaces the key's value where it has one. *)
+          OApp (OVar dict_set_helper, [ o_owner; o_index; o_value ])
+        else
+          OSeq
+            ( OApp (OVar check, [ o_owner; o_index ]),
+              OApp (OVar set, [ o_owner; o_index; o_value ]) )
+      in
+      let acc = if is_dict then need acc dict_set_helper else need acc check in
       ( List.fold_right
           (fun b inner -> OLet ([ b ], inner, false))
           (owner_binding @ index_binding)
           write,
-        need acc array_check_helper )
+        if set = vec_set_helper || set = view_set_helper then need acc set else acc )
   | SBreak _ | SContinue _ -> unsupported (stmt_info statement) no_early_exit
   | statement ->
       unsupported (stmt_info statement)
@@ -3266,6 +4471,9 @@ let rec polish e =
   | OTyped (inner, t) -> OTyped (polish inner, t)
   | OField (inner, field) -> OField (polish inner, field)
   | ORecord (field, inner) -> ORecord (field, polish inner)
+  | OBuild (ctor, fields) -> OBuild (ctor, List.map (fun (f, e) -> (f, polish e)) fields)
+  | OSetField (owner, field, value) -> OSetField (polish owner, field, polish value)
+  | OSend (e, name) -> OSend (polish e, name)
   | ORef value -> ORef (polish value)
   | OAssign (name, value) -> OAssign (name, polish value)
   | OApp (func, args) -> OApp (polish func, List.map polish args)
@@ -3478,6 +4686,25 @@ let rec type_text type_ name top =
   | TVar (_, variable, _, _) -> Printf.sprintf "'%s" variable
   | TCon (_, _, [ element ], _) when Typesystem.array_element type_ <> None ->
       Printf.sprintf "%s array" (type_text element name false)
+  (* A Vec: its cell, which an importer names the same way, since it is
+     built from Stdlib's types alone. *)
+  | TCon (_, _, [ element ], _) when vec_element type_ <> None ->
+      Printf.sprintf "(%s option array * int) ref" (type_text element name false)
+  (* A pointer: the object naming its place. *)
+  | TCon (_, _, [ target ], _) when ptr_target type_ <> None ->
+      let shown = type_text target name false in
+      Printf.sprintf "< get : %s; place : Obj.t * int; set : %s -> unit >" shown shown
+  (* A view: its array, where it starts, and its length. *)
+  | TCon (_, _, [ element ], _) when slice_element type_ <> None ->
+      Printf.sprintf "(%s array * int * int)" (type_text element name false)
+  (* A Dict: its table and its counter, Stdlib's types again. *)
+  | TCon (_, _, [ key; value ], _) when dict_parts type_ <> None ->
+      let pair =
+        Printf.sprintf "(%s, int * %s) Stdlib.Hashtbl.t * int ref" (type_text key name true)
+          (type_text value name false)
+      in
+      (* A pair, so parenthesised where it is one part of something. *)
+      if top then pair else "(" ^ pair ^ ")"
   | TCon (_, canonical, [], _) -> datatype_name canonical
   | TCon (_, canonical, [ one ], _) ->
       Printf.sprintf "%s %s" (type_text one name false) (datatype_name canonical)
@@ -3646,6 +4873,21 @@ and pprint_bare e level =
       (Printf.sprintf "%s.%s" (pprint inner p_atom level) field, p_atom)
   | ORecord (field, inner) ->
       (Printf.sprintf "{ %s = %s }" field (pprint inner (p_seq + 1) level), p_atom)
+  | OBuild (ctor, fields) ->
+      (* A field's value runs to the `;` after it, as a list element's
+         does. *)
+      ( Printf.sprintf "%s { %s }" ctor
+          (String.concat "; "
+             (List.map
+                (fun (f, e) -> Printf.sprintf "%s = %s" f (pprint e p_if level))
+                fields)),
+        p_app )
+  (* `#` binds tighter than application. *)
+  | OSend (e, name) -> (Printf.sprintf "%s#%s" (pprint e p_atom level) name, p_atom)
+  | OSetField (owner, field, value) ->
+      ( Printf.sprintf "%s.%s <- %s" (pprint owner p_atom level) field
+          (pprint value (p_let + 1) level),
+        p_let )
   | OEscape (exc, cell, bound, inner) ->
       (* The exception carries nothing, so OCaml needs no type written
          for it: the value travels in the cell, whose type it infers
@@ -3909,7 +5151,7 @@ let datatype_declarations datatypes =
       [
         String.concat "\n"
           (List.mapi
-             (fun index (Datatype (name, params, constructors)) ->
+             (fun index (Datatype (name, params, constructors, writable)) ->
                let head =
                  Printf.sprintf "%s %s%s =" (if index = 0 then "type" else "and")
                    (type_parameters params) (type_base name)
@@ -3919,6 +5161,17 @@ let datatype_declarations datatypes =
                  :: List.map
                       (fun (cname, fields) ->
                         match fields with
+                        | _ when writable ->
+                            (* A var struct: one constructor over a record
+                               of mutable fields, which OCaml allocates
+                               once and shares by reference. *)
+                            Printf.sprintf "  | %s of { %s }" (constructor_base cname)
+                              (String.concat "; "
+                                 (List.mapi
+                                    (fun i (label, t) ->
+                                      Printf.sprintf "mutable %s : %s" (field_label i label)
+                                        (type_text t cname false))
+                                    fields))
                         | [] -> "  | " ^ constructor_base cname
                         | _ ->
                             Printf.sprintf "  | %s of %s" (constructor_base cname)
@@ -3945,7 +5198,7 @@ let datatype_printers ctx acc datatypes =
   let rec names_own t =
     match t with
     | TCon (_, c, es, _) ->
-        List.exists (fun (Datatype (n, _, _)) -> n = c) datatypes
+        List.exists (fun (Datatype (n, _, _, _)) -> n = c) datatypes
         || List.exists names_own es
     | TList (_, e, _) -> names_own e
     | TTuple (_, es, _) -> List.exists names_own es
@@ -3953,13 +5206,21 @@ let datatype_printers ctx acc datatypes =
   in
   let bindings, interface, acc =
     List.fold_left
-      (fun (bindings, interface, acc) (Datatype (name, params, constructors)) ->
+      (fun (bindings, interface, acc) (Datatype (name, params, constructors, writable)) ->
         let all_fields = List.concat_map snd constructors in
         let show_param p =
           if List.exists (fun (_, t) -> mentions p t) all_fields then "show_" ^ p
           else "_show_" ^ p
         in
-        let ctx = { ctx with shows = List.map (fun p -> (p, OVar ("show_" ^ p))) params } in
+        let takes = takes_path ctx name in
+        let ctx =
+          {
+            ctx with
+            shows = List.map (fun p -> (p, OVar ("show_" ^ p))) params;
+            shows_path = takes;
+            path = (if takes then OVar "path" else OList []);
+          }
+        in
         let arms, acc =
           List.fold_left
             (fun (arms, acc) (cname, fields) ->
@@ -3985,33 +5246,79 @@ let datatype_printers ctx acc datatypes =
                   in
                   let pattern =
                     match names with
+                    | _ when writable ->
+                        record_pattern ctor
+                          (List.combine
+                             (List.mapi (fun i (label, _) -> field_label i label) fields)
+                             names)
+                          false
                     | [ one ] -> Printf.sprintf "%s %s" ctor one
                     | many -> Printf.sprintf "%s (%s)" ctor (String.concat ", " many)
                   in
                   (arms @ [ (pattern, None, text) ], acc))
             ([], acc) constructors
         in
+        let body = OMatch (OVar "value", arms) in
+        let reads_path = StringSet.mem "path" (free body) in
+        (* A value whose fields can lead back to it goes on the path
+           while they are formatted, and is `...` where it is met again
+           -- a var struct, or an immutable value a cycle passes through. *)
+        let body, acc =
+          if reads_path then
+            ( OApp (OVar guard_helper, [ OVar "path"; OVar "value"; OLambda ([ OPatName "path" ], body) ]),
+              need acc guard_helper )
+          else (body, acc)
+        in
         let printer = "pyk_show_" ^ type_base name in
+        let path_param = if not takes then [] else if reads_path then [ OPatName "path" ] else [ OPatName "_path" ] in
         let binding =
           {
             bound = OPatName printer;
-            params = List.map (fun p -> OPatName (show_param p)) params @ [ OPatName "value" ];
-            value = OMatch (OVar "value", arms);
+            params =
+              List.map (fun p -> OPatName (show_param p)) params @ path_param @ [ OPatName "value" ];
+            value = body;
           }
         in
+        let path_type = if takes then "Obj.t list -> " else "" in
         let shown =
           String.concat ""
-            (List.map (fun p -> Printf.sprintf "('%s -> string) -> " p) params)
-          ^ Printf.sprintf "%s%s -> string" (type_parameters params) (type_base name)
+            (List.map (fun p -> Printf.sprintf "(%s'%s -> string) -> " path_type p) params)
+          ^ Printf.sprintf "%s%s%s -> string" path_type (type_parameters params) (type_base name)
         in
         (bindings @ [ binding ], interface @ [ (printer, shown) ], acc))
       ([], [], acc) datatypes
   in
   let recursive =
     List.exists
-      (fun (Datatype (_, _, constructors)) ->
+      (fun (Datatype (_, _, constructors, _)) ->
         List.exists (fun (_, fields) -> List.exists (fun (_, t) -> names_own t) fields) constructors)
       datatypes
+  in
+  (* In a recursive group a printer is monomorphic in the others, so
+     one datatype's printer handed another's at one type would be fixed
+     at that type for good. A generic one is written with its type, which
+     lets OCaml use it at every type, inside the group and after it:
+     `let rec pyk_show_opt : 'a. (Obj.t list -> 'a -> string) -> ... =
+     fun show_a path value -> ...`. *)
+  let bindings =
+    if not recursive then bindings
+    else
+      List.map2
+        (fun binding (Datatype (_, params, _, _)) ->
+          if params = [] then binding
+          else
+            let printer = match binding.bound with OPatName n -> n | _ -> "" in
+            let shown = List.assoc printer interface in
+            {
+              bound =
+                OPatName
+                  (Printf.sprintf "%s : %s. %s" printer
+                     (String.concat " " (List.map (fun p -> "'" ^ p) params))
+                     shown);
+              params = [];
+              value = OLambda (binding.params, binding.value);
+            })
+        bindings datatypes
   in
   ((if bindings = [] then [] else [ OItemLet (bindings, recursive) ]), interface, acc)
 
@@ -4058,7 +5365,7 @@ let translate_program stmts tmap (context : Module.context) target =
   let own_datatypes =
     List.filter_map
       (function
-        | SDatatype (_, _, _, _, sym, _) -> (
+        | SDatatype (_, _, _, _, sym, _, _) -> (
             match IntMap.find_opt sym tmap with
             | Some (TData (_, d, _)) -> Some d
             | _ -> None)
@@ -4071,16 +5378,17 @@ let translate_program stmts tmap (context : Module.context) target =
         List.fold_left
           (fun map (_, t, _) ->
             match t with
-            | TData (_, (Datatype (c, _, _) as d), _) -> SMap.add c d map
+            | TData (_, (Datatype (c, _, _, _) as d), _) -> SMap.add c d map
             | _ -> map)
           map sigmap)
       SMap.empty context.sigmaps
   in
   let datatypes =
     List.fold_left
-      (fun map (Datatype (c, _, _) as d) -> SMap.add c d map)
+      (fun map (Datatype (c, _, _, _) as d) -> SMap.add c d map)
       datatypes own_datatypes
   in
+  let defined, changing, unknown_changes = changing_functions stmts tmap in
   let names = plan_names stmts exported in
   let names =
     List.fold_left
@@ -4106,6 +5414,9 @@ let translate_program stmts tmap (context : Module.context) target =
       polys = List.map (fun (key, (field, _)) -> (key, field)) polys;
       poly_params = SMap.empty;
       printing = Analyses.effects stmts;
+      defined;
+      changing;
+      unknown_changes;
       prefix = unused_prefix stmts;
       refs = StringSet.empty;
       escape = None;
@@ -4128,6 +5439,8 @@ let translate_program stmts tmap (context : Module.context) target =
       names;
       datatypes;
       shows = [];
+      shows_path = false;
+      path = OList [];
       slices = Targets.version target <> "4.14";
     }
   in

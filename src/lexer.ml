@@ -56,6 +56,12 @@ type token =
   | TokArrow of info (* '->' (single-expression `case` clause) *)
   | TokFatArrow of info (* '=>' (no longer a lambda: `lam x. e` is) *)
   | TokMul of info (* '*' user defined *)
+  | TokLineStar of info
+      (* '*' starting a line outside brackets: a pointer read through,
+         `*p := v`, never `*` continuing the line before *)
+  | TokLineAmp of info
+      (* '&' starting a line outside brackets: an address, `&n` as a
+         block's value, never `&` continuing the line before *)
   | TokDiv of info (* '/' user defined *)
   | TokPercent of info (* '%' (remainder) *)
   | TokCaret of info (* '^' (power) *)
@@ -142,6 +148,8 @@ let token_info tok =
   | TokArrow i -> i
   | TokFatArrow i -> i
   | TokMul i -> i
+  | TokLineStar i -> i
+  | TokLineAmp i -> i
   | TokDiv i -> i
   | TokPercent i -> i
   | TokCaret i -> i
@@ -224,6 +232,8 @@ let pprint_token tok =
   | TokArrow _ -> "TokArrow"
   | TokFatArrow _ -> "TokFatArrow"
   | TokMul _ -> "TokMul"
+  | TokLineStar _ -> "TokLineStar"
+  | TokLineAmp _ -> "TokLineAmp"
   | TokDiv _ -> "TokDiv"
   | TokPercent _ -> "TokPercent"
   | TokCaret _ -> "TokCaret"
@@ -657,6 +667,21 @@ let lexing file chars =
         lex xs r (c + 2) stack depth line_start (TokArrow (fi r c 2) :: tokens)
     | '-' :: xs ->
         lex xs r (c + 1) stack depth line_start (TokSub (fi r c 1) :: tokens)
+    | '*' :: xs
+      when depth = 0
+           && (match tokens with
+              | [] -> true
+              | (TokIndent _ | TokDedent _) :: _ -> true
+              | t :: _ -> (token_info t).row2 < r) ->
+        (* A statement starting `*p := v` (or `**pp := v`): each `*` a
+           pointer's, since nothing before it on the line could be
+           multiplied. *)
+        let rec stars xs c tokens =
+          match xs with
+          | '*' :: more -> stars more (c + 1) (TokLineStar (fi r c 1) :: tokens)
+          | _ -> lex xs r c stack depth line_start tokens
+        in
+        stars xs (c + 1) (TokLineStar (fi r c 1) :: tokens)
     | '*' :: '*' :: xs ->
         lex xs r (c + 2) stack depth line_start (TokStarStar (fi r c 2) :: tokens)
     | '*' :: xs ->
@@ -673,6 +698,13 @@ let lexing file chars =
         lex xs r (c + 1) stack depth line_start (TokBang (fi r c 1) :: tokens)
     | '&' :: '&' :: xs ->
         lex xs r (c + 2) stack depth line_start (TokAmpAmp (fi r c 2) :: tokens)
+    | '&' :: xs
+      when depth = 0
+           && (match tokens with
+              | [] -> true
+              | (TokIndent _ | TokDedent _) :: _ -> true
+              | t :: _ -> (token_info t).row2 < r) ->
+        lex xs r (c + 1) stack depth line_start (TokLineAmp (fi r c 1) :: tokens)
     | '&' :: xs ->
         lex xs r (c + 1) stack depth line_start (TokAmp (fi r c 1) :: tokens)
     | '~' :: xs ->

@@ -96,8 +96,9 @@ export function zip(entries, date = new Date()) {
   return out;
 }
 
-/** The family a target belongs to: "python", "node", "web", "iweb", "c",
- *  "java", "ocaml" or "pyking". String -> String */
+/** The family a target belongs to: "python", "node", "web", "iweb", "c"
+ *  (c23-gc too: one backend, one Makefile rule), "java", "ocaml" or
+ *  "pyking". String -> String */
 export function familyOf(target) {
   for (const family of ["python", "node", "iweb", "web", "java", "ocaml", "pyking"]) {
     if (target.startsWith(family)) return family;
@@ -180,18 +181,27 @@ export function makefile(target, stem, names) {
   switch (family) {
     case "c": {
       const sources = linkOrder("c", stem, names);
+      if (!target.endsWith("-gc")) {
+        // Plain C links nothing but libm.
+        return rules(
+          ["CC ?= cc", `SOURCES = ${sources.join(" ")}`],
+          [`all: ${stem}`, "", `${stem}: $(SOURCES) $(wildcard *.h)`,
+           `\t$(CC) -std=${target} -o ${stem} $(SOURCES) -lm`],
+          { deps: ` ${stem}`, recipe: [`./${stem}`] },
+          [`rm -f ${stem}`]);
+      }
       return rules(
-        // Every C program links bdwgc, the collector; pkg-config says
-        // where it is. Without pkg-config, the prefixes pyk itself
-        // searches (src/execution.ml) are tried for gc.h -- Homebrew's is
-        // not on the compiler's own path -- and a plain -lgc is the last
-        // resort.
+        // c23-gc links bdwgc, the collector, and defines PYKING_GC for
+        // the libraries' C files; pkg-config says where bdwgc is.
+        // Without pkg-config, the prefixes pyk itself searches
+        // (src/execution.ml) are tried for gc.h -- Homebrew's is not on
+        // the compiler's own path -- and a plain -lgc is the last resort.
         ["CC ?= cc",
          "GC_PREFIX := $(firstword $(foreach p,/opt/homebrew /usr/local /opt/local,$(if $(wildcard $(p)/include/gc.h),$(p))))",
          "GC_FLAGS ?= $(shell pkg-config --cflags --libs bdw-gc 2>/dev/null || echo $(if $(GC_PREFIX),-I$(GC_PREFIX)/include -L$(GC_PREFIX)/lib) -lgc)",
          `SOURCES = ${sources.join(" ")}`],
         [`all: ${stem}`, "", `${stem}: $(SOURCES) $(wildcard *.h)`,
-         `\t$(CC) -std=${target} -o ${stem} $(SOURCES) $(GC_FLAGS) -lm`],
+         `\t$(CC) -std=${target.slice(0, -"-gc".length)} -DPYKING_GC -o ${stem} $(SOURCES) $(GC_FLAGS) -lm`],
         { deps: ` ${stem}`, recipe: [`./${stem}`] },
         [`rm -f ${stem}`]);
     }

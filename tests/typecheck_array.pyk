@@ -1,6 +1,6 @@
 # Arrays under the type checker. `Array(T)` is a type of its own: the
-# forms of `array` are told apart by their arguments (a function makes
-# the elements, anything else fills them), an element read is a T and
+# forms of `array` and of `array_init` are told apart by how many
+# arguments they take, an element read is a T and
 # one written must be one, and `len` and `same` take arrays. The
 # `.ast.out` pins the types worked out, and every call names the form
 # it resolved to.
@@ -9,8 +9,8 @@ use mutation
 
 counts = array([5, 1, 2])
 names = array(2, "none")
-squares = array(4, lam i. i * i)
-powers = array(5, 1, lam s. (s, s * 2))
+squares = array_init(4, lam i. i * i)
+powers = array_init(5, 1, lam s. (s, s * 2))
 counts[0] := counts[1] + len(names)
 names[1] := "some"
 print(counts, names, squares, powers)
@@ -31,8 +31,8 @@ print(total(counts), first(names), same(counts, counts))
 
 # The qualified forms say which is meant outright.
 copies = fill::array(2, total)
-made = init::array(3, lam i. i == 1)
-print(copies[0](squares), made, list::array(["a"]), unfold::array(2, 'x', lam c. (c, c)))
+made = init::array_init(3, lam i. i == 1)
+print(copies[0](squares), made, list::array(["a"]), unfold::array_init(2, 'x', lam c. (c, c)))
 
 # An empty array, its element type written.
 none: Array(Float) = array([])

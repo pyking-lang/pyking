@@ -335,8 +335,9 @@ and analyze_stmt s env =
   | SReturn _ | SExprStmt _ | SBreak _ | SContinue _ -> env
   (* Writing an element binds nothing and writes no name: whether the
      owner may be written is its type's question (an Array's elements
-     always may), not a `var`'s. *)
-  | SSetIndex _ -> env
+     always may), not a `var`'s. A field write is the same: a `var
+     struct`'s fields always may be written. *)
+  | SSetIndex _ | SSetField _ | SSetDeref _ -> env
   | SReturnStmt (_, stmt, _) ->
       (* `return if c:` / `return match e:` -- the branches are ordinary
          nested scopes, exactly as in `SLetStmt`, and nothing is bound
@@ -476,6 +477,21 @@ let rec sym_expr counter e =
       let r, counter = sym_expr counter r in
       let s, counter = assign s counter in
       (EIndex (i, l, r, s), counter)
+  | EAddr (i, e, s) ->
+      let e, counter = sym_expr counter e in
+      let s, counter = assign s counter in
+      (EAddr (i, e, s), counter)
+  | EDeref (i, e, s) ->
+      let e, counter = sym_expr counter e in
+      let s, counter = assign s counter in
+      (EDeref (i, e, s), counter)
+  | ESlice (i, l, a, b, s) ->
+      let l, counter = sym_expr counter l in
+      let bound counter b = match b with Some e -> let e, c = sym_expr counter e in (Some e, c) | None -> (None, counter) in
+      let a, counter = bound counter a in
+      let b, counter = bound counter b in
+      let s, counter = assign s counter in
+      (ESlice (i, l, a, b, s), counter)
   | EUnary (i, op, o, s) ->
       let o, counter = sym_expr counter o in
       let s, counter = assign s counter in
@@ -763,6 +779,16 @@ and sym_stmt counter st =
       let value, counter = sym_expr counter value in
       let s, counter = assign s counter in
       (SSetIndex (i, owner, index, value, s), counter)
+  | SSetField (i, owner, field, value, s) ->
+      let owner, counter = sym_expr counter owner in
+      let value, counter = sym_expr counter value in
+      let s, counter = assign s counter in
+      (SSetField (i, owner, field, value, s), counter)
+  | SSetDeref (i, pointer, value, s) ->
+      let pointer, counter = sym_expr counter pointer in
+      let value, counter = sym_expr counter value in
+      let s, counter = assign s counter in
+      (SSetDeref (i, pointer, value, s), counter)
   | SMutateTuple (i, target, expr, s) ->
       (* Only `-t pyking --no-typechecking` symbolizes one: it prints the
          program before desugar_args has rewritten it. *)
@@ -835,10 +861,10 @@ and sym_stmt counter st =
          own symbol is all it has. *)
       let s, counter = assign s counter in
       (SImport (i, module_name, name, selected, fields, s), counter)
-  | SDatatype (i, name, params, constructors, s, public) ->
+  | SDatatype (i, name, params, constructors, s, public, writable) ->
       let constructors, counter = map_fold sym_constructor counter constructors in
       let s, counter = assign s counter in
-      (SDatatype (i, name, params, constructors, s, public), counter)
+      (SDatatype (i, name, params, constructors, s, public, writable), counter)
 
 (* --- the largest symbol already handed out ---
    A tree that has been symbolized once keeps the numbers it has, and
@@ -866,6 +892,9 @@ let rec high_expr e =
     | EBinary (_, _, l, r, _)
     | EIndex (_, l, r, _) ->
         max (high_expr l) (high_expr r)
+    | ESlice (_, l, a, b, _) ->
+        List.fold_left max (high_expr l) (List.map high_expr (Option.to_list a @ Option.to_list b))
+    | EAddr (_, e, _) | EDeref (_, e, _) -> high_expr e
     | ENeg (_, o, _) | EUnary (_, _, o, _) -> high_expr o
     | ECall (_, f, args, _) ->
         max (high_expr f) (high_list high_expr (arg_exprs args))
@@ -971,6 +1000,8 @@ and high_stmt st =
     | SMutateTuple (_, target, expr, _) -> max (high_target target) (high_expr expr)
     | SSetIndex (_, owner, index, value, _) ->
         max (high_expr owner) (max (high_expr index) (high_expr value))
+    | SSetField (_, owner, _, value, _) -> max (high_expr owner) (high_expr value)
+    | SSetDeref (_, pointer, value, _) -> max (high_expr pointer) (high_expr value)
     | SVar (_, _, expr, _) | SMutate (_, _, expr, _) | SReturn (_, expr, _)
     | SExprStmt (_, expr, _) ->
         high_expr expr
@@ -1005,7 +1036,7 @@ and high_stmt st =
     | SMatch (_, subject, cases, _) ->
         max (high_expr subject) (high_list high_case cases)
     | SImport _ -> 0
-    | SDatatype (_, _, _, constructors, _, _) ->
+    | SDatatype (_, _, _, constructors, _, _, _) ->
         high_list high_constructor constructors
   in
   max (stmt_sym st) children

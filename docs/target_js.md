@@ -207,7 +207,13 @@ expressions; integers, strings and booleans; `+ - * /`, unary minus,
 comparisons, and calls. Tail position and `return if c:` are supported
 (see below); nested `def` and lambdas work too — JavaScript has
 closures. Arrays (`array(...)`, `a[i]`, `a[i] := v`, `len`, `same`) are
-too; see "Arrays" below.
+too; see "Arrays" below. So are mutable structs (`var struct`,
+`p.x := v`, `same`); see "Mutable structs", and Vecs (`vec(...)`,
+`push`, `pop`, `insert`, `remove`, `clear`); see "Vecs", and Dicts;
+see "Dicts"; slices (`s[i:j]`), views (`view`) and `copy_into`; see
+"Slices and views"; and pointers (`&`, `*`); see "Pointers".
+`==` and `!=` compare lists, tuples, structs and
+datatypes part by part; see "Equality".
 
 ## Lists, `match` and value forms
 
@@ -298,7 +304,9 @@ Float, so a construction whose arguments hold one is wrapped in
 `pykWithShape`, which records the descriptor `pykShaped` reads (see
 "Floats"). The datatype's own name is bound to its name as a string,
 which is what an import of it imports. The functions hoist, so a
-constructor may be used above its declaration, as Pyking allows.
+constructor may be used above its declaration, as Pyking allows. A
+`var struct` is built by `pykStruct` instead, and its value is shared
+and written in place (see "Mutable structs").
 
 A `match` with a guard is a labelled block the arms leave with
 `break`, rather than an `if`/`else` chain: a guard is asked after its
@@ -526,7 +534,9 @@ match.)
 
 Note the arrow function in `print`: `values.map(pykFormat)` would hand
 `map`'s *index* argument to `inner`, and every argument after the first
-would print as though it were nested. It lives in `pyk-runtime.js`,
+would print as though it were nested. The real `pykFormat` also takes
+a third argument, the values printing is inside of, which is how a
+value that holds itself prints `...` (see "Mutable structs"). It lives in `pyk-runtime.js`,
 which every module of the program imports, rather than being repeated in
 each of them.
 
@@ -687,8 +697,9 @@ Both answer a String, and a String at the top level prints bare, so
 
 **The descriptor** says which positions of a value are Floats, which is
 all `pykFormat` is missing: `f` a Float, `.` anything it already prints
-correctly, `[s]` a list of `s`, `{s}` an array of `s`, and `(s,s)` a
-tuple. It nests:
+correctly, `[s]` a list of `s`, `{s}` an array of `s`, `<s>` a Vec of
+`s`, `v{s}` a view of `s`, `p(s)` a pointer to `s`, `@(k,v)` a Dict
+whose entries are `(k, v)`, and `(s,s)` a tuple. It nests:
 
 ```javascript
 print(pykShaped(xs, '[f]'));           // xs : [Float]
@@ -841,6 +852,303 @@ playground's error line.
 All of these helpers are the module's own, written where it uses them
 with whichever of the others they call (`array_helpers` in
 target_js_core.ml), as `pykRange` is.
+
+## Mutable structs
+
+**A `var struct`'s value is one JavaScript object**, which every name,
+parameter, element and field holding it shares -- an object is a
+reference, so assigning, passing, returning and storing one never copy
+it, exactly as PYKING.md says a mutable struct behaves. Its one
+constructor builds it with the module's own `pykStruct` rather than
+`pykData`:
+
+```pyking                              # generated JavaScript
+var struct Point(x: Int, y: Int = 0)   function Point(v0, v1) {
+                                         return pykStruct('Point', [v0, v1], ['x', 'y']);
+                                       }
+p.x := 10                              p.x = 10;
+p.y += 1                               const field__owner = p;
+                                       field__owner.y = field__owner.y + 1;
+same(p, q)                             p === q
+```
+
+The fields are the object's own properties, written in place. What a
+datatype keeps as `pykValues` -- the fields by position, which a
+pattern and `pykFormat` read -- is a getter here, worked out from the
+properties each time it is read, so it can never disagree with a write.
+`pykTag` and `pykShape` are as a datatype's, so a pattern, a field read
+and printing treat the two alike; a `..` update is an ordinary
+constructor call, so it builds a new object.
+
+**A field write** is `SSetField`, a `JsSetField`, and JavaScript's own
+`owner.field = value` already runs in PYKING.md's order: the owner,
+then the value, then the write into the object the owner was. A
+compound `p.x += e` arrives from desugar_args.ml with its owner held in
+`field__owner`, so the owner is worked out once. `same(a, b)` is
+`a === b`, as for arrays.
+
+**Printing stops at a cycle.** A `var struct` can hold itself, through
+a datatype or an array, and so can an array; printing one must not
+recurse forever. `pykFormat` takes a third argument, the *path*: the
+arrays, tuples, lists and datatype values it is inside of. A value
+already on the path prints as `...`; one that is merely shared -- the
+same struct twice in an array -- is off the path again by the time it
+is met the second time, and prints in full:
+
+```text
+Node(1, Next(Node(2, Next(...))))            a.next := Next(b), b.next is Next(a)
+array([Point(3, 3), Point(3, 3)])            the one Point twice
+```
+
+That is interpreter.ml's `display_value` rule. Only an array or a
+`var struct` can repeat, but the guard is on every value holding others
+-- it costs the same, and an immutable value can never be met inside
+itself. `pykShaped` passes the path along without checking it: a value
+can only reach itself through a datatype's value, which the descriptor
+leaves to `pykFormat` (`.`). `string(v)` is the same `pykFormat`, so it
+stops at a cycle too.
+
+**`print` formats after it has every argument.** Its arguments are an
+ordinary call's, all worked out left to right before `print` formats
+any of them, so `print(a, f())` shows a write `f` made into `a`. The
+one exception would be an argument with a descriptor, which
+`pykShaped` formats where it is written: a Float array that is not the
+last argument is therefore handed over as `pykLater(xs, '{f}')`, which
+holds the value and its descriptor until `print`'s own `pykFormat`
+applies it. A list or tuple of Floats cannot change and keeps its
+`pykShaped`, and a `var struct` carries its descriptor inside it.
+
+## Vecs
+
+**A Vec is a JavaScript array carrying a marker of its own**,
+`pykVec = true`, as an array carries `pykArray`: a JavaScript array
+already grows and shrinks, so a Vec needs nothing an array does not
+have, and `pykFormat` reads the marker to print `vec([1, 2])`. It is a
+reference, shared by every name, parameter and element holding it, and
+`same(v, w)` is `v === w`. Indexing, `len` and element writes are an
+array's, with the index checked against the length the Vec has now;
+the error says `a Vec` where an array's says `an array` (`pykIndexError`
+reads the marker).
+
+```pyking            // generated JavaScript
+vec()                pykVecEmpty()
+vec(xs)              pykVecOfList(xs)          // a copy, marked
+push(v, x)           pykPush(v, x)             // answers (), not the length
+pop(v)               pykPop(v)                 // 'pop from an empty Vec'
+insert(v, i, x)      pykInsert(v, i, x)        // 0 <= i <= len(v)
+remove(v, i)         pykRemove(v, i)           // checked as a read is
+clear(v)             pykClear(v)               // length = 0
+v[i]                 pykAt(v, i)
+v[i] := x            pykCheckIndex(v, i);
+                     pykSetAt(v, i, x);
+len(v)               v.length
+```
+
+Each helper is the module's own and emitted where it is used, with
+those it calls, as the array helpers are; a program that defines its
+own `push` (or any of the five) calls its own. `splice`, `pop` and
+`length = 0` drop the elements they remove, so a removed slot keeps
+nothing alive.
+
+**An element write is checked twice.** Working out `x` in `v[i] := x`
+may shrink the Vec, so after the check `pykCheckIndex` makes before the
+value, `pykSetAt` checks the index again as it writes -- an array
+cannot change length, so its write stays the plain `JsSetIndex`.
+
+**`for x in v`** is JavaScript's own `for..of`, whose array iterator
+reads `length` afresh at every turn and each element as it is reached:
+exactly Pyking's rule, so what is pushed during the walk is walked and
+what is removed ends it sooner. A comprehension's `flatMap` maps the
+elements the Vec holds when it starts.
+
+**Printing** is the marker case, with `<s>` in a descriptor for a Vec
+of Floats or Chars, and a Vec is on `pykFormat`'s path like any value
+holding others, so one reached again inside itself prints `...` (see
+"Mutable structs"). A Vec with a descriptor that is not `print`'s last
+argument is handed over as `pykLater`, as an array is.
+
+## Slices and views
+
+**A slice copies.** `s[i:j]` is `pykSlice(s, i, j)`, and `s[i:]` is
+`pykSlice(s, i)` -- a left-out end is the length, a left-out start `0`.
+The call works out the sequence, then the bounds, in that order, and
+the helper checks `0 <= i <= j <= length` before it copies: outside
+that, the runtime error `the slice 2:4 is outside an array of 3
+elements` (`a list`, `a String`, `a Vec`, `a view`). The result is a
+new value of the sequence's own kind, read off its marker: an array
+(`pykArray`) or a view gives an array, a Vec a Vec, anything else a
+list; a String is sliced by code point (`Array.from`) and joined again.
+The copy is shallow, as JavaScript's `slice` is.
+
+**A view shares.** `view(a, i, j)` is `pykView(a, i, j)`, an object
+naming the array, an offset into it and a length:
+
+```javascript
+{ pykView: true, owner: a, offset: 1, length: 3 }
+```
+
+A view of a view names the same array, the offsets added, and its
+bounds are checked against the view it is made from (`the view 0:2 is
+outside a view of 1 element`). Every call makes a new object, so
+`same(w, w2)` -- `===` -- is false for two views made separately, as
+the interpreter says. The property is called `length` so that `len(w)`
+is `w.length`, as an array's is, and `pykIndexError` (which reads the
+marker to say `a view`) works on it unchanged.
+
+```pyking            // generated JavaScript
+view(a, 1, 4)        pykView(a, 1, 4)
+w[k]                 pykViewAt(w, k)        // checked against the view
+w[k] := x            pykCheckIndex(w, k);
+                     pykViewSet(w, k, x);   // owner[offset + k] = x
+len(w)               w.length
+for x in w:          for (const x of pykViewWalk(w)) {
+[f(x) for x in w]    pykList(pykViewItems(w).flatMap(...))
+copy_into(d, s)      pykCopyInto(d, s)
+```
+
+A view's length never changes, so its write needs no second check.
+`pykViewWalk` is a generator reading `owner[offset + i]` as each turn
+comes; `pykViewItems` is the elements as they are, a new array.
+
+**`copy_into(dst, src)`** copies `src`'s elements out first and then
+writes them over `dst`'s first ones, which is memmove's result where
+the two are views of one array and overlap. A longer `src` is the
+runtime error `copy_into copies 2 elements into 1`. `view` and
+`copy_into` are the program's own where it defines or imports one.
+
+**Printing** is `view([21, 30, 41])`: the array's elements from the
+offset, as they are now; `v{s}` in a descriptor where they are Floats
+or Chars, handed to `print` as `pykLater` when it is not the last
+argument. On `pykFormat`'s path a view stands for its array, so a view
+of an array met inside that array prints `...`.
+
+## Pointers
+
+**A pointer is an object naming a place**: `get` and `set` read and
+write it, and `store` and `slot` say which place it is, which is what
+two pointers compare.
+
+```javascript
+{ pykPtr: true, store, slot, get: () => ..., set: (value) => { ... } }
+```
+
+- **A `var`'s address.** JavaScript has no address of a variable, so a
+  `var` whose address the module takes anywhere (`addressed` in the
+  scope, gathered once by walk.ml) gets one place object beside its
+  `let`, reading and writing the variable through closures:
+
+  ```javascript
+  let x = 1;
+  const x__place = pykVarPlace(() => x, (pykNew) => { x = pykNew; });
+  ```
+
+  `&x` is `x__place`, so every `&x` of one variable is one object --
+  its own `store` -- and two of them are equal. The closures keep the
+  variable alive after its function returns, as a closure's captured
+  variable is, so a pointer to a local may outlive the call
+  (tests/pointers_escape.pyk). The variable itself stays an ordinary
+  `let`: reads and writes of `x` are unchanged, and a `var` whose
+  address is never taken gets no place.
+- **An element.** `&a[i]` is `pykElemPlace(a, i)`: the array, then the
+  index, then the check (`the index 5 is outside an array of 2
+  elements`, or `a view of`), then a place whose store is the array and
+  whose slot is `i`. A view's element is its array's, at `offset + i`,
+  so a pointer through a view and one through the array are equal.
+- **A field.** `&s.f` is `pykFieldPlace(s, 'f')`: the var struct object,
+  and the field's name as the slot.
+- **`&*p`** is `p`.
+
+`*p` is `p.get()`, and `*p := v` is `p.set(v)`, which works out the
+pointer, then the value, then writes. A compound `*p += 1` arrives with
+the pointer held in `pointer__target`. `p == q` is `pykEqual`, which
+compares a pointer's `store` and `slot` -- also where pointers sit in a
+list or a tuple. A pointer that may be absent is an `Option(Ptr(T))`,
+an ordinary datatype value.
+
+**Printing** is `Ptr(12)`: what the pointer points at now, as a value
+inside a list prints (Strings and Chars quoted), never an address;
+`p(s)` in a descriptor where it is a Float or a Char, and `pykLater`
+when such a pointer is not `print`'s last argument. On `pykFormat`'s
+path a pointer stands for its store.
+
+## Equality
+
+`==` and `!=` on Ints, Floats, Strings, Chars, Bools and `()` are
+JavaScript's `===` and `!==`: each is one primitive here (a Char a
+number, `()` `undefined`), and `===` already follows IEEE for a Float --
+`NaN === NaN` is false and `-0 === 0` true. On a list, a tuple, a struct
+or a datatype the checker's type of the left operand says so, and the
+comparison is the module's own `pykEqual`, since `===` on two objects
+asks whether they are one:
+
+```pyking                          // generated JavaScript
+[1, 2] == xs                       pykEqual(pykList([1, 2]), xs)
+p != Point(0, 0)                   !pykEqual(p, Point(0, 0))
+```
+
+`pykEqual` walks both values: arrays (lists and tuples) by length, then
+element by element; pointers by `store` and `slot` (see "Pointers");
+datatype and struct values by `pykTag`, then their `pykValues`;
+anything else with `===`. It never takes a value's
+identity as its equality, so `xs == xs` is false where `xs` holds a
+NaN, as in every other target. The checker refuses `==` on anything
+mutable, so a cycle cannot reach it.
+
+## Dicts
+
+**A Dict is a JavaScript `Map`** with two properties on it: the marker
+`pykDict = true`, which `pykFormat` reads, and `pykVersion`. A `Map`
+already keeps its keys in the order they were put in, keeps a replaced
+key where it is, and puts a key deleted and put back at the end --
+Pyking's rules exactly. It is a reference, so every name holding a Dict
+shares it, and `same(d, e)` is `d === e`.
+
+A `Map` compares object keys by identity, so a key is stored under
+`pykKey(k)`: a number, String, Bool or `()` key is itself, and a tuple,
+list or datatype key is text built from its parts (Strings quoted, so
+`("a,b", "c")` and `("a", "b,c")` have different texts) -- two keys have one
+text exactly when they are `==`. A Dict's keys are all of one type, so
+a key's text never meets a String key. Each entry is the `[key, value]`
+pair, which is also what printing writes as a tuple.
+
+```pyking            // generated JavaScript
+dict()               pykDict()
+dict(pairs)          pykDictOfList(pairs)      // first place, last value
+d[k]                 pykDictGet(d, k)          // missing: an error
+d[k] := v            pykDictPut(d, k, v);
+get(d, k, x)         pykDictGetOr(d, k, x)
+has(d, k)            pykDictHas(d, k)
+keys(d)              pykDictKeys(d)            // also values, items
+remove(d, k)         pykDictRemove(d, k)
+discard(d, k)        pykDictDiscard(d, k)
+clear(d)             pykDictClear(d)
+len(d)               d.size
+for k in d:          for (const k of pykDictWalk(d)) {
+[f(k) for k in d]    pykList(pykDictKeys(d).flatMap(...))
+```
+
+`remove` and `clear` are a Vec's or a Dict's by their first argument's
+type, and each of these names is the program's own where it defines or
+imports one. `d[k] := v` is a call, so the Dict, the key and the value
+are worked out in that order before the write, with nothing checked
+first. A missing key is the runtime error `the Dict has no key "b"`
+(`... to remove` for `remove`), the key written as a value inside
+another is; where the key's type holds a Char, the call passes the key's
+descriptor too, so `'z'` prints as a Char rather than its code point.
+`pykShaped` writes it, so a module reading a Dict imports `pykShaped`.
+
+**A `for` notices a change.** `pykVersion` counts keys put in and taken
+out -- not values replaced -- and `pykDictWalk` is a generator that
+compares it with the count it started with at every step, the one that
+would end the walk included, so putting a key in or taking one out
+during the walk is the error `the Dict changed while a for loop was
+reading it`, at the next step, as in the interpreter.
+
+**Printing** is `dict([("ada", 37), ("bo", 6)])`: the entries as
+tuples. A Dict holding Floats or Chars goes through `pykShaped` with
+`@(k,v)`, and is handed to `print` as `pykLater` when it is not the last
+argument, as an array is. A Dict is on `pykFormat`'s path like any
+value holding others, so one reached again inside itself prints `...`.
 
 ## Modules
 

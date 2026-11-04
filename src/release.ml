@@ -35,7 +35,7 @@ let unit_for e = ETuple (expr_info e, [], expr_sym e)
 let supplies_unit tmap statement =
   match statement with
   | SMutateTuple _ -> after_desugar "release"
-  | SLet _ | SLetStmt _ | SVar _ | SMutate _ | SSetIndex _ | SFunctionDef _ | SFunctionSig _
+  | SLet _ | SLetStmt _ | SVar _ | SMutate _ | SSetIndex _ | SSetField _ | SSetDeref _ | SFunctionDef _ | SFunctionSig _
   | SImport _ | SDatatype _ ->
       true
   | SExprStmt (_, e, _) -> (
@@ -68,6 +68,9 @@ let rec expression tmap e =
     | EBinary (i, op, l, r, s) -> EBinary (i, op, go l, go r, s)
     | EUnary (i, op, operand, s) -> EUnary (i, op, go operand, s)
     | EIndex (i, l, index, s) -> EIndex (i, go l, go index, s)
+    | ESlice (i, l, a, b, s) -> ESlice (i, go l, Option.map go a, Option.map go b, s)
+    | EAddr (i, e, s) -> EAddr (i, go e, s)
+    | EDeref (i, e, s) -> EDeref (i, go e, s)
     | ECall (i, callee, args, s) ->
         ECall (i, go callee, List.map (fun (name, a) -> (name, go a)) args, s)
     | EList (i, elements, s) -> EList (i, List.map go elements, s)
@@ -130,6 +133,8 @@ and rewrite tmap statement =
   | SVar (i, name, e, s) -> SVar (i, name, go e, s)
   | SMutateTuple _ -> after_desugar "release"
   | SSetIndex (i, owner, index, value, s) -> SSetIndex (i, go owner, go index, go value, s)
+  | SSetField (i, owner, field, value, s) -> SSetField (i, go owner, field, go value, s)
+  | SSetDeref (i, pointer, value, s) -> SSetDeref (i, go pointer, go value, s)
   | SMutate (i, name, e, s) -> SMutate (i, name, go e, s)
   | SReturn (i, e, s) -> SReturn (i, go e, s)
   | SReturnStmt (i, inner, s) -> SReturnStmt (i, rewrite tmap inner, s)

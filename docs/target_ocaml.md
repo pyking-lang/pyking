@@ -47,11 +47,27 @@ section; everything else compiles:
 - arrays: `array(...)` in its four forms, `a[i]`, `a[i] := v`, `len`,
   `same`, `for` and comprehensions over one, as OCaml's own `array`
   (see "Arrays");
+- pointers: `&` of a `var`, an array's or a view's element, a var
+  struct's field, or `*p`; `*p`, `*p := v`, `==` by place, printing
+  (see "Pointers");
+- slices `s[i:j]` of lists, Strings, arrays, Vecs and views; views
+  (`view(a, i, j)`, `Slice(T)`) and `copy_into` (see "Slices and
+  views");
+- Dicts: `dict(...)`, `d[k]`, `d[k] := v`, `get`, `has`, `keys`,
+  `values`, `items`, `remove`, `discard`, `clear`, `len`, `same`, `for`
+  and comprehensions (see "Dicts");
+- Vecs: `vec(...)`, `push`, `pop`, `insert`, `remove`, `clear`,
+  `v[i]`, `v[i] := x`, `len`, `same`, `for` and comprehensions (see
+  "Vecs");
+- `var struct`s: fields written with `:=` and the compound operators,
+  values shared by reference, `same`, and cycles printed with `...`
+  (see "Var structs");
 - tuples, including a binding that takes one apart;
 - `return`, anywhere it can be written;
 - lambdas (`lam x. x + 1`);
 - integers, floats, strings, characters and booleans; `+ - * / % ^`,
-  unary minus, comparisons, `==` and `!=`, `and`/`or`/`not`, the bitwise
+  unary minus, comparisons, `==` and `!=` (on every type the checker
+  lets them compare, as OCaml's structural `=` and `<>`; see "Equality"), `and`/`or`/`not`, the bitwise
   operators, `xs[i]` (`List.nth`), `s[i]` on a String, and calls.
 
 A `def` needs no annotation here: the checker works one out from its
@@ -507,7 +523,8 @@ datatype Tree(a):                  type 'a tree =
 Beside the declaration goes one printer per datatype, `pyk_show_tree`,
 taking a printer per type parameter and then the value, and writing it
 as Pyking prints it; a print site hands it the printers for the types
-it was applied to. A field read is a `match` with one arm per
+it was applied to. A datatype whose values can hold a cycle takes the
+*path* as well, in front of the value (see "Var structs"). A field read is a `match` with one arm per
 constructor. A `match` of one arm with no guard is printed as `let`
 (`let Point (_, tmp1) = p in tmp1`), since every `match` is exhaustive
 and its one pattern cannot fail -- which is what a field read of a
@@ -688,6 +705,252 @@ lists, tuples and arrays, it is written on the call:
 `(Stdlib.Array.of_list [] : int array)`. An exported function's type
 writes `Array(T)` as `T array` in the `.mli`.
 
+### Var structs
+
+A `var struct` is a variant of one constructor over an *inline record*
+whose fields are all `mutable`, labelled with the fields' names:
+
+```pyking                          # generated OCaml
+var struct Point(x: Int, y: Int)   type point =
+                                     | Point of { mutable x : int; mutable y : int }
+```
+
+OCaml allocates the constructor's block once, when the struct is made,
+and every name, parameter, element and field that holds it holds that
+one block — the sharing Pyking asks for, with nothing to add. A plain
+`struct` and every other datatype stay ordinary immutable variants.
+
+| Pyking | OCaml |
+|---|---|
+| `Point(1, 2)` | `Point { x = 1; y = 2 }` |
+| `p.x` | `let Point { x = tmp1; _ } = p in tmp1` |
+| `p.x := v` | `let Point tmp2 = p in tmp2.x <- v` |
+| `case Point(a, b)` | `Point { x = a; y = b }`, the fields as they are when matched |
+| `same(p, q)` | `p == q`, OCaml's physical equality |
+| printing | `pyk_show_point p`, as a `struct` prints |
+
+**Writing a field.** The owner is worked out first, then the value,
+then the write — into the struct the owner was, whatever the value did
+to the name it came from. OCaml fixes that order in a `let` alone, so
+the write takes the record out of the owner with one, and works out the
+value in its body. `p.x += e` reaches this backend already split into a
+binding of the owner, `field__owner = p`, and a write through it. A
+type variable of a generic `var struct` is fixed by the struct's first
+use, which OCaml's own weak type variable does the same way.
+
+**Cycles.** A var struct, or an array, can hold itself, so every
+printer that can meet one again takes the *path*: an `Obj.t list` of
+the arrays and var structs being formatted further out, innermost
+first, `[]` where formatting starts. `pyk_guard` formats a value with
+the value put on the path, or answers `...` where it is on it already:
+
+```ocaml
+let pyk_guard path value show =
+  let key = Obj.repr value in
+  if List.memq key path then "..." else show (key :: path)
+
+let rec pyk_show_link path value =
+  match value with
+      | End -> "End"
+      | Next f0 -> "Next(" ^ pyk_show_node path f0 ^ ")"
+and pyk_show_node path value =
+  pyk_guard path value (fun path -> (let Node { value = f0; next = f1 } = value in
+    "Node(" ^ string_of_int f0 ^ ", " ^ pyk_show_link path f1 ^ ")"))
+```
+
+so `a.next := Next(a)` prints `Node(1, Next(...))`. Only what is on the
+path from the value printed is `...`: a struct that is merely shared,
+the same one twice in an array, prints in full both times, as the
+interpreter's does. An array is guarded the same way, inline, where its
+elements can lead back to it.
+
+Which printers take the path is decided from the datatype's
+declaration and those of its own module alone, so every module that
+sees a datatype hands its printer the same arguments: one takes it
+where its values can hold a cycle through an array, a Vec, a Dict or a
+var struct, a type variable's value, or a type of another module. Such
+a printer guards its value too, immutable or not, as the interpreter
+puts every datatype value with fields on its path: the cycle stops at
+whatever on it repeats first, so `o = Just(n)` with `n.nxt := o` prints
+`Just(N(1, ...))`. Its type-parameter printers take the path too
+(`show_a path f0`). A datatype of plain values -- `Point` above, a list
+of Ints, a tree of Strings -- takes no path and prints as it did before
+var structs existed.
+
+In a recursive group a printer is monomorphic in the others, so a
+generic datatype's printer that another datatype of the group calls at
+one type would be fixed at that type. A generic printer in a recursive
+group is therefore written with its type, which OCaml then uses at
+every type:
+
+```ocaml
+let rec pyk_show_opt : 'a. (Obj.t list -> 'a -> string) -> Obj.t list -> 'a opt -> string =
+  fun show_a path value -> pyk_guard path value (fun path -> ...)
+and pyk_show_n path value = ... pyk_show_opt (fun path tmp12 -> pyk_show_n path tmp12) path f1 ...
+```
+
+### Vecs
+
+A `Vec(T)` is a cell holding its storage and its length,
+`(T option array * int) ref`. The cell is what every holder of the Vec
+shares, so `same(v, w)` is `v == w`; the storage is replaced when it
+grows, and the length changes, by writing a new pair into the cell.
+Stdlib's types alone make it up, so every module of a program writes
+the same type for it without one declaring it for the others -- a
+record type would be a different type in each module that declared it,
+and OCaml 4.14 has no `Dynarray`. A slot past the length is `None`, so
+an element popped, removed or cleared is not kept alive by the slot it
+left.
+
+| Pyking | OCaml |
+|---|---|
+| `vec()` | `ref ([\|\|], 0)`, its type written on it where it is plain, as `array([])`'s is |
+| `vec(xs)` | `pyk_vec_of_list xs` |
+| `v[i]` | `pyk_vec_get v i`, checked against the length it has now |
+| `v[i] := x` | `pyk_vec_check v i; pyk_vec_set v i x`: checked before `x` is worked out, and again as it is written |
+| `push(v, x)` | `pyk_vec_push v x`, the storage doubled where it is full |
+| `pop(v)` | `pyk_vec_pop v` |
+| `insert(v, i, x)` | `pyk_vec_insert v i x`, for 0 <= i <= the length |
+| `remove(v, i)` | `pyk_vec_remove v i` |
+| `clear(v)` | `pyk_vec_clear v`, which drops the storage |
+| `len(v)` | `pyk_vec_length v` |
+| `for x in v` | a walk by index, while it is below `pyk_vec_length v` at that turn |
+| `[e for x in v]` | the comprehension walks `pyk_vec_to_list v` |
+| printing | `"vec([" ^ … ^ "])"`, guarded as an array is (see "Var structs") |
+
+A failure is a Pyking runtime error, through `pyk_array_fail`: `error:
+the index 5 is outside a Vec of 2 elements`, `error: pop from an empty
+Vec`, `error: insert's index 7 is outside 0 to 3, the Vec's length`.
+The helpers are emitted only into a program that uses them. A
+program's own `push` (or `pop`, ..., `same`) is called as any of its
+functions is: the checker gave it a type, which a builtin has none of.
+
+### Slices and views
+
+`s[i:j]` copies, into a new value of the sequence's own kind -- a
+view's into an array -- through one helper per kind,
+`pyk_slice_list`, `pyk_slice_string` (by code point), `pyk_slice_array`,
+`pyk_slice_vec` and `pyk_slice_view`. Each takes the sequence, the low
+bound (`0` where it was left out) and the high one as an option (`None`
+where it was left out, the length then), worked out in that order, and
+checks them with `pyk_slice_bounds` before copying: `error: the slice
+2:4 is outside an array of 3 elements`.
+
+A view, `Slice(T)`, is a triple: the array it is a view of, where it
+starts in it, and its length, `(T array * int * int)`. The triple is
+made once, by `view`, and shared like any value, so `same(w, w2)` is
+`w == w2` -- two `view(...)` calls make two triples, which are not
+`same` -- and it shares the array's elements, so a write through it is
+a write to the array. A view of a view is a triple over the same array,
+the offsets added.
+
+| Pyking | OCaml |
+|---|---|
+| `view(a, i, j)` | `pyk_view a i j`, or `pyk_view_of_view w i j`, the bounds checked |
+| `w[k]`, `w[k] := x` | `pyk_view_get w k`; `pyk_view_check w k; pyk_view_set w k x` |
+| `len(w)` | `pyk_view_length w` |
+| `for x in w` | a walk by index, reading the array as each turn begins |
+| `[e for x in w]` | the comprehension walks `pyk_view_to_list w` |
+| `copy_into(dst, src)` | `pyk_copy_into dst src`, an array passed as `pyk_whole a`, a view of all of it |
+| printing | `"view([" ^ … ^ "])"`, the elements as they are now |
+
+`copy_into` is `Stdlib.Array.blit`, which is memmove: right where the
+two runs overlap. More from `src` than `dst` holds is `error: copy_into
+copies 4 elements into 2`. On the cycle path a view is the array it is
+a view of (`pyk_view_owner`), as the interpreter's is. `view` and
+`copy_into` are builtins only where the program has no function of its
+own by the name.
+
+### Pointers
+
+A `Ptr(T)` is an OCaml object naming a place:
+
+```ocaml
+< get : T; place : Obj.t * int; set : T -> unit >
+```
+
+`*p` is `p#get`, `*p := v` is `p#set v` (the pointer held first where
+it is more than a plain name, so it is worked out before the value),
+and `place` is the store the place is in and its slot there, which is
+what two pointers are compared by. An object type is structural, so
+every module writes the same type for a pointer, as for a Vec.
+
+| Pyking | OCaml |
+|---|---|
+| `&x`, `x` a `var` | `pyk_ptr_cell x`: the `var`'s ref itself, slot 0 |
+| `&a[i]` | `pyk_ptr_elem a i`, the index checked as the address is taken |
+| `&w[i]`, `w` a view | `pyk_ptr_view_elem w i`: the array's element `offset + i` |
+| `&s.f`, `s` a var struct | `pyk_ptr_field s k get set`: the struct, the field's position, and a reader and a writer of the field |
+| `&*p` | `p` |
+| `p == q` | `pyk_ptr_same p q`: one store (`==`) and one slot |
+| printing | `"Ptr(" ^ … p#get … ^ ")"`, what it points at now; on the path it is its store (`pyk_ptr_store`) |
+
+A `var` is already a ref, allocated on the heap, so a pointer to a
+local outlives the call that made it with nothing more to do
+(tests/pointers_escape.pyk). A failed check is `error: the index 5 is
+outside an array of 2 elements` (or `... a view of ...`).
+
+**Equality.** OCaml's `=` would compare two pointers by the contents of
+their objects -- and raise on the methods -- so `==` on a type that can
+hold a pointer (`holds_pointer`: a pointer, a list, tuple or datatype
+with one somewhere inside, or a datatype this module cannot see) is
+`pyk_equal`, a structural walk of the two values that compares a
+pointer -- the only object a Pyking value holds -- with
+`pyk_ptr_same`, a Float by IEEE and a String by its text, as `=` does.
+Every other `==` stays `=`.
+
+### Dicts
+
+A `Dict(K, V)` is a Stdlib hash table from each key to the *stamp* it
+was put in under and its value, beside a counter:
+`(K, int * V) Stdlib.Hashtbl.t * int ref`. Putting a new key in or
+taking one out moves the counter on, and a new key is stamped with the
+counter, so the stamps are the order the keys were put in; replacing a
+value keeps its stamp, and so its place. The pair is made once, when
+the Dict is, and is what every holder shares, so `same(d, e)` is
+`d == e`. Like a Vec's, the type is Stdlib's alone, so every module
+writes it the same. A key type is one OCaml's structural hashing and
+`compare` agree with Pyking's `==` on -- the checker allows no Float,
+function or mutable value in one.
+
+| Pyking | OCaml |
+|---|---|
+| `dict()` | `(Stdlib.Hashtbl.create 8, ref 0)`, its type written on it where it is plain |
+| `dict(pairs)` | `pyk_dict_of_list pairs`: a key twice keeps its first place and its last value |
+| `d[k]` | `pyk_dict_get show d k`, `show` writing the key for the error |
+| `d[k] := v` | `pyk_dict_set d k v`, the Dict and the key held first |
+| `get(d, k, x)` | `pyk_dict_get_or d k x`, `x` worked out as any argument is |
+| `has(d, k)`, `len(d)` | `pyk_dict_has d k`, `pyk_dict_length d` |
+| `remove(d, k)`, `discard(d, k)`, `clear(d)` | `pyk_dict_remove show d k`, `pyk_dict_discard d k`, `pyk_dict_clear d` |
+| `keys(d)`, `values(d)`, `items(d)` | `pyk_dict_keys d`, ...: the entries sorted by stamp |
+| `for k in d` | a walk by index over `pyk_dict_walk d`, the keys and the counter as the walk begins |
+| `[e for k in d]` | the comprehension walks `pyk_dict_keys d` |
+| printing | `"dict([" ^ … ^ "])"`, each entry as a `(k, v)` tuple, guarded as an array is |
+
+**Walking.** The walk asks `pyk_dict_walk_length` for its length at
+every advance, the last included, and that is where the counter is
+compared with the one the walk began with: a key put in or taken out
+during the walk is `error: the Dict changed while a for loop was
+reading it`. A value replaced is not. A missing key is `error: the Dict
+has no key "b"` (or `... to remove`), the key written as inside a
+value.
+
+Listing the entries sorts them, so `keys`, `items`, printing and the
+start of a walk take `n log n`; reading, writing, `has`, `remove` and
+`len` take constant time on average.
+
+### Equality
+
+`==` and `!=` are OCaml's structural `=` and `<>` (but see "Pointers"
+for values holding a pointer), which compare exactly
+what Pyking does on every type the checker lets them compare: scalars
+by value (a Float by IEEE, so `nan = nan` is false and `-0.0 = 0.0`
+true), lists and tuples element by element, datatypes by constructor
+and then field by field. The checker refuses them on functions, arrays,
+Vecs, Dicts, var structs and type variables, the values `=` would raise
+on or compare by contents where Pyking compares by identity, so none
+reaches it.
+
 ### `print`
 
 `print_endline`, with the arguments formatted per
@@ -704,6 +967,21 @@ print(1, "two", true)
 ```ocaml
 let () =
   print_endline (string_of_int 1 ^ " " ^ "two" ^ " " ^ string_of_bool true)
+```
+
+Every argument is worked out before any is formatted. Where one of
+them can hold an array or a var struct and another calls a function,
+which could change it, each argument is held under a name of its own,
+left to right, and the line is made from the names:
+
+```pyking
+print(acct, deposit(acct, 5))
+```
+
+```ocaml
+let () =
+  let tmp11 = deposit acct 5 in
+  print_endline (pyk_show_account acct ^ " " ^ string_of_int tmp11)
 ```
 
 `debug` is the same line through `prerr_endline`, on standard error. A
@@ -764,7 +1042,29 @@ Arrays add a second reason to pin. An element read can fail, and sees a
 write made before it, so where one of the operands reads an array (or
 makes one), each operand that reads one or calls a function is pinned
 as a printing one is: `a[0] + change()`, where `change` writes `a[0]`,
-reads the element first, as the interpreter does. `tests/evaluation_order.pyk` is the case that pins this down; it
+reads the element first, as the interpreter does.
+
+The rule in full: where one operand *writes* -- prints, can fail (an
+element read of an array, a Vec or a Dict, making an array), or calls
+something that can change what a caller sees -- every operand that can
+*see* it is pinned. Seeing is writing, or reading a `var`, a var
+struct's field, a builtin's reading of a Vec or a Dict (`len`, `get`,
+`has`, `keys`, ...), a `string(v)` of something that can hold an array,
+a Vec, a Dict or a var struct, or calling any function, which may read
+those. A builtin is told from a program's own function of the same
+name by the type the checker gave the latter. Which functions change something is worked out like which print:
+a function that writes a `var` it did not declare, an element, a field
+or a Vec, or calls one that does; a call this module cannot follow (a
+parameter, another module's function) is taken to change something
+where the program imports a module or has a changing function of its
+own. So `print(tick(), tick())`, where `tick` increments a `var`,
+prints `1 2`:
+
+```ocaml
+let () =
+  let tmp1 = tick () in
+  print_endline (string_of_int tmp1 ^ " " ^ string_of_int (tick ()))
+``` `tests/evaluation_order.pyk` is the case that pins this down; it
 runs on every target that supports it, and one `.out` has to serve them
 all.
 

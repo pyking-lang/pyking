@@ -407,3 +407,16 @@ The last line is still a compound `SSetIndex` -- its value
 after checking the index -- so `-t pyking` prints it as one. A plain
 `a[i] := e` is left alone: each backend keeps its order (array, index,
 check, value, write) with temporaries of its own.
+
+## A compound field write
+
+`p.x += e` is the same for a `var struct`'s field: `p` is worked out
+once, into `field__owner`, and the write goes to the struct it named
+(PYKING.md, "Mutable structs"):
+
+```pyking                           # what the pass builds
+p.x += e                            field__owner = p
+                                    field__owner.x += e
+```
+
+A plain `p.x := e` is left alone.

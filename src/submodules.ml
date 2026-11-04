@@ -84,7 +84,7 @@ let defined stmts =
       | SFunctionDef (i, name, _, _, _, _, _, _, _) | SFunctionSig (i, name, _, _, _) ->
           [ (name, i) ]
       | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) -> targets target
-      | SDatatype (i, name, _, constructors, _, _) ->
+      | SDatatype (i, name, _, constructors, _, _, _) ->
           let path, _ = split name in
           (name, i)
           :: List.map
@@ -367,7 +367,7 @@ let import_rewritten imported statement =
     datatype name the first parse saw. [String] -> stmt -> stmt *)
 let constructors_flattened dotted statement =
   match statement with
-  | SDatatype (i, name, params, constructors, sym, public) -> (
+  | SDatatype (i, name, params, constructors, sym, public, writable) -> (
       match List.find_opt (fun d -> flat d = name) dotted with
       | Some d ->
           let path, _ = split d in
@@ -383,7 +383,8 @@ let constructors_flattened dotted statement =
                   else Constructor (ci, flat (String.concat "." (path @ [ c ])), fields, csym))
                 constructors,
               sym,
-              public )
+              public,
+              writable )
       | None -> statement)
   | _ -> statement
 
@@ -463,7 +464,7 @@ let plain_names stmts =
             | TargetTuple (_, parts, _) -> List.concat_map names parts
           in
           names target
-      | SDatatype (_, name, _, constructors, _, _) when not (String.contains name '.') ->
+      | SDatatype (_, name, _, constructors, _, _, _) when not (String.contains name '.') ->
           name :: List.map (fun (Constructor (_, c, _, _)) -> c) constructors
       | _ -> [])
     stmts
@@ -505,7 +506,7 @@ let module_ ?(context = []) tokens stmts declarations imported =
       List.filter_map
         (fun s ->
           match s with
-          | SDatatype (_, name, _, _, _, _) when String.contains name '.' -> Some name
+          | SDatatype (_, name, _, _, _, _, _) when String.contains name '.' -> Some name
           | _ -> None)
         stmts
     in

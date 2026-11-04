@@ -38,6 +38,7 @@ type family =
   | Web
   | Iweb
   | C
+  | Cgc (* C with the bdwgc collector: c23-gc *)
   | Java
   | Ocaml
   | Pyking
@@ -58,6 +59,7 @@ let table =
     ("c89", C, ".c");
     ("c99", C, ".c");
     ("c23", C, ".c");
+    ("c23-gc", Cgc, ".c");
     ("java8", Java, ".java");
     ("java17", Java, ".java");
     ("java21", Java, ".java");
@@ -76,6 +78,7 @@ let defaults =
     (Web, "web2020");
     (Iweb, "iweb2020");
     (C, "c99");
+    (Cgc, "c23-gc");
     (Java, "java21");
     (Ocaml, "ocaml4.14");
   ]
@@ -92,6 +95,7 @@ let family_name f =
   | Web -> "web"
   | Iweb -> "iweb"
   | C -> "c"
+  | Cgc -> "c-gc"
   | Java -> "java"
   | Ocaml -> "ocaml"
   | Pyking -> "pyking"
@@ -110,7 +114,7 @@ let members f =
 (* The families that take a version. `pyking` is not one of them: it
    compiles Pyking to Pyking, so there is no host whose version could
    matter. *)
-let versioned = [ Python; Node; Web; Iweb; C; Java; Ocaml ]
+let versioned = [ Python; Node; Web; Iweb; C; Cgc; Java; Ocaml ]
 
 (** Each unversioned name and the version it means: a family's
     default. [(string, string)] *)
@@ -129,13 +133,20 @@ let default = List.assoc Python defaults
 (** What a target's name says after its family's: its version, "" for
     one without. string -> string *)
 let version target =
-  let f = family_name (family_of target) in
-  String.sub target (String.length f) (String.length target - String.length f)
+  match family_of target with
+  | Cgc -> String.sub target 1 (String.index target '-' - 1)
+  | family ->
+      let f = family_name family in
+      String.sub target (String.length f) (String.length target - String.length f)
 
 (** The ECMAScript edition a JavaScript target emits: 2020 for node22,
     web2020 and iweb2020, 2024 for the rest. string -> int *)
 let es_edition target =
   match target with "node22" | "web2020" | "iweb2020" -> 2020 | _ -> 2024
+
+(** Whether a target's family is compiled by the C backend: plain C or
+    c23-gc. family -> bool *)
+let is_c family = family = C || family = Cgc
 
 (** What a target's primary output file is called. string -> string *)
 let extension target =

@@ -66,6 +66,8 @@ let children n =
       | EBinary (_, _, l, r, _)
       | EIndex (_, l, r, _) ->
           [ NExpr l; NExpr r ]
+      | ESlice (_, l, a, b, _) -> NExpr l :: List.map (fun e -> NExpr e) (Option.to_list a @ Option.to_list b)
+      | EAddr (_, e, _) | EDeref (_, e, _) -> [ NExpr e ]
       | EUnary (_, _, operand, _) -> [ NExpr operand ]
       | ENeg (_, operand, _) -> [ NExpr operand ]
       | ECall (_, func, args, _) -> NExpr func :: exprs_of (arg_exprs args)
@@ -95,7 +97,7 @@ let children n =
           @ option_of (fun s -> NStmt s) definition
       | TForall (_, _, body, _) -> [ NType body ]
       | TCon (_, _, args, _) -> List.map (fun t -> NType t) args
-      | TData (_, Datatype (_, _, constructors), _) ->
+      | TData (_, Datatype (_, _, constructors, _), _) ->
           List.concat_map
             (fun (_, fields) -> List.map (fun (_, t) -> NType t) fields)
             constructors)
@@ -148,6 +150,8 @@ let children n =
       | SVar (_, _, e, _) | SMutate (_, _, e, _) -> [ NExpr e ]
       | SMutateTuple (_, target, e, _) -> [ NTarget target; NExpr e ]
       | SSetIndex (_, owner, index, value, _) -> [ NExpr owner; NExpr index; NExpr value ]
+      | SSetField (_, owner, _, value, _) -> [ NExpr owner; NExpr value ]
+      | SSetDeref (_, pointer, value, _) -> [ NExpr pointer; NExpr value ]
       | SReturn (_, e, _) | SExprStmt (_, e, _) -> [ NExpr e ]
       | SReturnStmt (_, inner, _) -> [ NStmt inner ]
       | SLoop (_, target, init, annotation, iterate, body, _) ->
@@ -166,7 +170,7 @@ let children n =
       | SFunctionSig (_, _, t, _, _) -> [ NType t ]
       | SMatch (_, subject, cases, _) ->
           NExpr subject :: List.map (fun c -> NMatchCase c) cases
-      | SDatatype (_, _, _, constructors, _, _) ->
+      | SDatatype (_, _, _, constructors, _, _, _) ->
           List.map (fun c -> NConstructor c) constructors)
 
 (** f over every node in a subtree, the subtree's own root first.

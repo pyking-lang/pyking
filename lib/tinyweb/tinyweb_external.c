@@ -1,5 +1,6 @@
 /* The C implementation of the names declared in tinyweb_external.pyk,
-   for c89, c99 and c23. A name is tinyweb_<field>, a String is a
+   for c89, c99, c23 and c23-gc (draw_pairs, draw_triples and draw_quads,
+   which take a list, are c23-gc's alone). A name is tinyweb_<field>, a String is a
    const char *, a Float a double, and a Pyking function a pointer to a
    C function. Written in C89 with POSIX sockets, so that one file
    serves all three standards.
@@ -2750,6 +2751,150 @@ void tinyweb_draw_shape(const char *c, const char *kind, const char *numbers, co
     tw_field_float(&json, &line, "alpha", alpha);
     tw_finish("shape", &json, &line, 1, c, 0, NULL, 1);
 }
+
+#ifdef PYKING_GC
+/* Many points, circles or lines in one shape: c23-gc alone, the one C
+   target with lists. A list crosses as a pointer to its first cell and
+   a tuple as the struct the program declares for it, each declared here
+   as the program declares it, guarded the same (docs/target_c.md,
+   "External modules"). */
+
+#ifndef PYK_TYPE_PYK_T_TFF_
+#define PYK_TYPE_PYK_T_TFF_
+typedef struct pyk_t_Tff_ {
+    double a0;
+    double a1;
+} pyk_t_Tff_;
+#endif
+
+#ifndef PYK_TYPE_PYK_L_LTFF__
+#define PYK_TYPE_PYK_L_LTFF__
+typedef struct pyk_l_LTff__ {
+    pyk_t_Tff_ head;
+    struct pyk_l_LTff__ *tail;
+} pyk_l_LTff__;
+#endif
+
+#ifndef PYK_TYPE_PYK_T_TFFF_
+#define PYK_TYPE_PYK_T_TFFF_
+typedef struct pyk_t_Tfff_ {
+    double a0;
+    double a1;
+    double a2;
+} pyk_t_Tfff_;
+#endif
+
+#ifndef PYK_TYPE_PYK_L_LTFFF__
+#define PYK_TYPE_PYK_L_LTFFF__
+typedef struct pyk_l_LTfff__ {
+    pyk_t_Tfff_ head;
+    struct pyk_l_LTfff__ *tail;
+} pyk_l_LTfff__;
+#endif
+
+#ifndef PYK_TYPE_PYK_T_TFFFF_
+#define PYK_TYPE_PYK_T_TFFFF_
+typedef struct pyk_t_Tffff_ {
+    double a0;
+    double a1;
+    double a2;
+    double a3;
+} pyk_t_Tffff_;
+#endif
+
+#ifndef PYK_TYPE_PYK_L_LTFFFF__
+#define PYK_TYPE_PYK_L_LTFFFF__
+typedef struct pyk_l_LTffff__ {
+    pyk_t_Tffff_ head;
+    struct pyk_l_LTffff__ *tail;
+} pyk_l_LTffff__;
+#endif
+
+void tinyweb_draw_pairs(const char *c, const char *kind, pyk_l_LTff__ *items, const char *color,
+                        const char *outline, double width, double alpha);
+void tinyweb_draw_triples(const char *c, const char *kind, pyk_l_LTfff__ *items, const char *color,
+                          const char *outline, double width, double alpha);
+void tinyweb_draw_quads(const char *c, const char *kind, pyk_l_LTffff__ *items, const char *color,
+                        const char *outline, double width, double alpha);
+
+/* A shape whose numbers are n doubles: a JSON array in the command, and
+   each written %.3f in the log line, as the other hosts write them. */
+static void tw_draw_floats(const char *c, const char *kind, const double *numbers, int n,
+                           const char *color, const char *outline, double width, double alpha)
+{
+    tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
+    char number[64];
+    int i;
+    tw_puts(&line, kind);
+    tw_field_json(&json, "kind", kind);
+    tw_field_string(&json, &line, "c", c, 0);
+    tw_puts(&json, ",\"numbers\":[");
+    tw_puts(&line, " ");
+    for (i = 0; i < n; i++) {
+        sprintf(number, "%s%.17g", i > 0 ? "," : "", numbers[i]);
+        tw_puts(&json, number);
+        sprintf(number, "%s%.3f", i > 0 ? " " : "", numbers[i]);
+        tw_puts(&line, number);
+    }
+    tw_puts(&json, "]");
+    tw_field_string(&json, &line, "color", color, 0);
+    tw_field_string(&json, &line, "outline", outline, 0);
+    tw_field_float(&json, &line, "width", width);
+    tw_field_float(&json, &line, "alpha", alpha);
+    tw_finish("shape", &json, &line, 1, c, 0, NULL, 1);
+}
+
+void tinyweb_draw_pairs(const char *c, const char *kind, pyk_l_LTff__ *items, const char *color,
+                        const char *outline, double width, double alpha)
+{
+    pyk_l_LTff__ *p;
+    double *numbers;
+    int n = 0;
+    for (p = items; p != NULL; p = p->tail) n++;
+    numbers = malloc(sizeof *numbers * (size_t)(2 * n + 1));
+    for (n = 0, p = items; p != NULL; p = p->tail) {
+        numbers[n++] = p->head.a0;
+        numbers[n++] = p->head.a1;
+    }
+    tw_draw_floats(c, kind, numbers, n, color, outline, width, alpha);
+    free(numbers);
+}
+
+void tinyweb_draw_triples(const char *c, const char *kind, pyk_l_LTfff__ *items, const char *color,
+                          const char *outline, double width, double alpha)
+{
+    pyk_l_LTfff__ *p;
+    double *numbers;
+    int n = 0;
+    for (p = items; p != NULL; p = p->tail) n++;
+    numbers = malloc(sizeof *numbers * (size_t)(3 * n + 1));
+    for (n = 0, p = items; p != NULL; p = p->tail) {
+        numbers[n++] = p->head.a0;
+        numbers[n++] = p->head.a1;
+        numbers[n++] = p->head.a2;
+    }
+    tw_draw_floats(c, kind, numbers, n, color, outline, width, alpha);
+    free(numbers);
+}
+
+void tinyweb_draw_quads(const char *c, const char *kind, pyk_l_LTffff__ *items, const char *color,
+                        const char *outline, double width, double alpha)
+{
+    pyk_l_LTffff__ *p;
+    double *numbers;
+    int n = 0;
+    for (p = items; p != NULL; p = p->tail) n++;
+    numbers = malloc(sizeof *numbers * (size_t)(4 * n + 1));
+    for (n = 0, p = items; p != NULL; p = p->tail) {
+        numbers[n++] = p->head.a0;
+        numbers[n++] = p->head.a1;
+        numbers[n++] = p->head.a2;
+        numbers[n++] = p->head.a3;
+    }
+    tw_draw_floats(c, kind, numbers, n, color, outline, width, alpha);
+    free(numbers);
+}
+#endif
 
 void tinyweb_draw_text(const char *c, double x, double y, const char *words, const char *color,
                        int size, const char *font, const char *align, const char *baseline,

@@ -393,6 +393,11 @@ let rec expr w here e =
   | EBinary (_, _, a, b, _) | EIndex (_, a, b, _) ->
       go a;
       go b
+  | ESlice (_, l, a, b, _) ->
+      go l;
+      Option.iter go a;
+      Option.iter go b
+  | EAddr (_, a, _) | EDeref (_, a, _) -> go a
   | ENeg (_, a, _) | EUnary (_, _, a, _) | EField (_, a, _, _) -> go a
   | ECall (info, f, args, s) ->
       (* `array(n, v)` with v an array fills n elements with one v --
@@ -493,6 +498,10 @@ and statement w here ~toplevel stmt =
   | SSetIndex (_, owner, index, value, _) ->
       expr w here owner;
       expr w here index;
+      expr w here value;
+      here
+  | SSetField (_, owner, _, value, _) | SSetDeref (_, owner, value, _) ->
+      expr w here owner;
       expr w here value;
       here
   | SMutate (_, n, e, _) ->

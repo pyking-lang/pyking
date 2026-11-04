@@ -202,7 +202,7 @@ let ctor_class module_class name =
 (** What a datatype's own type is called in Java: its name, unless one of
     its constructors already is -- and its constructor's class, where it
     has only the one. string -> datatype -> string *)
-let type_class module_class (Datatype (canonical, _, ctors)) =
+let type_class module_class (Datatype (canonical, _, ctors, _)) =
   match ctors with
   | [ (c, _) ] -> ctor_class module_class c
   | _ ->
@@ -318,6 +318,9 @@ type ctx = {
   (* Translating the top level, which declares no type variables: every
      one is written Object. *)
   erase : bool;
+  (* The `var`s whose address `&` takes anywhere in the module: held in a
+     cell of the boxed type, which a pointer is to. *)
+  addressed : StringSet.t;
 }
 
 (** A type variable's Java name. ctx -> string -> string *)
@@ -342,6 +345,27 @@ let ctor_ref ctx canonical name =
   | Some m, _ -> module_class m ^ "." ^ ctor_class (module_class m) name
   | None, _ -> ctor_class ctx.own_class name
 
+(* The stores an element is read from and written to by index: an
+   array, a Vec and a view (`Slice(T)`) -- each a class of the runtime
+   extending its `PykStore`. *)
+type store = SArray | SVec | SView
+
+(** A store type's kind and element type, or None for any other type.
+    typ -> (store * typ) option *)
+let store_of t =
+  match t with
+  | TCon (_, _, [ e ], _) when Typesystem.array_element t <> None -> Some (SArray, e)
+  | TCon (_, _, [ e ], _) when Typesystem.vec_element t <> None -> Some (SVec, e)
+  | TCon (_, "Slice", [ e ], _) -> Some (SView, e)
+  | _ -> None
+
+(** What a pointer type points at, or None for any other type.
+    typ -> typ option *)
+let ptr_target t = match t with TCon (_, "Ptr", [ e ], _) -> Some e | _ -> None
+
+(** The runtime class of a store. store -> string *)
+let store_class = function SArray -> "PykArray" | SVec -> "PykVec" | SView -> "PykView"
+
 (** A Pyking type as Java writes it; `boxed` where Java needs a reference
     type, as a type argument does. ctx -> bool? -> typ -> string *)
 let rec jt ctx ?(boxed = false) ?(erase = false) t =
@@ -360,8 +384,13 @@ let rec jt ctx ?(boxed = false) ?(erase = false) t =
   | TList (_, e, _) -> "java.util.List<" ^ jt ctx ~boxed:true e ^ ">"
   | TFunction (_, ps, r, _, _, _, imps) -> fn_type ctx (ps @ List.map (fun (IParam (_, t)) -> t) imps) r
   | TVar (_, v, _, _) -> if erase || (String.length v > 0 && (v.[0] = '?' || v.[0] = '_')) then "Object" else tvar ctx v
-  | TCon (_, _, [ e ], _) when Typesystem.array_element t <> None ->
-      runtime_class ^ ".PykArray<" ^ jt ctx ~boxed:true e ^ ">"
+  | TCon _ when store_of t <> None ->
+      let kind, e = Option.get (store_of t) in
+      runtime_class ^ "." ^ store_class kind ^ "<" ^ jt ctx ~boxed:true e ^ ">"
+  | TCon _ when ptr_target t <> None -> runtime_class ^ ".PykPtr<" ^ jt ctx ~boxed:true (Option.get (ptr_target t)) ^ ">"
+  | TCon _ when Typesystem.dict_parts t <> None ->
+      let k, v = Option.get (Typesystem.dict_parts t) in
+      runtime_class ^ ".PykDict<" ^ jt ctx ~boxed:true k ^ ", " ^ jt ctx ~boxed:true v ^ ">"
   | TCon (_, canonical, args, _) ->
       datatype_ref ctx canonical ^ if args = [] then "" else "<" ^ targs ctx args ^ ">"
   | TForall _ as p ->
@@ -634,6 +663,9 @@ let equal ctx t a b =
   match t with
   | TString _ -> atom (Printf.sprintf "%s.equals(%s)" (at p_atom a) b.text)
   | t when is_scalar t -> binary p_eq "==" (unboxed ctx t a) (unboxed ctx t b)
+  | TList _ | TTuple (_, _ :: _, _) | TCon _ ->
+      (* Structurally, part by part, a Float inside by IEEE's `==`. *)
+      atom (Printf.sprintf "%s.equal(%s, %s)" runtime_class a.text b.text)
   | _ -> atom (Printf.sprintf "java.util.Objects.equals(%s, %s)" a.text b.text)
 
 (** A Java string literal. string -> string *)
@@ -663,18 +695,28 @@ let char_code (v : jexpr) =
   else atom (at p_atom v ^ ".code")
 
 (** A sequence a `for` walks: a String's Chars as a list of them, a
-    list or an array as itself -- an array is an Iterable whose iterator
-    reads each element as it is reached. typ -> jexpr -> jexpr *)
+    list, a store or a Dict as itself -- a store is an Iterable whose
+    iterator reads each element as it is reached, a Dict one over its
+    keys. typ -> jexpr -> jexpr *)
 let walked t (seq : jexpr) =
   match t with
   | TString _ -> atom (Printf.sprintf "%s.chars(%s)" runtime_class seq.text)
   | _ -> seq
 
+(** A sequence a comprehension walks: as `walked`, but a store's
+    elements and a Dict's keys as a list of them as they are when it
+    starts. typ -> jexpr -> jexpr *)
+let listed t (seq : jexpr) =
+  if store_of t <> None then atom (at p_atom seq ^ ".toList()")
+  else if Typesystem.dict_parts t <> None then atom (at p_atom seq ^ ".keys()")
+  else walked t seq
+
 (** The type of a sequence's items: a String's are Chars. typ -> typ *)
 let item_type t =
   match t with
   | TList (_, el, _) -> el
-  | TCon _ when Typesystem.array_element t <> None -> Option.get (Typesystem.array_element t)
+  | TCon _ when store_of t <> None -> snd (Option.get (store_of t))
+  | TCon _ when Typesystem.dict_parts t <> None -> fst (Option.get (Typesystem.dict_parts t))
   | TString (i, _) -> TChar (i, 0)
   | _ -> TUnknown (no_info, 0)
 
@@ -723,9 +765,16 @@ let mentioned stmts =
       | _ -> found)
     StringSet.empty stmts
 
+(** Every name `&` takes the address of in stmts. [stmt] -> StringSet.t *)
+let addressed_vars stmts =
+  Walk.fold_stmts
+    (fun found node -> match node with Walk.NExpr (EAddr (_, EVar (_, n, _), _)) -> StringSet.add n found | _ -> found)
+    StringSet.empty stmts
+
 (** The `var`s of a body that something it writes as a closure -- a
-    nested def, a lambda, a comprehension -- mentions: those live in a
-    cell. [stmt] -> StringSet.t *)
+    nested def, a lambda, a comprehension -- mentions, or whose address
+    `&` takes: those live in a cell, a new one each time the `var` is
+    declared. [stmt] -> StringSet.t *)
 let captured_vars body =
   let vars =
     Walk.fold_stmts
@@ -755,7 +804,7 @@ let captured_vars body =
                       StringSet.union found (mentioned [ SExprStmt (no_info, e, 0) ]))
                 found clauses
           | _ -> found)
-        StringSet.empty body
+        (addressed_vars body) body
     in
     StringSet.inter vars inner
 
@@ -779,7 +828,7 @@ let datatype_of ctx info t =
   match t with
   | TCon (_, canonical, args, _) -> (
       match SMap.find_opt canonical ctx.datatypes with
-      | Some (Datatype (_, params, _) as d) ->
+      | Some (Datatype (_, params, _, _) as d) ->
           let bound = if List.length params = List.length args then List.combine params args else [] in
           (d, bound)
       | None -> unsupported info (Printf.sprintf "the datatype %s is not one this module can see" canonical))
@@ -820,7 +869,7 @@ let rec matching bound declared actual =
 (** A constructor's fields: each Java name and its type at this
     instance. ctx -> info -> typ -> string -> [(string, typ)] *)
 let ctor_fields ctx info t name =
-  let Datatype (_, _, ctors), bound = datatype_of ctx info t in
+  let Datatype (_, _, ctors, _), bound = datatype_of ctx info t in
   match List.assoc_opt name ctors with
   | Some fields -> List.mapi (fun i (label, ft) -> (field_name label i, substitute bound ft)) fields
   | None -> unsupported info (Printf.sprintf "no constructor %s" name)
@@ -830,9 +879,22 @@ let ctor_fields ctx info t name =
 let sole_constructor ctx info t =
   match t with
   | TCon _ ->
-      let Datatype (_, _, ctors), _ = datatype_of ctx info t in
+      let Datatype (_, _, ctors, _), _ = datatype_of ctx info t in
       List.length ctors = 1
   | _ -> false
+
+(** Whether a type is a `var struct`'s: a class of its own with fields
+    written in place, read as `s.field` rather than through a record's
+    accessor. ctx -> typ -> bool *)
+let writable ctx t =
+  match t with
+  | TCon (_, canonical, _, _) -> (
+      match SMap.find_opt canonical ctx.datatypes with Some (Datatype (_, _, _, w)) -> w | None -> false)
+  | _ -> false
+
+(** A var struct's field, read where it is: a public field of its class.
+    jexpr -> string -> jexpr *)
+let struct_field (s : jexpr) name = atom ~boxed:true (Printf.sprintf "%s.%s" (at p_atom s) name)
 
 (* --- patterns ---
    A pattern is the tests that decide it and the names it binds, each to
@@ -912,7 +974,7 @@ let rec pattern ctx st p (s : jexpr) (t : typ) binding =
       let typed = cls ^ if args = [] then "" else "<" ^ targs ctx args ^ ">" in
       let declared = ctor_fields ctx info t name in
       let fields_of holder =
-        List.map (fun (fname, _) -> field_get ctx holder fname) declared
+        List.map (fun (fname, _) -> if writable ctx t then struct_field holder fname else field_get ctx holder fname) declared
       in
       let types = List.map snd declared in
       match (ctx.shape, binding) with
@@ -1038,12 +1100,25 @@ let rec expr ctx st scope e =
       let st = need_type st t in
       let values, st = exprs ctx st scope es in
       (* Java infers the element type, from the elements or from where
-         the list goes. *)
+         the list goes -- but an empty list among the elements, which
+         `Arrays.asList` would infer from nothing, is given its element
+         type, where that is a type with no variables. *)
       if es = [] then (atom "java.util.Collections.emptyList()", st)
       else
+        let values =
+          match t with
+          | TList (_, TList (_, inner, _), _) when settled ctx inner && type_vars inner = [] ->
+              List.map2
+                (fun e (v : jexpr) ->
+                  match e with
+                  | EList (_, [], _) -> atom (Printf.sprintf "java.util.Collections.<%s>emptyList()" (jt ctx ~boxed:true inner))
+                  | _ -> v)
+                es values
+          | _ -> values
+        in
         ( atom
             (Printf.sprintf "java.util.Arrays.asList(%s)"
-               (String.concat ", " (List.map (fun v -> v.text) values))),
+               (String.concat ", " (List.map (fun (v : jexpr) -> v.text) values))),
           st )
   | EVar (_, name, _) -> variable ctx st scope e name
   | EQualified (_, alias, field, _) -> qualified ctx st scope e alias field
@@ -1099,6 +1174,21 @@ let rec expr ctx st scope e =
       let v, st = expr ctx st scope operand in
       let spelling = match op with UNot _ -> "!" | UBitNot _ -> "~" in
       (mk p_unary (spelling ^ at p_unary v), st)
+  | EAddr (info, place, _) -> address ctx st scope e info place
+  | EDeref (_, pointer, _) ->
+      let p, st = expr ctx st scope pointer in
+      (method_call p "get" [], st)
+  | ESlice (_, sequence, low, high, _) ->
+      (* `seq[low:high]`: Java works out the sequence, then the bounds,
+         then calls the copy, which checks them; a left-out `high` is
+         `null`, the length the copy finds. *)
+      let v, st = expr ctx st scope sequence in
+      let bound st b default = match b with Some b -> expr ctx st scope b | None -> (atom default, st) in
+      let l, st = bound st low "0" in
+      let h, st = bound st high "null" in
+      let t = type_of ctx scope sequence in
+      if store_of t <> None then (method_call v "slice" [ l; h ], st)
+      else (atom (Printf.sprintf "%s(%s, %s, %s)" (rt "slice") v.text l.text h.text), st)
   | EIndex (_, l, index, _) -> (
       let a, st = expr ctx st scope l in
       let i, st = expr ctx st scope index in
@@ -1137,7 +1227,8 @@ let rec expr ctx st scope e =
       else (atom (Printf.sprintf "%s(%s)" cls arguments), st)
   | EField (_, record, name, _) ->
       let v, st = expr ctx st scope record in
-      (atom ~boxed:true (Printf.sprintf "%s.%s()" (at p_atom v) (field_name (Some name) 0)), st)
+      if writable ctx (type_of ctx scope record) then (struct_field v (field_name (Some name) 0), st)
+      else (atom ~boxed:true (Printf.sprintf "%s.%s()" (at p_atom v) (field_name (Some name) 0)), st)
   | ELambda (_, params, body, _) -> lambda ctx st scope e params body
   | ELet (_, target, _, value, body, _) ->
       (* `PykRuntime.let(value, name -> body)`: the value is evaluated
@@ -1460,8 +1551,22 @@ and builtin ctx st scope e name args =
       | TString _ -> (helper "len", st)
       | _ -> (atom (at p_atom v ^ ".size()"), st))
   | "string", [ v ] -> (printed ctx (arg_type 0) v, st)
+  (* A Vec's, a Dict's and a view's own methods; one answering nothing
+     answers a Void, as a call where a value is wanted must. *)
+  | ("push" | "insert" | "get"), first :: rest ->
+      let last = List.length rest - 1 in
+      let element = item_type (arg_type 0) in
+      let element = match Typesystem.dict_parts (arg_type 0) with Some (_, value) -> value | None -> element in
+      let rest = List.mapi (fun i v -> if i = last then typed_value ctx element v else v) rest in
+      (method_call first name rest, st)
+  | "has", [ d; k ] -> (atom (Printf.sprintf "%s.has(%s)" (at p_atom d) k.text), st)
+  | ("pop" | "remove" | "clear" | "view" | "discard" | "keys" | "values"), first :: rest ->
+      (method_call first name rest, st)
+  | "items", [ d ] -> (method_call d name [], need_tuple st 2)
+  | "copy_into", [ dst; src ] -> (atom (Printf.sprintf "%s(%s, %s)" (rt "copyInto") dst.text src.text), st)
   | "same", [ a; b ] ->
-      (* Two arrays are the same array when they are one object. *)
+      (* Two arrays, or two var structs, are the same when they are one
+         object. *)
       (binary p_eq "==" (mk p_unary ("(Object) " ^ at p_unary a)) (mk p_unary ("(Object) " ^ at p_unary b)), st)
   | "int", [ v ] -> (
       match arg_type 0 with
@@ -1495,9 +1600,55 @@ and builtin ctx st scope e name args =
       | _ -> unsupported info "`char` of this type")
   | _ -> unsupported info (Printf.sprintf "the builtin `%s` with these arguments" name)
 
-(** A call making an array -- `list__array`, `fill__array`,
-    `init__array` or `unfold__array`, the members of the builtin
-    `array` -- as the runtime's factory for it. The element type is
+(** `&place`: a pointer to a `var`'s cell, to an array's or a view's
+    element (its index checked now), or to a var struct's field; `&*p`
+    is p. The pointed-at type is given where Java cannot infer it.
+    ctx -> state -> scope -> expr -> info -> expr -> (jexpr, state) *)
+and address ctx st scope e info place =
+  let explicit =
+    match ptr_target (type_of ctx scope e) with
+    | Some t when settled ctx t -> "<" ^ jt ctx ~boxed:true t ^ ">"
+    | _ -> ""
+  in
+  match place with
+  | EDeref (_, p, _) -> expr ctx st scope p
+  | EVar (_, name, _) -> (
+      let b = lookup scope info name in
+      match b.kind with
+      | BCell ->
+          let cell = String.sub b.value.text 0 (String.length b.value.text - 3) in
+          (atom (Printf.sprintf "%s.%spointer(%s, 0)" runtime_class explicit cell), st)
+      | _ -> unsupported info (Printf.sprintf "the address of '%s', which is not held in a cell" name))
+  | EIndex (_, owner, index, _) ->
+      let o, st = expr ctx st scope owner in
+      let i, st = expr ctx st scope index in
+      (method_call o "pointer" [ i ], st)
+  | EField (_, owner, field, _) ->
+      let o, st = expr ctx st scope owner in
+      let slot =
+        match datatype_of ctx info (type_of ctx scope owner) with
+        | Datatype (_, _, [ (_, fields) ], _), _ ->
+            let rec find i = function
+              | (label, _) :: rest -> if label = Some field then i else find (i + 1) rest
+              | [] -> unsupported info (Printf.sprintf "no field %s" field)
+            in
+            find 0 fields
+        | _ -> unsupported info "the address of a field of a value that is no var struct"
+      in
+      (atom (Printf.sprintf "%s.%spointer(%s, %d)" runtime_class explicit o.text slot), st)
+  | _ -> unsupported info "the address of this expression"
+
+(** `receiver.name(args)`, its result boxed as a generic method's is.
+    jexpr -> string -> [jexpr] -> jexpr *)
+and method_call receiver name args =
+  atom ~boxed:true
+    (Printf.sprintf "%s.%s(%s)" (at p_atom receiver) name (String.concat ", " (List.map (fun (v : jexpr) -> v.text) args)))
+
+(** A call making an array, a Vec or a Dict -- `list__array`,
+    `fill__array`, `init__array_init` or `unfold__array_init`, the members
+    of the builtin `array`, `empty__vec` or `list__vec`, `vec`'s, and
+    `empty__dict` or `list__dict`, `dict`'s -- as the runtime's factory
+    for it. The element type (a Dict's key and value types) is
     given explicitly where the checker settled it, which also gives a
     lambda argument its interface; a lambda is cast to its own type
     besides, for where Java has to infer.
@@ -1510,17 +1661,22 @@ and make_array ctx st scope e name args =
     match name with
     | "list__array" -> "arrayOfList"
     | "fill__array" -> "arrayFill"
-    | "init__array" -> "arrayInit"
-    | "unfold__array" -> "arrayUnfold"
+    | "init__array_init" -> "arrayInit"
+    | "unfold__array_init" -> "arrayUnfold"
+    | "empty__vec" -> "vecEmpty"
+    | "list__vec" -> "vecOfList"
+    | "empty__dict" -> "dictEmpty"
+    | "list__dict" -> "dictOfList"
     | _ -> unsupported info (Printf.sprintf "the builtin `%s`" name)
   in
   let t = type_of ctx scope e in
   let st = need_type st t in
-  let st = if name = "unfold__array" then need_tuple st 2 else st in
+  let st = if name = "unfold__array_init" || name = "list__dict" then need_tuple st 2 else st in
   let explicit =
-    match Typesystem.array_element t with
-    | Some el when settled ctx el ->
-        if name = "unfold__array" then
+    match (Option.map snd (store_of t), Typesystem.dict_parts t) with
+    | _, Some (k, v) when settled ctx k && settled ctx v -> Printf.sprintf "<%s, %s>" (jt ctx ~boxed:true k) (jt ctx ~boxed:true v)
+    | Some el, _ when settled ctx el ->
+        if name = "unfold__array_init" then
           match List.map (type_of ctx scope) args with
           | [ _; seed; _ ] when settled ctx seed -> Printf.sprintf "<%s, %s>" (jt ctx ~boxed:true el) (jt ctx ~boxed:true seed)
           | _ -> ""
@@ -1549,13 +1705,32 @@ and settled ctx t =
   && not (ctx.erase && type_vars t <> [])
 
 (** The line a print writes: its arguments' texts, a space between.
+    Every argument is worked out before any is written, so a call among
+    them that changes an array or a var struct an earlier one holds is
+    seen in what is printed: where that can happen, the arguments go to
+    the runtime's `line`, which Java hands them evaluated.
     ctx -> state -> scope -> [expr] -> (jexpr, state) *)
 and print_text ctx st scope args =
   let values, st = exprs ctx st scope args in
   let texts = List.map2 (fun a v -> printed ctx (type_of ctx scope a) v) args values in
+  (* A value that cannot change once made: written at once, it reads the
+     same as written last. *)
+  let rec fixed t =
+    match t with
+    | TInt _ | TFloat _ | TBool _ | TString _ | TChar _ -> true
+    | TList (_, e, _) -> fixed e
+    | TTuple (_, es, _) -> List.for_all fixed es
+    | _ -> false
+  in
+  let calls a = Walk.exists (function Walk.NExpr (ECall _) -> true | _ -> false) (Walk.NExpr a) in
+  let rec racing = function
+    | a :: rest -> ((not (fixed (type_of ctx scope a))) && List.exists calls rest) || racing rest
+    | [] -> false
+  in
   match texts with
   | [] -> (atom (quote ""), st)
   | [ one ] -> (one, st)
+  | _ when racing args -> (atom (Printf.sprintf "%s(%s)" (rt "line") (String.concat ", " (List.map (fun v -> v.text) values))), st)
   | first :: rest ->
       (List.fold_left (fun acc t -> binary p_add "+" (binary p_add "+" acc (atom (quote " "))) t) first rest, st)
 
@@ -1599,6 +1774,12 @@ and effect_of ctx st scope e =
             (Printf.sprintf "System.%s.println(%s);" (if Builtin.is_debug name then "err" else "out")
                (if args = [] then "" else line.text)) ],
         st )
+  | ECall (_, EVar (_, name, _), _, _)
+    when List.mem name [ "push"; "pop"; "insert"; "remove"; "clear"; "discard"; "copy_into" ] && not (SMap.mem name scope.names) ->
+      (* A builtin changing a store or a Dict: its method call is the
+         statement. *)
+      let v, st = expr ctx st scope e in
+      ([ JLine (v.text ^ ";") ], st)
   | ECall (_, func, _, _) when not (match func with EVar (_, n, _) -> List.mem n Builtin.pure_names && not (SMap.mem n scope.names) | _ -> false) -> (
       let v, st = expr ctx st scope e in
       (* A call to a method answering nothing is the statement itself. *)
@@ -1630,7 +1811,7 @@ and comprehension ctx st scope e element clauses =
     | CompFor (_, p, sequence, _) :: rest ->
         let seq, st = expr ctx st scope sequence in
         let seq_t = type_of ctx scope sequence in
-        let seq = walked seq_t seq in
+        let seq = listed seq_t seq in
         let element_t = item_type seq_t in
         let item, st = temp st "i" in
         let conds, binds, st = pattern ctx st p (atom ~boxed:true item) element_t true in
@@ -1850,13 +2031,16 @@ and stmt ctx st scope s =
       let t = type_of ctx scope e in
       let jname, st = fresh st name in
       if StringSet.mem name scope.cells then
-        let st = note_local st jname (jt ctx t ^ "[]") in
+        (* A cell a pointer may point into holds the boxed type. *)
+        let boxed = StringSet.mem name ctx.addressed in
+        let cell_type = jt ctx ~boxed t in
+        let st = note_local st jname (cell_type ^ "[]") in
         let created =
-          if String.contains (jt ctx t) '<' then Printf.sprintf "%s.cell(%s)" runtime_class v.text
+          if String.contains cell_type '<' then Printf.sprintf "%s.cell(%s)" runtime_class v.text
           else Printf.sprintf "{ %s }" v.text
         in
-        ( [ JLine (Printf.sprintf "final %s[] %s = %s;" (jt ctx t) jname created) ],
-          bind_value scope name { value = atom (jname ^ "[0]"); kind = BCell; btype = t; jname_ = jname },
+        ( [ JLine (Printf.sprintf "final %s[] %s = %s;" cell_type jname created) ],
+          bind_value scope name { value = atom ~boxed (jname ^ "[0]"); kind = BCell; btype = t; jname_ = jname },
           st )
       else
         let st = note_local st jname (jt ctx t) in
@@ -1864,24 +2048,56 @@ and stmt ctx st scope s =
           bind_value scope name { value = atom jname; kind = BMutable; btype = t; jname_ = jname },
           st )
   | SMutateTuple _ -> after_desugar "target_java"
+  | SSetDeref (_, pointer, value, _) ->
+      (* `*p := v`: Java works out the pointer, then the value, then
+         writes. *)
+      let p, st = expr ctx st scope pointer in
+      let v, st = expr ctx st scope value in
+      let v = match ptr_target (type_of ctx scope pointer) with Some t -> typed_value ctx t v | None -> v in
+      ([ JLine (Printf.sprintf "%s.set(%s);" (at p_atom p) v.text) ], scope, st)
+  | SSetField (info, owner, field, value, _) ->
+      (* `owner.field := value` as Java's own field assignment, which
+         works out the owner first, then the value, and writes into the
+         object the owner was. *)
+      let o, st = expr ctx st scope owner in
+      let v, st = expr ctx st scope value in
+      let t = type_of ctx scope owner in
+      let name = field_name (Some field) 0 in
+      let v =
+        match datatype_of ctx info t with
+        | Datatype (_, _, [ (ctor, _) ], _), _ -> (
+            match List.assoc_opt name (ctor_fields ctx info t ctor) with Some ft -> typed_value ctx ft v | None -> v)
+        | _ -> v
+      in
+      ([ JLine (Printf.sprintf "%s = %s;" (struct_field o name).text v.text) ], scope, st)
+  | SSetIndex (_, owner, index, value, _) when Typesystem.dict_parts (type_of ctx scope owner) <> None ->
+      (* `d[k] := v`: Java works out the Dict, then the key, then the
+         value, and only then calls `put` -- Pyking's order, with nothing
+         to check first. *)
+      let o, st = expr ctx st scope owner in
+      let k, st = expr ctx st scope index in
+      let v, st = expr ctx st scope value in
+      let v = typed_value ctx (snd (Option.get (Typesystem.dict_parts (type_of ctx scope owner)))) v in
+      ([ JLine (Printf.sprintf "%s.put(%s, %s);" (at p_atom o) k.text v.text) ], scope, st)
   | SSetIndex (_, owner, index, value, _) ->
-      (* `owner[index] := value`: the array and the index held first, the
+      (* `owner[index] := value`: the store and the index held first, the
          index checked, and only then the value worked out and written --
-         into the array held, whatever the value rebinds. Java's own
-         `a[i] = v` would work v out before it checks. *)
+         into the store held, whatever the value rebinds, and checked
+         again there, since working the value out may have shrunk a Vec.
+         Java's own `a[i] = v` would work v out before it checks. *)
+      let kind, element =
+        match store_of (type_of ctx scope owner) with
+        | Some (kind, el) -> (kind, el)
+        | None -> (SArray, type_of ctx scope value)
+      in
       let o, st = expr ctx st scope owner in
       let i, st = expr ctx st scope index in
-      let held, st = temp st "array" in
+      let held, st = temp st (match kind with SArray -> "array" | SVec -> "vec" | SView -> "view") in
       let place, st = temp st "index" in
       let v, st = expr ctx st scope value in
-      let element =
-        match Typesystem.array_element (type_of ctx scope owner) with
-        | Some el -> el
-        | None -> type_of ctx scope value
-      in
       let v = typed_value ctx element v in
       ( [
-          JLine (Printf.sprintf "final %s.PykArray<?> %s = %s;" runtime_class held o.text);
+          JLine (Printf.sprintf "final %s.%s<?> %s = %s;" runtime_class (store_class kind) held o.text);
           JLine (Printf.sprintf "final int %s = %s;" place i.text);
           JLine (Printf.sprintf "%s.check(%s);" held place);
           JLine (Printf.sprintf "%s.set(%s, %s);" held place v.text);
@@ -2099,7 +2315,10 @@ and is_type_pattern label = not (String.contains label '(')
     -> (string, [jexpr], [(string, jexpr, typ)], state) *)
 and switch_pattern ctx st p s t top =
   match p with
-  | PConstructor (_, _, name, fields, _, _) ->
+  (* A var struct is a class, not a record: no record pattern takes it
+     apart, so its case is a type pattern whose fields the `when` and the
+     body read. *)
+  | PConstructor (_, _, name, fields, _, _) when not (writable ctx t) ->
       let info = pattern_info p in
       let canonical, args = match t with TCon (_, c, a, _) -> (c, a) | _ -> ("", []) in
       let cls = ctor_ref ctx canonical name ^ if args = [] then "" else "<" ^ targs ctx args ^ ">" in
@@ -2119,15 +2338,18 @@ and switch_pattern ctx st p s t top =
       (jt ctx ~boxed:true t ^ " " ^ held, conds, binds, st)
 
 (** The components of a record pattern: a nested record pattern where a
-    sub-pattern takes a constructor or a tuple apart, `var` with its
-    tests in the `when` otherwise.
+    sub-pattern takes a constructor (but a var struct's) or a tuple apart,
+    `var` with its tests in the `when` otherwise.
     ctx -> state -> [pattern] -> [typ]
     -> ([string], [jexpr], [(string, jexpr, typ)], state) *)
 and switch_parts ctx st ps types =
   List.fold_left
     (fun (subs, conds, binds, st) (p, ty) ->
+      (* A var struct's fields are read off a `var`, as switch_pattern
+         says. *)
+      let nested = match p with PConstructor _ -> not (writable ctx ty) | PTuple _ -> true | _ -> false in
       match p with
-      | PConstructor _ | PTuple _ ->
+      | p when nested ->
           let label, c, b, st = switch_pattern ctx st p null_expr ty false in
           (subs @ [ label ], conds @ c, binds @ b, st)
       | p ->
@@ -2314,8 +2536,8 @@ and lift ctx st scope s =
             StringSet.fold
               (fun n (direct, reaches) ->
                 match SMap.find_opt n scope.names with
-                | Some { kind = BCell; jname_; btype; _ } when jname_ <> "" ->
-                    (direct @ [ (jname_, jt ctx btype ^ "[]") ], reaches)
+                | Some { kind = BCell; jname_; btype; value; _ } when jname_ <> "" ->
+                    (direct @ [ (jname_, jt ctx ~boxed:value.boxed btype ^ "[]") ], reaches)
                 | Some { kind = BLocal | BMutable; jname_; btype; _ } when jname_ <> "" ->
                     (direct @ [ (jname_, jt ctx btype) ], reaches)
                 | Some { kind = BMethod { lifted = true; jname; _ }; _ } when jname <> m.jname -> (direct, reaches @ [ jname ])
@@ -2395,6 +2617,7 @@ type jdatatype = {
   d_params : string list;
   d_shared : (string * string) list; (* field, type *)
   d_ctors : (string * string * (string * string) list) list; (* class, Pyking name, fields *)
+  d_writable : bool; (* a var struct: one constructor, fields written in place *)
   d_public : bool;
 }
 
@@ -2417,7 +2640,7 @@ type jprogram = {
 
 (** A datatype of this module as the classes it is declared as.
     ctx -> datatype -> bool -> jdatatype *)
-let jdatatype ctx (Datatype (_, params, ctors) as d) public =
+let jdatatype ctx (Datatype (_, params, ctors, writable) as d) public =
   let plain = { ctx with class_names = StringSet.remove "" ctx.class_names } in
   let bound = List.map (fun p -> (p, TVar (no_info, p, 0, true))) params in
   let fields_of fs = List.mapi (fun i (label, t) -> (field_name label i, jt plain ~boxed:false (substitute bound t))) fs in
@@ -2436,6 +2659,7 @@ let jdatatype ctx (Datatype (_, params, ctors) as d) public =
     d_shared = shared;
     d_ctors = List.map2 (fun (c, _) fs -> (ctor_class ctx.own_class c, c, fs)) ctors all;
     d_public = public;
+    d_writable = writable;
   }
 
 (** A top-level binding: a static field for each name, assigned in the
@@ -2480,7 +2704,7 @@ let translate_program stmts tmap (context : Module.context) version =
   let own_datatypes =
     List.filter_map
       (function
-        | SDatatype (_, _, _, _, sym, public) -> (
+        | SDatatype (_, _, _, _, sym, public, _) -> (
             match IntMap.find_opt sym tmap with Some (TData (_, d, _)) -> Some (d, public) | _ -> None)
         | _ -> None)
       stmts
@@ -2490,14 +2714,14 @@ let translate_program stmts tmap (context : Module.context) version =
       (fun map (_, sigmap) ->
         List.fold_left
           (fun map (_, t, _) ->
-            match t with TData (_, (Datatype (c, _, _) as d), _) -> SMap.add c d map | _ -> map)
+            match t with TData (_, (Datatype (c, _, _, _) as d), _) -> SMap.add c d map | _ -> map)
           map sigmap)
       SMap.empty context.sigmaps
   in
-  let datatypes = List.fold_left (fun map ((Datatype (c, _, _) as d), _) -> SMap.add c d map) datatypes own_datatypes in
+  let datatypes = List.fold_left (fun map ((Datatype (c, _, _, _) as d), _) -> SMap.add c d map) datatypes own_datatypes in
   let class_names =
     List.fold_left
-      (fun set ((Datatype (_, _, ctors) as d), _) ->
+      (fun set ((Datatype (_, _, ctors, _) as d), _) ->
         List.fold_left (fun set (c, _) -> StringSet.add (ctor_class own_class c) set) (StringSet.add (type_class own_class d) set) ctors)
       (StringSet.singleton own_class) own_datatypes
   in
@@ -2507,7 +2731,9 @@ let translate_program stmts tmap (context : Module.context) version =
   let modules =
     List.filter_map (function SImport (_, m, alias, false, _, _) -> Some (alias, m) | _ -> None) stmts
   in
-  let ctx = { tmap; shape = shape_of version; context; own_class; datatypes; modules; class_names; erase = false } in
+  let ctx =
+    { tmap; shape = shape_of version; context; own_class; datatypes; modules; class_names; erase = false; addressed = addressed_vars stmts }
+  in
   let top = { ctx with erase = true } in
   let st =
     {
@@ -2629,6 +2855,22 @@ let translate_program stmts tmap (context : Module.context) version =
             let t = type_of ctx scope e in
             let assigns, statics, scope, st = static_bindings ctx st scope statics target v t public in
             (methods, body @ assigns, statics, scope, st)
+        | SVar (_, name, e, _) when StringSet.mem name ctx.addressed ->
+            (* A static cell, which a pointer to it points into. *)
+            let v, st = expr top st scope e in
+            let t = type_of ctx scope e in
+            let jname, st = fresh st name in
+            let st = { st with taken = StringSet.add jname st.taken } in
+            let cell_type = jt ctx ~boxed:true t in
+            let created =
+              if String.contains cell_type '<' then Printf.sprintf "%s.cell(%s)" runtime_class v.text
+              else Printf.sprintf "new %s[] { %s }" cell_type v.text
+            in
+            ( methods,
+              body @ [ JLine (Printf.sprintf "%s = %s;" jname created) ],
+              statics @ [ (false, cell_type ^ "[]", jname) ],
+              bind_value scope name { value = atom ~boxed:true (jname ^ "[0]"); kind = BCell; btype = t; jname_ = "" },
+              st )
         | SVar (_, name, e, _) ->
             let v, st = expr top st scope e in
             let t = type_of ctx scope e in
@@ -2797,6 +3039,17 @@ let pprint_method m =
     m.m_result m.m_name params
     (String.concat "\n" (List.map (pprint_stmt used 2) m.m_body))
 
+(** A java8 class's `equals` and `hashCode`, Pyking's `==` and a hash
+    agreeing with it -- what a record's are on java17 and java21 -- so
+    that a tuple or a datatype can be a Dict's key. string -> [string] *)
+let structural_methods pad =
+  [
+    pad ^ "@Override";
+    pad ^ Printf.sprintf "public boolean equals(Object other) { return %s.equal(this, other); }" runtime_class;
+    pad ^ "@Override";
+    pad ^ Printf.sprintf "public int hashCode() { return %s.hash(this); }" runtime_class;
+  ]
+
 (** A datatype's classes, in the shape the version gives them.
     shape -> jdatatype -> string *)
 let pprint_datatype shape d =
@@ -2818,6 +3071,22 @@ let pprint_datatype shape d =
     ]
   in
   match (shape, d.d_ctors) with
+  | _, [ (cls, name, fields) ] when d.d_writable ->
+      (* A var struct, on every version: a class whose objects are shared
+         and whose fields are written in place, which a record's never
+         are. Identity is the object's own, which is what `same` asks. *)
+      let boxed t = match t with "int" -> "Integer" | "double" -> "Double" | "boolean" -> "Boolean" | t -> t in
+      String.concat "\n"
+        ([ Printf.sprintf "    %s static final class %s%s implements %s.Struct {" visibility cls params runtime_class ]
+        @ List.map (fun (n, t) -> Printf.sprintf "        public %s %s;" t n) fields
+        @ [ Printf.sprintf "        public %s(%s) {" cls (String.concat ", " (List.map (fun (n, t) -> t ^ " " ^ n) fields)) ]
+        @ List.map (fun (n, _) -> Printf.sprintf "            this.%s = %s;" n n) fields
+        @ [ "        }" ]
+        @ data_methods name fields
+        (* Field i written, for a pointer to it. *)
+        @ [ "        @SuppressWarnings(\"unchecked\")"; "        public void pykSet(int i, Object value) {"; "            switch (i) {" ]
+        @ List.mapi (fun i (n, t) -> Printf.sprintf "                case %d: %s = (%s) value; break;" i n (boxed t)) fields
+        @ [ "                default: throw new IllegalStateException();"; "            }"; "        }"; "    }" ])
   | Java8, [ (cls, name, fields) ] ->
       String.concat "\n"
         ([ Printf.sprintf "    %s static final class %s%s implements %s.Data {" visibility cls params runtime_class ]
@@ -2826,7 +3095,7 @@ let pprint_datatype shape d =
         @ List.map (fun (n, _) -> Printf.sprintf "            this.%s = %s;" n n) fields
         @ [ "        }" ]
         @ List.map (fun (n, t) -> Printf.sprintf "        public %s %s() { return %s; }" t n n) d.d_shared
-        @ data_methods name fields @ [ "    }" ])
+        @ data_methods name fields @ structural_methods "        " @ [ "    }" ])
   | _, [ (cls, name, fields) ] ->
       String.concat "\n"
         ([
@@ -2850,7 +3119,7 @@ let pprint_datatype shape d =
           @ List.map (fun (n, _) -> Printf.sprintf "            this.%s = %s;" n n) fields
           @ [ "        }" ]
           @ List.map (fun (n, t) -> Printf.sprintf "        public %s %s() { return %s; }" t n n) (List.filter (fun f -> List.mem f d.d_shared) fields)
-          @ data_methods name fields @ [ "    }" ])
+          @ data_methods name fields @ structural_methods "        " @ [ "    }" ])
       in
       String.concat "\n\n" (base :: List.map ctor d.d_ctors)
   | _, _ ->
@@ -2950,7 +3219,7 @@ let runtime_source programs version =
               Printf.sprintf "        public T%d(%s) {" n (String.concat ", " (List.mapi (fun i p -> Printf.sprintf "%s a%d" p i) params));
             ]
           @ List.mapi (fun i _ -> Printf.sprintf "            this.a%d = a%d;" i i) params
-          @ [ "        }"; items; "    }" ])
+          @ [ "        }"; items ] @ structural_methods "        " @ [ "    }" ])
     | _ ->
         Printf.sprintf "    public record T%d<%s>(%s) implements Tuple {\n%s\n    }" n (String.concat ", " params)
           (String.concat ", " (List.mapi (fun i p -> Printf.sprintf "%s a%d" p i) params))
@@ -2975,6 +3244,11 @@ let runtime_source programs version =
        "        Object[] pykFields();";
        "    }";
        "";
+       "    // A var struct, whose field i a pointer reads and writes.";
+       "    public interface Struct extends Data {";
+       "        void pykSet(int i, Object value);";
+       "    }";
+       "";
        "    // A tuple, as print writes it.";
        "    public interface Tuple {";
        "        Object[] pykItems();";
@@ -2983,6 +3257,10 @@ let runtime_source programs version =
     @ List.concat_map (fun n -> [ ""; tuple n ]) tuples
     @ List.concat_map (fun n -> [ ""; fn n ]) fns
     @ List.concat_map (fun (_, d) -> [ ""; d ]) polys
+    (* Lists of a few hundred lines joined by @: js_of_ocaml writes a list
+       literal as arrays nested as deep as it is long, and a browser
+       worker loading share/pyking.js overflows its stack parsing one of
+       600 (tests/test_notebook.py, the page in Chromium). *)
     @ [
         "";
         "    public static Void printLine(String line) {";
@@ -3062,39 +3340,60 @@ let runtime_source programs version =
         "        return new IllegalStateException(message);";
         "    }";
         "";
-        "    // An array: a fixed number of elements, written in place and shared";
-        "    // by every name holding it. Every index is checked, a read's and a";
-        "    // write's alike, and walking it reads each element as it is reached.";
-        "    public static final class PykArray<T> implements Iterable<T> {";
-        "        private final Object[] items;";
+        "    // \" element\" or \" elements\", after a count.";
+        "    static String elements(int n) {";
+        "        return n == 1 ? \" element\" : \" elements\";";
+        "    }";
         "";
-        "        PykArray(Object[] items) {";
-        "            this.items = items;";
-        "        }";
+        "    // What an element is read from and written to by index: an array, a";
+        "    // Vec or a view. Every index is checked, a read's and a write's alike,";
+        "    // against the length as it is then; walking one reads element i when";
+        "    // turn i is reached, and goes on while i is below the length.";
+        "    public static abstract class PykStore<T> implements Iterable<T> {";
+        "        public abstract int size();";
         "";
-        "        public int size() {";
-        "            return items.length;";
-        "        }";
+        "        // Element i, unchecked, and element i written, unchecked.";
+        "        abstract Object at(int i);";
+        "";
+        "        abstract void put(int i, Object value);";
+        "";
+        "        // \"an array\", \"a Vec\" or \"a view\", for a message.";
+        "        abstract String kind();";
         "";
         "        public void check(int i) {";
-        "            if (i < 0 || i >= items.length)";
-        "                throw fail(\"the index \" + i + \" is outside an array of \" + items.length";
-        "                    + (items.length == 1 ? \" element\" : \" elements\"));";
+        "            if (i < 0 || i >= size())";
+        "                throw fail(\"the index \" + i + \" is outside \" + kind() + \" of \" + size() + elements(size()));";
         "        }";
         "";
         "        @SuppressWarnings(\"unchecked\")";
         "        public T get(int i) {";
         "            check(i);";
-        "            return (T) items[i];";
+        "            return (T) at(i);";
         "        }";
         "";
         "        public void set(int i, Object value) {";
         "            check(i);";
-        "            items[i] = value;";
+        "            put(i, value);";
         "        }";
         "";
-        "        public Object[] pykItems() {";
-        "            return items;";
+        "        // Elements low up to high, copied, high the length where it is";
+        "        // null; the bounds checked first.";
+        "        Object[] copy(int low, Integer high) {";
+        "            int n = size();";
+        "            int h = high == null ? n : high;";
+        "            if (low < 0 || low > h || h > n)";
+        "                throw fail(\"the slice \" + low + \":\" + h + \" is outside \" + kind() + \" of \" + n + elements(n));";
+        "            Object[] out = new Object[h - low];";
+        "            for (int i = low; i < h; i++) out[i - low] = at(i);";
+        "            return out;";
+        "        }";
+        "";
+        "        // The elements as they are now, as a list.";
+        "        @SuppressWarnings(\"unchecked\")";
+        "        public java.util.List<T> toList() {";
+        "            java.util.ArrayList<T> out = new java.util.ArrayList<T>(size());";
+        "            for (int i = 0; i < size(); i++) out.add((T) at(i));";
+        "            return java.util.Collections.unmodifiableList(out);";
         "        }";
         "";
         "        @Override";
@@ -3104,7 +3403,7 @@ let runtime_source programs version =
         "";
         "                @Override";
         "                public boolean hasNext() {";
-        "                    return next < items.length;";
+        "                    return next < size();";
         "                }";
         "";
         "                @Override";
@@ -3113,6 +3412,414 @@ let runtime_source programs version =
         "                }";
         "            };";
         "        }";
+        "    }";
+        "";
+        "    // An array: a fixed number of elements, written in place and shared";
+        "    // by every name holding it.";
+        "    public static final class PykArray<T> extends PykStore<T> {";
+        "        final Object[] items;";
+        "";
+        "        PykArray(Object[] items) {";
+        "            this.items = items;";
+        "        }";
+        "";
+        "        public int size() {";
+        "            return items.length;";
+        "        }";
+        "";
+        "        Object at(int i) {";
+        "            return items[i];";
+        "        }";
+        "";
+        "        void put(int i, Object value) {";
+        "            items[i] = value;";
+        "        }";
+        "";
+        "        String kind() {";
+        "            return \"an array\";";
+        "        }";
+        "";
+        "        // a[low:high]: a new array.";
+        "        public PykArray<T> slice(int low, Integer high) {";
+        "            return new PykArray<T>(copy(low, high));";
+        "        }";
+        "";
+        "        // &a[i]: element i, its index checked now.";
+        "        public PykPtr<T> pointer(int i) {";
+        "            check(i);";
+        "            return new PykPtr<T>(this, i);";
+        "        }";
+        "";
+        "        // view(a, i, j): elements i up to j, shared.";
+        "        public PykView<T> view(int i, int j) {";
+        "            if (i < 0 || i > j || j > items.length)";
+        "                throw fail(\"the view \" + i + \":\" + j + \" is outside an array of \" + items.length + elements(items.length));";
+        "            return new PykView<T>(this, i, j - i);";
+        "        }";
+        "    }";
+        "";
+        "    // A view (a Slice): a run of an array's elements, read and written";
+        "    // where they are, in the array.";
+        "    public static final class PykView<T> extends PykStore<T> {";
+        "        final PykArray<T> owner;";
+        "        final int offset;";
+        "        final int length;";
+        "";
+        "        PykView(PykArray<T> owner, int offset, int length) {";
+        "            this.owner = owner;";
+        "            this.offset = offset;";
+        "            this.length = length;";
+        "        }";
+        "";
+        "        public int size() {";
+        "            return length;";
+        "        }";
+        "";
+        "        Object at(int i) {";
+        "            return owner.items[offset + i];";
+        "        }";
+        "";
+        "        void put(int i, Object value) {";
+        "            owner.items[offset + i] = value;";
+        "        }";
+        "";
+        "        String kind() {";
+        "            return \"a view\";";
+        "        }";
+        "";
+        "        // w[low:high]: a new array.";
+        "        public PykArray<T> slice(int low, Integer high) {";
+        "            return new PykArray<T>(copy(low, high));";
+        "        }";
+        "";
+        "        // &w[i]: the array's element offset + i, the index checked now.";
+        "        public PykPtr<T> pointer(int i) {";
+        "            check(i);";
+        "            return new PykPtr<T>(owner, offset + i);";
+        "        }";
+        "";
+        "        // view(w, i, j): a view of the same array, the offsets added.";
+        "        public PykView<T> view(int i, int j) {";
+        "            if (i < 0 || i > j || j > length)";
+        "                throw fail(\"the view \" + i + \":\" + j + \" is outside a view of \" + length + elements(length));";
+        "            return new PykView<T>(owner, offset + i, j - i);";
+        "        }";
+        "    }";
+      ]
+    @ [
+        "";
+        "    // A Vec: an array that grows and shrinks at run time, shared by every";
+        "    // name holding it.";
+        "    public static final class PykVec<T> extends PykStore<T> {";
+        "        final java.util.ArrayList<Object> items;";
+        "";
+        "        PykVec(java.util.ArrayList<Object> items) {";
+        "            this.items = items;";
+        "        }";
+        "";
+        "        public int size() {";
+        "            return items.size();";
+        "        }";
+        "";
+        "        Object at(int i) {";
+        "            return items.get(i);";
+        "        }";
+        "";
+        "        void put(int i, Object value) {";
+        "            items.set(i, value);";
+        "        }";
+        "";
+        "        String kind() {";
+        "            return \"a Vec\";";
+        "        }";
+        "";
+        "        public Void push(Object value) {";
+        "            items.add(value);";
+        "            return null;";
+        "        }";
+        "";
+        "        @SuppressWarnings(\"unchecked\")";
+        "        public T pop() {";
+        "            if (items.isEmpty()) throw fail(\"pop from an empty Vec\");";
+        "            return (T) items.remove(items.size() - 1);";
+        "        }";
+        "";
+        "        public Void insert(int i, Object value) {";
+        "            if (i < 0 || i > items.size())";
+        "                throw fail(\"insert's index \" + i + \" is outside 0 to \" + items.size() + \", the Vec's length\");";
+        "            items.add(i, value);";
+        "            return null;";
+        "        }";
+        "";
+        "        @SuppressWarnings(\"unchecked\")";
+        "        public T remove(int i) {";
+        "            check(i);";
+        "            return (T) items.remove(i);";
+        "        }";
+        "";
+        "        public Void clear() {";
+        "            items.clear();";
+        "            return null;";
+        "        }";
+        "";
+        "        // v[low:high]: a new Vec.";
+        "        public PykVec<T> slice(int low, Integer high) {";
+        "            return new PykVec<T>(new java.util.ArrayList<Object>(java.util.Arrays.asList(copy(low, high))));";
+        "        }";
+        "    }";
+        "";
+        "    // A pointer: a place -- slot 0 of a `var`'s cell, an element of an";
+        "    // array, a field of a var struct -- read and written where it is. Two";
+        "    // are equal when they name one place: the same store, the same slot.";
+        "    public static final class PykPtr<T> {";
+        "        final Object store;";
+        "        final int slot;";
+        "";
+        "        PykPtr(Object store, int slot) {";
+        "            this.store = store;";
+        "            this.slot = slot;";
+        "        }";
+        "";
+        "        @SuppressWarnings(\"unchecked\")";
+        "        public T get() {";
+        "            if (store instanceof PykArray) return (T) ((PykArray<?>) store).items[slot];";
+        "            if (store instanceof Struct) return (T) ((Struct) store).pykFields()[slot];";
+        "            return (T) ((Object[]) store)[slot];";
+        "        }";
+        "";
+        "        public Void set(Object value) {";
+        "            if (store instanceof PykArray) ((PykArray<?>) store).items[slot] = value;";
+        "            else if (store instanceof Struct) ((Struct) store).pykSet(slot, value);";
+        "            else ((Object[]) store)[slot] = value;";
+        "            return null;";
+        "        }";
+        "";
+        "        @Override";
+        "        public boolean equals(Object other) {";
+        "            return other instanceof PykPtr && ((PykPtr<?>) other).store == store && ((PykPtr<?>) other).slot == slot;";
+        "        }";
+        "";
+        "        @Override";
+        "        public int hashCode() {";
+        "            return 31 * System.identityHashCode(store) + slot;";
+        "        }";
+        "    }";
+        "";
+        "    // &x: the cell of a `var` a pointer is taken to.";
+        "    public static <T> PykPtr<T> pointer(T[] cell, int slot) {";
+        "        return new PykPtr<T>(cell, slot);";
+        "    }";
+        "";
+        "    // &s.f: field `slot` of a var struct.";
+        "    public static <T> PykPtr<T> pointer(Struct struct, int slot) {";
+        "        return new PykPtr<T>(struct, slot);";
+        "    }";
+        "    // vec(): no elements.";
+        "    public static <T> PykVec<T> vecEmpty() {";
+        "        return new PykVec<T>(new java.util.ArrayList<Object>());";
+        "    }";
+        "";
+        "    // vec(xs): the list's elements.";
+        "    public static <T> PykVec<T> vecOfList(java.util.List<T> list) {";
+        "        return new PykVec<T>(new java.util.ArrayList<Object>(list));";
+        "    }";
+        "";
+        "    // copy_into(dst, src): src's elements over dst's first ones, right";
+        "    // where the two are runs of one array that overlap (arraycopy is a";
+        "    // memmove).";
+        "    public static Void copyInto(PykStore<?> dst, PykStore<?> src) {";
+        "        int n = src.size();";
+        "        int m = dst.size();";
+        "        if (n > m) throw fail(\"copy_into copies \" + n + elements(n) + \" into \" + m);";
+        "        System.arraycopy(storage(src), start(src), storage(dst), start(dst), n);";
+        "        return null;";
+        "    }";
+        "";
+        "    private static Object[] storage(PykStore<?> run) {";
+        "        return run instanceof PykView ? ((PykView<?>) run).owner.items : ((PykArray<?>) run).items;";
+        "    }";
+        "";
+        "    private static int start(PykStore<?> run) {";
+        "        return run instanceof PykView ? ((PykView<?>) run).offset : 0;";
+        "    }";
+        "";
+        "    // xs[low:high]: a new list, the bounds checked.";
+        "    public static <T> java.util.List<T> slice(java.util.List<T> list, int low, Integer high) {";
+        "        int n = list.size();";
+        "        int h = high == null ? n : high;";
+        "        if (low < 0 || low > h || h > n)";
+        "            throw fail(\"the slice \" + low + \":\" + h + \" is outside a list of \" + n + elements(n));";
+        "        return java.util.Collections.unmodifiableList(new java.util.ArrayList<T>(list.subList(low, h)));";
+        "    }";
+        "";
+        "    // s[low:high]: by code point, the bounds checked.";
+        "    public static String slice(String s, int low, Integer high) {";
+        "        int n = s.codePointCount(0, s.length());";
+        "        int h = high == null ? n : high;";
+        "        if (low < 0 || low > h || h > n)";
+        "            throw fail(\"the slice \" + low + \":\" + h + \" is outside a String of \" + n + elements(n));";
+        "        return s.substring(s.offsetByCodePoints(0, low), s.offsetByCodePoints(0, h));";
+        "    }";
+        "";
+        "    // A Dict: its entries in the order their keys were first put, keys";
+        "    // compared and hashed by their own equals and hashCode, which are";
+        "    // Pyking's `==` for every type a key can have. Shared by every name";
+        "    // holding it. `version` counts the keys put and taken, which a walk";
+        "    // over the keys watches.";
+        "    public static final class PykDict<K, V> implements Iterable<K> {";
+        "        private final java.util.LinkedHashMap<Object, Object> entries = new java.util.LinkedHashMap<Object, Object>();";
+        "        private int version = 0;";
+        "";
+        "        public int size() {";
+        "            return entries.size();";
+        "        }";
+        "";
+        "        @SuppressWarnings(\"unchecked\")";
+        "        public V get(Object key) {";
+        "            if (!entries.containsKey(key)) throw fail(\"the Dict has no key \" + show(key));";
+        "            return (V) entries.get(key);";
+        "        }";
+        "";
+        "        @SuppressWarnings(\"unchecked\")";
+        "        public V get(Object key, V otherwise) {";
+        "            return entries.containsKey(key) ? (V) entries.get(key) : otherwise;";
+        "        }";
+        "";
+        "        public boolean has(Object key) {";
+        "            return entries.containsKey(key);";
+        "        }";
+        "";
+        "        // A new key at the end; a key already there keeps its place.";
+        "        public Void put(Object key, Object value) {";
+        "            if (!entries.containsKey(key)) version++;";
+        "            entries.put(key, value);";
+        "            return null;";
+        "        }";
+        "";
+        "        @SuppressWarnings(\"unchecked\")";
+        "        public V remove(Object key) {";
+        "            if (!entries.containsKey(key)) throw fail(\"the Dict has no key \" + show(key) + \" to remove\");";
+        "            version++;";
+        "            return (V) entries.remove(key);";
+        "        }";
+        "";
+        "        public Void discard(Object key) {";
+        "            if (entries.containsKey(key)) {";
+        "                version++;";
+        "                entries.remove(key);";
+        "            }";
+        "            return null;";
+        "        }";
+        "";
+        "        public Void clear() {";
+        "            entries.clear();";
+        "            version++;";
+        "            return null;";
+        "        }";
+        "";
+        "        @SuppressWarnings(\"unchecked\")";
+        "        public java.util.List<K> keys() {";
+        "            return java.util.Collections.unmodifiableList(new java.util.ArrayList<K>((java.util.Set<K>) (Object) entries.keySet()));";
+        "        }";
+        "";
+        "        @SuppressWarnings(\"unchecked\")";
+        "        public java.util.List<V> values() {";
+        "            return java.util.Collections.unmodifiableList(new java.util.ArrayList<V>((java.util.Collection<V>) (Object) entries.values()));";
+        "        }";
+        "";
+        "        @SuppressWarnings(\"unchecked\")";
+        "        public java.util.List<T2<K, V>> items() {";
+        "            java.util.ArrayList<T2<K, V>> out = new java.util.ArrayList<T2<K, V>>(entries.size());";
+        "            for (java.util.Map.Entry<Object, Object> e : entries.entrySet()) out.add(new T2<K, V>((K) e.getKey(), (V) e.getValue()));";
+        "            return java.util.Collections.unmodifiableList(out);";
+        "        }";
+        "";
+        "        // The keys in order. A key put or taken while it walks stops the";
+        "        // program at the next step, the last one too; a value replaced";
+        "        // does not.";
+        "        @Override";
+        "        public java.util.Iterator<K> iterator() {";
+        "            final java.util.Iterator<Object> keys = entries.keySet().iterator();";
+        "            final int seen = version;";
+        "            return new java.util.Iterator<K>() {";
+        "                @Override";
+        "                public boolean hasNext() {";
+        "                    if (version != seen) throw fail(\"the Dict changed while a for loop was reading it\");";
+        "                    return keys.hasNext();";
+        "                }";
+        "";
+        "                @Override";
+        "                @SuppressWarnings(\"unchecked\")";
+        "                public K next() {";
+        "                    return (K) keys.next();";
+        "                }";
+        "            };";
+        "        }";
+        "    }";
+      ]
+    @ [
+        "";
+        "    // dict(): no entries.";
+        "    public static <K, V> PykDict<K, V> dictEmpty() {";
+        "        return new PykDict<K, V>();";
+        "    }";
+        "";
+        "    // dict(pairs): a key given twice keeps its first place and its last";
+        "    // value.";
+        "    public static <K, V> PykDict<K, V> dictOfList(java.util.List<T2<K, V>> pairs) {";
+        "        PykDict<K, V> out = new PykDict<K, V>();";
+        "        for (T2<K, V> pair : pairs) {";
+        "            Object[] kv = pair.pykItems();";
+        "            out.put(kv[0], kv[1]);";
+        "        }";
+        "        return out;";
+        "    }";
+        "";
+        "    // Pyking's `==` on two values of one type: lists and tuples part by";
+        "    // part, datatypes by constructor and then field by field, a Float by";
+        "    // IEEE's == (nan is not itself; -0.0 is 0.0), anything else by its";
+        "    // own equals.";
+        "    public static boolean equal(Object a, Object b) {";
+        "        if (a == null || b == null) return a == b;";
+        "        if (a instanceof Double && b instanceof Double) return ((Double) a).doubleValue() == ((Double) b).doubleValue();";
+        "        if (a instanceof java.util.List && b instanceof java.util.List) {";
+        "            java.util.List<?> x = (java.util.List<?>) a;";
+        "            java.util.List<?> y = (java.util.List<?>) b;";
+        "            if (x.size() != y.size()) return false;";
+        "            java.util.Iterator<?> i = x.iterator();";
+        "            java.util.Iterator<?> j = y.iterator();";
+        "            while (i.hasNext()) if (!equal(i.next(), j.next())) return false;";
+        "            return true;";
+        "        }";
+        "        if (a instanceof Tuple && b instanceof Tuple) return equalAll(((Tuple) a).pykItems(), ((Tuple) b).pykItems());";
+        "        if (a instanceof Data && b instanceof Data)";
+        "            return ((Data) a).pykTag().equals(((Data) b).pykTag()) && equalAll(((Data) a).pykFields(), ((Data) b).pykFields());";
+        "        return a.equals(b);";
+        "    }";
+        "";
+        "    private static boolean equalAll(Object[] a, Object[] b) {";
+        "        if (a.length != b.length) return false;";
+        "        for (int i = 0; i < a.length; i++) if (!equal(a[i], b[i])) return false;";
+        "        return true;";
+        "    }";
+        "";
+        "    // A hash agreeing with equal: what a java8 tuple's or datatype's";
+        "    // hashCode is, so that one can be a Dict's key.";
+        "    public static int hash(Object value) {";
+        "        if (value == null) return 0;";
+        "        if (value instanceof java.util.List) {";
+        "            int h = 1;";
+        "            for (Object item : (java.util.List<?>) value) h = 31 * h + hash(item);";
+        "            return h;";
+        "        }";
+        "        if (value instanceof Tuple) return hashAll(1, ((Tuple) value).pykItems());";
+        "        if (value instanceof Data) return hashAll(((Data) value).pykTag().hashCode(), ((Data) value).pykFields());";
+        "        return value.hashCode();";
+        "    }";
+        "";
+        "    private static int hashAll(int h, Object[] parts) {";
+        "        for (Object part : parts) h = 31 * h + hash(part);";
+        "        return h;";
         "    }";
         "";
         "    // Room for an array of n elements, n checked first.";
@@ -3246,13 +3953,28 @@ let runtime_source programs version =
         "        return show(value);";
         "    }";
         "";
-        "    public static String show(Object value) {";
+        "    // print's line of several values: each written only once all of";
+        "    // them are worked out, which Java does before it calls this.";
+        "    public static String line(Object... values) {";
         "        StringBuilder out = new StringBuilder();";
-        "        write(out, value);";
+        "        for (int i = 0; i < values.length; i++) {";
+        "            if (i > 0) out.append(' ');";
+        "            out.append(str(values[i]));";
+        "        }";
         "        return out.toString();";
         "    }";
         "";
-        "    private static void write(StringBuilder out, Object value) {";
+        "    public static String show(Object value) {";
+        "        StringBuilder out = new StringBuilder();";
+        "        write(out, value, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Object, Boolean>()));";
+        "        return out.toString();";
+        "    }";
+        "";
+        "    // path: the stores, Dicts and datatype values writing is inside";
+        "    // of. One met again inside itself -- a cycle, which only a store, a";
+        "    // Dict or a var struct can make -- is written `...`; one that is";
+        "    // only shared is written in full wherever it is.";
+        "    private static void write(StringBuilder out, Object value, java.util.Set<Object> path) {";
         "        if (value == null) {";
         "            out.append(\"()\");";
         "        } else if (value instanceof String) {";
@@ -3267,41 +3989,86 @@ let runtime_source programs version =
         "            for (Object item : (java.util.List<?>) value) {";
         "                if (!first) out.append(\", \");";
         "                first = false;";
-        "                write(out, item);";
+        "                write(out, item, path);";
         "            }";
         "            out.append(']');";
-        "        } else if (value instanceof PykArray) {";
-        "            Object[] items = ((PykArray<?>) value).pykItems();";
-        "            out.append(\"array([\");";
-        "            for (int i = 0; i < items.length; i++) {";
+        "        } else if (value instanceof PykStore) {";
+        "            // A view is on the path as the array it is of.";
+        "            PykStore<?> store = (PykStore<?>) value;";
+        "            Object self = store instanceof PykView ? ((PykView<?>) store).owner : store;";
+        "            if (!path.add(self)) {";
+        "                out.append(\"...\");";
+        "                return;";
+        "            }";
+        "            out.append(store instanceof PykVec ? \"vec([\" : store instanceof PykView ? \"view([\" : \"array([\");";
+        "            for (int i = 0; i < store.size(); i++) {";
         "                if (i > 0) out.append(\", \");";
-        "                write(out, items[i]);";
+        "                write(out, store.at(i), path);";
         "            }";
         "            out.append(\"])\");";
-        "        } else if (value instanceof Data) {";
-        "            Data data = (Data) value;";
-        "            out.append(data.pykTag());";
-        "            Object[] fields = data.pykFields();";
-        "            if (fields.length > 0) {";
+        "            path.remove(self);";
+        "        } else if (value instanceof PykPtr) {";
+        "            // What it points at now, never an address; on the path as the";
+        "            // store it points into.";
+        "            Object store = ((PykPtr<?>) value).store;";
+        "            if (!path.add(store)) {";
+        "                out.append(\"...\");";
+        "                return;";
+        "            }";
+        "            out.append(\"Ptr(\");";
+        "            write(out, ((PykPtr<?>) value).get(), path);";
+        "            out.append(')');";
+        "            path.remove(store);";
+        "        } else if (value instanceof PykDict) {";
+        "            if (!path.add(value)) {";
+        "                out.append(\"...\");";
+        "                return;";
+        "            }";
+        "            out.append(\"dict([\");";
+        "            boolean first = true;";
+        "            for (java.util.Map.Entry<Object, Object> entry : ((PykDict<?, ?>) value).entries.entrySet()) {";
+        "                if (!first) out.append(\", \");";
+        "                first = false;";
         "                out.append('(');";
-        "                for (int i = 0; i < fields.length; i++) {";
-        "                    if (i > 0) out.append(\", \");";
-        "                    write(out, fields[i]);";
-        "                }";
+        "                write(out, entry.getKey(), path);";
+        "                out.append(\", \");";
+        "                write(out, entry.getValue(), path);";
         "                out.append(')');";
         "            }";
+        "            out.append(\"])\");";
+        "            path.remove(value);";
+        "        } else if (value instanceof Data) {";
+        "            Data data = (Data) value;";
+        "            Object[] fields = data.pykFields();";
+        "            if (fields.length == 0) {";
+        "                out.append(data.pykTag());";
+        "                return;";
+        "            }";
+        "            if (!path.add(value)) {";
+        "                out.append(\"...\");";
+        "                return;";
+        "            }";
+        "            out.append(data.pykTag()).append('(');";
+        "            for (int i = 0; i < fields.length; i++) {";
+        "                if (i > 0) out.append(\", \");";
+        "                write(out, fields[i], path);";
+        "            }";
+        "            out.append(')');";
+        "            path.remove(value);";
         "        } else if (value instanceof Tuple) {";
         "            Object[] parts = ((Tuple) value).pykItems();";
         "            out.append('(');";
         "            for (int i = 0; i < parts.length; i++) {";
         "                if (i > 0) out.append(\", \");";
-        "                write(out, parts[i]);";
+        "                write(out, parts[i], path);";
         "            }";
         "            out.append(parts.length == 1 ? \",)\" : \")\");";
         "        } else {";
         "            out.append(String.valueOf(value));";
         "        }";
         "    }";
+      ]
+    @ [
         "";
         "    // A String inside another value: in double quotes, escaped.";
         "    private static String quote(String text) {";

@@ -164,14 +164,22 @@ concurrently — nothing here needs the "one call, then restore" discipline
 ## Runtime helpers are emitted on use
 
 `js_helpers` writes the module's own helpers -- `pykList`, `pykRange`,
-`pykLen`, the Char helpers, `pykConcat`, `pykData`, `pykWithShape` and
-the array ones -- only where the translated program names them
+`pykLen`, the Char helpers, `pykConcat`, `pykData`, `pykStruct` (a
+`var struct`'s constructor), `pykWithShape` and the array ones -- only where the translated program names them
 (`uses`), so an ordinary program compiles to ordinary JavaScript. The
 array helpers (`pykArray`, `pykArrayOfList`, `pykArrayFill`,
 `pykArrayInit`, `pykArrayUnfold`, `pykArraySize`, `pykAt`,
-`pykCheckIndex`, `pykIndexError`, `pykFail`) also list the helpers each
-calls, and `wanted_array_helpers` closes over that list, so a program
+`pykCheckIndex`, `pykIndexError`, `pykFail`) and the Vec ones
+(`pykVec`, `pykVecEmpty`, `pykVecOfList`, `pykPush`, `pykPop`,
+`pykInsert`, `pykRemove`, `pykClear`, `pykSetAt`), `pykEqual`, the
+slice and view ones (`pykSlice`, `pykView`, `pykViewAt`, `pykViewSet`,
+`pykViewItems`, `pykViewWalk`, `pykCopyInto`), the pointer ones
+(`pykVarPlace`, `pykSlotPlace`, `pykElemPlace`, `pykFieldPlace`), and
+the Dict ones (`pykDict`, `pykKey`, `pykDictPut`, `pykDictGet` and the rest)
+also list the helpers each calls, and `wanted_array_helpers` closes over that list, so a program
 that only reads `a[i]` gets `pykAt` and what it calls and nothing else.
+A helper that builds a list lists `pykList` among what it calls, which
+brings the list helper in beside it.
 Every one of these names is in `reserved`, so a Pyking binding of one
 is renamed rather than shadowing it.
 
@@ -179,3 +187,21 @@ An array's element write is the one statement the JavaScript AST has
 that is not a binding: `JsSetIndex (target, index, value)` prints
 `target[index] = value;`, and is emitted only after the
 `pykCheckIndex` statement that checks it (target_js.md, "Arrays").
+Its sibling `JsSetField (target, name, value)` prints
+`target.name = value;`, a `var struct`'s field written in place; it
+needs no check, and JavaScript's own order -- the owner, then the
+value -- is the one Pyking lays down (target_js.md, "Mutable
+structs").
+
+`JsSetter name` is the one expression that assigns: it prints
+`(pykNew) => { name = pykNew; }`, the setter of a `var`'s place, whose
+parameter is a reserved name so that it never shadows the variable.
+Which `var`s get a place is the scope's `addressed` set, the names any
+`&x` in the module takes (target_js.md, "Pointers").
+
+`print`'s arguments are translated by `printed_argument`, which applies
+a Float descriptor where the argument is. For an array that is not the
+last argument that would format it before a later argument could write
+into it, so the `JsRuntimeCall` case turns such a `pykShaped` into
+`pykLater`, which `print`'s own formatting applies once every argument
+is worked out.

@@ -259,10 +259,26 @@ value is `a[i] + e` with the `EIndex` spanning from where the statement
 starts -- which `Syntax.index_compound_parts` reads, and
 desugar_args.ml then works `a` and `i` out once into temporaries. `a[i]
 = v` is refused with "did you mean `a[i] := v`?". `check_features`
-refuses an element write, and a call to `array` (unless the module binds
-a name `array` of its own), without `use mutation`. `parse_with` takes
-features already on, which is how a REPL session keeps a `use` an
-earlier entry typed.
+refuses an element write, and a call to `array` or `array_init` (unless
+the module binds a name of the set's own), without `use mutation`.
+`parse_with` takes features already on, which is how a REPL session
+keeps a `use` an earlier entry typed.
+
+**A field write** `p.x := e` is parsed the same way, from an `EField`
+-- or an `EQualified`, which is what a plain `p.x` parses as, since the
+parser cannot tell a value from a module; a write is always to a
+value's field, so its owner becomes `EVar p` -- into an `SSetField` of
+its owner, field and value; `p.x += e` is marked as `a[i] += e` is.
+`p.x = v` is refused with "did you mean `p.x := v`?", in a block and
+at the top level alike. `var struct` is `parse_struct ~writable:true`,
+at the top level and after `public`, and sets the last flag of its
+`SDatatype`; a `var struct` with no fields, one inside a block and a
+`var datatype` are refused. `check_features` refuses a field write, a
+`var struct` and a constructor of this module's own `var struct`
+without `use mutation` (one another module declares is the checker's
+to refuse). `parse_chain` stops before `xor` followed at once by `=`,
+which is `xor=` for the statement to read. See
+[mutation.md](mutation.md).
 
 ## Value-form `if`/`match`: one AST shape, two positions
 

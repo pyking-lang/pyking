@@ -288,7 +288,7 @@ The per-target branches in `compile_unit` are mostly symmetric —
 translate, catch that backend's own `Unsupported` and hand it to
 `fail_unsupported`, answer with the text — with two real asymmetries
 worth noting: the C branch passes `target` itself as the `standard` parameter
-(`target_c.ml` serves both `c89` and `c23` from one function, gated by
+(`target_c.ml` serves `c89`, `c99`, `c23` and `c23-gc` from one function, gated by
 exactly that string — see that backend's internals page), and the Java
 branch has to work out the class name *before* it can print anything,
 since the class name has to match whatever file name was chosen (an
@@ -347,10 +347,12 @@ executable, look in the `build/` there too.
 `--run` compiles for the selected target and then builds and runs the
 result the way a user would by hand. What each target needs to do that
 is that target's own knowledge — `node prog.js`, but `cc -std=c89 -o
-prog prog.c -lgc -lm` *and then* `prog` — so it lives in
-`src/execution.ml`, not here. The C targets' collector, bdwgc, is found
-there too (`pkg-config bdw-gc`, then the usual prefixes), and a C build
-where it is missing stops with a message saying how to install it. The driver's part is three calls at the end of
+prog prog.c -lm` *and then* `prog` — so it lives in
+`src/execution.ml`, not here. `c23-gc` builds with `cc -std=c23
+-DPYKING_GC -o prog prog.c -lgc -lm`: its collector, bdwgc, is found
+there too (`pkg-config bdw-gc`, then the usual prefixes), and a c23-gc
+build where it is missing stops with a message saying how to install
+it; plain C needs no collector. The driver's part is three calls at the end of
 `command_compile`: `Execution.makefile`, written into `build/`;
 `Execution.build`, run there; and, for `--run`, `Execution.run`, in the
 directory the executable is in.

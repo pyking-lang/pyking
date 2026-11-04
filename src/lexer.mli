@@ -45,6 +45,8 @@ type token =
   | TokArrow of info (* '->' (single-expression `case` clause) *)
   | TokFatArrow of info (* '=>' (no longer a lambda: `lam x. e` is) *)
   | TokMul of info (* '*' user defined *)
+  | TokLineStar of info (* '*' starting a line outside brackets: a pointer's *)
+  | TokLineAmp of info (* '&' starting a line outside brackets: an address *)
   | TokDiv of info (* '/' user defined *)
   | TokPercent of info (* '%' (remainder) *)
   | TokCaret of info (* '^' (power) *)

@@ -196,7 +196,7 @@ let constructor_meta exported sole (Constructor (_, name, fields, _)) =
 let block_constructors stmts =
   List.concat_map
     (function
-      | SDatatype (_, _, _, constructors, _, public) ->
+      | SDatatype (_, _, _, constructors, _, public, _) ->
           let sole = List.length constructors = 1 in
           List.map
             (fun (Constructor (_, name, _, _) as c) ->
@@ -210,7 +210,7 @@ let block_constructors stmts =
 let block_datatypes stmts =
   List.filter_map
     (function
-      | SDatatype (_, name, _, constructors, _, _) ->
+      | SDatatype (_, name, _, constructors, _, _, _) ->
           Some (name, List.map (fun (Constructor (_, n, _, _)) -> n) constructors)
       | _ -> None)
     stmts
@@ -645,6 +645,9 @@ let rec expression signatures scope e =
   | EBinary (i, op, l, r, s) -> EBinary (i, op, go l, go r, s)
   | EUnary (i, op, operand, s) -> EUnary (i, op, go operand, s)
   | EIndex (i, l, index, s) -> EIndex (i, go l, go index, s)
+  | ESlice (i, l, a, b, s) -> ESlice (i, go l, Option.map go a, Option.map go b, s)
+  | EAddr (i, e, s) -> EAddr (i, go e, s)
+  | EDeref (i, e, s) -> EDeref (i, go e, s)
   | EList (i, elements, s) -> EList (i, List.map go elements, s)
   | ETuple (i, elements, s) -> ETuple (i, List.map go elements, s)
   | EIf (i, c, a, b, s) -> EIf (i, go c, go a, go b, s)
@@ -1036,6 +1039,33 @@ and rewrite signatures scope taken statement =
                 compound_on op read (go right),
                 s ),
             scope ))
+  | SSetDeref (i, pointer, value, s) -> (
+      match index_compound_parts statement with
+      | None -> ([], SSetDeref (i, go pointer, go value, s), scope)
+      | Some (op, right) ->
+          (* `*p op= e` reads what it writes, so `p` is worked out once,
+             into `pointer__target`, before anything else (PYKING.md,
+             "Pointers"). *)
+          let nowhere = { i with row1 = i.row2; col1 = i.col2 } in
+          let target_ = SLet (i, TargetName (nowhere, "pointer__target", 0), go pointer, None, 0, false, false) in
+          let read = EDeref ({ i with row2 = i.row1; col2 = i.col1 + 1 }, EVar (nowhere, "pointer__target", 0), 0) in
+          ( [ target_ ],
+            SSetDeref (i, EVar (nowhere, "pointer__target", 0), compound_on op read (go right), s),
+            bind scope target_ ))
+  | SSetField (i, owner, field, value, s) -> (
+      match index_compound_parts statement with
+      | None -> ([], SSetField (i, go owner, field, go value, s), scope)
+      | Some (op, right) ->
+          (* `p.x op= e` reads the field it writes, so `p` is worked out
+             once, into `field__owner`, before anything else: the write
+             then goes to the struct it named even if `e` changes what
+             `p` is (PYKING.md, "Mutable structs"). *)
+          let nowhere = { i with row1 = i.row2; col1 = i.col2 } in
+          let owner_ = SLet (i, TargetName (nowhere, "field__owner", 0), go owner, None, 0, false, false) in
+          let read = EField ({ i with row2 = i.row1; col2 = i.col1 + String.length field }, EVar (nowhere, "field__owner", 0), field, 0) in
+          ( [ owner_ ],
+            SSetField (i, EVar (nowhere, "field__owner", 0), field, compound_on op read (go right), s),
+            bind scope owner_ ))
   | SMutateTuple (i, target, e, _) ->
       (* `a, (b, c) := e` is `a__new, (b__new, c__new) = e` and then one
          `:=` per name, left to right: the value is worked out once, and
@@ -1068,7 +1098,7 @@ and rewrite signatures scope taken statement =
   | SContinue (i, value, s) ->
       ([], SContinue (i, Option.map go value, s), scope)
   | SFunctionSig _ -> ([], statement, scope)
-  | SDatatype (i, name, params, constructors, s, public) ->
+  | SDatatype (i, name, params, constructors, s, public, writable) ->
       (* A field's default is a generated def, exactly as a parameter's
          is, written just before the datatype. *)
       let generated =
@@ -1119,7 +1149,7 @@ and rewrite signatures scope taken statement =
                 cs ))
           constructors
       in
-      (generated, SDatatype (i, name, params, constructors, s, public), scope)
+      (generated, SDatatype (i, name, params, constructors, s, public, writable), scope)
   | SLoop (i, target, init, t, iterate, body, s) ->
       let inner =
         match target with

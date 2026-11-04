@@ -184,6 +184,9 @@ let rec resolve_expr ctx env e found =
   | EGreatThan (_, a, b, _) | EGreatThanEq (_, a, b, _) | EEq (_, a, b, _)
   | EBinary (_, _, a, b, _) | EIndex (_, a, b, _) ->
       go b (go a found)
+  | ESlice (_, l, a, b, _) ->
+      List.fold_left (fun found e -> go e found) (go l found) (Option.to_list a @ Option.to_list b)
+  | EAddr (_, a, _) | EDeref (_, a, _) -> go a found
   | ENeg (_, a, _) | EUnary (_, _, a, _) -> go a found
   | ECall (_, f, args, _) -> List.fold_left (fun found a -> go a found) (go f found) (arg_exprs args)
   | EList (_, es, _) | ETuple (_, es, _) -> List.fold_left (fun found a -> go a found) found es
@@ -259,6 +262,9 @@ and resolve_stmt ctx env stmt found =
   | SSetIndex (_, owner, index, value, _) ->
       let found = resolve_expr ctx env owner found in
       let found = resolve_expr ctx env index found in
+      (env, resolve_expr ctx env value found)
+  | SSetField (_, owner, _, value, _) | SSetDeref (_, owner, value, _) ->
+      let found = resolve_expr ctx env owner found in
       (env, resolve_expr ctx env value found)
   | SMutate (i, n, e, _) as statement ->
       (* `x += e` reads `x` where it writes it: one use, not two. *)

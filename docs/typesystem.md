@@ -352,28 +352,43 @@ constructors; `array_element` reads `T` back. `module.ml` leaves it
 unqualified in a module's signature, where every other datatype is named
 `module.Type`.
 
-`array` is the one builtin overload set: `builtin_env` binds
-`list::array`, `fill::array`, `init::array` and `unfold::array` as
-ordinary polymorphic `::` definitions, so `resolve_overload` resolves a
-call by its arguments and records it in `qmap` as any set's. It adds one
-rule: when exactly `fill::array` and `init::array` fit and the second
-argument is a function, `init::array` is chosen. Where that argument's
-type is still open the call is refused, with a message naming the two
-forms. A member named outright (`fill::array(...)`) is resolved as a set
-of one, so it is recorded too -- which is what the `shared-fill` warning
-reads.
+`array` and `array_init` are the builtin overload sets: `builtin_env`
+binds `list::array`, `fill::array`, `init::array_init` and
+`unfold::array_init` as ordinary polymorphic `::` definitions, so
+`resolve_overload` resolves a call by its arguments and records it in
+`qmap` as any set's. A set's members take different numbers of
+arguments, so neither set needs a rule of its own: a call is never
+ambiguous. A member named outright (`fill::array(...)`) is resolved as a
+set of one, so it is recorded too -- which is what the `shared-fill`
+warning reads.
 
 An element is read by `EIndex` and written by `SSetIndex`, checked in the
 order they run: the array (a list or a String is refused with what to
 write instead), the index (an Int), and the value against the element
 type, with `satisfies`. `len`, `for` and a comprehension take arrays,
-and `same` is a builtin taking two arrays of one element type. `==` has
-no row for arrays, and its error says to use `same` or `array.equal`.
+and `same` is a builtin taking two values of one type with an identity:
+two arrays, or two `var struct`s. `==` has no row for arrays or structs,
+and its error says to use `same`, or `array.equal`.
 
 **An open array is refused at its binding** (`check_open_arrays`, after
 the module is checked): a binding whose type holds `Array` of an
-element type nothing decided, since a mutable value has one type and
-nothing later can say which. An immutable `xs = []` stays `[a]`.
+element type nothing decided, or a `var struct` of a parameter nothing
+decided, since a mutable value has one type and nothing later can say
+which. An immutable `xs = []` stays `[a]`.
+
+## Mutable structs
+
+A `var struct` is a datatype whose `Datatype` carries `true` as its last
+field, which `declare_datatypes` takes from the `SDatatype` and a
+module's signature carries to every importer. A field is written by
+`SSetField`, checked in the order it runs: the owner, which must be a
+`var struct` -- a plain struct's write is refused with how to build a
+changed copy -- then the field's type, found by `field_type` (the
+function an `EField` read uses), then the value against it. Making a
+`var struct` another module declares is refused in `EConstruct` unless
+`store.mutation` is set, which `type_check ~mutation` takes from the
+module's `use` lines; the parser refuses this module's own. See
+[mutation.md](mutation.md).
 
 ## Three kinds of type variable
 

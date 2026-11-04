@@ -68,6 +68,7 @@ type jsexpr =
   | JsIndex of info * jsexpr * jsexpr (* target[index] *)
   | JsMember of info * jsexpr * string (* target.name *)
   | JsCond of info * jsexpr * jsexpr * jsexpr (* cond ? a : b *)
+  | JsSetter of info * string (* (pykNew) => { name = pykNew; } *)
   | JsRuntimeCall of info * string * jsexpr list
       (* A call that crosses the runtime interface, e.g. `print`. The
          operation is named, not spelled: the packager decides whether
@@ -102,6 +103,8 @@ and jsstmt =
   | JsSetIndex of info * jsexpr * jsexpr * jsexpr
       (* target[index] = value; -- an element write into a Pyking
          array, whose index was checked by the statement before it. *)
+  | JsSetField of info * jsexpr * string * jsexpr
+      (* target.name = value; -- a field write into a `var struct`. *)
 
 (** Everything the packager decides and the core only names: how each
     runtime operation is called, and how what crosses a module boundary
@@ -152,6 +155,10 @@ type scope = {
      a loop or in one carrying nothing. A `break` cannot cross a `def`,
      so a function body never reads the one around it. *)
   accumulator : jstarget option;
+  (* The `var`s whose address `&` takes somewhere in the module, by
+     Pyking name: each is given a place beside its `let`
+     (docs/target_js.md, "Pointers"). *)
+  addressed : StringSet.t;
 }
 
 (** A scope for a nested block: it sees the enclosing names, and what it
@@ -177,18 +184,29 @@ let rec holds_float type_ =
   | TFloat _ | TChar _ -> true
   | TList (_, element, _) -> holds_float element
   | TCon (_, "Array", [ element ], _) -> holds_float element
+  | TCon (_, "Vec", [ element ], _) -> holds_float element
+  | TCon (_, "Slice", [ element ], _) -> holds_float element
+  | TCon (_, "Ptr", [ target ], _) -> holds_float target
+  | TCon (_, "Dict", [ key; value ], _) -> holds_float key || holds_float value
   | TTuple (_, elements, _) -> List.exists holds_float elements
   | _ -> false
 
 (** Which positions of a value are Floats or Chars, as the descriptor
     `pykShaped` reads: `f` a Float, `c` a Char, `.` anything else, `[s]`
-    a list, `{s}` an array, `(s,s)` a tuple. typ -> string *)
+    a list, `{s}` an array, `<s>` a Vec, `v{s}` a view, `p(s)` a
+    pointer, `@(k,v)` a Dict whose entries are (k, v), `(s,s)` a tuple.
+    typ -> string *)
 let rec float_shape type_ =
   match type_ with
   | TFloat _ -> "f"
   | TChar _ -> "c"
   | TList (_, element, _) -> "[" ^ float_shape element ^ "]"
   | TCon (_, "Array", [ element ], _) -> "{" ^ float_shape element ^ "}"
+  | TCon (_, "Vec", [ element ], _) -> "<" ^ float_shape element ^ ">"
+  | TCon (_, "Slice", [ element ], _) -> "v{" ^ float_shape element ^ "}"
+  | TCon (_, "Ptr", [ target ], _) -> "p(" ^ float_shape target ^ ")"
+  | TCon (_, "Dict", [ key; value ], _) ->
+      "@(" ^ float_shape key ^ "," ^ float_shape value ^ ")"
   | TTuple (_, elements, _) ->
       "(" ^ String.concat "," (List.map float_shape elements) ^ ")"
   | _ -> "."
@@ -207,11 +225,78 @@ let is_array_expr e scope =
   | Some t -> Typesystem.array_element t <> None
   | None -> false
 
+(** Whether the checker settled this expression's type as a Vec, an
+    array that grows: indexed, measured and written as an array is, and
+    told from one by its marker at run time (docs/target_js.md, "Vecs").
+    expr -> scope -> bool *)
+let is_vec_expr e scope =
+  match type_of e scope with
+  | Some (TCon (_, "Vec", [ _ ], _)) -> true
+  | _ -> false
+
+(** Whether the checker settled this expression's type as a view,
+    `Slice(T)`: an object naming a run of an array's elements
+    (docs/target_js.md, "Slices and views"). expr -> scope -> bool *)
+let is_view_expr e scope =
+  match type_of e scope with
+  | Some (TCon (_, "Slice", [ _ ], _)) -> true
+  | _ -> false
+
+(** Whether the checker settled this expression's type as a Dict.
+    expr -> scope -> bool *)
+let is_dict_expr e scope =
+  match type_of e scope with
+  | Some (TCon (_, "Dict", [ _; _ ], _)) -> true
+  | _ -> false
+
+(** Whether `==` on values of this type is JavaScript's `===`: a value
+    that is one JavaScript primitive -- a number, a String, a Bool, or
+    `()`, which is `undefined`. Everything else `==` accepts is compared
+    part by part (`pykEqual`). typ option -> bool *)
+let compares_as_primitive type_ =
+  match type_ with
+  | Some (TInt _ | TFloat _ | TString _ | TChar _ | TBool _ | TTuple (_, [], _)) -> true
+  | _ -> false
+
+(** The key-shape argument a Dict helper that reports a missing key
+    needs, where the key's type holds a Char (printed quoted rather than
+    as its code point): `[]` where `pykFormat` already prints it right.
+    info -> expr -> scope -> [jsexpr] *)
+let key_shape info key scope =
+  match type_of key scope with
+  | Some t when holds_float t -> [ JsStr (info, float_shape t) ]
+  | _ -> []
+
+(** An array or a Vec: what `a[i]` checks and `len` measures directly.
+    expr -> scope -> bool *)
+let is_store_expr e scope = is_array_expr e scope || is_vec_expr e scope
+
 (** A sequence a `for` walks, as an array: a String's Chars are its code
     points, which `pykChars` lists. info -> jsexpr -> bool -> jsexpr *)
 let walked info js_sequence is_string =
   if is_string then JsCall (info, JsVar (info, "pykChars"), [ js_sequence ])
   else js_sequence
+
+(** The sequence a `for` (`in_for`) or a comprehension walks. A Dict's is
+    its keys: a comprehension takes them as they are (`pykDictKeys`), and
+    a `for` walks them through `pykDictWalk`, which stops the program
+    where a key is put in or taken out during the walk
+    (docs/target_js.md, "Dicts"). info -> jsexpr -> expr -> scope -> bool
+    -> jsexpr *)
+let walked_sequence info js_sequence sequence scope in_for =
+  if is_view_expr sequence scope then
+    (* A view's elements: read as each turn comes for a `for`, as they
+       are for a comprehension. *)
+    JsCall
+      ( info,
+        JsVar (info, if in_for then "pykViewWalk" else "pykViewItems"),
+        [ js_sequence ] )
+  else if is_dict_expr sequence scope then
+    JsCall
+      ( info,
+        JsVar (info, if in_for then "pykDictWalk" else "pykDictKeys"),
+        [ js_sequence ] )
+  else walked info js_sequence (is_string_expr sequence scope)
 
 (** The JavaScript name a Pyking name reads as. Names bound nowhere are
     runtime operations or builtins, and pass through unchanged.
@@ -251,7 +336,13 @@ let reserved =
         init pykChars pykCharAt pykCharOfInt pykCharOfString pykFloatStr \
         pykShaped pykParseInt pykTrunc pykParseFloat pykFail pykArray \
         pykArraySize pykArrayOfList pykArrayFill pykArrayInit pykArrayUnfold \
-        pykAt pykCheckIndex pykIndexError")
+        pykAt pykCheckIndex pykIndexError pykStruct pykLater pykVec \
+        pykVecEmpty pykVecOfList pykPush pykPop pykInsert pykRemove pykClear \
+        pykSetAt pykEqual pykDict pykDictOfList pykKey pykKeyText pykDictPut \
+        pykDictGet pykDictGetOr pykDictHas pykDictKeys pykDictValues pykDictItems \
+        pykDictRemove pykDictDiscard pykDictClear pykDictWalk pykDictChanged pykSlice pykView \
+        pykViewAt pykViewSet pykViewItems pykViewWalk pykCopyInto pykVarPlace \
+        pykElemPlace pykFieldPlace pykSlotPlace pykNew")
 
 (** `name2`, `name3`, ... -- the first not already spoken for here.
     string -> scope -> string *)
@@ -373,6 +464,8 @@ let stmt_kind_name s =
   | SImport _ -> "SImport"
   | SDatatype _ -> "SDatatype"
   | SSetIndex _ -> "SSetIndex"
+  | SSetDeref _ -> "SSetDeref"
+  | SSetField _ -> "SSetField"
 
 let expr_kind_name e =
   match e with
@@ -453,6 +546,18 @@ let rec translate_expr e scope =
           JsMember (info, JsVar (info, "Math"), "trunc"),
           [ JsBinary (info, "/", translate_expr l scope, translate_expr r scope) ]
         )
+  | EEq (info, l, r, _) when not (compares_as_primitive (type_of l scope)) ->
+      (* A list, tuple, struct or datatype is equal part by part, which
+         JavaScript's `===` -- identity, for an object -- is not
+         (docs/target_js.md, "Equality"). *)
+      JsCall (info, JsVar (info, "pykEqual"), [ translate_expr l scope; translate_expr r scope ])
+  | EBinary (info, BNeq, l, r, _) when not (compares_as_primitive (type_of l scope)) ->
+      JsUnary
+        ( info,
+          "!",
+          JsCall
+            (info, JsVar (info, "pykEqual"), [ translate_expr l scope; translate_expr r scope ])
+        )
   | EBinary (info, op, l, r, _) ->
       (* JavaScript has every one of these, spelled as Pyking's symbols
          are: `%` truncates toward zero on integers and is fmod on
@@ -477,13 +582,51 @@ let rec translate_expr e scope =
         ( info,
           (match op with UNot _ -> "!" | UBitNot _ -> "~"),
           translate_expr operand scope )
+  | EAddr (_, EDeref (_, pointer, _), _) -> translate_expr pointer scope
+  | EAddr (info, EVar (_, name, _), _) ->
+      (* The place declared beside the variable's `let`. *)
+      JsVar (info, lookup (name ^ "__place") scope)
+  | EAddr (info, EIndex (_, owner, index, _), _) ->
+      (* An element of an array or a view, the index checked now. *)
+      JsCall
+        ( info,
+          JsVar (info, "pykElemPlace"),
+          [ translate_expr owner scope; translate_expr index scope ] )
+  | EAddr (info, EField (_, owner, field, _), _) ->
+      JsCall
+        ( info,
+          JsVar (info, "pykFieldPlace"),
+          [ translate_expr owner scope; JsStr (info, field) ] )
+  | EAddr (info, _, _) -> unsupported_because info "the address of this place"
+  | EDeref (info, pointer, _) ->
+      JsCall (info, JsMember (info, translate_expr pointer scope, "get"), [])
+  | ESlice (info, sequence, low, high, _) ->
+      (* `s[i:j]`: a new value of the sequence's own kind (a view's is an
+         array), its bounds checked once the three are worked out, in
+         order. A left-out start is 0; a left-out end is left out here
+         too, and is the length (docs/target_js.md, "Slices and views"). *)
+      let low = match low with Some e -> translate_expr e scope | None -> JsNum (info, 0) in
+      let high = match high with Some e -> [ translate_expr e scope ] | None -> [] in
+      JsCall (info, JsVar (info, "pykSlice"), [ translate_expr sequence scope; low ] @ high)
   | EIndex (info, text, index, _) when is_string_expr text scope ->
       (* A String's i-th code point, not its i-th UTF-16 unit. *)
       JsCall
         ( info,
           JsVar (info, "pykCharAt"),
           [ translate_expr text scope; translate_expr index scope ] )
-  | EIndex (info, array_, index, _) when is_array_expr array_ scope ->
+  | EIndex (info, dict, key, _) when is_dict_expr dict scope ->
+      (* A Dict's value for a key, or the error a missing key is. *)
+      JsCall
+        ( info,
+          JsVar (info, "pykDictGet"),
+          [ translate_expr dict scope; translate_expr key scope ] @ key_shape info key scope )
+  | EIndex (info, view, index, _) when is_view_expr view scope ->
+      (* A view's element is its array's, checked against the view. *)
+      JsCall
+        ( info,
+          JsVar (info, "pykViewAt"),
+          [ translate_expr view scope; translate_expr index scope ] )
+  | EIndex (info, array_, index, _) when is_store_expr array_ scope ->
       (* An array's element, checked: an index outside it is a runtime
          error rather than JavaScript's `undefined` (docs/target_js.md,
          "Arrays"). *)
@@ -525,11 +668,29 @@ let rec translate_expr e scope =
       JsMember (info, JsVar (info, reached), name)
   | ECall (info, EVar (_, name, _), args, _)
     when Builtin.crosses_host name && not (SMap.mem name scope.names) ->
-      (* A call that leaves the program: see builtin.ml. *)
+      (* A call that leaves the program: see builtin.ml. Every argument
+         is worked out before any is formatted, which `print` itself
+         does -- except where an argument needs a descriptor, which is
+         applied where the argument is. That is too early only for an
+         array, which a later argument may still write into, so such a
+         one is handed over with its descriptor (`pykLater`) and
+         formatted with the rest. *)
+      let values = arg_exprs args in
+      let last = List.length values - 1 in
       JsRuntimeCall
         ( info,
           name,
-          List.map (fun a -> printed_argument a scope) (arg_exprs args) )
+          List.mapi
+            (fun i a ->
+              match printed_argument a scope with
+              | JsCall (ci, JsVar (vi, "pykShaped"), [ value; JsStr (si, shape) ])
+                when i < last
+                     && (String.contains shape '{' || String.contains shape '<'
+                        || String.contains shape '@' || String.contains shape 'v'
+                        || String.contains shape 'p') ->
+                  JsCall (ci, JsVar (vi, "pykLater"), [ value; JsStr (si, shape) ])
+              | printed -> printed)
+            values )
   | ECall (info, EVar (_, "string", _), [ (_, argument) ], _)
     when not (SMap.mem "string" scope.names) -> (
       (* What `print` would write, from the formatter the runtime holds:
@@ -569,13 +730,19 @@ let rec translate_expr e scope =
       | _, Some (TString _) -> is (JsStr (info, "true"))
       | _, _ -> is (JsNum (info, 1)))
   | ECall (info, EVar (_, "len", _), [ (_, argument) ], _)
-    when (not (SMap.mem "len" scope.names)) && is_array_expr argument scope ->
-      (* An array's length is its JavaScript array's: O(1), no helper. *)
+    when (not (SMap.mem "len" scope.names))
+         && (is_store_expr argument scope || is_view_expr argument scope) ->
+      (* An array's or a Vec's length is its JavaScript array's: O(1), no
+         helper. A view keeps its own as `length`. *)
       JsMember (info, translate_expr argument scope, "length")
+  | ECall (info, EVar (_, "len", _), [ (_, argument) ], _)
+    when (not (SMap.mem "len" scope.names)) && is_dict_expr argument scope ->
+      (* A Dict's is its Map's number of entries. *)
+      JsMember (info, translate_expr argument scope, "size")
   | ECall (info, EVar (_, "same", _), [ (_, left); (_, right) ], _)
     when not (SMap.mem "same" scope.names) ->
-      (* Two arrays are the same array when they are one JavaScript
-         object. *)
+      (* Two arrays (Vecs, var structs) are the same when they are one
+         JavaScript object. *)
       JsBinary (info, "===", translate_expr left scope, translate_expr right scope)
   | ECall (info, EVar (_, name, _), args, _)
     when List.mem name Builtin.member_names && not (SMap.mem name scope.names) ->
@@ -588,8 +755,12 @@ let rec translate_expr e scope =
         match name with
         | "list__array" -> "pykArrayOfList"
         | "fill__array" -> "pykArrayFill"
-        | "init__array" -> "pykArrayInit"
-        | "unfold__array" -> "pykArrayUnfold"
+        | "init__array_init" -> "pykArrayInit"
+        | "unfold__array_init" -> "pykArrayUnfold"
+        | "empty__vec" -> "pykVecEmpty"
+        | "list__vec" -> "pykVecOfList"
+        | "empty__dict" -> "pykDict"
+        | "list__dict" -> "pykDictOfList"
         | _ ->
             unsupported_because (expr_info e)
               (Printf.sprintf
@@ -606,6 +777,55 @@ let rec translate_expr e scope =
       JsCall
         ( info,
           JsVar (info, if name = "range" then "pykRange" else "pykLen"),
+          List.map (fun a -> translate_expr a scope) (arg_exprs args) )
+  | ECall (info, EVar (_, (("push" | "pop" | "insert" | "remove" | "clear") as name), _), args, _)
+    when not (SMap.mem name scope.names) ->
+      (* What grows and shrinks a Vec, each a helper of the module's own
+         that checks what it must and answers what Pyking says it does --
+         `push` answers `()`, where JavaScript's answers the length.
+         `remove` and `clear` are a Dict's where their first argument
+         is one, with the key's descriptor where `remove` may report it
+         missing. *)
+      let values = arg_exprs args in
+      let on_dict =
+        match values with first :: _ -> is_dict_expr first scope | [] -> false
+      in
+      let helper =
+        if on_dict then (if name = "remove" then "pykDictRemove" else "pykDictClear")
+        else "pyk" ^ String.capitalize_ascii name
+      in
+      let shape =
+        match (on_dict, values) with
+        | true, [ _; key ] -> key_shape info key scope
+        | _ -> []
+      in
+      JsCall
+        ( info,
+          JsVar (info, helper),
+          List.map (fun a -> translate_expr a scope) values @ shape )
+  | ECall (info, EVar (_, (("view" | "copy_into") as name), _), args, _)
+    when not (SMap.mem name scope.names) ->
+      (* A view made, checked as it is made, and memmove's copy. *)
+      JsCall
+        ( info,
+          JsVar (info, if name = "view" then "pykView" else "pykCopyInto"),
+          List.map (fun a -> translate_expr a scope) (arg_exprs args) )
+  | ECall
+      ( info,
+        EVar (_, (("get" | "has" | "keys" | "values" | "items" | "discard") as name), _),
+        args,
+        _ )
+    when not (SMap.mem name scope.names) ->
+      (* What reads a Dict, and `discard`, each a helper of the module's
+         own (docs/target_js.md, "Dicts"). *)
+      let helper =
+        match name with
+        | "get" -> "pykDictGetOr"
+        | other -> "pykDict" ^ String.capitalize_ascii other
+      in
+      JsCall
+        ( info,
+          JsVar (info, helper),
           List.map (fun a -> translate_expr a scope) (arg_exprs args) )
   | ECall (info, EVar (_, name, _), _, _)
     when List.mem name Builtin.pure_names && not (SMap.mem name scope.names) ->
@@ -736,8 +956,8 @@ and translate_comprehension info element clauses scope =
         ( clause_info,
           JsMember
             ( clause_info,
-              walked clause_info (translate_expr sequence scope)
-                (is_string_expr sequence scope),
+              walked_sequence clause_info (translate_expr sequence scope)
+                sequence scope false,
               "flatMap" ),
           [ JsArrow (clause_info, [ item ], bindings, guarded) ] )
   | CompIf (clause_info, condition, _) :: rest ->
@@ -1222,6 +1442,26 @@ and translate_stmt s scope =
       ( (JsLet (info, JsTargetName (info, held), JsVar (info, "undefined")) :: body)
         @ [ JsConst (info, js_target, JsVar (info, held)) ],
         scope )
+  | SVar (info, name, e, _) when StringSet.mem name scope.addressed ->
+      (* A `var` whose address is taken: its `let`, and beside it the
+         one place every `&x` of it names, reading and writing the
+         variable through closures -- which keep it alive after its
+         function returns, and make two `&x` equal (docs/target_js.md,
+         "Pointers"). *)
+      let js_expr = translate_expr e scope in
+      let js_name, scope = bind name scope in
+      let place, scope = bind (name ^ "__place") scope in
+      ( [
+          JsLet (info, JsTargetName (info, js_name), js_expr);
+          JsConst
+            ( info,
+              JsTargetName (info, place),
+              JsCall
+                ( info,
+                  JsVar (info, "pykVarPlace"),
+                  [ JsArrow (info, [], [], JsVar (info, js_name)); JsSetter (info, js_name) ] ) );
+        ],
+        scope )
   | SVar (info, name, e, _) ->
       let js_expr = translate_expr e scope in
       let js_name, scope = bind name scope in
@@ -1313,10 +1553,13 @@ and translate_stmt s scope =
           ([], body_scope) params
       in
       ([ JsFunc (info, js_name, param_names, translate_tail_stmts body body_scope) ], scope)
-  | SDatatype (info, name, _, constructors, _, _) ->
+  | SDatatype (info, name, _, constructors, _, _, writable) ->
       (* One function per constructor, building the value; the type's
          own name is bound too, to its name, so that an import of it has
-         something to import. *)
+         something to import. A `var struct`'s one constructor builds
+         with `pykStruct`, whose fields are written in place
+         (docs/target_js.md, "Mutable structs"). *)
+      let builder = if writable then "pykStruct" else "pykData" in
       let functions =
         List.map
           (fun (Constructor (ci, cname, fields, _)) ->
@@ -1330,7 +1573,7 @@ and translate_stmt s scope =
                     ( ci,
                       JsCall
                         ( ci,
-                          JsVar (ci, "pykData"),
+                          JsVar (ci, builder),
                           [
                             JsStr (ci, cname);
                             JsArray (ci, List.map (fun p -> JsVar (ci, p)) params);
@@ -1352,6 +1595,38 @@ and translate_stmt s scope =
         else [ JsConst (info, JsTargetName (info, lookup name scope), JsStr (info, name)) ]
       in
       (own_name @ functions, scope)
+  | SSetDeref (info, pointer, value, _) ->
+      (* `*p := v`: the pointer, then the value, then the write -- the
+         order JavaScript works out `p.set(v)` in. *)
+      ( [
+          JsExprStmt
+            ( info,
+              JsCall
+                ( info,
+                  JsMember (info, translate_expr pointer scope, "set"),
+                  [ translate_expr value scope ] ) );
+        ],
+        scope )
+  | SSetField (info, owner, field, value, _) ->
+      (* `p.x := v` is JavaScript's own `p.x = v`, which already works
+         out the owner, then the value, then writes into the object the
+         owner was (docs/target_js.md, "Mutable structs"). A compound
+         `p.x += e` arrives with its owner held in a name of its own. *)
+      ( [ JsSetField (info, translate_expr owner scope, field, translate_expr value scope) ],
+        scope )
+  | SSetIndex (info, owner, key, value, _) when is_dict_expr owner scope ->
+      (* `d[k] := v`: the Dict, the key, the value, then the write -- an
+         ordinary call's order, and nothing to check first: a missing key
+         is put in. *)
+      ( [
+          JsExprStmt
+            ( info,
+              JsCall
+                ( info,
+                  JsVar (info, "pykDictPut"),
+                  [ translate_expr owner scope; translate_expr key scope; translate_expr value scope ] ) );
+        ],
+        scope )
   | SSetIndex (info, owner, index, value, _) ->
       (* `a[i] := v`: the array, then the index, then the index checked,
          then the value, then the write -- into the array first worked
@@ -1379,9 +1654,27 @@ and translate_stmt s scope =
         JsExprStmt
           (info, JsCall (info, JsVar (info, "pykCheckIndex"), [ js_owner; js_index ]))
       in
-      ( owner_stmts @ index_stmts
-        @ [ check; JsSetIndex (info, js_owner, js_index, translate_expr value scope) ],
-        scope )
+      let write =
+        if is_view_expr owner scope then
+          (* Into the view's array, at the view's offset. *)
+          JsExprStmt
+            ( info,
+              JsCall
+                ( info,
+                  JsVar (info, "pykViewSet"),
+                  [ js_owner; js_index; translate_expr value scope ] ) )
+        else if is_vec_expr owner scope then
+          (* Working out the value may shrink a Vec, so its index is
+             checked again as it is written (docs/target_js.md, "Vecs"). *)
+          JsExprStmt
+            ( info,
+              JsCall
+                ( info,
+                  JsVar (info, "pykSetAt"),
+                  [ js_owner; js_index; translate_expr value scope ] ) )
+        else JsSetIndex (info, js_owner, js_index, translate_expr value scope)
+      in
+      (owner_stmts @ index_stmts @ [ check; write ], scope)
   | s -> unsupported (stmt_info s) (stmt_kind_name s)
 
 (** The assignment a `break x`/`continue x` makes before it jumps: x
@@ -1453,7 +1746,7 @@ and translate_loop s scope =
         match iterate with
         | Some (ForIn (_, name, sequence, _)) ->
             let js_sequence =
-              walked info (translate_expr sequence scope) (is_string_expr sequence scope)
+              walked_sequence info (translate_expr sequence scope) sequence scope true
             in
             let js_name, body_scope = bind name body_scope in
             (Some js_name, Some js_sequence, body_scope)
@@ -1568,6 +1861,13 @@ let translate_program ?(taken = []) ?(external_fields = []) ?(externals = [])
         externals;
         own_module = own;
         accumulator = None;
+        addressed =
+          Walk.fold_stmts
+            (fun set node ->
+              match node with
+              | Walk.NExpr (EAddr (_, EVar (_, name, _), _)) -> StringSet.add name set
+              | _ -> set)
+            StringSet.empty stmts;
         own_external =
           Option.value (List.assoc_opt own external_fields) ~default:[];
         module_aliases =
@@ -1732,6 +2032,7 @@ let rec pprint_js_expr ?(min_prec = 0) e runtime =
   | JsCall (_, func, args) ->
       Printf.sprintf "%s(%s)" (at call_precedence func)
         (String.concat ", " (List.map plain args))
+  | JsSetter (_, name) -> Printf.sprintf "(pykNew) => { %s = pykNew; }" name
   | JsRuntimeCall (_, operation, args) ->
       Printf.sprintf "%s(%s)"
         (List.assoc operation runtime.operations)
@@ -1825,6 +2126,10 @@ and pprint_js_stmt ?(level = 0) s runtime =
       Printf.sprintf "%s%s[%s] = %s;" pad
         (pprint_js_expr ~min_prec:call_precedence target runtime)
         (plain index) (plain value)
+  | JsSetField (_, target, name, value) ->
+      Printf.sprintf "%s%s.%s = %s;" pad
+        (pprint_js_expr ~min_prec:call_precedence target runtime)
+        name (plain value)
 
 let concat_helper =
   String.concat "\n"
@@ -1857,6 +2162,24 @@ let data_helper =
       "function pykData(tag, values, names) {";
       "  const value = { pykTag: tag, pykValues: values, pykShape: null };";
       "  names.forEach((name, i) => { if (name !== null) value[name] = values[i]; });";
+      "  return value;";
+      "}";
+    ]
+
+let struct_helper =
+  String.concat "\n"
+    [
+      "// A `var struct`'s value: one object, shared by every name holding";
+      "// it, whose fields are its own properties and are written in place.";
+      "// What pykFormat and a pattern read by position is worked out from";
+      "// them when it is asked for, so it is never out of date.";
+      "function pykStruct(tag, values, names) {";
+      "  const value = {";
+      "    pykTag: tag,";
+      "    pykShape: null,";
+      "    get pykValues() { return names.map((name) => this[name]); },";
+      "  };";
+      "  names.forEach((name, i) => { value[name] = values[i]; });";
       "  return value;";
       "}";
     ]
@@ -2040,9 +2363,11 @@ let array_helpers =
       [ "pykFail" ],
       String.concat "\n"
         [
+          "// An index outside an array, a view, or a Vec as long as it is now.";
           "function pykIndexError(items, index) {";
           "  const n = items.length;";
-          "  pykFail(`the index ${index} is outside an array of ${n} element${n === 1 ? '' : 's'}`);";
+          "  const what = items.pykVec === true ? 'a Vec' : items.pykView === true ? 'a view' : 'an array';";
+          "  pykFail(`the index ${index} is outside ${what} of ${n} element${n === 1 ? '' : 's'}`);";
           "}";
         ] );
     ( "pykAt",
@@ -2064,11 +2389,439 @@ let array_helpers =
           "  if (index < 0 || index >= items.length) pykIndexError(items, index);";
           "}";
         ] );
+    ( "pykEqual",
+      [],
+      String.concat "\n"
+        [
+          "// `==` on a list, a tuple, a struct or a datatype: part by part,";
+          "// lengths and constructors first. A Float inside compares as";
+          "// IEEE says, so NaN equals nothing, even itself.";
+          "function pykEqual(a, b) {";
+          "  if (Array.isArray(a)) return a.length === b.length && a.every((x, i) => pykEqual(x, b[i]));";
+          "  // Two pointers are equal when they name one place.";
+          "  if (a !== null && typeof a === 'object' && a.pykPtr === true) {";
+          "    return a.store === b.store && a.slot === b.slot;";
+          "  }";
+          "  if (a !== null && typeof a === 'object') {";
+          "    return a.pykTag === b.pykTag && pykEqual(a.pykValues, b.pykValues);";
+          "  }";
+          "  return a === b;";
+          "}";
+        ] );
+    ( "pykDict",
+      [],
+      String.concat "\n"
+        [
+          "// A Pyking Dict: a JavaScript Map, which keeps its keys in the order";
+          "// they were put in, from each key's `pykKey` to its [key, value]";
+          "// entry. `pykVersion` counts keys put in and taken out, which is how";
+          "// a `for` over it notices one (`pykDictWalk`).";
+          "function pykDict() {";
+          "  const d = new Map();";
+          "  d.pykDict = true;";
+          "  d.pykVersion = 0;";
+          "  return d;";
+          "}";
+        ] );
+    ( "pykKey",
+      [],
+      String.concat "\n"
+        [
+          "// What a Dict is keyed by: a number, String, Bool or () key itself;";
+          "// a tuple, list or datatype as text that only an equal one shares,";
+          "// since a Map compares objects by identity. A Dict's keys are all of";
+          "// one type, so a key's text never meets a String key.";
+          "function pykKey(key) {";
+          "  return key !== null && typeof key === 'object' ? pykKeyText(key) : key;";
+          "}";
+          "";
+          "function pykKeyText(key) {";
+          "  if (typeof key === 'string') return JSON.stringify(key);";
+          "  if (key === null || typeof key !== 'object') return String(key);";
+          "  if (Array.isArray(key)) return '[' + key.map((k) => pykKeyText(k)).join(',') + ']';";
+          "  return key.pykTag + '(' + key.pykValues.map((k) => pykKeyText(k)).join(',') + ')';";
+          "}";
+        ] );
+    ( "pykDictPut",
+      [ "pykKey" ],
+      String.concat "\n"
+        [
+          "// `d[k] := v`: an existing key's value replaced where it is, a new";
+          "// key put at the end.";
+          "function pykDictPut(d, key, value) {";
+          "  const code = pykKey(key);";
+          "  const entry = d.get(code);";
+          "  if (entry !== undefined) {";
+          "    entry[1] = value;";
+          "  } else {";
+          "    d.set(code, [key, value]);";
+          "    d.pykVersion++;";
+          "  }";
+          "}";
+        ] );
+    ( "pykDictOfList",
+      [ "pykDict"; "pykDictPut" ],
+      String.concat "\n"
+        [
+          "// `dict(pairs)`: a key written twice keeps its first place and its";
+          "// last value.";
+          "function pykDictOfList(pairs) {";
+          "  const d = pykDict();";
+          "  for (const [key, value] of pairs) pykDictPut(d, key, value);";
+          "  return d;";
+          "}";
+        ] );
+    ( "pykDictGet",
+      [ "pykKey"; "pykFail" ],
+      String.concat "\n"
+        [
+          "// `d[k]`: the key's value, or the error a missing key is. `shape` is";
+          "// the key's descriptor where it holds a Char.";
+          "function pykDictGet(d, key, shape = '.') {";
+          "  const entry = d.get(pykKey(key));";
+          "  if (entry === undefined) pykFail(`the Dict has no key ${pykShaped(key, shape, true)}`);";
+          "  return entry[1];";
+          "}";
+        ] );
+    ( "pykDictGetOr",
+      [ "pykKey" ],
+      String.concat "\n"
+        [
+          "// `get(d, k, default)`.";
+          "function pykDictGetOr(d, key, fallback) {";
+          "  const entry = d.get(pykKey(key));";
+          "  return entry === undefined ? fallback : entry[1];";
+          "}";
+        ] );
+    ( "pykDictHas",
+      [ "pykKey" ],
+      String.concat "\n"
+        [
+          "// `has(d, k)`.";
+          "function pykDictHas(d, key) {";
+          "  return d.has(pykKey(key));";
+          "}";
+        ] );
+    ( "pykDictKeys",
+      [ "pykList" ],
+      String.concat "\n"
+        [
+          "// `keys(d)`, `values(d)` and `items(d)`: lists, in the Dict's order.";
+          "function pykDictKeys(d) {";
+          "  return pykList(Array.from(d.values(), (entry) => entry[0]));";
+          "}";
+        ] );
+    ( "pykDictValues",
+      [ "pykList" ],
+      String.concat "\n"
+        [
+          "function pykDictValues(d) {";
+          "  return pykList(Array.from(d.values(), (entry) => entry[1]));";
+          "}";
+        ] );
+    ( "pykDictItems",
+      [ "pykList" ],
+      String.concat "\n"
+        [
+          "function pykDictItems(d) {";
+          "  return pykList(Array.from(d.values(), ([key, value]) => [key, value]));";
+          "}";
+        ] );
+    ( "pykDictRemove",
+      [ "pykKey"; "pykFail" ],
+      String.concat "\n"
+        [
+          "// `remove(d, k)`: the key's value, its entry taken out.";
+          "function pykDictRemove(d, key, shape = '.') {";
+          "  const code = pykKey(key);";
+          "  const entry = d.get(code);";
+          "  if (entry === undefined) pykFail(`the Dict has no key ${pykShaped(key, shape, true)} to remove`);";
+          "  d.delete(code);";
+          "  d.pykVersion++;";
+          "  return entry[1];";
+          "}";
+        ] );
+    ( "pykDictDiscard",
+      [ "pykKey" ],
+      String.concat "\n"
+        [
+          "// `discard(d, k)`: the key's entry taken out, if it has one.";
+          "function pykDictDiscard(d, key) {";
+          "  if (d.delete(pykKey(key))) d.pykVersion++;";
+          "}";
+        ] );
+    ( "pykDictClear",
+      [],
+      String.concat "\n"
+        [
+          "// `clear(d)`: every entry taken out.";
+          "function pykDictClear(d) {";
+          "  d.clear();";
+          "  d.pykVersion++;";
+          "}";
+        ] );
+    ( "pykDictWalk",
+      [ "pykFail" ],
+      String.concat "\n"
+        [
+          "// `for k in d`: the keys in order. A key put in or taken out while";
+          "// the walk is under way is an error at the next step, the last one";
+          "// included; a value replaced is not a change.";
+          "function* pykDictWalk(d) {";
+          "  const version = d.pykVersion;";
+          "  const changed = 'the Dict changed while a for loop was reading it';";
+          "  for (const entry of d.values()) {";
+          "    if (d.pykVersion !== version) pykFail(changed);";
+          "    yield entry[0];";
+          "  }";
+          "  if (d.pykVersion !== version) pykFail(changed);";
+          "}";
+        ] );
+    ( "pykSlice",
+      [ "pykFail"; "pykList"; "pykArray"; "pykVec"; "pykViewItems" ],
+      String.concat "\n"
+        [
+          "// `s[i:j]`: elements i up to j, copied into a new value of the";
+          "// sequence's kind -- a String's by character, a view's into an array.";
+          "function pykSlice(seq, low, high) {";
+          "  const text = typeof seq === 'string';";
+          "  const view = !text && seq.pykView === true;";
+          "  const items = text ? Array.from(seq) : view ? pykViewItems(seq) : seq;";
+          "  const n = items.length;";
+          "  const end = high === undefined ? n : high;";
+          "  if (low < 0 || low > end || end > n) {";
+          "    const what = text ? 'a String' : view ? 'a view' : seq.pykArray === true ? 'an array'";
+          "      : seq.pykVec === true ? 'a Vec' : 'a list';";
+          "    pykFail(`the slice ${low}:${end} is outside ${what} of ${n} element${n === 1 ? '' : 's'}`);";
+          "  }";
+          "  const part = items.slice(low, end);";
+          "  if (text) return part.join('');";
+          "  if (view || seq.pykArray === true) return pykArray(part);";
+          "  return seq.pykVec === true ? pykVec(part) : pykList(part);";
+          "}";
+        ] );
+    ( "pykView",
+      [ "pykFail" ],
+      String.concat "\n"
+        [
+          "// `view(a, i, j)`: elements i up to j of an array, shared. A view";
+          "// is the array, an offset into it and a length; a view of a view";
+          "// is of the same array, the offsets added.";
+          "function pykView(seq, low, high) {";
+          "  const inner = seq.pykView === true;";
+          "  const n = seq.length;";
+          "  if (low < 0 || low > high || high > n) {";
+          "    const what = inner ? 'a view' : 'an array';";
+          "    pykFail(`the view ${low}:${high} is outside ${what} of ${n} element${n === 1 ? '' : 's'}`);";
+          "  }";
+          "  return {";
+          "    pykView: true,";
+          "    owner: inner ? seq.owner : seq,";
+          "    offset: (inner ? seq.offset : 0) + low,";
+          "    length: high - low,";
+          "  };";
+          "}";
+        ] );
+    ( "pykViewAt",
+      [ "pykIndexError" ],
+      String.concat "\n"
+        [
+          "// `w[k]` on a view: its array's element, the index checked against the view.";
+          "function pykViewAt(view, index) {";
+          "  if (index < 0 || index >= view.length) pykIndexError(view, index);";
+          "  return view.owner[view.offset + index];";
+          "}";
+        ] );
+    ( "pykViewSet",
+      [],
+      String.concat "\n"
+        [
+          "// `w[k] := x` on a view, its index already checked: into its array.";
+          "function pykViewSet(view, index, value) {";
+          "  view.owner[view.offset + index] = value;";
+          "}";
+        ] );
+    ( "pykViewItems",
+      [],
+      String.concat "\n"
+        [
+          "// A view's elements as they are now, in a new array.";
+          "function pykViewItems(view) {";
+          "  return view.owner.slice(view.offset, view.offset + view.length);";
+          "}";
+        ] );
+    ( "pykViewWalk",
+      [],
+      String.concat "\n"
+        [
+          "// `for x in w`: each element read as its turn comes.";
+          "function* pykViewWalk(view) {";
+          "  for (let i = 0; i < view.length; i++) yield view.owner[view.offset + i];";
+          "}";
+        ] );
+    ( "pykCopyInto",
+      [ "pykFail"; "pykViewItems" ],
+      String.concat "\n"
+        [
+          "// `copy_into(dst, src)`: src's elements over dst's first ones, right";
+          "// where the two overlap -- src is copied out before anything is written.";
+          "function pykCopyInto(dst, src) {";
+          "  const [into, at] = dst.pykView === true ? [dst.owner, dst.offset] : [dst, 0];";
+          "  const from = src.pykView === true ? pykViewItems(src) : src.slice();";
+          "  if (from.length > dst.length) {";
+          "    const n = from.length;";
+          "    pykFail(`copy_into copies ${n} element${n === 1 ? '' : 's'} into ${dst.length}`);";
+          "  }";
+          "  from.forEach((value, i) => { into[at + i] = value; });";
+          "}";
+        ] );
+    ( "pykVarPlace",
+      [],
+      String.concat "\n"
+        [
+          "// A pointer names a place: what it reads and writes it through";
+          "// (`get`, `set`), and the store and slot it is in, which is what two";
+          "// pointers compare. A `var`'s place is its own store: one object per";
+          "// variable, made beside its `let`.";
+          "function pykVarPlace(get, set) {";
+          "  const place = { pykPtr: true, store: null, slot: 0, get, set };";
+          "  place.store = place;";
+          "  return place;";
+          "}";
+        ] );
+    ( "pykSlotPlace",
+      [],
+      String.concat "\n"
+        [
+          "// The place a slot of a store is: an array's element, a var struct's field.";
+          "function pykSlotPlace(store, slot) {";
+          "  return {";
+          "    pykPtr: true,";
+          "    store,";
+          "    slot,";
+          "    get: () => store[slot],";
+          "    set: (value) => { store[slot] = value; },";
+          "  };";
+          "}";
+        ] );
+    ( "pykElemPlace",
+      [ "pykSlotPlace"; "pykIndexError" ],
+      String.concat "\n"
+        [
+          "// `&a[i]`: an array's element, or a view's -- its array's -- the";
+          "// index checked when the address is taken.";
+          "function pykElemPlace(items, index) {";
+          "  if (index < 0 || index >= items.length) pykIndexError(items, index);";
+          "  return items.pykView === true";
+          "    ? pykSlotPlace(items.owner, items.offset + index)";
+          "    : pykSlotPlace(items, index);";
+          "}";
+        ] );
+    ( "pykFieldPlace",
+      [ "pykSlotPlace" ],
+      String.concat "\n"
+        [
+          "// `&s.f`: a var struct's field.";
+          "function pykFieldPlace(struct, field) {";
+          "  return pykSlotPlace(struct, field);";
+          "}";
+        ] );
+    ( "pykSetAt",
+      [ "pykIndexError" ],
+      String.concat "\n"
+        [
+          "// `v[i] := x` on a Vec: checked again at the write, since working";
+          "// out x may have shrunk the Vec.";
+          "function pykSetAt(items, index, value) {";
+          "  if (index < 0 || index >= items.length) pykIndexError(items, index);";
+          "  items[index] = value;";
+          "}";
+        ] );
+    ( "pykVec",
+      [],
+      String.concat "\n"
+        [
+          "// A Pyking Vec, an array that grows: a JavaScript array with a";
+          "// marker of its own, as an array has, so `pykFormat` prints it";
+          "// `vec([...])`. `for..of` reads its length afresh every turn.";
+          "function pykVec(items) {";
+          "  items.pykVec = true;";
+          "  return items;";
+          "}";
+        ] );
+    ( "pykVecEmpty",
+      [ "pykVec" ],
+      String.concat "\n"
+        [
+          "// `vec()`: a Vec with no elements.";
+          "function pykVecEmpty() {";
+          "  return pykVec([]);";
+          "}";
+        ] );
+    ( "pykVecOfList",
+      [ "pykVec" ],
+      String.concat "\n"
+        [
+          "// `vec(xs)`: a new Vec holding the list's elements.";
+          "function pykVecOfList(items) {";
+          "  return pykVec(items.slice());";
+          "}";
+        ] );
+    ( "pykPush",
+      [],
+      String.concat "\n"
+        [
+          "// `push(v, x)`: x added at the end.";
+          "function pykPush(items, value) {";
+          "  items.push(value);";
+          "}";
+        ] );
+    ( "pykPop",
+      [ "pykFail" ],
+      String.concat "\n"
+        [
+          "// `pop(v)`: the last element, removed.";
+          "function pykPop(items) {";
+          "  if (items.length === 0) pykFail('pop from an empty Vec');";
+          "  return items.pop();";
+          "}";
+        ] );
+    ( "pykInsert",
+      [ "pykFail" ],
+      String.concat "\n"
+        [
+          "// `insert(v, i, x)`: x put before index i, 0 <= i <= len(v).";
+          "function pykInsert(items, index, value) {";
+          "  const n = items.length;";
+          "  if (index < 0 || index > n) pykFail(`insert's index ${index} is outside 0 to ${n}, the Vec's length`);";
+          "  items.splice(index, 0, value);";
+          "}";
+        ] );
+    ( "pykRemove",
+      [ "pykIndexError" ],
+      String.concat "\n"
+        [
+          "// `remove(v, i)`: element i, removed, the later ones moved down.";
+          "function pykRemove(items, index) {";
+          "  if (index < 0 || index >= items.length) pykIndexError(items, index);";
+          "  return items.splice(index, 1)[0];";
+          "}";
+        ] );
+    ( "pykClear",
+      [],
+      String.concat "\n"
+        [
+          "// `clear(v)`: every element dropped.";
+          "function pykClear(items) {";
+          "  items.length = 0;";
+          "}";
+        ] );
   ]
 
 (** The array helpers a program needs: each one it names, and each one
-    those call. (string -> bool) -> [string] *)
-let wanted_array_helpers named =
+    those call -- by name, `pykList` among them where one builds a list.
+    (string -> bool) -> [string] *)
+let wanted_array_names named =
   let rec close wanted =
     let more =
       List.fold_left
@@ -2082,12 +2835,15 @@ let wanted_array_helpers named =
     in
     if List.length more = List.length wanted then wanted else close more
   in
-  let wanted =
-    close
-      (List.filter_map
-         (fun (name, _, _) -> if named name then Some name else None)
-         array_helpers)
-  in
+  close
+    (List.filter_map
+       (fun (name, _, _) -> if named name then Some name else None)
+       array_helpers)
+
+(** The texts of the array helpers a program needs. (string -> bool) ->
+    [string] *)
+let wanted_array_helpers named =
+  let wanted = wanted_array_names named in
   List.filter_map
     (fun (name, _, text) -> if List.mem name wanted then Some text else None)
     array_helpers
@@ -2111,7 +2867,7 @@ let uses p stmts =
     p e
     ||
     match e with
-    | JsNum _ | JsFloat _ | JsStr _ | JsBool _ | JsVar _ -> false
+    | JsNum _ | JsFloat _ | JsStr _ | JsBool _ | JsVar _ | JsSetter _ -> false
     | JsUnary (_, _, operand) -> in_expr operand
     | JsBinary (_, _, left, right) | JsConcat (_, left, right) ->
         in_expr left || in_expr right
@@ -2133,6 +2889,7 @@ let uses p stmts =
         in_expr e
     | JsSetIndex (_, target, index, value) ->
         in_expr target || in_expr index || in_expr value
+    | JsSetField (_, target, _, value) -> in_expr target || in_expr value
     | JsIf (_, cond, then_body, else_body) ->
         in_expr cond || List.exists in_stmt then_body
         || (match else_body with
@@ -2164,6 +2921,7 @@ let js_helpers ?(level = 0) stmts =
   in
   let uses_concat = uses (function JsConcat _ -> true | _ -> false) stmts in
   let uses_data = uses (function JsVar (_, "pykData") -> true | _ -> false) stmts in
+  let uses_struct = uses (function JsVar (_, "pykStruct") -> true | _ -> false) stmts in
   let uses_shape =
     uses (function JsVar (_, "pykWithShape") -> true | _ -> false) stmts
   in
@@ -2178,10 +2936,9 @@ let js_helpers ?(level = 0) stmts =
       char_helpers
   in
   let uses_chars = uses (function JsVar (_, "pykChars") -> true | _ -> false) stmts in
-  let arrays =
-    wanted_array_helpers (fun name ->
-        uses (function JsVar (_, used) -> used = name | _ -> false) stmts)
-  in
+  let named name = uses (function JsVar (_, used) -> used = name | _ -> false) stmts in
+  let arrays = wanted_array_helpers named in
+  let uses_list = uses_list || List.mem "pykList" (wanted_array_names named) in
   let wanted =
     (* `pykConcat` and `pykRange` build a list, so they need `pykList`
        beside them. *)
@@ -2193,6 +2950,7 @@ let js_helpers ?(level = 0) stmts =
     @ arrays
     @ (if uses_concat then [ concat_helper ] else [])
     @ (if uses_data then [ data_helper ] else [])
+    @ (if uses_struct then [ struct_helper ] else [])
     @ if uses_shape then [ shape_helper ] else []
   in
   String.concat "\n\n"

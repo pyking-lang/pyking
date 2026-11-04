@@ -123,12 +123,119 @@ finds `may_print` false for everything, takes the `len(effectful) < 2`
 early return, and pays nothing: operands stay exactly where the source
 wrote them.
 
-Arrays widen what counts. Where any of `exprs` reads an array element
-or makes an array (an `EIndex` on an `Array(T)`, or a call to one of
-`Builtin.member_names`), every expression that does either, or calls a
-function that is not a pure builtin, joins the ones to pin: such a read
-can fail, and it sees whatever a call before it wrote. A program with no
-array read among the operands is unaffected.
+Mutation widens what counts, and `in_order` asks two questions of each
+expression rather than one. `writes` is true of one that can print,
+can fail (an element read of an array, a Vec or a Dict, or a call to
+one of `Builtin.member_names`, which checks a size), or calls something
+that can change what a caller sees. `observes` is true of one that
+writes, or reads a `var` (a name in `ctx.refs`), a var struct's field,
+a Vec or a Dict through a builtin (`len`, `get`, `has`, `keys`, ...),
+or a `string(v)` of something that can hold a mutable value, or calls
+any function at all -- a builtin being a callee the checker recorded
+no type for, since `get` or `keys` may be a program's own. Where anything among
+`exprs` writes, every expression that observes is pinned; where nothing
+writes, nothing is. A program that only computes still pays nothing.
+
+"Can change what a caller sees" is `changing_functions`, run once per
+module the way `Analyses.effects` is: a fixed point over the module's
+`def`s, where one changes if its body writes a `var` it did not declare
+itself (`SMutate` of a name no `SVar` in it binds), writes an element
+or a field, calls a builtin in `Builtin.writers` (unbound by the
+program: the checker records no type for a builtin's callee), or calls
+a `def` already known to change. A call the module cannot follow --
+a parameter, a lambda, a name a `from` line brought in -- is taken to
+change something once anything in the module does or the module
+imports another; a call through a module (`m.f(...)`) always is. It
+errs the same safe way the printing analysis does: a needless `let` at
+worst. This is what fixed `print(tick(), tick())`, whose two results came out
+in the wrong order when only printing was ordered.
+
+`print` goes one step further, because its formatting is part of the
+expression OCaml orders: `print(p, change(p))` must format `p` as it is
+*after* `change` has run. `print_call` checks whether any argument's
+type can hold an array or a var struct (`holds_mutable`) and any
+argument calls a function (`makes_calls`) or can print; if so it
+bypasses `in_order` and binds every argument that is not a plain name
+or literal under a fresh name, in order, before the joined string is
+built.
+
+## Var structs and printing cycles
+
+A `var struct` is translated to a single-constructor variant over an
+inline record of `mutable` fields (`datatype_declarations`), because
+that keeps every other part of the datatype machinery — the
+constructor name, `constructor_name` for one of another module, the
+printer beside the declaration, the `fragile` header — exactly as it is
+for a plain struct, and only the four places that build or take one
+apart change: `EConstruct` (an `OBuild`), `EField` (a one-arm match on
+a record pattern naming one field), `matcher`'s `PConstructor` (a
+record pattern naming all of them), and `SSetField` (a one-arm match
+binding the record, then an `OSetField`). `var_struct_labels` is the
+one question they ask. OCaml's own block is the shared object, so
+`same` stays `==` and nothing else needs to know a struct is mutable.
+
+Printing is the part with a design decision in it. A cycle needs a
+guard, and the guard needs to know what is being formatted further
+out. A global stack would be simplest, but this backend has no runtime
+module shared by a program's modules — each `.ml` carries its own
+helpers — and a module formats values another module's printer is in
+the middle of (an array of its datatype, or through the printers a
+generic one is handed), so a stack per module would miss a cycle that
+crosses two of them. The path is therefore *passed*: a printer that
+can meet a cycle takes it as an argument, `ctx.path` says which
+expression holds it where a value is being formatted (`[]` at a print
+site, `path` inside a printer or a guard), and `pyk_guard path value
+show` adds the value to it. Nothing is ever popped: a value only shared
+is on one branch of the walk and not the other, which is exactly the
+interpreter's recursion-path rule.
+
+Whether a printer takes the path (`takes_path`) has to be answered the
+same by the declaring module and every importer, since one writes the
+printer and the others call it. It is worked out from declarations of
+the datatype's own module alone: a walk over its fields' types, with
+what it is inside of on a stack, that answers yes on meeting a datatype
+already on the stack with an array, a Vec, a Dict or a var struct
+between (a cycle a mutable value can close), one of those containers or
+a type of another module, or a type variable. A printer that takes the
+path also guards its own value, immutable or not, because the
+interpreter puts every datatype value with fields on its path and the
+`...` has to land on the same value. A generic printer in a recursive
+group is written with an explicit polymorphic type, since OCaml would
+otherwise fix its type parameter at the one the group uses. Every module sees the same declarations
+of a module it imports — the checker refuses a public datatype that
+names a private one — so every module gets the same answer. A guard is
+only emitted where what it wraps actually reads the path (`free`), so
+an array of Ints, or a var struct of plain fields, prints as before.
+
+## Vecs, Dicts and views: Stdlib types only
+
+A var struct can be an OCaml type of its own because one module
+declares it and every other names it through that module. A Vec, a
+Dict and a view belong to no module, and each generated `.ml` carries
+its own helpers, so a record declared for one in every file would be a
+different type in each, and a Vec could not pass from a library to its
+caller. So each is built from Stdlib's types alone, which every file
+writes the same: a Vec is `(T option array * int) ref`, a Dict
+`(K, int * V) Stdlib.Hashtbl.t * int ref`, a view `(T array * int *
+int)`. Each is one allocation made once, when the value is, so `==` is
+identity and `pyk_guard` keys on it -- a view on its array, as the
+interpreter keys it. Every operation is a small helper (`pyk_vec_push`,
+`pyk_dict_set`, `pyk_view_get`, ...), emitted only where used, so a
+reader of the generated code sees the operation's name rather than the
+tuple taken apart. Slices go through one helper per kind of sequence,
+which `ESlice` picks from the checker's type.
+
+A pointer is the one place an *object* is the right OCaml value:
+object types are structural, so a pointer's type needs no declaration
+either, and an object is the one kind of block a Pyking value never
+otherwise contains (`Obj.object_tag`), which is what lets `pyk_equal`
+walk any comparable value with `Obj` and recognise a pointer inside it.
+`==` uses it only where `holds_pointer` says the static type can hold
+one -- a datatype this module cannot see counts as holding one, which
+is safe since `pyk_equal` agrees with `=` on everything else -- so
+every other comparison is still OCaml's own `=`. The other way round,
+`pyk_ptr_same` is the identity of the place: the store (a `var`'s ref,
+an array, a var struct's block) by `==`, and the slot in it.
 
 ## Grouping mutually recursive functions
 

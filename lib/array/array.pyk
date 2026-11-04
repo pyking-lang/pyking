@@ -1,8 +1,9 @@
 ## Arrays: copying, filling, comparing, sorting and joining them.
 ##
-## An array is made by the builtin `array(...)`, read with `a[i]` and
-## written with `a[i] := v`, and `len(a)` and `same(a, b)` are builtins
-## too (PYKING.md, "Arrays"). This module is the rest. `copy`, `concat`
+## An array is made by the builtins `array(...)` and `array_init(...)`,
+## read with `a[i]` and written with `a[i] := v`, and `len(a)` and
+## `same(a, b)` are builtins too (PYKING.md, "Arrays"). This module is
+## the rest. `copy`, `concat`
 ## and `resize` make a **new** array, and copy **shallowly**: an array of
 ## arrays copied still shares its rows. `fill`, `reverse`, `swap` and
 ## `sort` change the array they are given, which everyone holding it
@@ -43,7 +44,7 @@ use mutation
 ## array([1, 2, 3]) array([9, 2, 3]) false
 ## ```
 public def copy(a: Array(t)) -> Array(t):
-    array(len(a), lam i. a[i])
+    array_init(len(a), lam i. a[i])
 
 
 ## The elements of `a` as they are now, as a list.
@@ -58,7 +59,7 @@ public def copy(a: Array(t)) -> Array(t):
 ## ```pyking
 ## use mutation
 ## import array
-## a = array(3, lam i. i * 10)
+## a = array_init(3, lam i. i * 10)
 ## print(array.to_list(a))
 ## ```
 ## ```stdout
@@ -158,7 +159,7 @@ public def reverse(a: Array(t)) -> ():
 ## array([1, 2, 3])
 ## ```
 public def concat(a: Array(t), b: Array(t)) -> Array(t):
-    array(len(a) + len(b), lam i. if i < len(a) then a[i] else b[i - len(a)])
+    array_init(len(a) + len(b), lam i. if i < len(a) then a[i] else b[i - len(a)])
 
 
 ## A new array of `n` elements: those of `a` while it has them, and `v`
@@ -183,7 +184,7 @@ public def concat(a: Array(t), b: Array(t)) -> Array(t):
 ## array([1, 2, 3, 0, 0]) array([1, 2])
 ## ```
 public def resize(a: Array(t), n: Int, v: t) -> Array(t):
-    array(n, lam i. if i < len(a) then a[i] else v)
+    array_init(n, lam i. if i < len(a) then a[i] else v)
 
 
 # --- comparing ---

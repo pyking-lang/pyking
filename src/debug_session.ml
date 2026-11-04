@@ -109,7 +109,9 @@ let prepare ?(release = false) ?(warnings = Warnings.default) ?(own = fun (_ : M
         else
           let declared = Module.external_signatures unit.declarations in
           let imported = Module.sigmaps_for unit sigmaps in
-          let tmap, qmap = Typesystem.type_check ~declared unit.stmts imported in
+          let tmap, qmap =
+            Typesystem.type_check ~declared ~mutation:(Module.uses_mutation unit) unit.stmts imported
+          in
           Analyses.analyze_mutability unit.stmts;
           if own unit then
             warned :=
@@ -420,6 +422,8 @@ let rec value_type v =
   | Interpreter.VList (first :: _) -> Option.map (fun e -> TList (none, e, 0)) (value_type first)
   | Interpreter.VArray elements when Array.length elements > 0 ->
       Option.map (fun e -> TCon (none, "Array", [ e ], 0)) (value_type elements.(0))
+  | Interpreter.VVec v when v.size > 0 ->
+      Option.map (fun e -> TCon (none, "Vec", [ e ], 0)) (value_type v.items.(0))
   | Interpreter.VTuple parts -> Option.map (fun ts -> TTuple (none, ts, 0)) (all parts)
   | _ -> None
 
@@ -582,7 +586,7 @@ let checker_scope t frame =
       let env =
         List.fold_left
           (fun env (n, ty) ->
-            Typesystem.SMap.add n { Typesystem.btype = settled ty; bimplicit = false } env)
+            Typesystem.SMap.add n { Typesystem.btype = settled ty; bimplicit = false; bvar = false } env)
           env declared
       in
       let values = Interpreter.bindings_in_scope frame.env in
@@ -613,7 +617,7 @@ let checker_scope t frame =
                       let implicit =
                         match source with Some src -> IntSet.mem sym src.implicits | None -> false
                       in
-                      Typesystem.SMap.add n { Typesystem.btype = ty; bimplicit = implicit } env)
+                      Typesystem.SMap.add n { Typesystem.btype = ty; bimplicit = implicit; bvar = false } env)
             | _ -> env)
           (Scopes.names_at s.found row col)
           env
@@ -950,8 +954,13 @@ let scopes t fid =
 (** Whether a value has parts to show. Interpreter.value -> bool *)
 let has_parts v =
   match v with
-  | Interpreter.VList (_ :: _) | Interpreter.VTuple (_ :: _) | Interpreter.VData (_, _ :: _) -> true
+  | Interpreter.VList (_ :: _) | Interpreter.VTuple (_ :: _) -> true
+  | Interpreter.VData (_, fields) -> Array.length fields > 0
   | Interpreter.VArray elements -> Array.length elements > 0
+  | Interpreter.VVec v -> v.size > 0
+  | Interpreter.VDict d -> d.live > 0
+  | Interpreter.VView v -> v.length > 0
+  | Interpreter.VPtr _ -> true
   | _ -> false
 
 (** How many parts of a value are shown before the rest are left out. *)
@@ -1030,11 +1039,24 @@ let variables t reference =
             (* An array is shown element by element, as a list is; its
                elements are read as they are now. *)
             List.mapi (fun i v -> (Printf.sprintf "[%d]" i, v)) (Array.to_list items)
+        | Interpreter.VVec v ->
+            List.mapi (fun i x -> (Printf.sprintf "[%d]" i, x)) (Array.to_list (Array.sub v.items 0 v.size))
+        | Interpreter.VView v ->
+            List.mapi (fun i x -> (Printf.sprintf "[%d]" i, x)) (Array.to_list (Array.sub v.owner v.offset v.length))
+        | Interpreter.VPtr location ->
+            (* A pointer opens to what it points at, now. *)
+            [ ("*", Interpreter.read_location location) ]
+        | Interpreter.VDict d ->
+            (* A Dict is shown entry by entry, each under its key. *)
+            List.filter_map
+              (Option.map (fun (k, x) -> ("[" ^ Interpreter.display_value k ^ "]", x)))
+              (Array.to_list (Array.sub d.entries 0 d.used))
         | Interpreter.VTuple items -> List.mapi (fun i v -> (string_of_int i, v)) items
         | Interpreter.VData (_, fields) ->
+            (* A var struct's fields are read as they are now. *)
             List.mapi
               (fun i (label, v) -> ((match label with Some l -> l | None -> string_of_int i), v))
-              fields
+              (Array.to_list fields)
         | _ -> []
       in
       let total = List.length parts in

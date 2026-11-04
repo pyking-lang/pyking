@@ -93,7 +93,7 @@ let part_types datatype type_ head =
   match (head, type_) with
   | HData name, Some (TCon (_, canonical, args, _)) -> (
       match datatype canonical with
-      | Some (Datatype (_, params, constructors)) -> (
+      | Some (Datatype (_, params, constructors, _)) -> (
           match List.assoc_opt name constructors with
           | Some fields when List.length params = List.length args ->
               let mapping = List.combine params args in
@@ -168,7 +168,7 @@ let signature datatype type_ longest written =
   | Some (TList _) -> Some lists
   | Some (TCon (_, canonical, _, _)) -> (
       match datatype canonical with
-      | Some (Datatype (_, _, constructors)) ->
+      | Some (Datatype (_, _, constructors, _)) ->
           Some (List.map (fun (name, _) -> HData name) constructors)
       | None -> None)
   | _ -> (

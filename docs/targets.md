@@ -21,12 +21,13 @@ backend may emit. What it counts depends on the family:
 | web | `web2020`, `web2024` | the ECMAScript edition the page's JavaScript is written in |
 | iweb | `iweb2020`, `iweb2024` | the same, for the page running the interpreter |
 | C | `c89`, `c99`, `c23` | the C standard |
+| C with a collector | `c23-gc` | c23, with the bdwgc collector |
 | Java | `java8`, `java17`, `java21` | the Java release, as `javac --release` takes it |
 | OCaml | `ocaml4.14`, `ocaml5.5` | the OCaml release |
 
 Every family also has an **unversioned alias**, naming its default
 version: `python` is `python12`, `node` `node22`, `web` `web2020`, `iweb`
-`iweb2020`, `c` `c99`, `java` `java21`, `ocaml` `ocaml4.14`. The default
+`iweb2020`, `c` `c99`, `c-gc` `c23-gc`, `java` `java21`, `ocaml` `ocaml4.14`. The default
 is the oldest version a program is likely to meet, except where an old
 one costs the output something (C89, Java 8). `pyk` alone lists the
 aliases; `pyk --help` lists every version.
@@ -55,9 +56,10 @@ test harness all read it from there.
 | `web2024` | | [JavaScript](target_js.md) | the same | the same | **everything the checker accepts** |
 | `iweb2020` | `iweb` | [the interpreter](target_js.md#the-interpreted-target) | `foo.html`, `pyking.js`, the `.pyk` sources | serve it: `--run` does, and prints the page's URL | **everything the checker accepts** |
 | `iweb2024` | | [the interpreter](target_js.md#the-interpreted-target) | the same | the same | **everything the checker accepts** |
-| `c89` | | [C](target_c.md) | `foo.c` | `cc -std=c89 foo.c -lgc -lm && ./a.out` | everything but lists and recursive datatypes |
-| `c99` | `c` | [C](target_c.md) | `foo.c` | `cc -std=c99 foo.c -lgc -lm && ./a.out` | everything but lists and recursive datatypes |
-| `c23` | | [C](target_c.md) | `foo.c` | `cc -std=c23 foo.c -lgc -lm && ./a.out` | everything but lists and recursive datatypes |
+| `c89` | | [C](target_c.md) | `foo.c` | `cc -std=c89 foo.c -lm && ./a.out` | everything but lists, recursive datatypes, closures outliving their frame and polymorphic parameters |
+| `c99` | `c` | [C](target_c.md) | `foo.c` | `cc -std=c99 foo.c -lm && ./a.out` | the same as `c89` |
+| `c23` | | [C](target_c.md) | `foo.c` | `cc -std=c23 foo.c -lm && ./a.out` | the same as `c89` |
+| `c23-gc` | `c-gc` | [C](target_c.md) | `foo.c` | `cc -std=c23 -DPYKING_GC foo.c -lgc -lm && ./a.out` | everything the checker accepts but polymorphic parameters |
 | `java8` | | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 8 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
 | `java17` | | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 17 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
 | `java21` | `java` | [Java](target_java.md) | `Foo.java`, `PykRuntime.java` | `javac --release 21 Foo.java PykRuntime.java && java Foo` | **everything the checker accepts** |
@@ -95,7 +97,7 @@ table's fourth column, each printed before it runs:
 
 ```sh
 $ pyk compile -t c23 --run hello.pyk
-$ cc -std=c23 -o hello hello.c -lgc -lm
+$ cc -std=c23 -o hello hello.c -lm
 $ ./build/hello
 Hello, world!
 ```
@@ -143,10 +145,13 @@ always accept exactly the same programs:
   translation (`src/target_js_core.ml`), three packagings
   (`src/target_js_packaging.ml`). They differ only in where `print` goes
   and what files come out.
-- **[C](target_c.md)** — `c89`, `c99`, `c23`. One backend
-  (`src/target_c.ml`) with a `standard` parameter. They differ only in
-  how the same C is printed. Every program links the bdwgc collector;
-  lists and recursive datatypes are not compiled yet, and are refused.
+- **[C](target_c.md)** — `c89`, `c99`, `c23` and `c23-gc`. One backend
+  (`src/target_c.ml`) with a `standard` parameter. The three plain
+  targets differ only in how the same C is printed: they allocate with
+  `malloc`, never free, check no index, and refuse lists, recursive
+  datatypes and closures that outlive their frame. `c23-gc` is c23 with
+  the bdwgc collector: indexes and sizes are checked, and it compiles
+  those three as well.
 - **[Java](target_java.md)** — `java8`, `java17`, `java21`. One backend
   (`src/target_java.ml`) with a `version` parameter. All three take the
   whole checked language; they are three shapes of output: plain classes
@@ -237,30 +242,38 @@ is gone from every other output.
 ## The shared subset
 
 Every target but C compiles everything the type checker accepts, and
-`make test` runs every test program on every one of them. The C family
-links the bdwgc collector, but does not yet compile lists, recursive
-datatypes or a closure that outlives its frame, and refuses them with a
-source position and the reason:
+`make test` runs every test program on every one of them. Plain C
+(`c89`, `c99`, `c23`) has no heap that is freed, so it refuses lists,
+recursive datatypes and a closure that outlives its frame, with a
+source position and the reason; `c23-gc` compiles all three. Neither
+compiles a polymorphic parameter:
 
-| feature | python | javascript | java | ocaml | c |
-|---|---|---|---|---|---|
-| scalars, strings, a `+` joining strings, every operator (`and`/`or`/`not` short-circuiting, `%`, `^`, `!=`, the bitwise ones) | ✅ | ✅ | ✅ | ✅ | ✅ (a string join allocates; the collector frees it) |
-| `xs[i]` on a list | ✅ | ✅ | ✅ (`get`) | ✅ (`List.nth`) | ❌ lists need a heap |
-| `Char`, `s[i]` on a String, `for c in s`, `len` of a String (code points) | ✅ (a one-character `str` subclass) | ✅ (the code point, a number) | ✅ (the runtime's `PykChar`) | ✅ (the code point, an `int`) | ✅ (the code point, an `int`; `for c in s` walks the UTF-8) |
-| `def`, recursion, mutual recursion, nested `def` | ✅ | ✅ | ✅ (a nested `def` is a static method taking what it captures) | ✅ | ✅ (a nested `def` is a function taking what it captures) |
-| `loop`, `while`, `break`, `continue`, value forms | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `for x in range(...)` | ✅ | ✅ | ✅ | ✅ | ✅ (a counting loop: no list is built) |
-| `for x in` a list, lists, comprehensions, `len` of a list | ✅ | ✅ | ✅ (`java.util.List`) | ✅ | ❌ lists need a heap |
-| tuples, destructuring | ✅ | ✅ (arrays) | ✅ (the runtime's `T2`, `T3`, ...) | ✅ | ✅ (a struct, by value) |
-| datatypes, `x.field`, every pattern | ✅ | ✅ | ✅ (a class per constructor; a record alone for one) | ✅ | ✅ (a tagged union, by value; a plain struct for one constructor) |
-| … a datatype holding itself (`Tree(a)`) | ✅ | ✅ | ✅ | ✅ | ❌ it needs a heap |
-| type variables | ✅ | ✅ | ✅ (generics) | ✅ | ✅ (one function per type it is used at) |
-| a polymorphic *parameter* (`all x. (x) -> x`) | ✅ | ✅ | ✅ (an interface with a generic method) | ✅ (a record with a polymorphic field) | ❌ it needs one function for every type |
-| functions as values, lambdas | ✅ | ✅ | ✅ (`java.util.function`) | ✅ | ✅ (a function pointer and an environment on the stack) |
-| … a function value that outlives what it captures | ✅ | ✅ | ✅ | ✅ | ❌ its environment would need a heap |
-| a closure writing a `var` from around it | ✅ | ✅ | ✅ (a one-element array) | ✅ | ✅ (a cell its owner keeps) |
-| modules, external modules | ✅ | ✅ | ✅ | ✅ | ✅ (a list or a closure at the boundary is refused) |
-| operands evaluate left to right | ✅ | ✅ | ✅ | ✅ (`let` pins it down) | ✅ (temporaries and the comma operator pin it down) |
+| feature | python | javascript | java | ocaml | c (plain) | c23-gc |
+|---|---|---|---|---|---|---|
+| scalars, strings, a `+` joining strings, every operator (`and`/`or`/`not` short-circuiting, `%`, `^`, `!=`, the bitwise ones) | ✅ | ✅ | ✅ | ✅ | ✅ (a string join allocates and is never freed) | ✅ (a string join allocates; the collector frees it) |
+| `xs[i]` on a list | ✅ | ✅ | ✅ (`get`) | ✅ (`List.nth`) | ❌ lists need a heap | ✅ (checked, as an array's index is) |
+| `Char`, `s[i]` on a String, `for c in s`, `len` of a String (code points) | ✅ (a one-character `str` subclass) | ✅ (the code point, a number) | ✅ (the runtime's `PykChar`) | ✅ (the code point, an `int`) | ✅ (the code point, an `int`; `for c in s` walks the UTF-8) | ✅ |
+| `def`, recursion, mutual recursion, nested `def` | ✅ | ✅ | ✅ (a nested `def` is a static method taking what it captures) | ✅ | ✅ (a nested `def` is a function taking what it captures) | ✅ |
+| `loop`, `while`, `break`, `continue`, value forms | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `for x in range(...)` | ✅ | ✅ | ✅ | ✅ | ✅ (a counting loop: no list is built) | ✅ |
+| `for x in` a list, lists, comprehensions, `len` of a list | ✅ | ✅ | ✅ (`java.util.List`) | ✅ | ❌ lists need a heap | ✅ (a typed cons cell per element type, from the collector) |
+| tuples, destructuring | ✅ | ✅ (arrays) | ✅ (the runtime's `T2`, `T3`, ...) | ✅ | ✅ (a struct, by value) | ✅ |
+| datatypes, `x.field`, every pattern | ✅ | ✅ | ✅ (a class per constructor; a record alone for one) | ✅ | ✅ (a tagged union, by value; a plain struct for one constructor) | ✅ |
+| … a datatype holding itself (`Tree(a)`) | ✅ | ✅ | ✅ | ✅ | ❌ it needs a heap | ✅ (a pointer to a collected struct) |
+| type variables | ✅ | ✅ | ✅ (generics) | ✅ | ✅ (one function per type it is used at) | ✅ |
+| a polymorphic *parameter* (`all x. (x) -> x`) | ✅ | ✅ | ✅ (an interface with a generic method) | ✅ (a record with a polymorphic field) | ❌ it needs one function for every type | ❌ it needs one function for every type |
+| functions as values, lambdas | ✅ | ✅ | ✅ (`java.util.function`) | ✅ | ✅ (a function pointer and an environment on the stack) | ✅ (the environment from the collector) |
+| … a function value that outlives what it captures | ✅ | ✅ | ✅ | ✅ | ❌ its environment would need a heap that is freed | ✅ |
+| a closure writing a `var` from around it | ✅ | ✅ | ✅ (a one-element array) | ✅ | ✅ (a cell its owner keeps) | ✅ (a cell from the collector) |
+| modules, external modules | ✅ | ✅ | ✅ | ✅ | ✅ (a list or a closure at the boundary is refused) | ✅ (a list crosses as its first cell; a capturing closure does not) |
+| arrays (`array`, `array_init`, `a[i] := v`) | ✅ | ✅ | ✅ (`PykArray`) | ✅ | ✅ (unchecked; `array(xs)` from a list literal only) | ✅ (checked) |
+| `var struct`, field writes, cycle-safe printing | ✅ | ✅ | ✅ (a final class) | ✅ (mutable record fields) | ✅ (a malloc'd struct, by pointer) | ✅ (a collected struct) |
+| Vecs | ✅ | ✅ | ✅ (`PykVec`) | ✅ | ✅ (unchecked) | ✅ |
+| `==` on lists, tuples, datatypes | ✅ | ✅ | ✅ | ✅ | ✅ on what plain C compiles | ✅ |
+| Dicts | ✅ | ✅ (`Map`) | ✅ (`PykDict`) | ✅ (`Hashtbl`) | ✅ (linear search, unchecked; `keys`/`values`/`items` need lists) | ✅ (hashed, checked) |
+| slices, views, `copy_into` | ✅ | ✅ | ✅ | ✅ | ✅ (no list slices; unchecked) | ✅ |
+| pointers (`&`, `*`) | ✅ | ✅ | ✅ | ✅ | ✅ (C's own; an address escaping its function is refused) | ✅ (an escaping local in a collected cell) |
+| operands evaluate left to right | ✅ | ✅ | ✅ | ✅ (`let` pins it down) | ✅ (temporaries and the comma operator pin it down) | ✅ |
 
 Every target supports modules, and every one of them compiles a module
 to a file of its own beside the program's output.
@@ -290,8 +303,8 @@ source position, rather than emitted as code that will not build:
 ```
 $ pyk compile -t c23 tests/list_literals.pyk
 'tests/list_literals.pyk' 1:8-1:10 Unsupported by target 'c23': a
-  list, which the C targets do not compile yet: they come after the
-  collector, in their own step
+  list, which needs a heap that is freed: plain C has none, and c23-gc
+  compiles it
 ```
 
 The test manifest says the same thing per program: a case runs on every

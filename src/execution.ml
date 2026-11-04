@@ -37,9 +37,9 @@ let ocaml_compiler () =
 
 let pyking_target = "pyking"
 
-(* --- the C targets' collector ---
-   Every C program links the Boehm-Demers-Weiser collector, bdwgc
-   (docs/target_c.md, "Memory"). It is a library the system provides:
+(* --- c23-gc's collector ---
+   A c23-gc program links the Boehm-Demers-Weiser collector, bdwgc
+   (docs/target_c.md, "Memory"); plain C (c89, c99, c23) links none. It is a library the system provides:
    pkg-config says where, when it has it, and otherwise the usual
    prefixes are looked in -- Homebrew's, MacPorts' and /usr/local, which
    a C compiler does not search by itself on every system. *)
@@ -88,8 +88,8 @@ let collector_flags () =
 
 (** What is said where a C program is to be built and bdwgc is missing. *)
 let collector_missing =
-  "the C targets need the Boehm-Demers-Weiser garbage collector (bdwgc), \
-   and it was not found. Install it -- 'brew install bdw-gc' on macOS, \
+  "the c23-gc target needs the Boehm-Demers-Weiser garbage collector \
+   (bdwgc), and it was not found. Install it -- 'brew install bdw-gc' on macOS, \
    'sudo apt install libgc-dev' on Debian and Ubuntu, 'sudo dnf install \
    gc-devel' on Fedora -- or make 'pkg-config --libs bdw-gc' find it"
 
@@ -144,15 +144,26 @@ let plan_for target path modules arguments =
     }
   else if Targets.family_of target = Targets.C then
     (* Every translation unit of the program, the modules first: each is
-       a file of its own, and `main` is in the last. The collector and
-       `-lm` after them -- libm for the math library's functions, which a
-       Linux C library keeps apart -- since a library resolves what the
-       files before it left open. *)
+       a file of its own, and `main` is in the last. `-lm` after them --
+       libm for the math library's functions, which a Linux C library
+       keeps apart -- since a library resolves what the files before it
+       left open. *)
+    {
+      build = [ [ c_compiler (); "-std=" ^ target; "-o"; binary ] @ others @ [ path; "-lm" ] ];
+      run = ([ binary ] @ arguments);
+      directory;
+      note = None;
+    }
+  else if Targets.family_of target = Targets.Cgc then
+    (* As plain C, with the collector: its flags, and PYKING_GC, which
+       tells a library's C file (lib/io/io_external.c and the others) to
+       allocate from it too. *)
     let cflags, libs = collector_flags () in
+    let standard = "c" ^ Targets.version target in
     {
       build =
         [
-          [ c_compiler (); "-std=" ^ target ] @ cflags @ [ "-o"; binary ]
+          [ c_compiler (); "-std=" ^ standard; "-DPYKING_GC" ] @ cflags @ [ "-o"; binary ]
           @ others @ [ path ] @ libs @ [ "-lm" ];
         ];
       run = ([ binary ] @ arguments);
@@ -281,7 +292,7 @@ let run_command command directory =
     status of the step that failed. string -> string -> [string] -> int *)
 let build target path modules =
   let plan = plan_for target path modules [] in
-  if Targets.family_of target = Targets.C && Lazy.force collector = None then (
+  if Targets.family_of target = Targets.Cgc && Lazy.force collector = None then (
     Printf.eprintf "pyk: %s\n%!" collector_missing;
     1)
   else
@@ -359,7 +370,7 @@ let makefile target path modules =
   let sources = List.map (fun p -> local (Module.absolute p)) (modules @ [ path ]) in
   let built, product, clean =
     match Targets.family_of target with
-    | Targets.C -> (true, binary, [ binary ])
+    | Targets.C | Targets.Cgc -> (true, binary, [ binary ])
     | Targets.Ocaml -> (true, binary, [ binary; "*.cmi"; "*.cmx"; "*.o" ])
     | Targets.Java -> (true, binary ^ ".class", [ "*.class" ])
     | _ -> (false, "", [])
@@ -410,7 +421,7 @@ let makefile target path modules =
     string -> string -> [string] -> [string] -> int *)
 let execute target path modules arguments =
   let plan = plan_for target path modules arguments in
-  if Targets.family_of target = Targets.C && Lazy.force collector = None then (
+  if Targets.family_of target = Targets.Cgc && Lazy.force collector = None then (
     Printf.eprintf "pyk: %s\n%!" collector_missing;
     1)
   else (

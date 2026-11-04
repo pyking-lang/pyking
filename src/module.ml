@@ -102,6 +102,11 @@ type t = {
   dotted : Submodules.table;
 }
 
+(** Whether a module has `use mutation`, which the checker needs to know
+    to refuse making a `var struct` another module declares.
+    t -> bool *)
+let uses_mutation unit = List.mem "mutation" (Parser.uses unit.tokens)
+
 (** Every file a module is written in, the declaration half first: a
     module is up to two files, and a caller that ships or copies a
     module's source has both to account for.
@@ -428,7 +433,7 @@ let imported_modules stmts =
     name, and it is one name of the module. stmt -> [string] *)
 let datatype_names statement =
   match statement with
-  | SDatatype (_, name, _, constructors, _, _) ->
+  | SDatatype (_, name, _, constructors, _, _, _) ->
       (* A dotted datatype's constructors are in its submodule. *)
       let path =
         match String.rindex_opt name '.' with
@@ -459,7 +464,7 @@ let public_names stmts =
       | SLet (_, TargetName (_, name, _), _, _, _, true, _)
       | SLetStmt (_, TargetName (_, name, _), _, _, _, true) ->
           Some [ (name, statement) ]
-      | SDatatype (_, _, _, _, _, true) ->
+      | SDatatype (_, _, _, _, _, true, _) ->
           Some (List.map (fun n -> (n, statement)) (datatype_names statement))
       | _ -> None)
     stmts
@@ -681,7 +686,7 @@ let implementation_name name target =
      is what the file must be called in the output, whichever source it
      was copied from -- see `implementation_path`. *)
   | Targets.Node | Targets.Web | Targets.Iweb -> Some (name ^ ".js")
-  | Targets.C -> Some (name ^ ".c")
+  | Targets.C | Targets.Cgc -> Some (name ^ ".c")
   | Targets.Java -> Some (class_name name ^ ".java")
   | Targets.Ocaml -> Some (name ^ ".ml")
   | Targets.Pyking -> None
@@ -904,11 +909,12 @@ let resolve_imports module_ loaded =
     List.fold_left
       (fun taken name -> assoc_set name None taken)
       []
-      (* `same` is younger than the programs and libraries that call
-         something of their own by that name -- tinyweb's `color.same`
+      (* `same`, `push`, `remove` and the other collection builtins are
+         younger than the programs and libraries that call something of
+         their own by those names -- tinyweb's `push` and `color.same`
          among them -- so an import may bring one in, as a `def` may
          define one: the module's own then means itself. *)
-      (List.filter (fun name -> name <> "same") Builtin.names)
+      (List.filter (fun name -> not (List.mem name Builtin.yielding)) Builtin.names)
   in
   let taken =
     List.fold_left
@@ -1264,9 +1270,9 @@ and qualified name type_ =
     match t with
     | TCon (i, n, args, s) ->
         (* `Array` is the builtin's, every module's alike. *)
-        let n = if String.contains n '.' || n = "Array" then n else name ^ "." ^ n in
+        let n = if String.contains n '.' || List.mem n [ "Array"; "Vec"; "Dict"; "Slice" ] then n else name ^ "." ^ n in
         TCon (i, n, List.map go args, s)
-    | TData (i, Datatype (n, params, constructors), s) ->
+    | TData (i, Datatype (n, params, constructors, writable), s) ->
         let n = if String.contains n '.' then n else name ^ "." ^ n in
         TData
           ( i,
@@ -1276,7 +1282,8 @@ and qualified name type_ =
                 List.map
                   (fun (c, fields) ->
                     (c, List.map (fun (label, t) -> (label, go t)) fields))
-                  constructors ),
+                  constructors,
+                writable ),
             s )
     | TList (i, e, s) -> TList (i, go e, s)
     | TTuple (i, es, s) -> TTuple (i, List.map go es, s)

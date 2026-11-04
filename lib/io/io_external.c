@@ -6,9 +6,8 @@
    A Bool is spelled differently by the two C targets, `int` for c89 and
    `bool` for c23, which is what the block below is for.
 
-   A line is read into memory from the collector the program links,
-   bdwgc, as every String the C backend makes is (docs/target_c.md,
-   "Memory"): it is freed once nothing holds it. `printf`, which
+   A line is read into memory allocated as the block below says.
+   `printf`, which
    `print` compiles to, writes to the same stdout as `fputs` does here,
    so the two interleave in the order they ran. */
 
@@ -23,7 +22,19 @@ typedef int bool;
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+/* c23-gc compiles this file with PYKING_GC defined: a String then comes
+   from bdwgc, the collector the program links, and is freed once nothing
+   holds it. Plain C (c89, c99, c23) mallocs it and never frees it, as
+   the C backend does for the Strings it makes (docs/target_c.md,
+   "Memory"). */
+#ifdef PYKING_GC
 #include <gc.h>
+#define PYK_ALLOC GC_MALLOC_ATOMIC
+#define PYK_REALLOC GC_REALLOC
+#else
+#define PYK_ALLOC malloc
+#define PYK_REALLOC realloc
+#endif
 
 void io_write(const char *text);
 void io_write_line(const char *text);
@@ -47,7 +58,7 @@ static char *append(char *buffer, size_t *length, size_t *capacity, int c)
 {
     if (*length + 1 >= *capacity) {
         *capacity = *capacity * 2;
-        buffer = GC_REALLOC(buffer, *capacity);
+        buffer = PYK_REALLOC(buffer, *capacity);
     }
     buffer[*length] = (char)c;
     *length = *length + 1;
@@ -58,7 +69,7 @@ const char *io_prompt_line(const char *prompt)
 {
     size_t length = 0;
     size_t capacity = 80;
-    char *buffer = GC_MALLOC_ATOMIC(capacity);
+    char *buffer = PYK_ALLOC(capacity);
     int c;
 
     fputs(prompt, stdout);
@@ -77,7 +88,7 @@ const char *io_read(void)
 {
     size_t length = 0;
     size_t capacity = 4096;
-    char *buffer = GC_MALLOC_ATOMIC(capacity);
+    char *buffer = PYK_ALLOC(capacity);
     int c;
 
     fflush(stdout);

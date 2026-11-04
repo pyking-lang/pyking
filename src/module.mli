@@ -130,6 +130,10 @@ type context = {
   own_declared : (string * typ) list;
 }
 
+(** Whether a module has `use mutation`, which the checker needs to know
+    to refuse making a `var struct` another module declares. t -> bool *)
+val uses_mutation : t -> bool
+
 (** Every file a module is written in, the declaration half first: a
     module is up to two files, and a caller that ships or copies a
     module's source has both to account for. t -> [string] *)

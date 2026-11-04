@@ -21,7 +21,7 @@ print(array.concat(a, array([100])), array.resize(a, 6, -1), array.resize(a, 2, 
 none: Array(Int) = array([])
 print(len(array.concat(none, none)), array.concat(none, array([1])))
 
-rows = array(2, lam _. array([0]))
+rows = array_init(2, lam _. array([0]))
 shallow = array.copy(rows)
 shallow[0][0] := 42
 print(rows)
@@ -43,7 +43,7 @@ print(floats)
 print(words)
 print(letters)
 
-big = array(200, lam i. (i * 37) % 101)
+big = array_init(200, lam i. (i * 37) % 101)
 array.sort(big)
 var ordered = true
 for i in range(1, len(big)):

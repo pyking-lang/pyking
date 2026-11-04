@@ -34,8 +34,8 @@ Functions:
     run_driver(bundle, plan) -- one node process over the bundle.
     parity_pairs(compiler) -- what `pyk compile` makes of every case.
     run_parity(bundle, pairs) -- the same cases compiled by the bundle.
-    has_collector() -- whether bdwgc is installed, for the C downloads.
-    download_cases() -- DOWNLOADS, C ones not built without bdwgc.
+    has_collector() -- whether bdwgc is installed, for c23-gc downloads.
+    download_cases() -- DOWNLOADS, c23-gc ones not built without bdwgc.
     check_downloads(bundle) -- the Download of every case in DOWNLOADS.
     check_keys() -- the page's keys, keys.js.
     main(argv) -- the command-line entry point.
@@ -641,7 +641,7 @@ def run_parity(bundle, pairs):
 # unpacked zip's `make run` prints the program's .out -- or `holds`, files
 # the zip must hold.
 DOWNLOAD_DRIVER = HERE / "playground" / "download.mjs"
-DOWNLOAD_RUNS = ["python12", "node22", "c89", "c23", "java21", "ocaml4.14"]
+DOWNLOAD_RUNS = ["python12", "node22", "c89", "c23", "c23-gc", "java21", "ocaml4.14"]
 DOWNLOADS = (
     [{"program": "tests/lib_math_basic.pyk", "target": t, "run": True}
      for t in DOWNLOAD_RUNS]
@@ -660,7 +660,7 @@ DOWNLOADS = (
 
 
 def has_collector():
-    """Whether bdwgc, the collector a C download links, is installed where
+    """Whether bdwgc, the collector a c23-gc download links, is installed where
     the download's Makefile looks: pkg-config, then the usual prefixes --
     as tests/test_script.py decides whether to run the C targets.
     () -> bool"""
@@ -674,14 +674,14 @@ def has_collector():
 
 
 def download_cases():
-    """DOWNLOADS, with a C download packed and unpacked but not built when
-    the collector is missing, as the program suite skips the C targets
+    """DOWNLOADS, with a c23-gc download packed and unpacked but not built
+    when the collector is missing, as the program suite skips c23-gc
     then. [dict]"""
     if has_collector():
         return DOWNLOADS
-    print("playground: bdwgc is not installed, so the C downloads are packed "
+    print("playground: bdwgc is not installed, so the c23-gc downloads are packed "
           "but not built (brew install bdw-gc, or apt install libgc-dev).", flush=True)
-    return [{**case, "run": False} if case["target"].startswith("c") else case
+    return [{**case, "run": False} if case["target"].endswith("-gc") else case
             for case in DOWNLOADS]
 
 

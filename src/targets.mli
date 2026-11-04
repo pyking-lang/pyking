@@ -28,7 +28,7 @@
 
 (** Which backend compiles a target, and so which targets share an
     emission. *)
-type family = Python | Node | Web | Iweb | C | Java | Ocaml | Pyking
+type family = Python | Node | Web | Iweb | C | Cgc | Java | Ocaml | Pyking
 
 (** Every target, in the order the usage message lists them.
     [string] *)
@@ -45,6 +45,10 @@ val aliases : (string * string) list
     what an alias points at. None for a name that is neither.
     string -> string option *)
 val resolve : string -> string option
+
+(** Whether a family is compiled by the C backend: plain C (c89, c99,
+    c23) or c23-gc. family -> bool *)
+val is_c : family -> bool
 
 (** The family a canonical target belongs to. Raises Invalid_argument
     for a name that is not one. string -> family *)

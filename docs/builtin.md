@@ -12,16 +12,18 @@ boundary".
 
 `print`, `debug`, `range`, `string`, `len`, `same`, `int`, `float`,
 `bool` and `char` are in scope in every program and are bound by
-nothing, and so is `array`, the one builtin **overload set**
-(`Builtin.overload_sets`): its members `list::array`, `fill::array`,
-`init::array` and `unfold::array` are bound by the checker's
-`builtin_env` as ordinary polymorphic `::` definitions and resolved by
-their arguments as any set is (docs/overloading.md), with one priority
-rule -- `array(n, f)` with a function `f` is `init::array`. After
-elaborate.ml a call names the member's plain name (`fill__array`,
-`Builtin.member_names`), and that is what the interpreter and every
-backend implement; the printer writes it back as `fill::array`. Four parts of the compiler need that
-fact, and each needs something different about it:
+nothing, and so are `array` and `array_init`, the two builtin
+**overload sets** (`Builtin.overload_sets`): `array`'s members
+`list::array` and `fill::array`, and `array_init`'s `init::array_init`
+and `unfold::array_init`, are bound by the checker's `builtin_env` as
+ordinary polymorphic `::` definitions and resolved by their arguments as
+any set is (docs/overloading.md). A set's members take different
+numbers of arguments, so no call is ever ambiguous. After elaborate.ml
+a call names the member's plain name (`fill__array`,
+`init__array_init`, `Builtin.member_names`), and that is what the
+interpreter and every backend implement; the printer writes it back as
+`fill::array`. Four parts of the compiler need that fact, and each
+needs something different about it:
 
 - `typesystem.ml` puts the names in the environment before the first
   statement is checked, and checks each call's arity against the one it

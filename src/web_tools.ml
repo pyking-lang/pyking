@@ -336,6 +336,7 @@ let playground_targets =
     ("c89", "C89", "c_cpp", None);
     ("c99", "C99", "c_cpp", None);
     ("c23", "C23", "c_cpp", None);
+    ("c23-gc", "C23 with a garbage collector (bdwgc)", "c_cpp", None);
     ("java8", "Java 8", "java", None);
     ("java17", "Java 17", "java", None);
     ("java21", "Java 21", "java", None);

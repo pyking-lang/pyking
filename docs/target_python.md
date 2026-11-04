@@ -123,7 +123,7 @@ anything the Pyking source wrote):
 # isn't provably free of Bools from its Pyking source form alone (a
 # variable, a call, or a container), so it is walked at runtime.
 
-def __pyk_str(v, top):
+def __pyk_str(v, top, path=()):
     if isinstance(v, bool):
         return 'true' if v else 'false'
     if isinstance(v, str):
@@ -139,8 +139,19 @@ def __pyk_str(v, top):
             out = out + ('\\\\' if c == '\\' else ...)
         return out + '"'
     if isinstance(v, list):
+        if type(v) is not list:               # an array or a Vec
+            if id(v) in path:
+                return '...'
+            path = path + (id(v),)
         ...
     if isinstance(v, tuple):
+        ...
+    if hasattr(v, '__dataclass_fields__'):    # a datatype's value
+        if id(v) in path:
+            return '...'
+        path = path + (id(v),)
+        ...
+    if isinstance(v, dict):                   # a Dict
         ...
     return str(v)
 
@@ -156,7 +167,8 @@ inside a container, and the quoting is Pyking's own (double quotes for a
 String, single quotes for a Char, backslash escapes) rather than
 Python's `repr`, which would switch to single quotes for a string
 containing a double quote and so disagree with the other backends on
-`print(('say "hi"', 1))`.
+`print(('say "hi"', 1))`. The `path` parameter is the recursion-path
+guard of "Mutable structs" below.
 
 ### Characters
 
@@ -264,6 +276,256 @@ held[0] := replace_held()          __pyk_owner1 = held
 `a[i] += e` arrives as `element__array = a`, `element__index = i` and
 a write of `element__array[element__index] + e`, both names ones no
 `:=` writes.
+
+### Vecs
+
+A Vec is a Python list of a class of its own too, emitted in the
+prelude of every module that makes one, and grown and shrunk by the
+list's own methods:
+
+```python
+class __PykVec(list):
+    # A Vec: an array that grows, told from a list when printed.
+    __slots__ = ()
+```
+
+The print helper writes a list whose class is named `__PykVec` as
+`vec([1, 2])`, its elements as inside a list; asking by name is what
+makes a Vec made in any module print right. Like an array, a Vec is
+never copied: a name, a parameter, an element or a field holds the one
+list. As an annotation it is `list[T]`. Python's `list.pop` and `del`
+leave nothing of a removed element behind, so a removed value is not
+kept alive.
+
+| Pyking | generated Python |
+|---|---|
+| `vec()` | `__PykVec()` |
+| `vec(xs)` | `__PykVec(xs)` |
+| `push(v, x)` | `v.append(x)` |
+| `pop(v)` | `__pyk_vec_pop(v)`: the error `pop from an empty Vec` on an empty one |
+| `insert(v, i, x)` | `__pyk_vec_insert(v, i, x)`: `0 <= i <= len(v)` checked, then `v.insert(i, x)` |
+| `remove(v, i)` | `__pyk_vec_remove(v, i)`: `v.pop(i)`, the index checked |
+| `clear(v)` | `v.clear()` |
+| `v[i]` | `__pyk_vec_get(v, i)` |
+| `len(v)` | `len(v)` |
+| `same(v, w)` | `v is w` |
+| `for x in v` | `for x in v` |
+| `[e for x in v]` | `[e for x in list(v)]` |
+
+An index is checked against the length the Vec has *now*, with the
+message `the index 5 is outside a Vec of 2 elements`, through
+`__pyk_vec_index`. `push`, `insert` and `clear` are worth unit: as a
+statement each is the bare call, and in value position it is followed
+by the `()` it is worth, as `print` is (`(v.append(x), ())[1]`). A
+program's own definition named `push`, `pop`, `insert`, `remove` or
+`clear` is an ordinary call.
+
+`for x in v` is Python's own loop over the list, which is already
+Pyking's rule: Python's list iterator keeps an index and compares it
+with the list's length at every turn, so what is pushed during the walk
+is walked too, a removal ends it sooner, and each element is read when
+its turn is reached. A comprehension walks the elements the Vec has
+when it starts, so it walks a copy, `list(v)`: a call in it that pushes
+cannot lengthen it.
+
+An element write `v[i] := x` keeps an array's order, with one more
+check: the index is checked before the value is worked out and again
+at the write, since the value's own work may have shrunk the Vec. The
+second check is the subscript itself, which Python works out after the
+value. Where the value is a literal or a name no `:=` writes, nothing
+can happen between the two, and the one check in the subscript is
+enough:
+
+```pyking                          # generated Python
+v[2] := 7                          v[__pyk_vec_index(v, 2)] = 7
+v[1] := shrink()                   __pyk_vec_index(v, 1)
+                                   v[__pyk_vec_index(v, 1)] = shrink()
+```
+
+A Vec is a container on the printing path like an array (see "Mutable
+structs" below): a Vec holding itself prints `...` where it repeats.
+
+### Slices and views
+
+A slice `s[i:j]` is one prelude helper for every kind, `__pyk_slice(s,
+i, j)`, with `0` for a left-out low bound and `None` for a left-out
+high one. Python's own slice clamps a bound past the end where Pyking
+checks it, and an array's or a Vec's slice would be a plain list, so
+the helper checks `0 <= i <= j <= len(s)` first -- the error `the slice
+2:4 is outside an array of 3 elements`, naming a list, a String, an
+array, a Vec or a view -- and then copies with Python's own slice: a
+list and a String as they are (a String's `len` and slice count code
+points, as Pyking's do), an array or a Vec wrapped in its own class
+again, and a view's elements into a new array. The sequence, then the
+bounds, then the check, as Pyking orders them.
+
+A view is an object of a class of its own, emitted where a module makes
+one, holding the array, the offset of its first element and its length:
+
+```python
+class __PykView:
+    # A view: elements offset up to offset + length of an array, shared.
+    __slots__ = ('owner', 'offset', 'length')
+
+    def __len__(self):
+        return self.length
+
+    def __iter__(self):
+        # Each element read as its turn comes.
+        for i in range(self.offset, self.offset + self.length):
+            yield self.owner[i]
+```
+
+| Pyking | generated Python |
+|---|---|
+| `view(a, i, j)` | `__pyk_view(a, i, j)`: a view of a view holds the same array, the offsets added |
+| `w[k]` | `__pyk_view_get(w, k)` |
+| `w[k] := x` | `w.owner[__pyk_view_index(w, k)] = x` |
+| `len(w)` | `len(w)` |
+| `for x in w` | `for x in w`, each element read as its turn comes |
+| `[e for x in w]` | `[e for x in list(w)]`, the elements as they are when it starts |
+| `same(w, v)` | `w is v`: two `view(...)` calls make two views |
+| `copy_into(dst, src)` | `__pyk_copy_into(dst, src)` |
+
+`__pyk_view_index` checks the index against the view's length -- `the
+index 2 is outside a view of 2 elements`, even where the array goes on
+-- and answers where the element is in the array. An element write keeps
+an array's order, the check a statement ahead of a value that could be
+seen to come first (`__pyk_view_index(w, k)` then `w.owner[w.offset +
+k] = x`), and the view and the index held in temporaries where the
+value could change them. `__pyk_view` checks its bounds against the
+array's or the view's length, `the view 1:9 is outside an array of 4
+elements`. A view's annotation is `object`: a module handed one need
+not have the class.
+
+`copy_into` reads all of `src` before it writes anything, which is
+memmove's answer where the two overlap, and then writes it over the
+first elements of `dst` with a slice assignment, of the array itself or
+of the view's run of its array -- the same length, so nothing grows.
+More elements than `dst` has is the error `copy_into copies 4 elements
+into 2`. `view` and `copy_into` yield to a program's own definition of
+the name.
+
+A view prints as its elements are now, `view([21, 30, 41])`. On the
+printing path it is the array it shares, so a view of an array inside
+that array prints `...`. `tests/slices.pyk`, `tests/slice_bounds.pyk`,
+`tests/view_bounds.pyk` and `tests/typecheck_slices.pyk` are the cases.
+
+### Pointers
+
+A pointer is an object of a class of its own, emitted where a module
+takes an address, naming a place as a store and a slot in it: an array
+and an index, or an object and the name of one of its fields.
+
+```python
+class __PykPtr:
+    # A pointer: the place `slot` of `store` -- an array's element by
+    # index, or a field by name of a var struct or of a var's box.
+    __slots__ = ('store', 'slot')
+
+    def __init__(self, store, slot): ...
+    def get(self): ...                # store[slot], or getattr(store, slot)
+    def set(self, value): ...         # store[slot] = value, or setattr(...)
+    def __eq__(self, other): ...      # the same store, the same slot
+```
+
+Python has no address of a variable, so a `var` whose address the
+module takes anywhere lives in a **box**, `__PykBox`, an object holding
+its `value`. The box is made where the `var` is declared, so each turn
+of a loop declaring one makes its own, and it lives for as long as
+anything holds it -- a pointer to a function's local outlives the call.
+Every read of such a `var` is `x.value`, every `:=` writes `x.value`;
+a `var` whose address is never taken is the plain variable it always
+was.
+
+| Pyking | generated Python |
+|---|---|
+| `var x = 1` (address taken) | `x = __PykBox(1)` |
+| `x`, `x := v` | `x.value`, `x.value = v` |
+| `&x` | `__PykPtr(x, 'value')` |
+| `&a[i]` | `__pyk_array_addr(a, i)`: the index checked as a read's |
+| `&w[k]` | `__pyk_view_addr(w, k)`: the view's array, at `offset + k` |
+| `&pt.y` | `__PykPtr(pt, 'y')` |
+| `&*p` | `p` |
+| `*p` | `p.get()` |
+| `*p := v` | `p.set(v)`: the pointer, then the value, then the write |
+| `p == q` | `p == q`: one store (`is`), one slot |
+
+`*p += 1` arrives as `pointer__target = p` and a write of
+`pointer__target.get() + 1`. A pointer's annotation is `object`.
+
+A pointer prints as what it points at now, `Ptr(12)`, through the Bool
+walker; on the printing path it is its store (the box, the array, the
+struct), so a `var` holding a pointer to itself prints `Ptr(...)`.
+`Option(Ptr(T))` is an ordinary datatype holding one. `==` on a type
+holding pointers is Python's own, which calls `__eq__`.
+`tests/pointers.pyk`, `tests/pointers_escape.pyk` and
+`tests/typecheck_pointers.pyk` are the cases.
+
+### Mutable structs
+
+A `var struct` is a dataclass that is not frozen, declared where any
+datatype's constructor is (see "Datatypes" below), with `eq=False` so
+that two of them are equal only when they are one object. Its value is
+an ordinary Python object, so it is shared the way Pyking says it is:
+a name, a parameter, an element of an array or a list, a field of a
+datatype or a closure holds the one object, and a write through any of
+them is seen through all. `same(a, b)` is `a is b`, as for arrays. A
+`..` update arrives as an ordinary constructor call, so it makes a new
+object; a pattern `case Point(x, y)` reads the fields as they are.
+
+```pyking                          # generated Python
+use mutation
+var struct Point(x: Int, y: Int = 0)  @dataclass(slots=True, eq=False)
+                                   class Point:
+                                       x: int
+                                       y: int
+p = Point(5)                       p = Point(5, 0)
+p.x := 10                          p.x = 10
+p.y += 1                           field__owner = p
+                                   field__owner.y = field__owner.y + 1
+```
+
+A field write `o.f := v` keeps Pyking's order: the owner, then the
+value, then the write. Python's own `o.f = v` works out `v` first, so
+where the order could be seen -- the owner is not a name no `:=`
+writes, and the value is not a literal or such a name -- the owner is
+held in a temporary first, as an element write's is:
+
+```pyking                          # generated Python
+inner_of(box).x := 7               inner_of(box).x = 7
+pick.x := switch()                 __pyk_owner1 = pick
+                                   __pyk_owner1.x = switch()
+```
+
+A compound write `p.x += e` arrives as `field__owner = p` and a write
+of `field__owner.x + e`, `field__owner` a name no `:=` writes.
+
+**Printing.** A var struct prints as a struct does, `Point(10, 1)`,
+through the Bool walker. A value that holds itself -- a var struct or
+an array met again inside itself, through any datatypes, lists or
+tuples between -- prints `...` where it repeats: `Node(1,
+Next(Node(2, Next(...))))`. The walker carries `path`, the ids of the
+arrays and datatype values it is inside of, and only a value already
+on that path is a repetition; one that is merely shared, the same
+struct twice in an array, prints in full each time. That is the
+interpreter's rule (`display_value`), for `print` and `string` alike.
+
+All of a `print`'s arguments are worked out before any is formatted,
+so `print(a, f())` shows what `f` did to `a`. Python formats each
+argument as it reaches it, so where an argument the walker formats can
+still be changed -- its type holds an array, a Vec or a var struct, or
+is one the backend cannot see into -- and a later argument makes a call
+(other than to a builtin that changes nothing, such as `len`), the
+arguments are handed to a lambda first and formatted inside it:
+
+```pyking                          # generated Python
+print(acct, deposit(acct, 5))      (lambda __pyk_arg1, __pyk_arg2: print(__pyk_str(__pyk_arg1, True), __pyk_arg2))(acct, deposit(acct, 5))
+```
+
+Every other `print` is the plain call. `tests/var_struct.pyk`,
+`tests/var_struct_import.pyk` and `tests/typecheck_var_struct.pyk` are
+the cases.
 
 ### A `var` written from inside a function
 
@@ -586,6 +848,26 @@ different binding, which no turn touches from where the `def` stands —
 and `var`s are excluded, because `:=` updates the one binding and a
 function reading a `var` is meant to see that.
 
+A `var` *declared inside* the loop is a new variable each turn,
+though, and a function made in a turn keeps that turn's -- reading it
+and writing it. Such a `var`, captured by a `def` or a lambda in the
+loop, lives in a box (`__PykBox`, see "Pointers"), made afresh where it
+is declared; the factory is handed the turn's box, and the function
+reads and writes its `value`, with no `global` or `nonlocal`:
+
+```pyking                          # generated Python
+for k in range(3):                 for k in range(3):
+    var j = k                          j = __PykBox(k)
+    def bump() -> Int:                 def __pyk_turn1(j):
+        j += 10                            def bump():
+        j                                      j.value = j.value + 10
+                                               return j.value
+                                           return bump
+                                       bump = __pyk_turn1(j)
+```
+
+`tests/loop_local_vars.pyk` is the case.
+
 *Not optimal:* the factory is built whenever the capture exists, even
 for a function that never outlives its turn — knowing otherwise needs
 escape analysis, which this backend does not do. [gap.md](gap.md) has
@@ -630,6 +912,20 @@ many arguments as the lambda's type has parameters, and the pinned ones
 come after all of them. Outside a loop there are no loop-carried names,
 so an ordinary lambda is emitted exactly as it was written.
 
+A **comprehension** is a loop too: Python has one variable for all its
+turns where Pyking binds the names a `for` clause binds afresh each
+turn, so a lambda in it reading one pins it the same way, as it does a
+name a loop around the comprehension rebinds:
+
+```pyking                          # generated Python
+[lam (). x * by for x in xs]       [lambda x=x: x * by for x in xs]
+```
+
+Without it, calling the lambdas gives the last element's value for
+every one. A `let` taken apart by a one-element comprehension (see
+"Let expressions") has one turn, and pins nothing.
+`tests/closure_comprehension.pyk` is the case.
+
 Two analyses this backend already runs had to learn about lambdas, and
 neither would have failed loudly: `free_names`, so a binding that
 shadows a name a lambda reads from outside itself is still renamed, and
@@ -637,6 +933,100 @@ shadows a name a lambda reads from outside itself is still renamed, and
 own Python variable the way one a `def` captured does. Without the
 second, `x = 1; f = lam (). x; x = 2` would print 2 where Pyking says 1.
 `tests/lambda_loop_capture.pyk` and `tests/lambda_capture.pyk` pin both.
+
+### Equality
+
+`==` and `!=` compare lists, tuples, structs and datatypes part by
+part. Python's own `==` does too -- a list element by element, a frozen
+dataclass by its class and then its fields -- with one difference:
+it takes an object to equal itself before comparing it, so a NaN
+*inside* a list or a datatype equals itself there, `[nan] == [nan]`,
+where Pyking follows IEEE and says false. So where a Float can sit
+inside the compared type (`float_inside`), the comparison is the
+prelude helper `__pyk_eq`, which walks both values and leaves only the
+Floats to Python's `==`; everywhere else, a Float on its own included,
+it is Python's own `==`/`!=`:
+
+```pyking                          # generated Python
+[1, 2] == xs                       [1, 2] == xs
+Circle(1.0) != shape               not __pyk_eq(Circle(1.0), shape)
+```
+
+A datatype of another module is taken to hold a Float, since the
+backend does not look into it. `tests/equality.pyk` is the case.
+
+### Dicts
+
+A Dict is a Python dict of a class of its own, emitted in the prelude
+of every module that makes one. A Python dict keeps its keys in the
+order they were put in, and replacing a value keeps its key's place,
+which is Pyking's order; re-inserting a removed key puts it at the end
+in both. The class adds one thing, a count of the keys put in and
+taken out, which a `for` over it checks:
+
+```python
+class __PykDict(dict):
+    # A Dict: a dict, in the order its keys were put in, and a count
+    # of the keys put in and taken out, which a for loop over it checks.
+    __slots__ = ('changes',)
+
+    def __init__(self):
+        self.changes = 0
+```
+
+| Pyking | generated Python |
+|---|---|
+| `dict()` | `__PykDict()` |
+| `dict(pairs)` | `__pyk_dict_list(pairs)`: a key written twice keeps its first place, its last value |
+| `d[k]` | `__pyk_dict_get(d, k)`: `the Dict has no key "b"` where it has none |
+| `d[k] := v` | `__pyk_dict_set(d, k, v)` |
+| `get(d, k, x)` | `d.get(__pyk_key(k), x)` |
+| `has(d, k)` | `__pyk_dict_has(d, k)` |
+| `remove(d, k)` | `__pyk_dict_remove(d, k)`: `the Dict has no key "b" to remove` where it has none |
+| `discard(d, k)` | `__pyk_dict_discard(d, k)` |
+| `clear(d)` | `__pyk_dict_clear(d)` |
+| `keys(d)` / `values(d)` / `items(d)` | `__pyk_dict_keys(d)` / `list(d.values())` / `__pyk_dict_items(d)` |
+| `len(d)` | `len(d)` |
+| `same(d, e)` | `d is e` |
+| `for k in d` | `for k in __pyk_dict_walk(d)` |
+| `[e for k in d]` | `[e for k in __pyk_dict_keys(d)]`, the keys as they are when it starts |
+
+`remove` and `clear` are a Vec's or a Dict's by their first argument's
+type; a program's own `get`, `has`, `keys`, `values`, `items`,
+`discard`, `remove` or `clear` is an ordinary call. A missing key is
+shown as `print` shows it inside a value, a String quoted, through the
+Bool walker, which is in the prelude of any module that reads a Dict.
+`d[k] := v` is a call, so the Dict, the key and the value are worked
+out in that order before the write; `d[k] += 1` arrives as an array's
+does and reads the key first.
+
+**Keys.** A key type holds no Float, function or mutable value, so
+Python's own hash and `==` agree with Pyking's `==` -- a frozen
+dataclass hashes and compares its fields -- except that a list cannot
+be hashed at all. Every helper taking a key passes it through
+`__pyk_key`, which gives a hashable key back unchanged and holds any
+other -- a list, or a tuple or datatype with one inside -- in a
+`__PykKey`, hashed and compared by a form of it made of tuples
+(`__pyk_frozen`); every helper giving keys back takes it out again
+(`__pyk_unkey`). Two equal values are the same shape, so they are both
+held or both not, and the choice is made the same way in every module.
+
+**`for` over a Dict.** `__pyk_dict_walk` is a generator over the keys
+as they are when the loop starts. Each time the loop asks for the next
+key -- the step that ends the loop included -- it compares the count
+of changes with the count it started with, and a key put in or taken
+out meanwhile is the error `the Dict changed while a for loop was
+reading it`. Replacing a value is not a change. Python's own check
+(`dictionary changed size during iteration`) is not used: it sees a
+change of size, not one insertion and one removal, and its message is
+not ours.
+
+**Printing.** A Dict prints as what makes one, `dict([("ada", 37),
+("bo", 6)])`: the Bool walker writes each entry as a `(key, value)`
+tuple. A Dict is a container on the printing path like an array or a
+Vec, so one holding itself prints `...` there. `tests/dict_basic.pyk`,
+`tests/dict_changed.pyk`, `tests/dict_missing.pyk` and
+`tests/typecheck_dict.pyk` are the cases.
 
 ### Statement forms that Python spells differently
 
@@ -779,7 +1169,9 @@ datatype's parameters are the class's PEP 695 type parameters, and the
 datatype's own name is a `type` alias for the union of its
 constructors, which is what an import of it imports -- unless a
 constructor has the datatype's name, as a `struct`'s does, and the
-class is the type. A value prints through the Bool walker, which knows
+class is the type. A `var struct`'s one class is
+`@dataclass(slots=True, eq=False)` instead (see "Mutable structs"
+above). A value prints through the Bool walker, which knows
 a datatype's value by its `__dataclass_fields__`; a class whose Python
 name is not its constructor's (a reserved word renamed) carries the
 Pyking name as `_pyk_tag`.

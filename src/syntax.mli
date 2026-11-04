@@ -65,6 +65,15 @@ type expr =
       (* left op right, for every other binary operator *)
   | EUnary of info * unop * expr * int (* op operand: not, !, ~ *)
   | EIndex of info * expr * expr * int (* list[index] *)
+  | EAddr of info * expr * int
+      (* &place -- a pointer to a `var`, an array's or a view's element, a
+         var struct's field, or what a pointer points at (PYKING.md,
+         "Pointers") *)
+  | EDeref of info * expr * int (* *p -- what a pointer points at, now *)
+  | ESlice of info * expr * expr option * expr option * int
+      (* seq[low:high] -- a copy of the elements from low up to high of a
+         list, a String, an array, a Vec or a view; an omitted bound is
+         the start or the end (PYKING.md, "Slices") *)
   | ECall of info * expr * (string option * expr) list * int
       (* func(args...). Each argument carries the parameter name it was
          written with, where one was: `f(x, n = 1)`. Desugar_args
@@ -157,7 +166,11 @@ and typ =
       (* what a module's signature says about a datatype it exports.
          Never written in source, never printed. *)
 
-and datatype = Datatype of string * string list * (string * (string option * typ) list) list
+and datatype = Datatype of string * string list * (string * (string option * typ) list) list * bool
+(* a datatype as another module sees it: its canonical name, its
+   parameters, each constructor with its fields (the name, where the
+   field has one, and the type), and whether it is a `var struct`, whose
+   fields are written in place. *)
 (* a datatype as another module sees it: its canonical name, its
    parameters, and each constructor with its fields (the name, where the
    field has one, and the type). *)
@@ -237,6 +250,14 @@ and stmt =
          owner and the index are worked out, the index checked, then the
          value, and the element of the owner first worked out is written
          (PYKING.md, "Arrays"). *)
+  | SSetDeref of info * expr * expr * int
+      (* *p := value -- what a pointer points at, written. The pointer is
+         worked out, then the value, and the place the pointer was is
+         written (PYKING.md, "Pointers"). *)
+  | SSetField of info * expr * string * expr * int
+      (* owner.field := value -- a field of a `var struct` written. The
+         owner is worked out, then the value, and the field of the owner
+         first worked out is written (PYKING.md, "Mutable structs"). *)
   | SMutateTuple of info * assign_target * expr * int
       (* a, (b, c) := expr -- several `var`s written at once. Desugar_args
          rewrites it into an `=` binding of the parts and one `:=` per
@@ -280,9 +301,9 @@ and stmt =
       (* [public] def name : type -- a def's type on a line of its own *)
   | SMatch of info * expr * match_case list * int
       (* match subject: case pattern: body ... *)
-  | SDatatype of info * string * string list * constructor list * int * bool
+  | SDatatype of info * string * string list * constructor list * int * bool * bool
       (* [public] datatype Name(a, b): one constructor per line. The
-         flag is `public`. *)
+         flags are `public`, and whether it is a `var struct`. *)
   | SImport of info * string * string * bool * (string * string) list * int
       (* import module [as name] / from module import field [as name].
          The fields are the module's own name for each thing taken and
@@ -385,9 +406,9 @@ val compound_parts : stmt -> (string * expr) option
     which only the parser makes and desugar_args removes. string -> 'a *)
 val after_desugar : string -> 'a
 
-(** The operator and right-hand side of an element write written as a
-    compound assignment (`a[i] op= e`), or None for one written with
-    `:=`. stmt -> (string * expr) option *)
+(** The operator and right-hand side of an element or field write
+    written as a compound assignment (`a[i] op= e`, `p.x op= e`), or None
+    for one written with `:=`. stmt -> (string * expr) option *)
 val index_compound_parts : stmt -> (string * expr) option
 
 (** How a `:=` statement was written: ":=", or "+=", "xor=", ...

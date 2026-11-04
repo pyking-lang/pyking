@@ -322,7 +322,8 @@ let check_import sigmaps high (unit : Module.t) =
   else
     let declared = Module.external_signatures unit.declarations in
     let tmap, qmap =
-      Typesystem.type_check ~declared unit.stmts (Module.sigmaps_for unit sigmaps)
+      Typesystem.type_check ~declared ~mutation:(Module.uses_mutation unit) unit.stmts
+        (Module.sigmaps_for unit sigmaps)
     in
     Analyses.analyze_mutability unit.stmts;
     let sigmap = Module.module_sigmap unit.name unit.stmts unit.declarations tmap in

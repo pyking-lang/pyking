@@ -1,6 +1,6 @@
-# Arrays without a single list, so the C targets -- which do not compile
-# lists yet -- run them too: `array([...])` from a list literal, the
-# other three forms, element writes, `len`, `for`, sharing, nested
+# Arrays without a single list, so plain C -- which compiles no lists --
+# runs them too: `array([...])` from a list literal, the fill form and
+# both forms of `array_init`, element writes, `len`, `for`, sharing, nested
 # arrays, printing, and lib/array, all as on every other target.
 
 use mutation
@@ -10,9 +10,9 @@ a = array([4, 1, 2])
 a[0] := a[1] + a[2]
 a[1] += 10
 print(a, len(a), a[2])
-b = array(4, lam i. i * i)
+b = array_init(4, lam i. i * i)
 c = array(3, 2.5)
-d = array(5, 1, lam s. (s, s * 2))
+d = array_init(5, 1, lam s. (s, s * 2))
 print(b, c, d)
 print(array(['p', 'y']), array(["k", "ing"]), array([true]), array([(1, 'x')]))
 
@@ -32,7 +32,7 @@ for x in b:
         b[3] := -9
     print("for", x)
 
-grid = array(2, lam _. array(2, 0.0))
+grid = array_init(2, lam _. array(2, 0.0))
 grid[0][1] := 1.5
 print(grid)
 

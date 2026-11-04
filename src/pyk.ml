@@ -103,7 +103,8 @@ let version_table () =
       (Targets.Node, "the node release; node22 writes ES2020, node ES2024");
       (Targets.Web, "the ECMAScript edition the page's JavaScript is written in");
       (Targets.Iweb, "the same, for the page running the interpreter");
-      (Targets.C, "the C standard");
+      (Targets.C, "the C standard, with no collector");
+      (Targets.Cgc, "the C standard, with the bdwgc collector");
       (Targets.Java, "the Java release, as `javac --release` takes it");
       (Targets.Ocaml, "the OCaml release");
     ]
@@ -142,7 +143,8 @@ let run_table () =
       (Targets.Node, [ "node prog.js" ]);
       (Targets.Web, [ "pyk serve prog.html (a page must be"; "served; the link printed opens the page)" ]);
       (Targets.Iweb, [ "the same" ]);
-      (Targets.C, [ "cc -std=<standard> -o prog prog.c -lgc -lm,"; "then prog (bdwgc found by pkg-config)" ]);
+      (Targets.C, [ "cc -std=<standard> -o prog prog.c -lm,"; "then prog" ]);
+      (Targets.Cgc, [ "cc -std=c23 -DPYKING_GC -o prog prog.c -lgc -lm,"; "then prog (bdwgc found by pkg-config)" ]);
       (Targets.Java, [ "javac --release <version> prog.java, then"; "java prog" ]);
       (Targets.Ocaml, [ "ocamlopt -I +unix unix.cmxa -o prog prog.ml,"; "then prog" ]);
       (Targets.Pyking, [ "pyk prog.pyk" ]);
@@ -933,7 +935,7 @@ let check_module ?(warnings = Warnings.default) ?(warn = false) (unit : Module.t
   let tmap, qmap =
     try
       if experiment then (Type_experiment.type_check unit.stmts, Syntax.IntMap.empty)
-      else Typesystem.type_check ~declared unit.stmts sigmaps
+      else Typesystem.type_check ~declared ~mutation:(Module.uses_mutation unit) unit.stmts sigmaps
     with
     | Analyses.Analysis_error _ as e -> fail e
     | Typesystem.Type_error _ as e -> fail e
@@ -1248,9 +1250,10 @@ let compile_unit ?c_program (unit : Module.t) tmap target path options checked =
           fail_unsupported target info message
       in
       (Target_python.pprint_py_program py_program ^ "\n", [])
-    else if Targets.family_of target = Targets.C then
-      (* One backend, two standards: the difference is in how the C is
-         printed, not in what it means. *)
+    else if Targets.is_c (Targets.family_of target) then
+      (* One backend, four targets: c89, c99 and c23 differ in how the C
+         is printed, and c23-gc allocates from the collector and checks
+         every index (Target_c.standard_of). *)
       let c_program =
         match c_program with
         | Some translated -> translated
@@ -1333,7 +1336,7 @@ let compile_program checked target output_path options =
      function nobody calls is not refused for using what they lack
      (docs/modules.md, "What a program uses"). *)
   let checked =
-    if List.mem (Targets.family_of target) [ Targets.C; Targets.Java ] then
+    if List.mem (Targets.family_of target) [ Targets.C; Targets.Cgc; Targets.Java ] then
       Prune.program checked
     else checked
   in
@@ -1566,7 +1569,7 @@ let compile_program checked target output_path options =
      compiles the instances of its polymorphic functions the others
      call. *)
   let c_programs =
-    if Targets.family_of target <> Targets.C then []
+    if not (Targets.is_c (Targets.family_of target)) then []
     else
       let units = List.filter (fun ((unit : Module.t), _) -> not unit.is_external) checked in
       let translated =
@@ -1761,7 +1764,7 @@ let write_executable path contents =
     string -> string -> string -> () *)
 let place_executable target output_path exe =
   match Targets.family_of target with
-  | Targets.C | Targets.Ocaml ->
+  | Targets.C | Targets.Cgc | Targets.Ocaml ->
       let built = Filename.remove_extension output_path in
       let channel = open_in_bin built in
       let contents = really_input_string channel (in_channel_length channel) in

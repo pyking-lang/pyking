@@ -100,18 +100,58 @@ type value =
          implements in a target language, called through host.externals
          rather than by interpreting a body. *)
   | VUndefined of string (* a hoisted `def` whose definition has not run *)
-  | VData of string * (string option * value) list
+  | VData of string * (string option * value) array
       (* a value of a datatype: its constructor, and each field with its
-         name where it has one *)
+         name where it has one. A `var struct`'s fields are written in
+         place, and the value is shared by every name holding it; no other
+         datatype's ever are, so for them the sharing is never seen *)
   | VArray of value array
       (* an array: one store of elements, shared by every name holding
          it and written in place (PYKING.md, "Arrays") *)
+  | VVec of vec
+      (* a Vec: an array that grows, shared by every name holding it
+         (PYKING.md, "Vecs") *)
+  | VDict of dict
+      (* a Dict: a map from keys to values that keeps the order its keys
+         were put in, shared by every name holding it (PYKING.md, "Dicts") *)
+  | VView of view
+      (* a view of a run of an array's elements, which it shares
+         (PYKING.md, "Slices") *)
+  | VPtr of location
+      (* a pointer: the place it points at (PYKING.md, "Pointers") *)
 
 (** A persistent chain of frames: the names this frame introduces, and
     the frame outside it. A binding is a cell rather than a value, which
     is what lets a `var` be written to and a closure over the frame
     holding it see what was written -- the only two places anything here
     changes (`define` and `mutate`). *)
+(* A Vec's storage: `items` has room for at least `size` elements, and
+   only the first `size` are its elements; the rest are never read, and a
+   removed element's slot is cleared, so it holds nothing alive. *)
+and vec = { mutable items : value array; mutable size : int }
+
+(* A view: elements `offset` up to `offset + length` of `owner`. *)
+and view = { owner : value array; offset : int; length : int }
+
+(* Where a pointer points: a `var`'s cell, an element of an array (a
+   view's is its array's), or a field of a var struct. Two pointers are
+   equal when they name one place. *)
+and location = LCell of value ref | LElem of value array * int | LField of (string option * value) array * int
+
+(* A Dict's storage: its entries in the order their keys were put in,
+   `None` where one was removed; `index` finds a key's position, by the
+   key's structure (a key is never a Float, a function or anything that
+   changes, so OCaml's structural hash and equality are Pyking's);
+   `version` counts insertions and removals, which a `for` over the Dict
+   watches. *)
+and dict = {
+  mutable entries : (value * value) option array;
+  mutable used : int;
+  mutable live : int;
+  index : (value, int) Hashtbl.t;
+  mutable version : int;
+}
+
 and env = { bindings : value ref SMap.t; parent : env option }
 
 let unit_value = VUnit
@@ -122,20 +162,59 @@ let boolean b = VBool b
 let quote text = Builtin.quote_string text
 
 (* What `display_value` walks: a value still to be written, or a literal
-   piece of text already decided on. *)
-type piece = Item of value | Text of string
+   piece of text already decided on, or the end of a value that holds
+   others, which leaves the path printing is on. *)
+type piece = Item of value | Text of string | Leave
+
+(** What a pointer points at, now. location -> value *)
+let read_location location =
+  match location with
+  | LCell r -> !r
+  | LElem (a, i) -> a.(i)
+  | LField (f, i) -> snd f.(i)
+
+(** Writes what a pointer points at. location -> value -> () *)
+let write_location location value =
+  match location with
+  | LCell r -> r := value
+  | LElem (a, i) -> a.(i) <- value
+  | LField (f, i) -> f.(i) <- (fst f.(i), value)
 
 (** Formats a value as it appears inside a larger one, or as a
     prompt/debugger shows it: like format_value, but a string is quoted.
-    Iterative, so nesting cannot overflow the host stack.
+    Iterative, so nesting cannot overflow the host stack. An array or a
+    struct met again inside itself -- a cycle, which only a `var struct`
+    or an array can make -- prints as `...`; one that is only shared
+    prints in full wherever it is (PYKING.md, "Mutable structs").
     value -> string *)
 let display_value value =
   let out = Buffer.create 32 in
+  (* The arrays and structs printing is inside of, innermost first. *)
+  let path = ref [] in
+  let store_of item =
+    match item with
+    | VArray elements -> Some (Obj.repr elements)
+    | VVec v -> Some (Obj.repr v)
+    | VDict d -> Some (Obj.repr d)
+    | VView v -> Some (Obj.repr v.owner)
+    (* A pointer is on the path as the store it points into. *)
+    | VPtr (LCell r) -> Some (Obj.repr r)
+    | VPtr (LElem (a, _)) -> Some (Obj.repr a)
+    | VPtr (LField (f, _)) -> Some (Obj.repr f)
+    | VData (_, fields) when Array.length fields > 0 -> Some (Obj.repr fields)
+    | _ -> None
+  in
   let rec go stack =
     match stack with
     | [] -> ()
     | Text text :: rest ->
         Buffer.add_string out text;
+        go rest
+    | Leave :: rest ->
+        path := List.tl !path;
+        go rest
+    | Item item :: rest when (match store_of item with Some s -> List.memq s !path | None -> false) ->
+        Buffer.add_string out "...";
         go rest
     | Item item :: rest -> (
         let commas elements closing =
@@ -174,7 +253,33 @@ let display_value value =
         | VArray elements ->
             (* Written as what makes one, so it is told from a list. *)
             Buffer.add_string out "array([";
-            go (commas (Array.to_list elements) "])" @ rest)
+            path := Obj.repr elements :: !path;
+            go (commas (Array.to_list elements) "])" @ (Leave :: rest))
+        | VVec v ->
+            Buffer.add_string out "vec([";
+            path := Obj.repr v :: !path;
+            go (commas (Array.to_list (Array.sub v.items 0 v.size)) "])" @ (Leave :: rest))
+        | VPtr location ->
+            (* What it points at now, never an address: the same on every
+               target. *)
+            Buffer.add_string out "Ptr(";
+            path := Option.get (store_of item) :: !path;
+            go (Item (read_location location) :: Text ")" :: Leave :: rest)
+        | VView v ->
+            (* Its elements as they are now, marked as a view of them. *)
+            Buffer.add_string out "view([";
+            path := Obj.repr v.owner :: !path;
+            go (commas (Array.to_list (Array.sub v.owner v.offset v.length)) "])" @ (Leave :: rest))
+        | VDict d ->
+            (* Written as what makes one: the list of its entries. *)
+            Buffer.add_string out "dict([";
+            path := Obj.repr d :: !path;
+            let entries =
+              List.filter_map
+                (fun e -> Option.map (fun (k, v) -> VTuple [ k; v ]) e)
+                (Array.to_list (Array.sub d.entries 0 d.used))
+            in
+            go (commas entries "])" @ (Leave :: rest))
         | VTuple elements ->
             (* A singleton keeps the comma that tells it from a
                parenthesized value, exactly as the source form does. *)
@@ -192,13 +297,14 @@ let display_value value =
         | VHostFun (module_, field) ->
             Buffer.add_string out (Printf.sprintf "<%s.%s>" module_ field);
             go rest
-        | VData (name, []) ->
+        | VData (name, [||]) ->
             Buffer.add_string out name;
             go rest
         | VData (name, fields) ->
             (* Every field, by position, as a constructor is written. *)
             Buffer.add_string out (name ^ "(");
-            go (commas (List.map snd fields) ")" @ rest)
+            path := Obj.repr fields :: !path;
+            go (commas (List.map snd (Array.to_list fields)) ")" @ (Leave :: rest))
         | VUndefined _ -> go rest)
   in
   go [ Item value ];
@@ -210,6 +316,10 @@ let sequence_items value =
   match value with
   | VString text -> VList (List.map (fun c -> VChar c) (Builtin.code_points text))
   | VArray elements -> VList (Array.to_list elements)
+  | VVec v -> VList (Array.to_list (Array.sub v.items 0 v.size))
+  | VDict d ->
+      VList (List.filter_map (Option.map fst) (Array.to_list (Array.sub d.entries 0 d.used)))
+  | VView v -> VList (Array.to_list (Array.sub v.owner v.offset v.length))
   | value -> value
 
 (** Formats a value as print writes it (builtin.ml's rules): a
@@ -232,6 +342,10 @@ let describe value =
   | VUnit -> "()"
   | VList _ -> "a list"
   | VArray _ -> "an array"
+  | VVec _ -> "a Vec"
+  | VDict _ -> "a Dict"
+  | VView _ -> "a view"
+  | VPtr _ -> "a pointer"
   | VTuple elements -> Printf.sprintf "a tuple of %d" (List.length elements)
   | VClosure _ | VBuiltin _ | VHostFun _ -> "a function"
   | VData (name, _) -> "a value built by '" ^ name ^ "'"
@@ -425,6 +539,17 @@ type kont =
       (* its index has arrived: the array, the value *)
   | KSetValue of value * int * info * env * kont option
       (* the value has arrived: the array and the checked index *)
+  | KSetEntry of dict * value * env * kont option
+  | KDerefTarget of expr * info * env * kont option
+      (* a write through a pointer: the pointer has arrived; the value *)
+  | KDerefWrite of location * env * kont option
+      (* the value has arrived: the place to write it *)
+      (* a Dict write's value has arrived: the Dict and the key *)
+  | KSetOwner of string * expr * info * env * kont option
+      (* a field write's struct has arrived: the field, the value, the
+         statement *)
+  | KSetField of value * string * info * env * kont option
+      (* the value has arrived: the struct and the field *)
   | KBinaryLeft of expr * expr * env * kont option
   | KBinaryRight of expr * value * env * kont option
   | KCallee of expr * env * kont option
@@ -499,10 +624,15 @@ and loop = {
   loop_kont : kont option;
   loop_parent : loop option;
   remaining : value list; (* what a `for` has left to walk *)
-  walking : (value array * int) option;
-      (* an array a `for` walks, and the index of the next turn's
-         element: read as each turn is reached, so a write to a later
-         element is seen (PYKING.md, "Arrays") *)
+  walking : (value * int) option;
+      (* an array or a Vec a `for` walks, and the index of the next
+         turn's element: read as each turn is reached, so a write to a
+         later element is seen, and a Vec is walked while the index is
+         below its length as it is then (PYKING.md, "Arrays", "Vecs");
+         a Dict's next entry, its keys in order *)
+  walking_version : int;
+      (* the version of the Dict a `for` walks, when it started: an
+         insertion or a removal during the walk is an error *)
 }
 
 (* Maximum Pyking call depth before the machine raises a runtime
@@ -607,6 +737,38 @@ let call_free_symbols stmts =
    lets the operand message below do the reporting. *)
 let divide_info = { file = "<division>"; row1 = 0; col1 = 0; row2 = 0; col2 = 0 }
 
+(** The pointer to a place, given the values naming it: an array's or a
+    view's element (the index checked), a var struct's field, or what a
+    pointer points at. expr -> [value] -> value *)
+let address_of place parts =
+  match (place, parts) with
+  | EIndex _, [ VArray a; VInt i ] ->
+      if i < 0 || i >= Array.length a then
+        raise
+          (Trap
+             ( divide_info,
+               Printf.sprintf "the index %d is outside an array of %d element%s" i (Array.length a)
+                 (if Array.length a = 1 then "" else "s") ));
+      VPtr (LElem (a, i))
+  | EIndex _, [ VView v; VInt i ] ->
+      if i < 0 || i >= v.length then
+        raise
+          (Trap
+             ( divide_info,
+               Printf.sprintf "the index %d is outside a view of %d element%s" i v.length
+                 (if v.length = 1 then "" else "s") ));
+      VPtr (LElem (v.owner, v.offset + i))
+  | EField (_, _, field, _), [ VData (_, fields) ] -> (
+      let rec find k =
+        if k >= Array.length fields then raise (Trap (divide_info, Printf.sprintf "no field '%s'" field))
+        else if fst fields.(k) = Some field then VPtr (LField (fields, k))
+        else find (k + 1)
+      in
+      find 0)
+  | EDeref _, [ (VPtr _ as p) ] -> p
+  | _ -> raise (Trap (divide_info, "'&' takes the address of a place"))
+
+
 (** Raises the error an index outside an array is, before anything reads
     or writes there. value array -> int -> () *)
 let check_array_index elements i =
@@ -617,6 +779,127 @@ let check_array_index elements i =
          ( divide_info,
            Printf.sprintf "the index %d is outside an array of %d element%s" i n
              (if n = 1 then "" else "s") ))
+
+(** Raises the error an index outside a Vec is. vec -> int -> () *)
+let check_vec_index v i =
+  if i < 0 || i >= v.size then
+    raise
+      (Trap
+         ( divide_info,
+           Printf.sprintf "the index %d is outside a Vec of %d element%s" i v.size
+             (if v.size = 1 then "" else "s") ))
+
+(** A Vec with room for one more element, its storage doubled where it
+    is full. vec -> () *)
+let grow v =
+  if v.size = Array.length v.items then (
+    let items = Array.make (max 4 (2 * v.size)) VUnit in
+    Array.blit v.items 0 items 0 v.size;
+    v.items <- items)
+
+(** Raises the error an index outside a view is. view -> int -> () *)
+let check_view_index v i =
+  if i < 0 || i >= v.length then
+    raise
+      (Trap
+         ( divide_info,
+           Printf.sprintf "the index %d is outside a view of %d element%s" i v.length
+             (if v.length = 1 then "" else "s") ))
+
+(** `seq[low:high]`: a copy of the run, of seq's own kind -- a view's is
+    an array. The bounds are checked: 0 <= low <= high <= its length,
+    `high` the length where it was left out (PYKING.md, "Slices").
+    value -> int -> int option -> value *)
+let slice_value seq low high =
+  let length, what =
+    match seq with
+    | VList items -> (List.length items, "a list")
+    | VString text -> (Builtin.utf8_length text, "a String")
+    | VArray a -> (Array.length a, "an array")
+    | VVec v -> (v.size, "a Vec")
+    | VView v -> (v.length, "a view")
+    | _ -> (0, "a value")
+  in
+  let high = Option.value high ~default:length in
+  if low < 0 || low > high || high > length then
+    raise
+      (Trap
+         ( divide_info,
+           Printf.sprintf "the slice %d:%d is outside %s of %d element%s" low high what length
+             (if length = 1 then "" else "s") ));
+  match seq with
+  | VList items -> VList (List.filteri (fun i _ -> i >= low && i < high) items)
+  | VString text ->
+      VString
+        (String.concat ""
+           (List.map Builtin.utf8 (List.filteri (fun i _ -> i >= low && i < high) (Builtin.code_points text))))
+  | VArray a -> VArray (Array.sub a low (high - low))
+  | VVec v -> let items = Array.sub v.items low (high - low) in VVec { items; size = high - low }
+  | VView v -> VArray (Array.sub v.owner (v.offset + low) (high - low))
+  | other -> other
+
+(* --- Dicts --- *)
+
+(** A new Dict with no entries. () -> dict *)
+let new_dict () = { entries = [||]; used = 0; live = 0; index = Hashtbl.create 8; version = 0 }
+
+(** The entries of a Dict, in order. dict -> [(value * value)] *)
+let dict_entries d =
+  let rec go i out =
+    if i < 0 then out else go (i - 1) (match d.entries.(i) with Some e -> e :: out | None -> out)
+  in
+  go (d.used - 1) []
+
+(** d with every entry in a store just big enough, the removed ones
+    gone and every position renumbered. dict -> () *)
+let compact d =
+  let live = dict_entries d in
+  let entries = Array.make (max 8 (2 * List.length live)) None in
+  Hashtbl.reset d.index;
+  List.iteri
+    (fun i (k, v) ->
+      entries.(i) <- Some (k, v);
+      Hashtbl.replace d.index k i)
+    live;
+  d.entries <- entries;
+  d.used <- List.length live
+
+(** Puts an entry in a Dict, or replaces the value of the one its key
+    has, which keeps its place. dict -> value -> value -> () *)
+let dict_set d key value =
+  match Hashtbl.find_opt d.index key with
+  | Some i -> d.entries.(i) <- Some (key, value)
+  | None ->
+      if d.used = Array.length d.entries then compact d;
+      if d.used = Array.length d.entries then (
+        let entries = Array.make (2 * Array.length d.entries) None in
+        Array.blit d.entries 0 entries 0 d.used;
+        d.entries <- entries);
+      d.entries.(d.used) <- Some (key, value);
+      Hashtbl.replace d.index key d.used;
+      d.used <- d.used + 1;
+      d.live <- d.live + 1;
+      d.version <- d.version + 1
+
+(** A key's value, or None where the Dict has no entry for it.
+    dict -> value -> value option *)
+let dict_find d key =
+  match Hashtbl.find_opt d.index key with
+  | Some i -> Option.map snd d.entries.(i)
+  | None -> None
+
+(** Takes a key's entry out of a Dict, answering its value, or None
+    where it had none. dict -> value -> value option *)
+let dict_take d key =
+  match Hashtbl.find_opt d.index key with
+  | Some i ->
+      let value = Option.map snd d.entries.(i) in
+      d.entries.(i) <- None;
+      Hashtbl.remove d.index key;
+      d.live <- d.live - 1;
+      d.version <- d.version + 1;
+      value
+  | None -> None
 
 (** Raises the error a size no array can have is: a negative one, or one
     larger than the host can hold -- checked before anything is
@@ -663,15 +946,41 @@ let concat left right =
   | VList a, VList b -> Some (VList (a @ b))
   | _ -> None
 
-let equals left right =
+(** Whether two values are equal, part by part (PYKING.md, "Comparison
+    operators"): scalars by value -- a Float by IEEE's rule, so two NaNs
+    are not equal and the two zeros are -- lists and tuples element by
+    element, datatypes by constructor and then field by field. The
+    checker lets nothing else reach it. None for two values `==` does not
+    compare. value -> value -> bool option *)
+let rec equal_parts left right =
   match (left, right) with
-  | VInt a, VInt b -> Some (boolean (a = b))
-  (* IEEE's, so two NaNs are not equal and the two zeros are. *)
-  | VFloat a, VFloat b -> Some (boolean (a = b))
-  | VString a, VString b -> Some (boolean (a = b))
-  | VChar a, VChar b -> Some (boolean (a = b))
-  | VBool a, VBool b -> Some (boolean (a = b))
+  | VInt a, VInt b -> Some (a = b)
+  | VFloat a, VFloat b -> Some (a = b)
+  | VString a, VString b -> Some (a = b)
+  | VChar a, VChar b -> Some (a = b)
+  | VBool a, VBool b -> Some (a = b)
+  | VUnit, VUnit -> Some true
+  | VList a, VList b | VTuple a, VTuple b ->
+      if List.length a <> List.length b then Some false else all_equal a b
+  | VPtr p, VPtr q ->
+      (* One place: the same cell, or the same slot of the same store. *)
+      Some
+        (match (p, q) with
+        | LCell r, LCell s -> r == s
+        | LElem (a, i), LElem (b, j) -> a == b && i = j
+        | LField (f, i), LField (g, j) -> f == g && i = j
+        | _ -> false)
+  | VData (c, a), VData (d, b) ->
+      if c <> d || Array.length a <> Array.length b then Some false
+      else all_equal (List.map snd (Array.to_list a)) (List.map snd (Array.to_list b))
   | _ -> None
+
+and all_equal a b =
+  List.fold_left2
+    (fun answer x y -> match answer with Some true -> equal_parts x y | other -> other)
+    (Some true) a b
+
+let equals left right = Option.map boolean (equal_parts left right)
 
 let not_equals left right =
   match equals left right with
@@ -751,6 +1060,16 @@ let element left right =
                  (if n = 1 then "" else "s") ))
       else Some (List.nth items i)
   | VArray elements, VInt i -> Some (array_element elements i)
+  | VVec v, VInt i ->
+      check_vec_index v i;
+      Some v.items.(i)
+  | VView v, VInt i ->
+      check_view_index v i;
+      Some v.owner.(v.offset + i)
+  | VDict d, key -> (
+      match dict_find d key with
+      | Some value -> Some value
+      | None -> raise (Trap (divide_info, Printf.sprintf "the Dict has no key %s" (display_value key))))
   | VString text, VInt i ->
       let chars = Builtin.code_points text in
       let n = List.length chars in
@@ -921,6 +1240,108 @@ let apply_builtin name args info host =
   | "len", [ VList elements ] -> VInt (List.length elements)
   | "len", [ VArray elements ] -> VInt (Array.length elements)
   | "same", [ VArray a; VArray b ] -> VBool (a == b)
+  | "same", [ VData (_, a); VData (_, b) ] -> VBool (a == b)
+  | "same", [ VVec a; VVec b ] -> VBool (a == b)
+  | "len", [ VVec v ] -> VInt v.size
+  | "empty__vec", [] -> VVec { items = [||]; size = 0 }
+  | "list__vec", [ VList items ] ->
+      let items = Array.of_list items in
+      VVec { items; size = Array.length items }
+  | "push", [ VVec v; x ] ->
+      grow v;
+      v.items.(v.size) <- x;
+      v.size <- v.size + 1;
+      VUnit
+  | "pop", [ VVec v ] ->
+      if v.size = 0 then raise (Trap (divide_info, "pop from an empty Vec"));
+      v.size <- v.size - 1;
+      let last = v.items.(v.size) in
+      v.items.(v.size) <- VUnit;
+      last
+  | "insert", [ VVec v; VInt i; x ] ->
+      if i < 0 || i > v.size then
+        raise
+          (Trap
+             ( divide_info,
+               Printf.sprintf "insert's index %d is outside 0 to %d, the Vec's length" i v.size ));
+      grow v;
+      Array.blit v.items i v.items (i + 1) (v.size - i);
+      v.items.(i) <- x;
+      v.size <- v.size + 1;
+      VUnit
+  | "remove", [ VVec v; VInt i ] ->
+      check_vec_index v i;
+      let taken = v.items.(i) in
+      Array.blit v.items (i + 1) v.items i (v.size - i - 1);
+      v.size <- v.size - 1;
+      v.items.(v.size) <- VUnit;
+      taken
+  | "clear", [ VVec v ] ->
+      Array.fill v.items 0 v.size VUnit;
+      v.size <- 0;
+      VUnit
+  | "len", [ VDict d ] -> VInt d.live
+  | "len", [ VView v ] -> VInt v.length
+  | "same", [ VView a; VView b ] -> VBool (a == b)
+  | "view", [ seq; VInt i; VInt j ] -> (
+      let owner, offset, length =
+        match seq with
+        | VArray a -> (a, 0, Array.length a)
+        | VView v -> (v.owner, v.offset, v.length)
+        | _ -> ([||], 0, 0)
+      in
+      if i < 0 || i > j || j > length then
+        raise
+          (Trap
+             ( divide_info,
+               Printf.sprintf "the view %d:%d is outside %s of %d element%s" i j
+                 (match seq with VView _ -> "a view" | _ -> "an array")
+                 length (if length = 1 then "" else "s") ));
+      VView { owner; offset = offset + i; length = j - i })
+  | "copy_into", [ dst; src ] ->
+      let run value =
+        match value with
+        | VArray a -> (a, 0, Array.length a)
+        | VView v -> (v.owner, v.offset, v.length)
+        | _ -> ([||], 0, 0)
+      in
+      let da, doff, dlen = run dst and sa, soff, slen = run src in
+      if slen > dlen then
+        raise
+          (Trap
+             ( divide_info,
+               Printf.sprintf "copy_into copies %d element%s into %d" slen
+                 (if slen = 1 then "" else "s") dlen ));
+      (* Array.blit is memmove: right where the two overlap. *)
+      Array.blit sa soff da doff slen;
+      VUnit
+  | "same", [ VDict a; VDict b ] -> VBool (a == b)
+  | "empty__dict", [] -> VDict (new_dict ())
+  | "list__dict", [ VList pairs ] ->
+      (* A key written twice keeps its first place and its last value. *)
+      let d = new_dict () in
+      List.iter (function VTuple [ k; v ] -> dict_set d k v | _ -> ()) pairs;
+      VDict d
+  | "remove", [ VDict d; key ] -> (
+      match dict_take d key with
+      | Some value -> value
+      | None -> raise (Trap (divide_info, Printf.sprintf "the Dict has no key %s to remove" (display_value key))))
+  | "discard", [ VDict d; key ] ->
+      ignore (dict_take d key);
+      VUnit
+  | "get", [ VDict d; key; default ] -> (
+      match dict_find d key with Some value -> value | None -> default)
+  | "has", [ VDict d; key ] -> VBool (dict_find d key <> None)
+  | "keys", [ VDict d ] -> VList (List.map fst (dict_entries d))
+  | "values", [ VDict d ] -> VList (List.map snd (dict_entries d))
+  | "items", [ VDict d ] -> VList (List.map (fun (k, v) -> VTuple [ k; v ]) (dict_entries d))
+  | "clear", [ VDict d ] ->
+      d.entries <- [||];
+      d.used <- 0;
+      d.live <- 0;
+      Hashtbl.reset d.index;
+      d.version <- d.version + 1;
+      VUnit
   | "list__array", [ VList items ] -> VArray (Array.of_list items)
   | "fill__array", [ VInt n; value ] ->
       check_array_size n;
@@ -1032,11 +1453,12 @@ and match_pattern env pattern value =
   | PList (_, prefix, rest, suffix, _), VList items ->
       match_list env prefix rest suffix items
   | PConstructor (_, _, name, patterns, _, _), VData (built, fields)
-    when name = built && List.length patterns = List.length fields ->
+    when name = built && List.length patterns = Array.length fields ->
+      (* A `var struct`'s fields are read as they are now. *)
       List.fold_left2
         (fun env one (_, part) ->
           match env with None -> None | Some env -> match_pattern env one part)
-        (Some env) patterns fields
+        (Some env) patterns (Array.to_list fields)
   | POr (_, alternatives, _), _ ->
       List.fold_left
         (fun found one ->
@@ -1056,7 +1478,7 @@ and match_pattern env pattern value =
 let field_of info value name =
   match value with
   | VData (_, fields) -> (
-      match List.find_opt (fun (label, _) -> label = Some name) fields with
+      match Array.find_opt (fun (label, _) -> label = Some name) fields with
       | Some (_, v) -> v
       | None ->
           raise
@@ -1126,7 +1548,25 @@ let rec evaluate e env =
   | EList (_, elements, _) ->
       VList (List.map (fun element -> evaluate element env) elements)
   | EConstruct (_, _, name, args, _) ->
-      VData (name, List.map (fun (label, a) -> (label, evaluate a env)) args)
+      VData (name, Array.of_list (List.map (fun (label, a) -> (label, evaluate a env)) args))
+  | EAddr (info, place, _) -> (
+      match place with
+      | EVar (_, name, _) -> (
+          match cell env name with
+          | Some r -> VPtr (LCell r)
+          | None -> raise (Trap (info, Printf.sprintf "unbound name '%s'" name)))
+      | EIndex (_, owner, index, _) -> address_of place [ evaluate owner env; evaluate index env ]
+      | EField (_, owner, _, _) | EDeref (_, owner, _) -> address_of place [ evaluate owner env ]
+      | _ -> raise (Trap (info, "'&' takes the address of a place")))
+  | EDeref (info, pointer, _) -> (
+      match evaluate pointer env with
+      | VPtr location -> read_location location
+      | _ -> raise (Trap (info, "only a pointer is read through")))
+  | ESlice (_, seq, low, high, _) -> (
+      let seq = evaluate seq env in
+      let bound b = match b with Some e -> (match evaluate e env with VInt n -> Some n | _ -> None) | None -> None in
+      let low = Option.value (bound low) ~default:0 in
+      slice_value seq low (bound high))
   | EField (info, record, name, _) -> field_of info (evaluate record env) name
   | EListComp (_, element, clauses, _) ->
       VList
@@ -1267,7 +1707,15 @@ let turn state loop =
       let env, loop =
         match (loop_iterate loop, loop.walking, loop.remaining) with
         | Some (ForIn (_, name, _, _)), Some (elements, i), _ ->
-            (extend env name elements.(i), { loop with walking = Some (elements, i + 1) })
+            let item =
+              match elements with
+              | VArray a -> a.(i)
+              | VVec v -> v.items.(i)
+              | VView v -> v.owner.(v.offset + i)
+              | VDict d -> (match d.entries.(i) with Some (k, _) -> k | None -> VUnit)
+              | other -> other
+            in
+            (extend env name item, { loop with walking = Some (elements, i + 1) })
         (* Each turn binds the element afresh, and the loop keeps what is
            left for the next one. *)
         | Some (ForIn (_, name, _, _)), None, first :: rest ->
@@ -1284,7 +1732,21 @@ let begin_turn state loop =
   match loop_iterate loop with
   | Some (ForIn _) -> (
       match loop.walking with
-      | Some (elements, i) -> if i >= Array.length elements then finish state loop else turn state loop
+      | Some (VDict d, i) ->
+          (* Checked at every advance, the last included (FCR-F4). *)
+          if d.version <> loop.walking_version then
+            failed state
+              (match loop_iterate loop with Some it -> loop_iter_info it | None -> divide_info)
+              "the Dict changed while a for loop was reading it"
+          else
+            let rec next i = if i < d.used && d.entries.(i) = None then next (i + 1) else i in
+            let i = next i in
+            if i >= d.used then finish state loop else turn state { loop with walking = Some (VDict d, i) }
+      | Some (elements, i) ->
+          let length =
+            match elements with VArray a -> Array.length a | VVec v -> v.size | VView v -> v.length | _ -> 0
+          in
+          if i >= length then finish state loop else turn state loop
       | None -> if loop.remaining = [] then finish state loop else turn state loop)
   | Some (WhileTest (_, condition, _)) -> (
       (* The condition can ask about the accumulator, so it is evaluated
@@ -1330,17 +1792,17 @@ let rec call state call_node callee args env rest =
   (* A builtin's own failure has no node of its own: it is the call's. *)
   let at where = if where == divide_info then info else where in
   match callee with
-  | VBuiltin (("init__array" | "unfold__array") as name) -> (
+  | VBuiltin (("init__array_init" | "unfold__array_init") as name) -> (
       (* The generated forms call a Pyking function once per element, in
          index order and never for n = 0, each in a machine of its own
          as a host's callback is (PYKING.md, "Arrays"). *)
       match
         try
           match (name, args) with
-          | "init__array", [ VInt n; f ] ->
+          | "init__array_init", [ VInt n; f ] ->
               check_array_size n;
               Ok (VArray (Array.init n (fun i -> callback state info f [ VInt i ])))
-          | "unfold__array", [ VInt n; seed; f ] ->
+          | "unfold__array_init", [ VInt n; seed; f ] ->
               check_array_size n;
               let state_now = ref seed in
               Ok
@@ -1511,15 +1973,26 @@ and start_elements state node done_ todo env rest =
         env;
         kont = Some (KElement (node, done_, more, env, rest));
       }
-  | [] ->
-      let built =
+  | [] -> (
+      match
         match node with
         | EList _ -> VList done_
         | EConstruct (_, _, name, args, _) ->
-            VData (name, List.combine (List.map fst args) done_)
+            VData (name, Array.of_list (List.combine (List.map fst args) done_))
+        | ESlice _ -> (
+            match done_ with
+            | [ seq; VInt low ] -> slice_value seq low None
+            | [ seq; VInt low; VInt high ] -> slice_value seq low (Some high)
+            | _ -> VUnit)
+        | EAddr (_, place, _) -> address_of place done_
+        | EDeref _ -> (
+            match done_ with
+            | [ VPtr location ] -> read_location location
+            | _ -> raise (Trap (divide_info, "only a pointer is read through")))
         | _ -> VTuple done_
-      in
-      { state with control = CApply built; env; kont = rest }
+      with
+      | built -> { state with control = CApply built; env; kont = rest }
+      | exception Trap (_, message) -> failed state (expr_info node) message)
 
 (** Tries a `match`'s cases on its subject in order and runs the body of
     the first whose pattern fits -- once its guard, where it has one, has
@@ -1664,7 +2137,10 @@ and step_eval state e =
   if IntSet.mem (expr_sym e) state.runtime.simple then
     match evaluate e state.env with
     | value -> { state with control = CApply value }
-    | exception Trap (info, message) -> failed state info message
+    | exception Trap (info, message) ->
+        (* A check deep in an operator knows no position: the expression
+           being evaluated is where it failed. *)
+        failed state (if info == divide_info then expr_info e else info) message
   else
     match e with
     | ECall (_, func, _, _) ->
@@ -1677,6 +2153,23 @@ and step_eval state e =
         start_elements state e [] elements state.env state.kont
     | EConstruct (_, _, _, args, _) ->
         start_elements state e [] (arg_exprs args) state.env state.kont
+    | EAddr (_, place, _) -> (
+        (* The parts that name the place, left to right; the place is
+           not read. *)
+        match place with
+        | EVar (info, name, _) -> (
+            match cell state.env name with
+            | Some r -> { state with control = CApply (VPtr (LCell r)) }
+            | None -> failed state info (Printf.sprintf "unbound name '%s'" name))
+        | EIndex (_, owner, index, _) -> start_elements state e [] [ owner; index ] state.env state.kont
+        | EField (_, owner, _, _) | EDeref (_, owner, _) -> start_elements state e [] [ owner ] state.env state.kont
+        | _ -> failed state (expr_info e) "'&' takes the address of a place")
+    | EDeref (_, pointer, _) -> start_elements state e [] [ pointer ] state.env state.kont
+    | ESlice (i, seq, low, high, _) ->
+        (* The sequence, then the bounds, left to right; a left-out low
+           bound is 0, a left-out high one the length. *)
+        start_elements state e [] (seq :: Option.value low ~default:(EInt (i, 0, 0)) :: Option.to_list high) state.env
+          state.kont
     | EField (_, record, _, _) ->
         {
           state with
@@ -1757,6 +2250,22 @@ and step_stmt state stmt =
         control = CEval owner;
         kont = Some (KSetArray (index, value, info, state.env, state.kont));
       }
+  | SSetDeref (info, pointer, value, _) ->
+      (* The pointer, then the value, which is written into the place the
+         pointer named (PYKING.md, "Pointers"). *)
+      {
+        state with
+        control = CEval pointer;
+        kont = Some (KDerefTarget (value, info, state.env, state.kont));
+      }
+  | SSetField (info, owner, field, value, _) ->
+      (* The struct, then the value, which is written into the struct
+         first worked out (PYKING.md, "Mutable structs"). *)
+      {
+        state with
+        control = CEval owner;
+        kont = Some (KSetOwner (field, value, info, state.env, state.kont));
+      }
   | SMutate (info, name, e, _) ->
       {
         state with
@@ -1783,6 +2292,7 @@ and step_stmt state stmt =
           loop_parent = state.loops;
           remaining = [];
           walking = None;
+          walking_version = 0;
         }
       in
       match (target, init) with
@@ -1879,11 +2389,51 @@ and step_apply state value =
           match check_array_index elements i with
           | () -> { state with control = CEval value_expr; env; kont = Some (KSetValue (owner, i, info, env, rest)) }
           | exception Trap (_, message) -> failed state info message)
+      | VVec v, VInt i -> (
+          match check_vec_index v i with
+          | () -> { state with control = CEval value_expr; env; kont = Some (KSetValue (owner, i, info, env, rest)) }
+          | exception Trap (_, message) -> failed state info message)
+      | VView v, VInt i -> (
+          match check_view_index v i with
+          | () -> { state with control = CEval value_expr; env; kont = Some (KSetValue (owner, i, info, env, rest)) }
+          | exception Trap (_, message) -> failed state info message)
+      | VDict d, key -> { state with control = CEval value_expr; env; kont = Some (KSetEntry (d, key, env, rest)) }
       | _ ->
           failed state info
-            (Printf.sprintf "only an array's element is written, not %s's" (describe owner)))
-  | Some (KSetValue (owner, i, _, env, rest)) ->
-      (match owner with VArray elements -> elements.(i) <- value | _ -> ());
+            (Printf.sprintf "only an array's or a Vec's element is written, not %s's" (describe owner)))
+  | Some (KSetValue (owner, i, info, env, rest)) -> (
+      (* A Vec is checked again: the value's own work may have shrunk it
+         (PYKING.md, "Vecs"). *)
+      match owner with
+      | VVec v when i >= v.size -> (
+          match check_vec_index v i with () -> state | exception Trap (_, message) -> failed state info message)
+      | _ ->
+      (match owner with
+      | VArray elements -> elements.(i) <- value
+      | VVec v -> v.items.(i) <- value
+      | VView v -> v.owner.(v.offset + i) <- value
+      | _ -> ());
+      { state with control = CApply unit_value; env; kont = rest })
+  | Some (KSetEntry (d, key, env, rest)) ->
+      dict_set d key value;
+      { state with control = CApply unit_value; env; kont = rest }
+  | Some (KDerefTarget (value_expr, info, env, rest)) -> (
+      match value with
+      | VPtr location -> { state with control = CEval value_expr; env; kont = Some (KDerefWrite (location, env, rest)) }
+      | _ -> failed state info (Printf.sprintf "only a pointer is written through, not %s" (describe value)))
+  | Some (KDerefWrite (location, env, rest)) ->
+      write_location location value;
+      { state with control = CApply unit_value; env; kont = rest }
+  | Some (KSetOwner (field, value_expr, info, env, rest)) -> (
+      match value with
+      | VData (_, fields) when Array.exists (fun (label, _) -> label = Some field) fields ->
+          { state with control = CEval value_expr; env; kont = Some (KSetField (value, field, info, env, rest)) }
+      | _ -> failed state info (Printf.sprintf "%s has no field '%s'" (describe value) field))
+  | Some (KSetField (owner, field, _, env, rest)) ->
+      (match owner with
+      | VData (_, fields) ->
+          Array.iteri (fun k (label, _) -> if label = Some field then fields.(k) <- (label, value)) fields
+      | _ -> ());
       { state with control = CApply unit_value; env; kont = rest }
   | Some (KMutate (name, info, env, rest)) ->
       if not (mutate env name value) then
@@ -1964,9 +2514,9 @@ and step_apply state value =
       start_loop state { loop with accumulator = value }
   | Some (KSequence loop) -> (
       match sequence_items value with
-      | _ when (match value with VArray _ -> true | _ -> false) ->
-          let elements = match value with VArray elements -> elements | _ -> [||] in
-          begin_turn state { loop with walking = Some (elements, 0) }
+      | _ when (match value with VArray _ | VVec _ | VDict _ | VView _ -> true | _ -> false) ->
+          let version = match value with VDict d -> d.version | _ -> 0 in
+          begin_turn state { loop with walking = Some (value, 0); walking_version = version }
       | VList items -> begin_turn state { loop with remaining = items }
       | value ->
           failed state

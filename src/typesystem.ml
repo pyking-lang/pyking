@@ -58,7 +58,7 @@ module SMap = Map.Make (String)
 (* What a name denotes: its type, and whether the binding was written
    `implicit` -- which is what an implicit argument may be resolved to
    and what an ordinary name never is (PYKING.md, "Implicits"). *)
-type binding = { btype : typ; bimplicit : bool }
+type binding = { btype : typ; bimplicit : bool; bvar : bool (* bound by `var` *) }
 
 (* `env` maps a name to what it denotes, and to nothing else: a name it
    does not hold is a name that is not in scope. The host operations are
@@ -120,6 +120,55 @@ let t_array info element = TCon (info, array_name, [ element ], 0)
     typ -> typ option *)
 let array_element type_ =
   match type_ with TCon (_, name, [ element ], _) when name = array_name -> Some element | _ -> None
+
+(* `Vec(T)`: an array that grows, made by `vec(...)` alone and changed by
+   `push`, `pop`, `insert`, `remove` and `clear` (PYKING.md, "Vecs"). *)
+let vec_name = "Vec"
+let t_vec info element = TCon (info, vec_name, [ element ], 0)
+
+(** The element type of a Vec type, or None for anything else.
+    typ -> typ option *)
+let vec_element type_ =
+  match type_ with TCon (_, name, [ element ], _) when name = vec_name -> Some element | _ -> None
+
+(* `Dict(K, V)`: a mutable map, insertion-ordered, made by `dict(...)`
+   alone (PYKING.md, "Dicts"). *)
+let dict_name = "Dict"
+let t_dict info key value = TCon (info, dict_name, [ key; value ], 0)
+
+(** The key and value types of a Dict type, or None for anything else.
+    typ -> (typ * typ) option *)
+let dict_parts type_ =
+  match type_ with TCon (_, name, [ key; value ], _) when name = dict_name -> Some (key, value) | _ -> None
+
+(* `Ptr(T)`: a pointer to a place holding a T -- a `var`, an array's or a
+   view's element, a var struct's field -- made by `&` alone (PYKING.md,
+   "Pointers"). *)
+let ptr_name = "Ptr"
+let t_ptr info target = TCon (info, ptr_name, [ target ], 0)
+
+(** What a Ptr type points at, or None for anything else.
+    typ -> typ option *)
+let ptr_target type_ =
+  match type_ with TCon (_, name, [ target ], _) when name = ptr_name -> Some target | _ -> None
+
+(* `Slice(T)`: a view of a run of an array's elements, shared with it,
+   made by `view(a, i, j)` alone (PYKING.md, "Slices"). *)
+let slice_name = "Slice"
+let t_slice info element = TCon (info, slice_name, [ element ], 0)
+
+(** The element type of a Slice type, or None for anything else.
+    typ -> typ option *)
+let slice_element type_ =
+  match type_ with TCon (_, name, [ element ], _) when name = slice_name -> Some element | _ -> None
+
+(** The element type of an array, a Vec or a Slice -- a store of
+    elements read and written by index -- or None for anything else.
+    typ -> typ option *)
+let store_element type_ =
+  match array_element type_ with
+  | Some element -> Some element
+  | None -> ( match vec_element type_ with Some element -> Some element | None -> slice_element type_)
 
 (** The type a definition has once its implicit parameters are ordinary
     ones: what every stage after `elaborate.ml` sees of it. typ -> typ *)
@@ -246,6 +295,7 @@ type store = {
   constructors : string SMap.t;
   field_defaults : (typ * string) SMap.t;
   pending_plus : (typ * info) list;
+  mutation : bool; (* whether the module has `use mutation` *)
 }
 
 (** The store a program starts checking in, holding the signature of
@@ -264,11 +314,13 @@ let empty_store sigmaps =
     modules = sigmaps;
     tmap = IntMap.empty;
     qmap = IntMap.empty;
-    types = SMap.singleton array_name array_name;
+    types =
+      List.fold_left (fun m n -> SMap.add n n m) SMap.empty [ array_name; vec_name; dict_name; slice_name; ptr_name ];
     datatypes = SMap.empty;
     constructors = SMap.empty;
     field_defaults = SMap.empty;
     pending_plus = [];
+    mutation = true;
   }
 
 (* The names a generalised variable is given, in order: a, b, ... z,
@@ -400,7 +452,7 @@ let rec zonk type_ store =
       TForall (info, List.map snd renamed, zonk body store, sym)
   | TCon (info, name, args, sym) ->
       TCon (info, name, List.map (fun a -> zonk a store) args, sym)
-  | TData (info, Datatype (name, params, constructors), sym) ->
+  | TData (info, Datatype (name, params, constructors, writable), sym) ->
       (* A field written with no type is a metavariable its default
          solves. *)
       TData
@@ -411,7 +463,8 @@ let rec zonk type_ store =
               List.map
                 (fun (cname, fields) ->
                   (cname, List.map (fun (label, t) -> (label, zonk t store)) fields))
-                constructors ),
+                constructors,
+              writable ),
           sym )
   | type_ -> type_
 
@@ -944,7 +997,8 @@ let demand_list actual info what store =
 let demand_sequence actual info what store =
   match prune actual store with
   | TString _ -> (TChar (info, 0), store)
-  | settled when array_element settled <> None -> (Option.get (array_element settled), store)
+  | settled when store_element settled <> None -> (Option.get (store_element settled), store)
+  | settled when dict_parts settled <> None -> (fst (Option.get (dict_parts settled)), store)
   | _ -> demand_list actual info what store
 
 (* --- what the store records --- *)
@@ -1032,7 +1086,7 @@ let record store sym type_ =
 (* --- ground types, and the tables that name them --- *)
 
 (** The ground types the operator and builtin tables name. *)
-type kind = KInt | KFloat | KString | KChar | KBool | KList | KTuple | KData | KArray
+type kind = KInt | KFloat | KString | KChar | KBool | KList | KTuple | KData | KArray | KVec | KDict | KSlice
 
 (** Whether a type is of this kind, deciding nothing.
     kind -> typ -> bool *)
@@ -1048,6 +1102,9 @@ let kind_matches kind type_ =
   | KData, TCon _ ->
       true
   | KArray, TCon (_, name, _, _) -> name = array_name
+  | KVec, TCon (_, name, _, _) -> name = vec_name
+  | KDict, TCon (_, name, _, _) -> name = dict_name
+  | KSlice, TCon (_, name, _, _) -> name = slice_name
   | _ -> false
 
 (** The type a kind names. Only the atoms are ever built: KList and
@@ -1064,6 +1121,9 @@ let kind_type kind info =
   | KTuple -> t_tuple info []
   | KData -> t_tuple info []
   | KArray -> t_array info (t_unknown info)
+  | KVec -> t_vec info (t_unknown info)
+  | KDict -> t_dict info (t_unknown info) (t_unknown info)
+  | KSlice -> t_slice info (t_unknown info)
 
 (** Whether type_ is one of kinds. A flexible variable counts as any of
     them, since no value of it arrives. typ -> [kind] -> bool *)
@@ -1157,6 +1217,26 @@ let rec alternative expr left_type right_type =
       ". Arrays are compared with 'same(a, b)', which asks whether they \
        are one array, or with 'array.equal(a, b)' from lib/array, which \
        compares their elements"
+  | (EAdd _ | ESub _)
+    when (match (left_type, right_type) with
+          | TCon (_, l, _, _), _ when l = ptr_name -> true
+          | _, TCon (_, r, _, _) when r = ptr_name -> true
+          | _ -> false) ->
+      ". A pointer has no arithmetic: a run of an array's elements is a \
+       view, 'view(a, i, j)', and an element's address is '&a[i]'"
+  | (EEq _ | EBinary (_, BNeq, _, _, _))
+    when kind_matches KDict left_type || kind_matches KDict right_type ->
+      ". Dicts are compared with 'same(a, b)', which asks whether they are \
+       one Dict"
+  | (EEq _ | EBinary (_, BNeq, _, _, _))
+    when kind_matches KVec left_type || kind_matches KVec right_type ->
+      ". Vecs are compared with 'same(a, b)', which asks whether they are \
+       one Vec, or with 'vec.equal(a, b)' from lib/vec, which compares \
+       their elements"
+  | (EEq _ | EBinary (_, BNeq, _, _, _)) when kind_matches KData left_type && kind_matches KData right_type ->
+      ". A struct or a datatype's value is compared field by field, by a \
+       function the program writes; 'same(a, b)' asks whether two var \
+       structs are one"
   | _ -> alternative_scalar expr left_type right_type
 
 and alternative_scalar expr left_type right_type =
@@ -1387,8 +1467,8 @@ and ends_every_path stmts =
     construction. `implicit` marks a binding an implicit argument may be
     resolved to; every ordinary binding form leaves it alone.
     env -> string -> typ -> env *)
-let bind ?(implicit = false) env name type_ =
-  SMap.add name { btype = type_; bimplicit = implicit } env
+let bind ?(implicit = false) ?(var = false) env name type_ =
+  SMap.add name { btype = type_; bimplicit = implicit; bvar = var } env
 
 (** The message for a name not in scope, naming the name in scope or
     the keyword it is most likely a misspelling of, where one is close
@@ -1454,8 +1534,9 @@ let rec resolved ?params store type_ =
       | Some canonical ->
           let wanted =
             match SMap.find_opt canonical store.datatypes with
-            | Some (Datatype (_, wanted, _)) -> List.length wanted
-            | None when canonical = array_name -> 1
+            | Some (Datatype (_, wanted, _, _)) -> List.length wanted
+            | None when List.mem canonical [ array_name; vec_name; slice_name; ptr_name ] -> 1
+            | None when canonical = dict_name -> 2
             | None -> List.length args
           in
           if List.length args <> wanted then
@@ -1505,7 +1586,7 @@ let resolved_option store annotation = Option.map (resolved store) annotation
     is in scope throughout the module, so datatypes may name each other
     in any order. [stmt] -> store -> store *)
 let declare_datatypes stmts store =
-  let add_imported store (exported, local) (Datatype (canonical, _, constructors) as d) =
+  let add_imported store (exported, local) (Datatype (canonical, _, constructors, _) as d) =
     let store = { store with datatypes = SMap.add canonical d store.datatypes } in
     let store =
       if base_name canonical = exported then
@@ -1548,15 +1629,15 @@ let declare_datatypes stmts store =
   let own =
     List.filter_map
       (function
-        | SDatatype (info, name, params, constructors, sym, _) ->
-            Some (info, name, params, constructors, sym)
+        | SDatatype (info, name, params, constructors, sym, _, writable) ->
+            Some (info, name, params, constructors, sym, writable)
         | _ -> None)
       stmts
   in
   (* The names first, so a field may name any datatype of the module. *)
   let store =
     List.fold_left
-      (fun store (info, name, params, _, _) ->
+      (fun store (info, name, params, _, _, writable) ->
         if SMap.mem name store.types then
           raise
             (Type_error
@@ -1568,13 +1649,13 @@ let declare_datatypes stmts store =
         {
           store with
           types = SMap.add name name store.types;
-          datatypes = SMap.add name (Datatype (name, params, [])) store.datatypes;
+          datatypes = SMap.add name (Datatype (name, params, [], writable)) store.datatypes;
         })
       store own
   in
   let store =
     List.fold_left
-      (fun store (_, name, _, constructors, _) ->
+      (fun store (_, name, _, constructors, _, _) ->
         List.fold_left
           (fun store (Constructor (ci, cname, _, _)) ->
             (match SMap.find_opt cname store.constructors with
@@ -1592,7 +1673,7 @@ let declare_datatypes stmts store =
       store own
   in
   List.fold_left
-    (fun store (info, name, params, constructors, sym) ->
+    (fun store (info, name, params, constructors, sym, writable) ->
       let store, typed =
         List.fold_left
           (fun (store, typed) (Constructor (_, cname, fields, csym)) ->
@@ -1626,7 +1707,7 @@ let declare_datatypes stmts store =
             (store, typed @ [ (cname, fields) ]))
           (store, []) constructors
       in
-      let d = Datatype (name, params, typed) in
+      let d = Datatype (name, params, typed, writable) in
       let store = { store with datatypes = SMap.add name d store.datatypes } in
       record store sym (TData (info, d, 0)))
     store own
@@ -1657,7 +1738,7 @@ let constructor_use info spelled name store =
                 here has one of that name%s"
                spelled meant ))
   | Some canonical ->
-      let (Datatype (_, params, constructors)) =
+      let (Datatype (_, params, constructors, _)) =
         SMap.find canonical store.datatypes
       in
       let fields = List.assoc name constructors in
@@ -1686,19 +1767,25 @@ let builtin_env () =
       (fun env name -> bind env name (t_builtin builtin_info name))
       SMap.empty Builtin.names
   in
-  (* `array` is an overload set of four builtin definitions, resolved by
-     their arguments as any `::` set is (PYKING.md, "Arrays"). *)
+  (* `array`, `array_init` and `vec` are overload sets of builtin
+     definitions, resolved by their arguments as any `::` set is
+     (PYKING.md, "Arrays", "Vecs"); each set's members take different
+     numbers of arguments, so a call is never ambiguous. *)
   let i = builtin_info in
   let a = t_var i "a" and s = t_var i "s" in
   List.fold_left
-    (fun env (name, vars, params) ->
-      bind env name (t_forall i vars (t_function i params (t_array i a))))
+    (fun env (name, vars, params, result) ->
+      bind env name (t_forall i vars (t_function i params result)))
     env
     [
-      ("list::array", [ "a" ], [ t_list i a ]);
-      ("fill::array", [ "a" ], [ t_int i; a ]);
-      ("init::array", [ "a" ], [ t_int i; t_function i [ t_int i ] a ]);
-      ("unfold::array", [ "a"; "s" ], [ t_int i; s; t_function i [ s ] (t_tuple i [ a; s ]) ]);
+      ("list::array", [ "a" ], [ t_list i a ], t_array i a);
+      ("fill::array", [ "a" ], [ t_int i; a ], t_array i a);
+      ("init::array_init", [ "a" ], [ t_int i; t_function i [ t_int i ] a ], t_array i a);
+      ("unfold::array_init", [ "a"; "s" ], [ t_int i; s; t_function i [ s ] (t_tuple i [ a; s ]) ], t_array i a);
+      ("empty::vec", [ "a" ], [], t_vec i a);
+      ("list::vec", [ "a" ], [ t_list i a ], t_vec i a);
+      ("empty::dict", [ "k"; "v" ], [], t_dict i (t_var i "k") (t_var i "v"));
+      ("list::dict", [ "k"; "v" ], [ t_list i (t_tuple i [ t_var i "k"; t_var i "v" ]) ], t_dict i (t_var i "k") (t_var i "v"));
     ]
 
 (** What a module exports, or a refusal saying it cannot be reached from
@@ -1861,12 +1948,12 @@ let check_exports stmts store =
 let check_exported_datatypes stmts store =
   let public_types =
     List.filter_map
-      (function SDatatype (_, name, _, _, _, true) -> Some name | _ -> None)
+      (function SDatatype (_, name, _, _, _, true, _) -> Some name | _ -> None)
       stmts
   in
   let own =
     List.filter_map
-      (function SDatatype (_, name, _, _, _, _) -> Some name | _ -> None)
+      (function SDatatype (_, name, _, _, _, _, _) -> Some name | _ -> None)
       stmts
   in
   let rec hidden t =
@@ -1879,7 +1966,7 @@ let check_exported_datatypes stmts store =
     | TFunction (_, ps, r, _, _, _, ips) ->
         List.find_map hidden (ps @ implicit_types ips @ [ r ])
     | TForall (_, _, b, _) -> hidden b
-    | TData (_, Datatype (_, _, constructors), _) ->
+    | TData (_, Datatype (_, _, constructors, _), _) ->
         List.find_map
           (fun (_, fields) -> List.find_map (fun (_, t) -> hidden t) fields)
           constructors
@@ -1892,7 +1979,7 @@ let check_exported_datatypes stmts store =
         | SFunctionDef (info, name, _, _, _, sym, true, _, _)
         | SLet (info, TargetName (_, name, _), _, _, sym, true, _)
         | SLetStmt (info, TargetName (_, name, _), _, _, sym, true)
-        | SDatatype (info, name, _, _, sym, true) ->
+        | SDatatype (info, name, _, _, sym, true, _) ->
             Option.map (fun t -> (info, name, t)) (IntMap.find_opt sym store.tmap)
         | _ -> None
       in
@@ -2530,6 +2617,93 @@ let pattern_shape wanted type_ info store =
                "this pattern matches %s, but it is matched against %s"
                (printed wanted) (shown type_ store) ))
 
+(** Why `==` cannot compare values of type t, or None where it can:
+    structurally, part by part, every part a scalar or itself something
+    `==` compares (PYKING.md, "Comparison operators"). A function has no
+    equality; an array, a Vec, a Dict and a `var struct` have an identity
+    instead, which `same` asks; a type variable may stand for any of
+    those. A metavariable is left to what decides it. Answers the part
+    that has none, as a reader names it, and what to say of it.
+    store -> typ -> (string * string) option *)
+let equality_problem store t =
+  let same_hint = ": 'same(a, b)' asks whether two of those are one" in
+  let rec go seen t =
+    match prune t store with
+    | TInt _ | TFloat _ | TString _ | TChar _ | TBool _ -> None
+    | TTuple (_, parts, _) -> List.find_map (go seen) parts
+    | TList (_, element, _) -> go seen element
+    | TFunction _ | TBuiltin _ | TForall _ -> Some ("a function", "")
+    | TCon (_, name, _, _) when name = array_name -> Some ("an array", same_hint)
+    | TCon (_, name, _, _) when name = vec_name -> Some ("a Vec", same_hint)
+    | TCon (_, name, _, _) when name = dict_name -> Some ("a Dict", same_hint)
+    | TCon (_, name, _, _) when name = slice_name -> Some ("a view", same_hint)
+    | TCon (_, name, args, _) -> (
+        match SMap.find_opt name store.datatypes with
+        | Some (Datatype (_, _, _, true)) -> Some (Printf.sprintf "a var struct, %s" (base_name name), same_hint)
+        | Some (Datatype (_, params, constructors, false)) ->
+            if List.mem name seen then List.find_map (go seen) args
+            else
+              let mapping = if List.length params = List.length args then List.combine params args else [] in
+              List.find_map
+                (fun (_, fields) -> List.find_map (fun (_, ft) -> go (name :: seen) (substitute ft mapping)) fields)
+                constructors
+        | None -> None)
+    | settled when is_meta settled -> None
+    | TVar (_, name, _, _) ->
+        Some
+          ( Printf.sprintf "the type variable '%s'" name,
+            ": it may stand for a function, or another type with no equality" )
+    | _ -> None
+  in
+  go [] t
+
+(** Why values of type t cannot be a Dict's keys, or None where they can
+    (FCR-F3): Int, Char, String, Bool and (), and tuples, lists and
+    immutable datatypes of keys. A Float is not one -- NaN is equal to
+    nothing, itself included -- nor is a function or anything with an
+    identity. store -> typ -> string option *)
+let key_problem store t =
+  let rec go seen t =
+    match prune t store with
+    | TInt _ | TString _ | TChar _ | TBool _ -> None
+    | TFloat _ -> Some "a Float, which NaN makes equal to nothing, not even itself"
+    | TTuple (_, parts, _) -> List.find_map (go seen) parts
+    | TList (_, element, _) -> go seen element
+    | TCon (_, name, _, _) when name = ptr_name -> Some "a pointer, whose target changes"
+    | TCon (_, name, _, _) when List.mem name [ array_name; vec_name; dict_name; slice_name ] ->
+        Some (Printf.sprintf "%s, which changes" (if name = array_name then "an array" else "a " ^ name))
+    | TCon (_, name, args, _) -> (
+        match SMap.find_opt name store.datatypes with
+        | Some (Datatype (_, _, _, true)) -> Some (Printf.sprintf "a var struct, %s, which changes" (base_name name))
+        | Some (Datatype (_, params, constructors, false)) ->
+            if List.mem name seen then List.find_map (go seen) args
+            else
+              let mapping = if List.length params = List.length args then List.combine params args else [] in
+              List.find_map
+                (fun (_, fields) -> List.find_map (fun (_, ft) -> go (name :: seen) (substitute ft mapping)) fields)
+                constructors
+        | None -> None)
+    | settled when is_meta settled -> None
+    | TVar (_, name, _, _) -> Some (Printf.sprintf "the type variable '%s', which may be anything" name)
+    | _ -> Some "a function"
+  in
+  go [] t
+
+(** Raises Type_error where a Dict's key type is settled enough to say it
+    cannot be one. info -> typ -> store -> () *)
+let demand_key info key store =
+  match key_problem store key with
+  | None -> ()
+  | Some part ->
+      raise
+        (Type_error
+           ( info,
+             Printf.sprintf
+               "a Dict's keys are compared and hashed, so a key is an Int, a \
+                Char, a String, a Bool, or a tuple, list or datatype of \
+                those; the key type here, %s, is or holds %s"
+               (shown key store) part ))
+
 (** What an operator is worth over two operands of type `common`, and the
     store that says so -- (None, store) where the operator does not
     accept it. expr -> typ -> [(kind, kind)] -> store -> (typ option, store) *)
@@ -2704,7 +2878,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
       let var_type, store = check_expr e env store in
       let var_type = zonk var_type store in
       let store = record store sym var_type in
-      (Some (unit_type info), bind env name var_type, store)
+      (Some (unit_type info), bind ~var:true env name var_type, store)
   | SMutateTuple _ -> after_desugar "typesystem"
   | SSetIndex (info, owner, index, value, sym) ->
       (* `a[i] := v` writes an element: `a` is an array -- a list or a
@@ -2717,9 +2891,40 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
         let o = expr_info owner in
         if o.row1 = o.row2 && o.col1 = o.col2 then info else o
       in
+      (match prune owner_type store with
+      | settled when dict_parts settled <> None ->
+          (* `d[k] := v` puts an entry in a Dict, or replaces the value of
+             the one it has (PYKING.md, "Dicts"). *)
+          let key, wanted = Option.get (dict_parts settled) in
+          let key_type, store = check_expr index env store in
+          let store =
+            match unify key key_type store with
+            | Some store -> store
+            | None ->
+                raise
+                  (Type_error
+                     ( expr_info index,
+                       Printf.sprintf "this Dict's keys are %s, and this one is %s"
+                         (shown key store) (shown key_type store) ))
+          in
+          demand_key (expr_info index) key store;
+          let actual, store = check_expr value env store in
+          let store =
+            match satisfies wanted (Some actual) store with
+            | Some store -> store
+            | None ->
+                raise
+                  (Type_error
+                     ( info,
+                       Printf.sprintf "this Dict's values are %s, but this '%s' gives %s"
+                         (shown wanted store) (assignment_word statement) (shown actual store) ))
+          in
+          let store = record store sym (unit_type info) in
+          (Some (unit_type info), env, store)
+      | _ -> (
       let element, store =
         match prune owner_type store with
-        | settled when array_element settled <> None -> (Option.get (array_element settled), store)
+        | settled when store_element settled <> None -> (Option.get (store_element settled), store)
         | TList _ ->
             raise
               (Type_error
@@ -2747,10 +2952,11 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
               (Type_error
                  ( owner_info,
                    Printf.sprintf
-                     "only an array's element is written with '%s', and this \
-                      value is %s"
+                     "only an array's or a Vec's element is written with '%s', \
+                      and this value is %s"
                      (assignment_word statement) (shown settled store) ))
       in
+      let what = if vec_element (prune owner_type store) <> None then "Vec" else "array" in
       let index_type, store = check_expr index env store in
       let store =
         match unify (t_int info) index_type store with
@@ -2759,7 +2965,8 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
             raise
               (Type_error
                  ( expr_info index,
-                   Printf.sprintf "an array's index is an Int, and this one is %s"
+                   Printf.sprintf "%s index is an Int, and this one is %s"
+                     (if what = "Vec" then "a Vec's" else "an array's")
                      (shown index_type store) ))
       in
       let actual, store = check_expr value env store in
@@ -2771,8 +2978,100 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
               (Type_error
                  ( info,
                    Printf.sprintf
-                     "this array's elements are %s, but this '%s' gives %s"
-                     (shown element store) (assignment_word statement)
+                     "this %s's elements are %s, but this '%s' gives %s"
+                     what (shown element store) (assignment_word statement)
+                     (shown actual store) ))
+      in
+      let store = record store sym (unit_type info) in
+      (Some (unit_type info), env, store)))
+  | SSetDeref (info, pointer, value, sym) ->
+      (* `*p := v` writes what a pointer points at: `p` is a Ptr(T) and
+         `v` a T, checked in the order they run. *)
+      let pointer_type, store = check_expr pointer env store in
+      let target, store =
+        match prune pointer_type store with
+        | settled when ptr_target settled <> None -> (Option.get (ptr_target settled), store)
+        | settled when is_meta settled ->
+            let target, store = fresh_meta info store in
+            (target, Option.get (unify (t_ptr info target) settled store))
+        | settled ->
+            raise
+              (Type_error
+                 ( info,
+                   Printf.sprintf "'*p %s' writes through a pointer, and this value is %s"
+                     (assignment_word statement) (shown settled store) ))
+      in
+      let actual, store = check_expr value env store in
+      let store =
+        match satisfies target (Some actual) store with
+        | Some store -> store
+        | None ->
+            raise
+              (Type_error
+                 ( info,
+                   Printf.sprintf "this pointer points at %s, but this '%s' gives %s"
+                     (shown target store) (assignment_word statement) (shown actual store) ))
+      in
+      let store = record store sym (unit_type info) in
+      (Some (unit_type info), env, store)
+  | SSetField (info, owner, field, value, sym) ->
+      (* `p.x := v` writes a field: `p` is a `var struct` -- a plain
+         struct or datatype never changes -- with a field `x`, and `v` is
+         that field's type. They are checked in the order they run. *)
+      let owner_type, store = check_expr owner env store in
+      (* A compound write's owner is a temporary with no span of its own
+         (desugar_args.ml), so the statement is where it is reported. *)
+      let owner_info =
+        let o = expr_info owner in
+        if o.row1 = o.row2 && o.col1 = o.col2 then info else o
+      in
+      (match prune owner_type store with
+      | TCon (_, canonical, _, _) when SMap.mem canonical store.datatypes -> (
+          match SMap.find canonical store.datatypes with
+          | Datatype (_, _, _, true) -> ()
+          | Datatype (_, _, constructors, false) ->
+              let built =
+                match constructors with
+                | [ (cname, _) ] -> Printf.sprintf "%s(%s = ..., ..old)" (base_name cname) field
+                | _ -> "a new value"
+              in
+              raise
+                (Type_error
+                   ( owner_info,
+                     Printf.sprintf
+                       "a %s never changes, so its field '%s' cannot be \
+                        written with '%s': build a new one, %s, or declare \
+                        it 'var struct %s'"
+                       (base_name canonical) field (assignment_word statement) built
+                       (base_name canonical) )))
+      | settled when is_meta settled ->
+          raise
+            (Type_error
+               ( owner_info,
+                 Printf.sprintf
+                   "nothing here says what this value is, so there is no \
+                    telling which field '%s' is written; annotate it"
+                   field ))
+      | settled ->
+          raise
+            (Type_error
+               ( owner_info,
+                 Printf.sprintf
+                   "only a var struct's field is written with '%s', and this \
+                    value is %s"
+                   (assignment_word statement) (shown settled store) )));
+      let wanted, store = field_type info owner_type field store in
+      let actual, store = check_expr value env store in
+      let store =
+        match satisfies wanted (Some actual) store with
+        | Some store -> store
+        | None ->
+            raise
+              (Type_error
+                 ( info,
+                   Printf.sprintf
+                     "the field '%s' holds %s, but this '%s' gives %s"
+                     field (shown wanted store) (assignment_word statement)
                      (shown actual store) ))
       in
       let store = record store sym (unit_type info) in
@@ -3015,7 +3314,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
         (* Every `match` matches every value -- exhaustive.ml refuses one
            that does not -- so it supplies what its arms do. *)
         (yielded, env, store)
-  | SDatatype (info, _, _, _, _, _) ->
+  | SDatatype (info, _, _, _, _, _, _) ->
       (* What a datatype declares was settled before the first statement
          was checked (`declare_datatypes`), since every datatype of the
          module is in scope throughout it. *)
@@ -3326,6 +3625,23 @@ and expr_type e env store =
          the parameters are. *)
       let spelled = match module_ with Some m -> m ^ "." ^ name | None -> name in
       let _, fields, result, store = constructor_use info spelled name store in
+      (* Making a `var struct` is mutation's, wherever it is declared
+         (FCR-A4); the parser refuses one this module declares, and this
+         is where one another module declares is. *)
+      (match prune result store with
+      | TCon (_, canonical, _, _) when not store.mutation -> (
+          match SMap.find_opt canonical store.datatypes with
+          | Some (Datatype (_, _, _, true)) ->
+              raise
+                (Type_error
+                   ( info,
+                     Printf.sprintf
+                       "'%s' makes a var struct, whose fields are written in \
+                        place, which needs 'use mutation' at the top of this \
+                        module"
+                       spelled ))
+          | _ -> ())
+      | _ -> ());
       let given = arg_exprs args in
       if List.length given <> List.length fields then
         raise
@@ -3354,76 +3670,9 @@ and expr_type e env store =
           (store, 0) given fields
       in
       (zonk result store, store)
-  | EField (info, record, field, _) -> (
-      (* A field is read the same way whichever constructor built the
-         value, so every constructor of the datatype has to have it, at
-         one type. *)
+  | EField (info, record, field, _) ->
       let record_type, store = check_expr record env store in
-      match prune record_type store with
-      | TCon (_, canonical, args, _) -> (
-          let (Datatype (_, params, constructors)) =
-            SMap.find canonical store.datatypes
-          in
-          let mapping = List.combine params args in
-          let found =
-            List.map
-              (fun (cname, fields) ->
-                ( cname,
-                  Option.map
-                    (fun (_, t) -> substitute t mapping)
-                    (List.find_opt (fun (label, _) -> label = Some field) fields) ))
-              constructors
-          in
-          match List.find_opt (fun (_, t) -> t = None) found with
-          | Some (cname, _) ->
-              raise
-                (Type_error
-                   ( info,
-                     Printf.sprintf
-                       "'%s' has no field '%s' in every constructor: '%s' has \
-                        none, so a value built by it has nothing to read"
-                       (base_name canonical) field cname ))
-          | None -> (
-              match List.map (fun (_, t) -> Option.get t) found with
-              | [] ->
-                  raise
-                    (Type_error
-                       ( info,
-                         Printf.sprintf "'%s' has no constructors" canonical ))
-              | first :: rest ->
-                  let store =
-                    List.fold_left
-                      (fun store other ->
-                        match unify first other store with
-                        | Some store -> store
-                        | None ->
-                            raise
-                              (Type_error
-                                 ( info,
-                                   Printf.sprintf
-                                     "the field '%s' of '%s' has a different \
-                                      type in different constructors (%s and \
-                                      %s), so reading it has no one type"
-                                     field (base_name canonical)
-                                     (shown first store) (shown other store) )))
-                      store rest
-                  in
-                  (zonk first store, store)))
-      | settled when is_meta settled ->
-          raise
-            (Type_error
-               ( info,
-                 Printf.sprintf
-                   "nothing here says what datatype this value is, so there \
-                    is no telling which field '%s' is meant; annotate it"
-                   field ))
-      | settled ->
-          raise
-            (Type_error
-               ( info,
-                 Printf.sprintf
-                   "'.%s' reads a field of a datatype, but this value is %s"
-                   field (shown settled store) )))
+      field_type info record_type field store
   | ECall _ -> check_call e env store
   | EAdd _ | EConcat _ | ESub _ | EMul _ | EDiv _ | ELessThan _
   | ELessThanEq _ | EGreatThan _ | EGreatThanEq _ | EEq _ | EBinary _ ->
@@ -3461,20 +3710,149 @@ and expr_type e env store =
                    (String.concat " or "
                       (List.map (fun kind -> printed (kind_type kind info)) accepts))
                    hint )))
+  | EAddr (info, place, _) -> (
+      (* `&place`: a pointer to a place something may write -- a `var`,
+         an array's or a view's element, a var struct's field, or what a
+         pointer points at (PYKING.md, "Pointers"). *)
+      let refuse what =
+        raise
+          (Type_error
+             ( expr_info place,
+               Printf.sprintf
+                 "'&' takes the address of a place that can be written -- a \
+                  'var', an array's element, a var struct's field, or '*p' -- \
+                  and %s" what ))
+      in
+      match place with
+      | EVar (_, name, _) -> (
+          match SMap.find_opt name env with
+          | Some { bvar = true; _ } ->
+              let target, store = check_expr place env store in
+              (t_ptr info (zonk target store), store)
+          | Some _ ->
+              refuse
+                (Printf.sprintf
+                   "'%s' is not a var, so nothing can write to it through a \
+                    pointer: declare it 'var %s = ...'"
+                   name name)
+          | None -> ignore (check_expr place env store); refuse "")
+      | EIndex (_, owner, _, _) -> (
+          let owner_type, _ = check_expr owner env store in
+          match prune owner_type store with
+          | settled when array_element settled <> None || slice_element settled <> None ->
+              let target, store = check_expr place env store in
+              (t_ptr info (zonk target store), store)
+          | settled when vec_element settled <> None ->
+              refuse "a Vec's element moves when the Vec grows: take the address of an array's"
+          | _ -> refuse "this element is of a value that never changes, or of a Dict")
+      | EField (_, owner, _, _) -> (
+          let owner_type, _ = check_expr owner env store in
+          match prune owner_type store with
+          | TCon (_, name, _, _)
+            when (match SMap.find_opt name store.datatypes with
+                  | Some (Datatype (_, _, _, writable)) -> writable
+                  | None -> false) ->
+              let target, store = check_expr place env store in
+              (t_ptr info (zonk target store), store)
+          | _ -> refuse "this field is of a struct or datatype that never changes")
+      | EDeref _ ->
+          let target, store = check_expr place env store in
+          (t_ptr info (zonk target store), store)
+      | EQualified (_, alias, field, s) when SMap.mem alias env ->
+          (* `&p.x`: a value's field, which the parser read as a module's
+             name. *)
+          check_expr (EAddr (info, EField (expr_info place, EVar (expr_info place, alias, 0), field, s), 0)) env store
+      | _ -> refuse "this is a value, not a place: a call's result or a literal has nowhere to write")
+  | EDeref (info, pointer, _) -> (
+      (* `*p`: what the pointer points at, now. *)
+      let pointer_type, store = check_expr pointer env store in
+      match prune pointer_type store with
+      | settled when ptr_target settled <> None -> (zonk (Option.get (ptr_target settled)) store, store)
+      | settled when is_meta settled ->
+          let target, store = fresh_meta info store in
+          let store = Option.get (unify (t_ptr info target) settled store) in
+          (target, store)
+      | settled ->
+          raise
+            (Type_error
+               ( expr_info pointer,
+                 Printf.sprintf "'*' reads through a pointer, and this value is %s"
+                   (shown settled store) )))
+  | ESlice (info, seq, low, high, _) ->
+      (* `s[i:j]` copies a run of a list, a String, an array, a Vec or a
+         view into a new value of its own kind -- a view's into an array
+         -- and its bounds are Ints (PYKING.md, "Slices"). *)
+      let seq_type, store = check_expr seq env store in
+      let result, store =
+        match prune seq_type store with
+        | TString _ as t -> (t, store)
+        | TList _ as t -> (zonk t store, store)
+        | settled when array_element settled <> None || vec_element settled <> None -> (zonk settled store, store)
+        | settled when slice_element settled <> None -> (t_array info (zonk (Option.get (slice_element settled)) store), store)
+        | settled when is_meta settled -> (
+            let element, store = fresh_meta info store in
+            match unify (t_list info element) settled store with
+            | Some store -> (zonk settled store, store)
+            | None -> (settled, store))
+        | settled ->
+            raise
+              (Type_error
+                 ( expr_info seq,
+                   Printf.sprintf
+                     "only a list, a String, an array, a Vec or a view is sliced \
+                      with '[i:j]', and this value is %s"
+                     (shown settled store) ))
+      in
+      let store =
+        List.fold_left
+          (fun store bound ->
+            let bound_type, store = check_expr bound env store in
+            match unify (t_int info) bound_type store with
+            | Some store -> store
+            | None ->
+                raise
+                  (Type_error
+                     ( expr_info bound,
+                       Printf.sprintf "a slice's bounds are Ints, and this one is %s"
+                         (shown bound_type store) )))
+          store
+          (Option.to_list low @ Option.to_list high)
+      in
+      (result, store)
   | EIndex (info, list, index, _) ->
       (* `xs[i]` reads element i of a list, so the list is `[a]` for some
          a, the index an Int, and the element is worth an `a`. A String
-         is indexed too, and its element is a Char. *)
+         is indexed too, and its element is a Char. A Dict is indexed by
+         its key, and its element is a value (PYKING.md, "Dicts"). *)
       let list_type, store = check_expr list env store in
+      match prune list_type store with
+      | settled when dict_parts settled <> None ->
+          let key, value = Option.get (dict_parts settled) in
+          let key_type, store = check_expr index env store in
+          let store =
+            match unify key key_type store with
+            | Some store -> store
+            | None ->
+                raise
+                  (Type_error
+                     ( expr_info index,
+                       Printf.sprintf "this Dict's keys are %s, and this one is %s"
+                         (shown key store) (shown key_type store) ))
+          in
+          demand_key (expr_info index) key store;
+          (zonk value store, store)
+      | _ ->
       let indexed =
         if kind_matches KString (prune list_type store) then "a String"
         else if kind_matches KArray (prune list_type store) then "an array"
+        else if kind_matches KVec (prune list_type store) then "a Vec"
+        else if kind_matches KSlice (prune list_type store) then "a view"
         else "a list"
       in
       let element, store =
         match prune list_type store with
         | TString _ -> (t_char info, store)
-        | settled when array_element settled <> None -> (Option.get (array_element settled), store)
+        | settled when store_element settled <> None -> (Option.get (store_element settled), store)
         | _ -> (
             let element, store = fresh_meta info store in
             match unify (t_list info element) list_type store with
@@ -3484,8 +3862,8 @@ and expr_type e env store =
                   (Type_error
                      ( expr_info list,
                        Printf.sprintf
-                         "only a list, an array or a String is indexed with '[...]', and \
-                          this value is %s"
+                         "only a list, an array, a Vec, a Dict or a String is indexed \
+                          with '[...]', and this value is %s"
                          (shown list_type store) )))
       in
       let index_type, store = check_expr index env store in
@@ -3583,14 +3961,43 @@ and check_binary e env store =
   in
   let left_type, store = check_expr left env store in
   let right_type, store = check_expr right env store in
+  let structured common =
+    match common with
+    | TList _ -> true
+    | TTuple (_, parts, _) -> parts <> []
+    | TCon (_, name, _, _) -> not (List.mem name [ array_name; vec_name; dict_name; slice_name ])
+    | _ -> false
+  in
   let answer =
     match unify left_type right_type store with
     | None -> None
     | Some together -> (
         let common = prune left_type together in
-        match operator_result e common rows together with
-        | Some type_, after -> Some (type_, after)
-        | None, _ -> None)
+        match e with
+        | (EEq _ | EBinary (_, BNeq, _, _, _)) when structured common -> (
+            (* `==` on lists, tuples, structs and datatypes compares them
+               part by part, where every part is something `==`
+               compares (PYKING.md, "Comparison operators"). *)
+            match (common, equality_problem together common) with
+            | TCon (_, name, _, _), Some _
+              when (match SMap.find_opt name together.datatypes with
+                    | Some (Datatype (_, _, _, true)) -> true
+                    | _ -> false) ->
+                None
+            | _, None -> Some (t_bool (expr_info e), together)
+            | _, Some (part, hint) ->
+                raise
+                  (Type_error
+                     ( expr_info e,
+                       Printf.sprintf
+                         "`%s` compares %s part by part, and this one holds %s, \
+                          which `%s` does not compare%s"
+                         spelling (shown common together) part spelling
+                         hint )))
+        | _ -> (
+            match operator_result e common rows together with
+            | Some type_, after -> Some (type_, after)
+            | None, _ -> None))
   in
   match answer with
   | Some pair -> pair
@@ -3720,21 +4127,80 @@ and resolve_overload call spelling candidates args env store =
       in
       (result, store)
   | [] -> raise (no_candidate info spelling candidates given store)
-  | [ (("fill::array" | "init::array"), _, _, _); (("fill::array" | "init::array"), _, _, _) ]
-    when (match prune (List.nth given 1) store with TFunction _ -> true | _ -> false) ->
-      (* `array(n, f)` with a function `f` generates: the one place two
-         fitting definitions are not an error (PYKING.md, "Arrays").
-         `fill::array(n, f)` is how an array of n copies of a function
-         is written. *)
-      let _, result, _, trial =
-        List.find (fun (name, _, _, _) -> name = "init::array") fitting
-      in
-      let store =
-        record_resolution trial (expr_sym call)
-          (Call (Some ("init::array", t_function info given (zonk result trial)), []))
-      in
-      (result, store)
   | several -> raise (several_candidates info spelling several given store)
+
+(** The type of the field `field` of a value of type record_type: every
+    constructor of its datatype has the field, at one type. Raises
+    Type_error otherwise. info -> typ -> string -> store -> (typ, store) *)
+and field_type info record_type field store =
+  (* A field is read the same way whichever constructor built the
+     value, so every constructor of the datatype has to have it, at
+     one type. *)
+  match prune record_type store with
+  | TCon (_, canonical, args, _) -> (
+      let (Datatype (_, params, constructors, _)) =
+        SMap.find canonical store.datatypes
+      in
+      let mapping = List.combine params args in
+      let found =
+        List.map
+          (fun (cname, fields) ->
+            ( cname,
+              Option.map
+                (fun (_, t) -> substitute t mapping)
+                (List.find_opt (fun (label, _) -> label = Some field) fields) ))
+          constructors
+      in
+      match List.find_opt (fun (_, t) -> t = None) found with
+      | Some (cname, _) ->
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf
+                   "'%s' has no field '%s' in every constructor: '%s' has \
+                    none, so a value built by it has nothing to read"
+                   (base_name canonical) field cname ))
+      | None -> (
+          match List.map (fun (_, t) -> Option.get t) found with
+          | [] ->
+              raise
+                (Type_error
+                   ( info,
+                     Printf.sprintf "'%s' has no constructors" canonical ))
+          | first :: rest ->
+              let store =
+                List.fold_left
+                  (fun store other ->
+                    match unify first other store with
+                    | Some store -> store
+                    | None ->
+                        raise
+                          (Type_error
+                             ( info,
+                               Printf.sprintf
+                                 "the field '%s' of '%s' has a different \
+                                  type in different constructors (%s and \
+                                  %s), so reading it has no one type"
+                                 field (base_name canonical)
+                                 (shown first store) (shown other store) )))
+                  store rest
+              in
+              (zonk first store, store)))
+  | settled when is_meta settled ->
+      raise
+        (Type_error
+           ( info,
+             Printf.sprintf
+               "nothing here says what datatype this value is, so there \
+                is no telling which field '%s' is meant; annotate it"
+               field ))
+  | settled ->
+      raise
+        (Type_error
+           ( info,
+             Printf.sprintf
+               "'.%s' reads a field of a datatype, but this value is %s"
+               field (shown settled store) ))
 
 (** Why no definition of an overloaded name fits these arguments.
     info -> string -> [(string, typ)] -> [typ] -> store -> exn *)
@@ -3766,16 +4232,7 @@ and several_candidates info spelling fitting given store =
   in
   Type_error
     ( info,
-      if undecided && spelling = "array" then
-        (* The builtin set: a fill or a generator, which an annotation or
-           the member's own name decides (PYKING.md, "Arrays"). *)
-        Printf.sprintf
-          "nothing here decides which 'array' is meant: %s all take these \
-           arguments, and the type of at least one of them is still open. \
-           Annotate it -- a function makes the elements, anything else \
-           fills them -- or write 'fill::array' or 'init::array'"
-          named
-      else if undecided then
+      if undecided then
         Printf.sprintf
           "nothing here decides which '%s' is meant: %s all take these \
            arguments, and the type of at least one of them is still open. \
@@ -3923,26 +4380,153 @@ and check_builtin_call name call env store =
       (t_char info, store)
   | "len", [ value ] ->
       check_builtin_arity name info given;
-      if not (every value [ KList; KString; KArray ]) then
+      if not (every value [ KList; KString; KArray; KVec; KDict; KSlice ]) then
         raise
           (builtin_argument_error name (List.hd args) value
-             "a list, an array or a String");
+             "a list, an array, a Vec, a Dict, a view or a String");
       (t_int info, store)
-  | "same", [ first; second ] ->
-      (* Whether two arrays are one: identity, which `==` does not ask
-         (PYKING.md, "Arrays"). Both are arrays of one element type. *)
+  | ("remove" | "clear" | "discard" | "get" | "has" | "keys" | "values" | "items"), first :: _
+    when dict_parts (prune first store) <> None
+         || List.mem name [ "discard"; "get"; "has"; "keys"; "values"; "items" ] ->
+      (* A Dict's builtins (PYKING.md, "Dicts"): the first argument is
+         one, a key is its key type, a default its value type. One
+         nothing has decided is a Dict. *)
+      check_builtin_arity name info given;
+      let key, value, store =
+        match dict_parts (prune first store) with
+        | Some (key, value) -> (key, value, store)
+        | None -> (
+            let key, store = fresh_meta info store in
+            let value, store = fresh_meta info store in
+            match unify (t_dict info key value) first store with
+            | Some store -> (key, value, store)
+            | None -> raise (builtin_argument_error name (List.hd args) first "a Dict"))
+      in
+      let expect store position wanted what =
+        match unify wanted (List.nth types position) store with
+        | Some store -> store
+        | None -> raise (builtin_argument_error name (List.nth args position) (List.nth types position) what)
+      in
+      let store =
+        if List.mem name [ "remove"; "discard"; "get"; "has" ] then (
+          let store = expect store 1 key (Printf.sprintf "%s, the Dict's key type" (shown key store)) in
+          demand_key (expr_info (List.nth args 1)) key store;
+          store)
+        else store
+      in
+      let store =
+        if name = "get" then expect store 2 value (Printf.sprintf "%s, the Dict's value type" (shown value store))
+        else store
+      in
+      ( (match name with
+        | "remove" | "get" -> zonk value store
+        | "has" -> t_bool info
+        | "keys" -> t_list info (zonk key store)
+        | "values" -> t_list info (zonk value store)
+        | "items" -> t_list info (t_tuple info [ zonk key store; zonk value store ])
+        | _ -> unit_type info),
+        store )
+  | "view", [ first; _; _ ] ->
+      (* `view(a, i, j)`: elements i up to j of an array or of a view of
+         one, shared with it (PYKING.md, "Slices"). *)
+      check_builtin_arity name info given;
+      let element, store = fresh_meta info store in
+      let store =
+        match prune first store with
+        | settled when slice_element settled <> None ->
+            Option.get (unify (t_slice info element) settled store)
+        | _ -> (
+            match unify (t_array info element) first store with
+            | Some store -> store
+            | None -> raise (builtin_argument_error name (List.hd args) first "an array or a view"))
+      in
+      let store =
+        List.fold_left
+          (fun store position ->
+            match unify (t_int info) (List.nth types position) store with
+            | Some store -> store
+            | None -> raise (builtin_argument_error name (List.nth args position) (List.nth types position) "Int"))
+          store [ 1; 2 ]
+      in
+      (t_slice info (zonk element store), store)
+  | "copy_into", [ first; second ] ->
+      (* `copy_into(dst, src)`: src's elements written over dst's first
+         ones, as memmove copies -- right where the two overlap. Each is
+         an array or a view, of one element type. *)
       check_builtin_arity name info given;
       let element, store = fresh_meta info store in
       let store =
         List.fold_left2
           (fun store argument actual ->
-            match unify (t_array info element) actual store with
-            | Some store -> store
-            | None ->
-                raise
-                  (builtin_argument_error name argument actual
-                     "two arrays of one element type"))
+            match prune actual store with
+            | settled when slice_element settled <> None -> (
+                match unify (t_slice info element) settled store with
+                | Some store -> store
+                | None -> raise (builtin_argument_error name argument actual "an array or a view of one element type"))
+            | _ -> (
+                match unify (t_array info element) actual store with
+                | Some store -> store
+                | None -> raise (builtin_argument_error name argument actual "an array or a view of one element type")))
           store args [ first; second ]
+      in
+      (unit_type info, store)
+  | ("push" | "pop" | "insert" | "remove" | "clear"), first :: rest ->
+      (* A writer changes a Vec (PYKING.md, "Vecs"): its first argument
+         is one, an index is an Int, and a value is the element type. One
+         nothing has decided is a Vec. *)
+      check_builtin_arity name info given;
+      let element, store = fresh_meta info store in
+      let store =
+        match unify (t_vec info element) first store with
+        | Some store -> store
+        | None -> raise (builtin_argument_error name (List.hd args) first "a Vec")
+      in
+      let expect store position wanted what =
+        match unify wanted (List.nth types position) store with
+        | Some store -> store
+        | None -> raise (builtin_argument_error name (List.nth args position) (List.nth types position) what)
+      in
+      let element_text store = Printf.sprintf "%s, the Vec's element type" (shown element store) in
+      let store =
+        match (name, rest) with
+        | "push", [ _ ] -> expect store 1 element (element_text store)
+        | "insert", [ _; _ ] ->
+            let store = expect store 1 (t_int info) "Int, an index" in
+            expect store 2 element (element_text store)
+        | "remove", [ _ ] -> expect store 1 (t_int info) "Int, an index"
+        | _ -> store
+      in
+      ((match name with "pop" | "remove" -> zonk element store | _ -> unit_type info), store)
+  | "same", [ first; second ] ->
+      (* Whether two values are one: identity, which `==` does not ask
+         (PYKING.md, "Arrays", "Mutable structs"). Both are arrays of one
+         element type, or both one `var struct` -- the values that have
+         an identity; one nothing has decided is an array. *)
+      check_builtin_arity name info given;
+      let wanted = "two arrays, Vecs, Dicts, views or var structs, of one type" in
+      let identity settled =
+        match settled with
+        | TCon (_, c, _, _) when List.mem c [ array_name; vec_name; dict_name; slice_name ] -> true
+        | TCon (_, c, _, _) -> (
+            match SMap.find_opt c store.datatypes with
+            | Some (Datatype (_, _, _, writable)) -> writable
+            | None -> false)
+        | _ -> false
+      in
+      let store =
+        match unify first second store with
+        | Some store -> store
+        | None -> raise (builtin_argument_error name (List.nth args 1) second wanted)
+      in
+      let store =
+        match prune first store with
+        | settled when is_meta settled -> (
+            let element, store = fresh_meta info store in
+            match unify (t_array info element) settled store with
+            | Some store -> store
+            | None -> store)
+        | settled when identity settled -> store
+        | _ -> raise (builtin_argument_error name (List.hd args) first wanted)
       in
       (t_bool info, store)
   | "range", _ ->
@@ -4747,23 +5331,46 @@ and resolved_argument one store =
           passed,
           List.map (fun one -> resolved_argument one store) inner )
 
-(** Refuses a binding whose type holds an array of elements nothing
-    decided (`a = array([])`, never written or read as anything): a
-    mutable value has to be one type, and no later program text can say
-    which once the module is checked (PYKING.md, "Arrays"). An immutable
-    `xs = []` stays a list of anything. [stmt] -> store -> () *)
+(** Refuses a binding whose type holds a mutable value of a type nothing
+    decided -- an array of elements nothing decided (`a = array([])`,
+    never written or read as anything), or a `var struct` of a parameter
+    nothing decided (`c = Cell([])`): a mutable value has to be one type,
+    and no later program text can say which once the module is checked
+    (PYKING.md, "Arrays", "Mutable structs"). An immutable `xs = []` stays
+    a list of anything. [stmt] -> store -> () *)
 let check_open_arrays stmts store =
+  let writable name =
+    match SMap.find_opt name store.datatypes with
+    | Some (Datatype (_, _, _, writable)) -> writable
+    | None -> false
+  in
   let rec open_array type_ =
     match type_ with
-    | TCon (_, name, [ element ], _) when name = array_name -> metas_in element store <> [] || open_array element
+    | TCon (_, name, [ element ], _) when name = array_name || name = vec_name || name = slice_name ->
+        metas_in element store <> [] || open_array element
+    | TCon (_, name, args, _) when name = dict_name ->
+        List.exists (fun arg -> metas_in arg store <> []) args || List.exists open_array args
+    | TCon (_, name, args, _) when writable name ->
+        List.exists (fun arg -> metas_in arg store <> []) args || List.exists open_array args
     | TCon (_, _, args, _) | TTuple (_, args, _) -> List.exists open_array args
     | TList (_, element, _) -> open_array element
     | _ -> false
+  in
+  (* A Dict's key type, wherever one is in a binding's type, is one a
+     key can be: what `d[k]` and `has` check at a use, this checks of a
+     Dict nothing used. *)
+  let rec keys_fit info type_ =
+    match type_ with
+    | TCon (_, name, [ key; _ ], _) when name = dict_name -> demand_key info key store
+    | TCon (_, _, args, _) | TTuple (_, args, _) -> List.iter (keys_fit info) args
+    | TList (_, element, _) -> keys_fit info element
+    | _ -> ()
   in
   let check name info sym =
     match IntMap.find_opt sym store.tmap with
     | Some type_ ->
         let type_ = zonk type_ store in
+        keys_fit info type_;
         if open_array type_ then
           let shown =
             substitute type_ (List.map (fun meta -> (meta, t_unknown info)) (metas_in type_ store))
@@ -4772,8 +5379,8 @@ let check_open_arrays stmts store =
             (Type_error
                ( info,
                  Printf.sprintf
-                   "the type of '%s' is %s: nothing says what its elements \
-                    are. Use it, or annotate it ('%s: %s = ...')"
+                   "the type of '%s' is %s: nothing says what it holds. \
+                    Use it, or annotate it ('%s: %s = ...')"
                    name (printed shown) name
                    (printed
                       (substitute type_
@@ -4800,8 +5407,8 @@ let check_open_arrays stmts store =
     that does not check out. Answers the types it worked out and, beside
     them, what every call it resolved denotes.
     [stmt] -> [(string, sigmap)] -> (typ IntMap.t, resolution IntMap.t) *)
-let type_check ?(declared = []) stmts sigmaps =
-  let store = declare_datatypes stmts (empty_store sigmaps) in
+let type_check ?(declared = []) ?(mutation = true) stmts sigmaps =
+  let store = declare_datatypes stmts { (empty_store sigmaps) with mutation } in
   (* A module's own declaration half is in scope here, unqualified and
      with no import: `foo.pyk` and `foo_external.pyk` are one module, so
      a name the target's source provides is a name of this module (see

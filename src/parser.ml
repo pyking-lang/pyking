@@ -224,11 +224,30 @@ and parse_call_tail eof e tokens =
       (* `xs[i]`: the `[` is on the row the list ends on, for the reason
          a call's `(` is -- otherwise a list literal starting the next
          line would index this one. *)
-      let index, rest = parse_expr eof rest in
+      (* `xs[i:j]` is a slice, either bound left out: `xs[:j]`,
+         `xs[i:]`, `xs[:]`. *)
+      let slice low rest =
+        let high, rest =
+          match rest with
+          | TokRBracket _ :: _ -> (None, rest)
+          | _ ->
+              let high, rest = parse_expr eof rest in
+              (Some high, rest)
+        in
+        match rest with
+        | TokRBracket rb :: rest ->
+            parse_call_tail eof (ESlice (combine_info (expr_info e) rb, e, low, high, 0)) rest
+        | _ -> raise (Parse_error (here eof rest, "expected ']' after the slice's end"))
+      in
       match rest with
-      | TokRBracket rb :: rest ->
-          parse_call_tail eof (EIndex (combine_info (expr_info e) rb, e, index, 0)) rest
-      | _ -> raise (Parse_error (here eof rest, "expected ']' after the index")))
+      | TokColon _ :: rest -> slice None rest
+      | _ -> (
+          let index, rest = parse_expr eof rest in
+          match rest with
+          | TokRBracket rb :: rest ->
+              parse_call_tail eof (EIndex (combine_info (expr_info e) rb, e, index, 0)) rest
+          | TokColon _ :: rest -> slice (Some index) rest
+          | _ -> raise (Parse_error (here eof rest, "expected ']' after the index"))))
   | TokLParen lp :: rest when lp.row1 = (expr_info e).row2 ->
       let args, rparen, rest = parse_args eof rest in
       let call_info = combine_info (expr_info e) rparen in
@@ -354,6 +373,14 @@ and parse_unary eof tokens =
   | TokSub i :: rest -> prefix i (fun info o -> ENeg (info, o, 0)) rest
   | TokBang i :: rest -> prefix i (fun info o -> EUnary (info, UNot Symbol, o, 0)) rest
   | TokTilde i :: rest -> prefix i (fun info o -> EUnary (info, UBitNot Symbol, o, 0)) rest
+  (* `&x` and `*p`: where an operand starts, `&` and `*` are a pointer's
+     -- between two operands they are bitwise and and times, as `-` is
+     negation or subtraction by where it stands (PYKING.md, "Pointers"). *)
+  | (TokAmp i | TokLineAmp i) :: rest -> prefix i (fun info o -> EAddr (info, o, 0)) rest
+  | (TokMul i | TokLineStar i) :: rest -> prefix i (fun info o -> EDeref (info, o, 0)) rest
+  | TokStarStar i :: rest ->
+      (* `**pp`: two pointers read through, not a power. *)
+      prefix i (fun info o -> EDeref (info, EDeref (info, o, 0), 0)) rest
   | _ -> parse_power eof tokens
 
 (** Parses `atom ^ unary`. `^` associates to the right -- its right
@@ -378,6 +405,9 @@ and parse_chain operand operator eof tokens =
   let left, rest = operand eof tokens in
   let rec more left rest =
     match rest with
+    (* `xor=` is a compound assignment, `a[i] xor= 1`, not `xor`
+       applied to what follows: the statement is what reads it. *)
+    | TokXor x :: TokEq q :: _ when x.row2 = q.row1 && x.col2 = q.col1 -> (left, rest)
     | t :: rest2 -> (
         match operator t with
         | Some make ->
@@ -1598,10 +1628,19 @@ and parse_statement eof tokens =
            ( i,
              "only the top level of a module has names to export, so \
               'public' cannot be written inside a block" ))
+  | TokIdent (i, owner) :: TokDot _ :: TokIdent (_, field) :: TokEq e :: _ ->
+      raise
+        (Parse_error
+           ( combine_info i e,
+             Printf.sprintf
+               "a field is written with ':=', not '=': did you mean '%s.%s := \
+                v'? '=' binds a name, and a dotted name defines a name in a \
+                submodule only at the top level of a module"
+               owner field ))
   | TokDef _ :: TokIdent (i, _) :: TokDot _ :: _
   | TokDatatype _ :: TokIdent (i, _) :: TokDot _ :: _
   | TokStruct _ :: TokIdent (i, _) :: TokDot _ :: _
-  | TokIdent (i, _) :: TokDot _ :: TokIdent _ :: (TokEq _ | TokColon _) :: _ ->
+  | TokIdent (i, _) :: TokDot _ :: TokIdent _ :: TokColon _ :: _ ->
       raise
         (Parse_error
            ( i,
@@ -1714,12 +1753,18 @@ and parse_statement eof tokens =
            ( i,
              "a datatype belongs to the top level of a module, so it cannot \
               be declared inside a block" ))
-  | TokStruct i :: _ ->
+  | TokStruct i :: _ | TokVar i :: TokStruct _ :: _ ->
       raise
         (Parse_error
            ( i,
              "a struct belongs to the top level of a module, so it cannot be \
               declared inside a block" ))
+  | TokVar i :: TokDatatype _ :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             "only a struct is written in place: 'var struct Name(field: \
+              Type, ...)'. A datatype's values never change" ))
   (* A statement starting with `if` is either an if *statement*
      (`if cond: block`) or an if *expression* used as an expression
      statement. The two share the whole `"if" , expr` prefix, and that
@@ -1778,6 +1823,12 @@ and parse_statement eof tokens =
 
 and parse_expr_statement eof tokens =
   let e, rest = parse_tuple_or_expr eof tokens in
+  parse_expr_statement_from eof e rest
+
+(** An expression statement whose expression `e` is parsed, `rest`
+    following it: a write if `:=` or a compound operator follows an
+    element or a field. info -> expr -> [token] -> (stmt, [token]) *)
+and parse_expr_statement_from eof e rest =
   match (e, rest) with
   (* `a[i] := e` writes an element; `a[i] += e` is `a[i] := a[i] + e`,
      with `a` and `i` worked out once (desugar_args makes sure of it). *)
@@ -1799,6 +1850,52 @@ and parse_expr_statement eof tokens =
            ( combine_info (expr_info e) i,
              "an element is written with ':=', not '=': did you mean 'a[i] := v'? \
               '=' binds a name" ))
+  (* `p.x := e` writes a field of a `var struct`; `p.x += e` is
+     `p.x := p.x + e`, with `p` worked out once (desugar_args). A plain
+     `p.x` is read as a module's name `p.x` until desugar_args knows `p`
+     is a value; a write is always to a value's field. *)
+  | EQualified (qi, alias, field, s), ((TokAssign _ | TokCompound _) :: _ as rest)
+  | EQualified (qi, alias, field, s), (TokXor _ :: TokEq _ :: _ as rest) ->
+      let owner = EVar ({ qi with row2 = qi.row1; col2 = qi.col1 + String.length alias }, alias, 0) in
+      parse_expr_statement_from eof (EField (qi, owner, field, s)) rest
+  (* `*p := e` writes what a pointer points at; `*p += e` is
+     `*p := *p + e`, with `p` worked out once (desugar_args). *)
+  | EDeref (_, pointer, _), TokAssign _ :: rest ->
+      let value, rest = parse_bound_value eof rest in
+      let v = expect_expr_value value "a ':=' writing through a pointer" in
+      (SSetDeref (combine_info (expr_info e) (expr_info v), pointer, v, 0), rest)
+  | EDeref (_, pointer, _), TokCompound (_, op) :: rest ->
+      let value, rest = parse_bound_value eof rest in
+      let v = expect_expr_value value (Printf.sprintf "a '%s=' assignment" op) in
+      (SSetDeref (combine_info (expr_info e) (expr_info v), pointer, compound_on op e v, 0), rest)
+  | EDeref (_, pointer, _), TokXor x :: TokEq q :: rest when x.row2 = q.row1 && x.col2 = q.col1 ->
+      let value, rest = parse_bound_value eof rest in
+      let v = expect_expr_value value "a 'xor=' assignment" in
+      (SSetDeref (combine_info (expr_info e) (expr_info v), pointer, compound_on "xor" e v, 0), rest)
+  | EDeref _, TokEq i :: _ ->
+      raise
+        (Parse_error
+           ( combine_info (expr_info e) i,
+             "what a pointer points at is written with ':=', not '=': did you \
+              mean '*p := v'? '=' binds a name" ))
+  | EField (_, owner, field, _), TokAssign _ :: rest ->
+      let value, rest = parse_bound_value eof rest in
+      let v = expect_expr_value value "a ':=' writing a field" in
+      (SSetField (combine_info (expr_info e) (expr_info v), owner, field, v, 0), rest)
+  | EField (_, owner, field, _), TokCompound (_, op) :: rest ->
+      let value, rest = parse_bound_value eof rest in
+      let v = expect_expr_value value (Printf.sprintf "a '%s=' assignment" op) in
+      (SSetField (combine_info (expr_info e) (expr_info v), owner, field, compound_on op e v, 0), rest)
+  | EField (_, owner, field, _), TokXor x :: TokEq q :: rest when x.row2 = q.row1 && x.col2 = q.col1 ->
+      let value, rest = parse_bound_value eof rest in
+      let v = expect_expr_value value "a 'xor=' assignment" in
+      (SSetField (combine_info (expr_info e) (expr_info v), owner, field, compound_on "xor" e v, 0), rest)
+  | EField _, TokEq i :: _ ->
+      raise
+        (Parse_error
+           ( combine_info (expr_info e) i,
+             "a field is written with ':=', not '=': did you mean 'p.x := v'? \
+              '=' binds a name" ))
   | _ ->
   (* What is left of a `:=` or a `+=` is a mutable variable's plain
      name or an element: any other expression is not something either
@@ -1811,8 +1908,10 @@ and parse_expr_statement eof tokens =
            ( combine_info (expr_info e) i,
              Printf.sprintf
                "'%s' updates a mutable variable, written as its plain name \
-                on the left ('count %s 1'), or an array's element ('a[i] %s 1')"
-               word word word ))
+                on the left ('count %s 1'), an array's element ('a[i] %s 1'), \
+                a var struct's field ('p.x %s 1'), or what a pointer points \
+                at ('*p %s 1')"
+               word word word word word ))
   | _ -> ());
   (SExprStmt (expr_info e, e, 0), rest)
 
@@ -2418,6 +2517,7 @@ let rec dotted_definition tokens =
   | (TokDef _ as t) :: rest | (TokDatatype _ as t) :: rest
   | (TokStruct _ as t) :: rest ->
       t :: merge_name rest
+  | (TokVar _ as v) :: (TokStruct _ as t) :: rest -> v :: t :: merge_name rest
   | TokIdent _ :: TokDot _ :: _ -> (
       match merge_name tokens with
       | (TokIdent _ as name) :: ((TokEq _ | TokColon _) :: _ as rest) -> name :: rest
@@ -2693,7 +2793,7 @@ let parse_datatype eof datatype_info tokens =
     let constructors = List.rev collected in
     let (Constructor (last, _, _, _)) = List.hd collected in
     ( SDatatype
-        (combine_info datatype_info last, name, params, constructors, 0, false),
+        (combine_info datatype_info last, name, params, constructors, 0, false, false),
       rest )
   in
   match rest with
@@ -2757,8 +2857,10 @@ let params_follow tokens =
     constructor, named as the type is. Its fields are in parentheses on
     the header's line, with every type variable they name a parameter, or
     on indented lines under a `:`, after the parameters written in
-    parentheses before it. info -> info -> [token] -> (stmt, [token]) *)
-let parse_struct eof struct_info tokens =
+    parentheses before it. `writable` is set after `var struct`, whose
+    fields are written in place. bool? -> info -> info -> [token] ->
+    (stmt, [token]) *)
+let parse_struct ?(writable = false) eof struct_info tokens =
   let name_info, name, rest = parse_type_name eof "struct" tokens in
   let cname = List.hd (List.rev (String.split_on_char '.' name)) in
   (* One indented line of fields, separated by commas, starting a line of
@@ -2832,6 +2934,14 @@ let parse_struct eof struct_info tokens =
     | _ -> ([], [], None, rest)
   in
   check_fields fields;
+  if writable && fields = [] then
+    raise
+      (Parse_error
+         ( name_info,
+           Printf.sprintf
+             "a var struct has fields to write, and '%s' has none: a struct \
+              with no fields is a plain 'struct %s'"
+             name name ));
   let last = Option.value last ~default:name_info in
   ( SDatatype
       ( combine_info struct_info last,
@@ -2839,7 +2949,8 @@ let parse_struct eof struct_info tokens =
         params,
         [ Constructor (combine_info name_info last, cname, fields, 0) ],
         0,
-        false ),
+        false,
+        writable ),
     rest )
 
 (** One statement with `public` written in front of it. stmt -> info ->
@@ -2853,8 +2964,8 @@ let made_public stmt public_info =
         (i, name, params, body, return_type, sym, true, implicits, implicit)
   | SFunctionSig (_, name, type_, sym, _) ->
       SFunctionSig (i, name, type_, sym, true)
-  | SDatatype (_, name, params, constructors, sym, _) ->
-      SDatatype (i, name, params, constructors, sym, true)
+  | SDatatype (_, name, params, constructors, sym, _, writable) ->
+      SDatatype (i, name, params, constructors, sym, true, writable)
   | SLet (_, (TargetName _ as target), e, annotation, sym, _, implicit) ->
       SLet (i, target, e, annotation, sym, true, implicit)
   | SLetStmt (_, (TargetName _ as target), inner, annotation, sym, _) ->
@@ -2881,6 +2992,7 @@ let made_public stmt public_info =
     info -> info -> [token] -> (stmt, [token]) *)
 let parse_public eof public_info tokens =
   (match tokens with
+  | TokVar _ :: TokStruct _ :: _ -> ()
   | TokVar i :: _ ->
       raise
         (Parse_error
@@ -2897,6 +3009,7 @@ let parse_public eof public_info tokens =
     match tokens with
     | TokDatatype i :: rest -> parse_datatype eof i rest
     | TokStruct i :: rest -> parse_struct eof i rest
+    | TokVar i :: TokStruct _ :: rest -> parse_struct ~writable:true eof i rest
     | _ -> parse_statement eof tokens
   in
   (made_public stmt public_info, rest)
@@ -2920,6 +3033,9 @@ let parse_top_statement eof tokens =
   | TokStruct i :: rest ->
       let stmt, rest = parse_struct eof i rest in
       ([ stmt ], rest)
+  | TokVar i :: TokStruct _ :: rest ->
+      let stmt, rest = parse_struct ~writable:true eof i rest in
+      ([ stmt ], rest)
   | _ ->
       let stmt, rest = parse_statement eof tokens in
       ([ stmt ], rest)
@@ -2928,7 +3044,7 @@ let parse_top_statement eof tokens =
 
 (** Every feature a `use` line may name (design/steps.md, step 1).
     [string] *)
-let features = [ "mutation"; "objects" ]
+let features = [ "mutation"; "pointers"; "objects" ]
 
 (** Reads the `use` lines a module starts with: the features they name,
     each with where it was written, and the tokens after them. A feature
@@ -2938,13 +3054,22 @@ let parse_uses eof tokens =
   let rec names rest found =
     match rest with
     | TokIdent (i, name) :: rest -> (
-        if not (List.mem name features) then
+        if not (List.mem name features) then (
+          let rec listed names =
+            match names with
+            | [] -> ""
+            | [ one ] -> one
+            | [ one; two ] -> one ^ " and " ^ two
+            | one :: more -> one ^ ", " ^ listed more
+          in
           raise
             (Parse_error
                ( i,
-                 Printf.sprintf "there is no feature '%s'; the features are %s"
-                   name
-                   (String.concat " and " features) ));
+                 Printf.sprintf "there is no feature '%s'; the features are %s%s"
+                   name (listed features)
+                   (match Suggest.closest name features with
+                   | meant :: _ -> Printf.sprintf ". Did you mean '%s'?" meant
+                   | [] -> "") )));
         if List.mem_assoc name found then
           raise (Parse_error (i, Printf.sprintf "'use %s' is written twice" name));
         let found = found @ [ (name, i) ] in
@@ -3001,19 +3126,58 @@ let use_lines tokens =
     reads every module -- and refused here, as a syntax error that names
     the `use` line which would allow them. [string] -> [stmt] -> () *)
 let check_features enabled stmts =
-  (* `array(...)` makes an array, which is mutation's -- unless this
-     module binds a name `array` of its own, which a call then means. *)
-  let own_array =
+  (* `array(...)`, `array_init(...)` and `vec(...)` make a mutable
+     store, and `push(...)` and the other writers change one, which is
+     mutation's -- unless this module binds or imports the name itself,
+     which a call then means. *)
+  let owns set =
     Walk.fold_stmts
       (fun found node ->
         found
         ||
         match node with
-        | Walk.NStmt (SFunctionDef (_, name, _, _, _, _, _, _, _)) -> Names.base name = "array"
-        | Walk.NTarget (TargetName (_, "array", _)) -> true
+        | Walk.NStmt (SFunctionDef (_, name, _, _, _, _, _, _, _)) -> Names.base name = set
+        | Walk.NStmt (SImport (_, _, _, true, fields, _)) -> List.exists (fun (_, local) -> local = set) fields
+        | Walk.NTarget (TargetName (_, name, _)) -> name = set
         | _ -> false)
       false stmts
   in
+  let makes_array name =
+    List.exists
+      (fun (set, members) -> (name = set || List.mem name members) && not (owns set))
+      Builtin.overload_sets
+  in
+  let writes_store name = List.mem name Builtin.writers && not (owns name) in
+  (* The constructors of this module's `var struct`s: making one is
+     mutation's too. One another module declares is the checker's to
+     refuse, since only it knows what an imported constructor makes. *)
+  let writable =
+    List.concat_map
+      (function
+        | SDatatype (_, _, _, constructors, _, _, true) ->
+            List.map (fun (Constructor (_, c, _, _)) -> c) constructors
+        | _ -> [])
+      stmts
+  in
+  if not (List.mem "pointers" enabled) then
+    Walk.fold_stmts
+      (fun () node ->
+        let refuse i what =
+          raise
+            (Parse_error
+               ( i,
+                 Printf.sprintf
+                   "%s, which needs 'use mutation, pointers' at the top of \
+                    this module"
+                   what ))
+        in
+        match node with
+        | Walk.NExpr (EAddr (i, _, _)) -> refuse { i with row2 = i.row1; col2 = i.col1 + 1 } "'&' takes the address of a place"
+        | Walk.NExpr (EDeref (i, _, _)) -> refuse { i with row2 = i.row1; col2 = i.col1 + 1 } "'*' reads through a pointer"
+        | Walk.NStmt (SSetDeref (i, _, _, _) as statement) ->
+            refuse i (Printf.sprintf "'%s' writes through a pointer" (assignment_word statement))
+        | _ -> ())
+      () stmts;
   if not (List.mem "mutation" enabled) then
     Walk.fold_stmts
       (fun () node ->
@@ -3027,15 +3191,28 @@ let check_features enabled stmts =
                       mutation' at the top of this module"
                      (assignment_word statement) ))
         | Walk.NExpr (ECall (_, EVar (i, name, _), _, _))
-          when (not own_array)
-               && List.mem name [ "array"; "list::array"; "fill::array"; "init::array"; "unfold::array" ] ->
+          when makes_array name ->
             raise
               (Parse_error
                  ( i,
                    Printf.sprintf
-                     "'%s' makes an array, which needs 'use mutation' at the \
-                      top of this module"
-                     name ))
+                     "'%s' makes %s, which needs 'use mutation' at the top of \
+                      this module"
+                     name
+                     (match Names.base name with "vec" -> "a Vec" | "dict" -> "a Dict" | _ -> "an array") ))
+        | Walk.NExpr (ECall (_, EVar (i, name, _), _, _))
+          when writes_store name ->
+            raise
+              (Parse_error
+                 ( i,
+                   Printf.sprintf
+                     "'%s' %s, which needs 'use mutation' at the top of this \
+                      module"
+                     name
+                     (match name with
+                     | "view" -> "makes a view of an array, written in place"
+                     | "copy_into" -> "writes into an array"
+                     | _ -> "changes a Vec or a Dict") ))
         | Walk.NStmt (SVar (i, _, _, _)) ->
             raise
               (Parse_error
@@ -3056,8 +3233,68 @@ let check_features enabled stmts =
                      "'%s' changes the mutable variable '%s', which needs \
                       'use mutation' at the top of this module"
                      (assignment_word statement) name ))
+        | Walk.NStmt (SSetField (i, _, field, _, _) as statement) ->
+            raise
+              (Parse_error
+                 ( i,
+                   Printf.sprintf
+                     "'%s' writes the field '%s' of a var struct, which needs \
+                      'use mutation' at the top of this module"
+                     (assignment_word statement) field ))
+        | Walk.NStmt (SDatatype (i, name, _, _, _, _, true)) ->
+            raise
+              (Parse_error
+                 ( i,
+                   Printf.sprintf
+                     "'var struct %s' declares a struct whose fields are \
+                      written in place, which needs 'use mutation' at the top \
+                      of this module"
+                     name ))
+        | Walk.NExpr (EConstruct (i, None, name, _, _)) when List.mem name writable ->
+            raise
+              (Parse_error
+                 ( i,
+                   Printf.sprintf
+                     "'%s' makes a var struct, whose fields are written in \
+                      place, which needs 'use mutation' at the top of this \
+                      module"
+                     name ))
         | _ -> ())
       () stmts
+
+(** stmts with `from option import Option` in front where the module
+    uses `Option`, `Some` or `None` and neither declares nor imports any
+    of them: the builtin option, from lib/option (PYKING.md, "Option").
+    A module declaring its own -- many do, from before it was builtin --
+    means its own. [stmt] -> [stmt] *)
+let with_option stmts =
+  let names = [ "Option"; "Some"; "None" ] in
+  let own =
+    List.exists
+      (function
+        | SDatatype (_, name, _, constructors, _, _, _) ->
+            List.mem (Names.base name) names
+            || List.exists (fun (Constructor (_, c, _, _)) -> List.mem c names) constructors
+        | SImport (_, _, _, true, fields, _) -> List.exists (fun (_, local) -> List.mem local names) fields
+        | _ -> false)
+      stmts
+  in
+  let used =
+    Walk.fold_stmts
+      (fun found node ->
+        found
+        ||
+        match node with
+        | Walk.NExpr (EConstruct (_, None, ("Some" | "None"), _, _)) -> true
+        | Walk.NPattern (PConstructor (_, None, ("Some" | "None"), _, _, _)) -> true
+        | Walk.NType (TCon (_, "Option", _, _)) -> true
+        | _ -> false)
+      false stmts
+  in
+  if own || not used then stmts
+  else
+    let nowhere = { file = "<option>"; row1 = 0; col1 = 0; row2 = 0; col2 = 0 } in
+    SImport (nowhere, "option", "option", true, [ ("Option", "Option") ], 0) :: stmts
 
 (** Parses a module's tokens with some features already on -- a REPL
     session's, which an earlier entry turned on -- answering the features
@@ -3094,8 +3331,19 @@ let parse_with enabled tokens =
                       word ))
          | _ -> depth)
        0 tokens);
-  let own, tokens = parse_uses eof tokens in
-  let own = List.map fst own in
+  let own_lines, tokens = parse_uses eof tokens in
+  let own = List.map fst own_lines in
+  (* `use pointers` needs `use mutation` in the same module: a pointer
+     is a way to write to a variable (PYKING.md, "Pointers"). *)
+  (match List.assoc_opt "pointers" own_lines with
+  | Some i when not (List.mem "mutation" (enabled @ own)) ->
+      raise
+        (Parse_error
+           ( i,
+             "'use pointers' needs 'use mutation' in the same module: a \
+              pointer is a way to write to a variable. Write 'use mutation, \
+              pointers'" ))
+  | _ -> ());
   let rec statements rest collected =
     match rest with
     | [] -> List.rev collected
@@ -3110,7 +3358,7 @@ let parse_with enabled tokens =
         | _ -> ());
         statements rest (List.rev_append group collected)
   in
-  let stmts = statements tokens [] in
+  let stmts = with_option (statements tokens []) in
   check_loop_context stmts false None;
   check_features (enabled @ own) stmts;
   (own, stmts)

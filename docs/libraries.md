@@ -20,6 +20,9 @@ lib/time/   time.pyk  time_external.pyk  time_external.{py,ml}
 lib/tinyweb/ tinyweb.pyk  tinyweb_external.pyk  tinyweb_external.{py,c,ml}  TinywebExternal.java
 ```
 
+`array`, `random` and `vec` are one file each, `<name>.pyk`, written in
+Pyking alone.
+
 and every one of them `<name>_external_node.js` and
 `<name>_external_browser.js`, the two JavaScript environments (see
 "In the browser" below). tinyweb has more: its page
@@ -712,23 +715,25 @@ cannot provide").
 
 ## What each library reaches
 
-| | python | node | web | iweb | c89/99/23 | java8/17/21 | ocaml | interpret |
-|---|---|---|---|---|---|---|---|---|
-| `array` | yes | yes | yes | yes | yes, but not `to_list`, which answers a list | yes | yes | yes |
-| `fs` | yes | yes | not supported | not supported | yes | yes | yes | yes |
-| `io` | yes | yes | output only | output only | yes | yes | yes | yes |
-| `math` | yes | yes | yes | yes | yes | yes | yes | yes |
-| `random` | yes | yes | yes | yes | yes, but `choice` and `shuffle` take a list | yes | yes | yes |
-| `sys` | yes | yes | `exit` only | `exit` only | `exit` only | yes | yes | yes |
-| `text` | yes | yes | yes | yes | yes, but not `split`, `words`, `join` or `lines` | yes | yes | yes |
-| `time` | yes | yes | yes | yes | yes | yes | yes | yes |
-| `tinyweb` | yes | yes | yes | yes | yes | yes | yes | yes |
+| | python | node | web | iweb | c89/99/23 (plain C) | c23-gc | java8/17/21 | ocaml | interpret |
+|---|---|---|---|---|---|---|---|---|---|
+| `array` | yes | yes | yes | yes | yes, but not `to_list`, which answers a list | yes | yes | yes | yes |
+| `fs` | yes | yes | not supported | not supported | yes | yes | yes | yes | yes |
+| `io` | yes | yes | output only | output only | yes | yes | yes | yes | yes |
+| `math` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `random` | yes | yes | yes | yes | yes, but `choice` and `shuffle` take a list | yes | yes | yes | yes |
+| `sys` | yes | yes | `exit` only | `exit` only | `exit` only | yes | yes | yes | yes |
+| `text` | yes | yes | yes | yes | yes, but not `split`, `words`, `join` or `lines` | yes | yes | yes | yes |
+| `time` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `tinyweb` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `vec` | yes | yes | yes | yes | yes, but not `to_list` or `extend`, which take or answer a list | yes | yes | yes | yes |
 
 "Not supported" and "output only" are the browser implementations above:
 the import compiles and a function the page cannot provide says so.
 
 `array` is written in Pyking alone too, over the builtin arrays, so
-`sort` is one merge sort with the same comparisons everywhere.
+`sort` is one merge sort with the same comparisons everywhere. So is
+`vec`, over the builtin Vecs and `array`, whose `sort` it uses.
 
 `random` is written in Pyking alone, a Park--Miller generator kept in
 32 bits, so a seed gives the same numbers on every target; without one it

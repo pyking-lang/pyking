@@ -55,7 +55,7 @@ module SMap : Map.S with type key = string
 
 (** What a name denotes: its type, and whether the binding was written
     `implicit`, which is what an implicit argument may be resolved to. *)
-type binding = { btype : typ; bimplicit : bool }
+type binding = { btype : typ; bimplicit : bool; bvar : bool }
 
 (** A name's denotation, in scope. `env` maps a name to one and to
     nothing else: a name it does not hold is a name that is not in
@@ -128,6 +128,9 @@ type store = {
   constructors : string SMap.t;
   field_defaults : (typ * string) SMap.t;
   pending_plus : (typ * info) list;
+  mutation : bool;
+      (* whether the module has `use mutation`, without which making a
+         `var struct` is refused *)
 }
 
 (** Type-checks one module -- or a whole one-file program, which is the
@@ -138,14 +141,17 @@ type store = {
     is not in scope, since this pass is the one that checks names.
     `declared` is the module's own declaration half -- the names a
     target's own source provides -- which are in scope here unqualified,
-    since the two files are one module.
+    since the two files are one module. `mutation` says whether the
+    module has `use mutation`, without which making a `var struct`
+    another module declares is refused (the parser refuses its own).
     Answers the types it worked out and, beside them, what every call
     it resolved denotes -- which is what `elaborate.ml` rewrites the
     program by (docs/implicits.md).
-    [(string, typ)] -> [stmt] -> [(string, sigmap)]
+    [(string, typ)] -> bool -> [stmt] -> [(string, sigmap)]
     -> (typ IntMap.t, resolution IntMap.t) *)
 val type_check :
   ?declared:(string * typ) list ->
+  ?mutation:bool ->
   stmt list ->
   (string * sigmap) list ->
   typ IntMap.t * resolution IntMap.t
@@ -157,6 +163,23 @@ val builtin_env : unit -> env
 (** The element type of an array type (`Array(T)` gives `T`), or None
     for any other type. typ -> typ option *)
 val array_element : typ -> typ option
+
+(** The name of the Vec type, `Vec`. string *)
+val vec_name : string
+
+(** The element type of a Vec type, or None for any other type.
+    typ -> typ option *)
+val vec_element : typ -> typ option
+
+(** The name of the Dict type, `Dict`. string *)
+val dict_name : string
+
+(** `Dict(key, value)`. info -> typ -> typ -> typ *)
+val t_dict : info -> typ -> typ -> typ
+
+(** The key and value types of a Dict type, or None for any other type.
+    typ -> (typ * typ) option *)
+val dict_parts : typ -> (typ * typ) option
 
 (** `Array(T)` for an element type. info -> typ -> typ *)
 val t_array : info -> typ -> typ

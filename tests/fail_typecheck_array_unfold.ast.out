@@ -1,6 +1,5 @@
-'tests/fail_typecheck_array_unfold.pyk' 9:4-9:29 Type error: no
-  definition of 'array' takes (Int, Int, (Int) -> Int); the ones in
-  scope are 'fill::array' of type (Int, a) -> Array(a), 'init::array'
-  of type (Int, (Int) -> a) -> Array(a), 'list::array' of type ([a])
-  -> Array(a), 'unfold::array' of type (Int, s, (s) -> (a, s)) ->
+'tests/fail_typecheck_array_unfold.pyk' 9:4-9:34 Type error: no
+  definition of 'array_init' takes (Int, Int, (Int) -> Int); the ones
+  in scope are 'init::array_init' of type (Int, (Int) -> a) ->
+  Array(a), 'unfold::array_init' of type (Int, s, (s) -> (a, s)) ->
   Array(a)

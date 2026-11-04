@@ -133,7 +133,7 @@ Two images, each for both architectures:
 | Tag | Holds |
 |---|---|
 | `latest`, `0.2.0` | `pyk` and its tree on Debian 13 (about 55 MB to download) |
-| `full`, `0.2.0-full` | the same, with Python 3.14, node 24, gcc with bdwgc (the C targets' collector), a JDK 21 and OCaml 5.5.0 -- the OCaml `pyk` was built by -- so `pyk compile --run` runs every target, and a program's own external module compiles its plugin (about 500 MB) |
+| `full`, `0.2.0-full` | the same, with Python 3.14, node 24, gcc with bdwgc (c23-gc's collector), a JDK 21 and OCaml 5.5.0 -- the OCaml `pyk` was built by -- so `pyk compile --run` runs every target, and a program's own external module compiles its plugin (about 500 MB) |
 
 A tinyweb program run in a container serves its page on the
 container's 127.0.0.1, so it cannot be opened from outside; the web

@@ -402,8 +402,20 @@ An element write is three continuations -- `KSetArray` (the array has
 arrived), `KSetIndex` (the index, checked here, before the value runs),
 `KSetValue` (the write) -- and a `for` over an array keeps the array and
 the next index in the loop's `walking`, reading each element as its turn
-is reached. `init::array` and `unfold::array` call their function back
-in a machine of their own, as a host's callback is called.
+is reached. `init::array_init` and `unfold::array_init` call their
+function back in a machine of their own, as a host's callback is
+called.
+
+A datatype's value, `VData`, holds its fields in an array too, since a
+`var struct`'s are written in place: `KSetOwner` (the struct has
+arrived) and `KSetField` (the value has, and is written) are its write.
+No other datatype's fields are ever written, so for them the sharing is
+never seen. `same` compares two structs' field arrays with `==`; a `var
+struct` always has a field, so two never share the one empty array.
+`display_value` prints a value that holds itself with `...` at the
+repetition: it keeps the arrays and structs it is inside on a path,
+which a `Leave` piece pops, and a value already on the path is cut. See
+[mutation.md](mutation.md).
 
 ## Hosts: where output actually goes
 

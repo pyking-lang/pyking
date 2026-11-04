@@ -1,15 +1,15 @@
-# Arrays: made by `array(...)` in its four forms, read with `a[i]`,
+# Arrays: made by `array(...)` and `array_init(...)`, read with `a[i]`,
 # written with `a[i] := v` and `a[i] op= v`, measured with `len`, walked
 # by `for`, shared by every name that holds one, and printed as what
 # makes one. Every target runs this and prints the same.
 
 use mutation
 
-# The four forms of `array`.
+# The two forms of `array`, and the two of `array_init`.
 from_list = array([4, 1, 2])
 filled = array(3, "x")
-squares = array(5, lam i. i * i)
-fibs = array(8, (0, 1), lam p. let (x, y) = p in (x, (y, x + y)))
+squares = array_init(5, lam i. i * i)
+fibs = array_init(8, (0, 1), lam p. let (x, y) = p in (x, (y, x + y)))
 print(from_list, filled, squares, fibs)
 print(len(from_list), len(squares), from_list[0], squares[4])
 
@@ -39,8 +39,8 @@ def traced(i: Int) -> Int:
     i * 10
 
 
-print(array(3, traced))
-print(len(array(0, traced)))
+print(array_init(3, traced))
+print(len(array_init(0, traced)))
 
 # `for` reads each element as it is reached, so a write ahead is seen.
 walked = array([1, 2, 3])
@@ -55,7 +55,7 @@ print(doubled, string(walked))
 
 # Arrays of every element type, and nested ones.
 print(array([1.5, 2.0]), array(['a', 'b']), array([true, false]), array([(1, "one")]))
-grid = array(2, lam _. array(3, 0))
+grid = array_init(2, lam _. array(3, 0))
 grid[1][2] := 7
 print(grid, len(grid[1]))
 print([array([1]), array([2])], (array([1]), 2))
@@ -105,4 +105,4 @@ def twice(n: Int) -> Int:
 
 functions = fill::array(3, twice)
 print(len(functions), functions[1](21))
-print(list::array([7]), init::array(2, lam i. i + 1), unfold::array(3, 1, lam s. (s, s * 3)))
+print(list::array([7]), init::array_init(2, lam i. i + 1), unfold::array_init(3, 1, lam s. (s, s * 3)))

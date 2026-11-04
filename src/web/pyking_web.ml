@@ -567,7 +567,7 @@ let checked_modules ?(natively = false) ?(warn = false) main release =
         else
           let declared = Module.external_signatures unit.declarations in
           let tmap, qmap =
-            Typesystem.type_check ~declared unit.stmts
+            Typesystem.type_check ~declared ~mutation:(Module.uses_mutation unit) unit.stmts
               (Module.sigmaps_for unit sigmaps)
           in
           Analyses.analyze_mutability unit.stmts;
@@ -873,7 +873,7 @@ let compile_modules main target =
   let family = Targets.family_of target in
   let checked = checked_modules ~natively:(family = Targets.Ocaml) ~warn:true main false in
   let checked =
-    if List.mem family [ Targets.C; Targets.Java ] then Prune.program checked else checked
+    if List.mem family [ Targets.C; Targets.Cgc; Targets.Java ] then Prune.program checked else checked
   in
   (* A function the target's implementation of a library cannot provide
      -- tinyweb's `sdelay` on the web -- is refused where it is called. *)
@@ -908,7 +908,7 @@ let compile_modules main target =
                    ~externals:context.externals ~own:context.context_name ~target
                    (Analyses.apply_signatures unit.stmts) (types tmap))
               ^ "\n" ) ])
-  | Targets.C ->
+  | Targets.C | Targets.Cgc ->
       let translated =
         Target_c.translate_all
           (List.map
@@ -1034,7 +1034,7 @@ let compile_source source target name =
             | Syntax.SImport _ -> true
             | Syntax.SFunctionDef (_, n, _, _, _, _, _, _, _)
             | Syntax.SFunctionSig (_, n, _, _, _)
-            | Syntax.SDatatype (_, n, _, _, _, _)
+            | Syntax.SDatatype (_, n, _, _, _, _, _)
             | Syntax.SLet (_, Syntax.TargetName (_, n, _), _, _, _, _, _) ->
                 String.contains n '.'
             | _ -> false)
@@ -1132,7 +1132,7 @@ let compile_source source target name =
               (if Targets.family_of target = Targets.Web && io <> "" then
                  files @ [ ("io_external.js", io) ]
                else files)
-          else if Targets.family_of target = Targets.C then
+          else if Targets.is_c (Targets.family_of target) then
             (* A datatype's C name carries its module's, which `pyk`
                takes from the file. *)
             let c =

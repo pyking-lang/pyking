@@ -10,9 +10,11 @@
   checker accepts, and `make test` runs every test program on all three
   versions.
 - Pyking's polymorphism is Java's generics; a list is a `java.util.List`;
-  a tuple is a class of the shared runtime; an array is the runtime's
-  `PykArray`; a datatype is a class per constructor; a function value is
-  a `java.util.function` interface.
+  a tuple is a class of the shared runtime; an array, a Vec and a view
+  are the runtime's `PykArray`, `PykVec` and `PykView`, a Dict its
+  `PykDict` over a `LinkedHashMap`, a pointer its `PykPtr`; a datatype is a class per constructor; a `var struct` is a
+  class with fields written in place; a function value is a
+  `java.util.function` interface.
 - The three versions are **three shapes of output**: plain classes and
   casts for java8, records, sealed interfaces and `instanceof` patterns
   for java17, records and a pattern `switch` for every `match` on java21.
@@ -113,7 +115,11 @@ java8 also spells every local's type, where java17 and java21 write
 | `Char` | `PykRuntime.PykChar`, a final class holding the code point as an `int` |
 | `()` | `Void`, whose one value is `null`; a function answering it is `void` |
 | `[T]` | `java.util.List<T>` |
-| `Array(T)` | `PykRuntime.PykArray<T>`, holding an `Object[]` (see "Arrays") |
+| `Array(T)` | `PykRuntime.PykArray<T>`, holding an `Object[]` (see "Arrays, Vecs and views") |
+| `Vec(T)` | `PykRuntime.PykVec<T>`, holding a `java.util.ArrayList<Object>` |
+| `Slice(T)` | `PykRuntime.PykView<T>`: the array it is of, an offset and a length |
+| `Dict(K, V)` | `PykRuntime.PykDict<K, V>`, holding a `java.util.LinkedHashMap` (see "Equality and Dicts") |
+| `Ptr(T)` | `PykRuntime.PykPtr<T>`: the store it points into and a slot (see "Pointers") |
 | `(A, B)` | `PykRuntime.T2<A, B>`, up to `T8` and beyond as a program needs |
 | `(A) -> R`, `(A, B) -> R`, `() -> R` | `java.util.function.Function`, `BiFunction`, `Supplier` |
 | a function of three or more parameters | `PykRuntime.Fn3`, `Fn4`, ... |
@@ -123,6 +129,14 @@ java8 also spells every local's type, where java17 and java21 write
 
 A value of a type variable is a boxed object, so `==` on two of them
 unboxes first: Java's `==` on two `Integer`s compares the objects.
+
+A list literal is `java.util.Arrays.asList(...)`, and `[]` is
+`java.util.Collections.emptyList()`, whose element type Java infers
+from where it goes -- except as an element of a list literal next to
+non-empty ones (`[[1, 2], [], [3]]`), where `asList` would infer it
+from nothing and refuse the call: there it is
+`java.util.Collections.<Integer>emptyList()`, the element type the
+checker settled, where that type names no variable.
 
 **The checker's types come first.** A type it wrote down in the body of
 a polymorphic function is in that function's own variables, so the
@@ -163,6 +177,38 @@ class alone, which is then the type: a record on java17 and java21, a
 final class on java8, with no base type and no factory. A construction
 is `new Point(1, 2)` (`new Box<>(...)` where it has parameters), and a
 pattern on it tests nothing.
+
+A **`var struct`** (PYKING.md, "Mutable structs") is a final class on
+every version -- a record's fields are final, and a var struct's are
+written in place -- with a public, non-final field per field, a
+constructor, and `PykRuntime.Data`'s two methods:
+
+```java
+    private static final class Point implements PykRuntime.Data {
+        public int x;
+        public int y;
+        public Point(int x, int y) {
+            this.x = x;
+            this.y = y;
+        }
+        public String pykTag() { return "Point"; }
+        public Object[] pykFields() { return new Object[] { x, y }; }
+    }
+```
+
+A value of it is a reference: assigning, passing, returning or storing
+one shares the one object, so a write through any name holding it is
+seen through all. It has no `equals` of its own (the checker refuses
+`==` on one), and `same(a, b)` is `(Object) a == (Object) b`, true
+exactly when the two are one object. A field is read as `p.x` and
+written as `p.x = v;` -- Java's own assignment to a field works out the
+owner first, then the value, then writes into the object the owner was,
+which is Pyking's order; a compound `p.x += e` arrives with its owner
+already in a temporary (`desugar_args.md`). A pattern on one reads the
+fields as they are when it is matched; on java21, where a record pattern
+cannot take a class apart, its case is a type pattern (`case Point t$1`)
+and its fields are read off the variable. A `struct` without `var`, and
+every datatype, stays a record or a final class with final fields.
 
 A field every constructor has is a method of the base type,
 `p.name()`, which is what `x.name` compiles to. A field with no name is
@@ -244,12 +290,31 @@ Int or Bool its `String.valueOf`, a Float `PykRuntime.floatStr` -- the
 shortest text that reads back as the same double, in Pyking's own
 spelling -- and anything else `PykRuntime.str`, which walks the value at
 run time: a boxed `Double` is a Float, a `PykChar` a Char, a `List` a
-list, a `PykArray` an array (`array([1, 2])`), a `Tuple` a tuple, a
-`Data` a datatype. A Java value carries its
+list, a `PykArray`, `PykVec` or `PykView` an array, a Vec or a view
+(`array([1, 2])`, `vec([1, 2])`, `view([1, 2])`), a `PykDict` its
+entries as tuples (`dict([("ada", 37)])`), a `Tuple` a tuple, a `Data`
+a datatype. A Java value carries its
 class, so the walk needs nothing from the compiler. A Char at top level
 is its character (`PykChar.toString`); inside another value a String is
 written in double quotes and a Char in single quotes, escaped as
 `Builtin.quote_string` and `Builtin.quote_char` say.
+
+**A cycle** -- an array, a Vec, a Dict or a var struct that holds
+itself, directly or through other values -- is written `...` where it
+repeats: `Node(1, Next(Node(2, Next(...))))`. The walk keeps its
+**path**, the stores, Dicts and datatype values it is inside of, in an
+identity set (a view is on it as the array it is of); a value
+already on it is `...`, and one only shared -- the same struct twice in
+an array -- is on the path only while it is being written, so it prints
+in full each time. `string(v)` and every other formatting go through the
+same walk.
+
+**Every argument is worked out before any is written.** A line of
+several values is one string concatenation where nothing can change in
+between; where an argument whose value can change (an array, a Vec, a
+view, a Dict, a var struct, anything holding one) comes before one that calls something, the
+arguments go to `PykRuntime.line(a, f(a))` instead, which Java calls
+only once both are evaluated, so a change `f` makes to `a` is printed.
 
 ## Chars and Strings
 
@@ -273,14 +338,21 @@ Int that is no code point) or `PykRuntime.charOfString` (`'\0'` for
 `""`). No external module takes or answers a Char today; one that did
 would see a `PykRuntime.PykChar`.
 
-## Arrays
+## Arrays, Vecs and views
 
 An `Array(T)` (PYKING.md, "Arrays") is `PykRuntime.PykArray<T>`, a
-final class of the runtime holding its elements in an `Object[]`. There
+final class of the runtime holding its elements in an `Object[]`; a
+`Vec(T)` (PYKING.md, "Vecs") is `PykRuntime.PykVec<T>`, holding a
+`java.util.ArrayList<Object>` that `remove` and `pop` clear the slot of;
+and a view, a `Slice(T)` (PYKING.md, "Slices"), is
+`PykRuntime.PykView<T>`, the `PykArray` it is of with an offset and a
+length, reading and writing that array's own elements. All three extend
+`PykRuntime.PykStore<T>`, which holds what they share: `check`, `get`,
+`set`, the walk and `toList`. There
 is no `int[]` or `double[]` for an array of Ints or Floats yet: every
 element is boxed, as in a list, so one class serves every element type
 and a generic function over `Array(t)` is an ordinary generic method.
-Assigning, passing, returning or storing an array copies the reference
+Assigning, passing, returning or storing one copies the reference
 alone, so every name holding one sees a write through another; a `var`
 holding one that a closure captures is a cell holding the reference,
 like any other `var`.
@@ -291,11 +363,22 @@ like any other `var`.
 | `array(n, v)` | `PykRuntime.<T>arrayFill(n, v)`: every element the one `v` |
 | `array(n, f)` | `PykRuntime.<T>arrayInit(n, f)`: `f(0)`, `f(1)`, ... in order |
 | `array(n, seed, f)` | `PykRuntime.<T, S>arrayUnfold(n, seed, f)` |
+| `vec()`, `vec(xs)` | `PykRuntime.<T>vecEmpty()`, `PykRuntime.<T>vecOfList(xs)` |
+| `view(a, i, j)` | `a.view(i, j)`: a view of the same array, offsets added for a view's |
 | `a[i]` | `a.get(i)` |
 | `a[i] := v` | the four statements below |
 | `len(a)` | `a.size()` |
-| `same(a, b)` | `(Object) a == (Object) b` |
-| `for x in a` | Java's enhanced `for` over the array, an `Iterable<T>` |
+| `same(a, b)` | `(Object) a == (Object) b`, as for two var structs |
+| `for x in a` | Java's enhanced `for` over the store, an `Iterable<T>` |
+| `push(v, x)`, `pop(v)` | `v.push(x)`, `v.pop()` |
+| `insert(v, i, x)`, `remove(v, i)`, `clear(v)` | `v.insert(i, x)`, `v.remove(i)`, `v.clear()` |
+| `copy_into(dst, src)` | `PykRuntime.copyInto(dst, src)`: `System.arraycopy`, a memmove |
+| `a[low:high]` | `a.slice(low, high)`, a new value of its kind (see "Slices") |
+
+A builtin that answers nothing (`push`, `insert`, `clear`) answers a
+`Void`, so its call is a value where one is wanted and a statement of
+its own otherwise. A program's own `push`, `remove`, ... is called
+instead wherever it defines one.
 
 The element type is written as an explicit type argument where the
 checker settled it, which also gives a lambda argument its interface;
@@ -304,8 +387,13 @@ own type besides, since `Object` is no interface Java can type one by.
 
 **Every index is checked**, a read's and a write's: `get` and `set`
 call `check`, which stops the program with `the index 5 is outside an
-array of 2 elements` for an index below 0 or past the end -- there is
-no counting from the end. A negative size stops it with `an array's size
+array of 2 elements` (`a Vec of`, `a view of`) for an index below 0 or
+past the end as the length is then -- there is no counting from the
+end. `pop` of an empty Vec stops it with `pop from an empty Vec`,
+`insert` outside 0 to the length with `insert's index 5 is outside 0 to
+2, the Vec's length`, `view` outside its array with `the view 1:5 is
+outside an array of 3 elements`, and `copy_into` of more than fit with
+`copy_into copies 3 elements into 2`. A negative size stops it with `an array's size
 is never negative, and this one is -1`, before the factory calls
 anything or makes anything, and an `OutOfMemoryError` making the
 elements with `an array of N elements is more than this machine can
@@ -323,21 +411,110 @@ would work `v` out before it checks `i`. So `owner[index] := value` is
         array$1.set(index$2, value);
 ```
 
--- the array and the index held, the index checked, and only then the
-value worked out and written into the array held, even where working it
-out rebinds the variable the owner was read from. A compound `a[i] += e`
+-- the store and the index held (`PykVec<?> vec$1`, `PykView<?>
+view$1` for the others), the index checked, and only then the value
+worked out and written into the store held, even where working it out
+rebinds the variable the owner was read from; `set` checks again, since
+working the value out may have shrunk a Vec. A compound `a[i] += e`
 arrives with its owner and index already in temporaries
 (`desugar_args.md`). `set` takes an `Object`, since the owner is held
-as `PykArray<?>`; the checker has already made sure the value fits.
+with a wildcard; the checker has already made sure the value fits.
 
-**Walking an array** is Java's enhanced `for`: `PykArray`'s iterator
-reads element `i` when turn `i` is reached, so a write to a later
-element during the loop is seen. A comprehension over an array is
-`PykRuntime.flatMap`, which takes any `Iterable`, and makes a list.
+**Walking a store** is Java's enhanced `for`: `PykStore`'s iterator
+reads element `i` when turn `i` is reached, and goes on while `i` is
+below the length as it is then, so a write to a later element during
+the loop is seen, what is pushed onto a Vec is walked, and a removal
+ends the walk sooner. A comprehension over a store is
+`PykRuntime.flatMap` over `toList()`, the elements as they are when it
+starts.
 
-**Printing** an array is `PykRuntime.str`'s walk: `array([` and the
-elements as they are written inside a list -- Strings and Chars quoted,
-an array inside nested -- then `])`.
+**Printing** an array is `PykRuntime.str`'s walk: `array([` (`vec([`,
+`view([`) and the elements as they are written inside a list -- Strings
+and Chars quoted, a store inside nested -- then `])`; one met again
+inside itself is `...` ("Printing").
+
+## Slices
+
+`seq[low:high]` (PYKING.md, "Slices") copies a run into a new value of
+the sequence's own kind: `a.slice(low, high)` on an array, a Vec or a
+view (a view's is a new array), `PykRuntime.slice(xs, low, high)` on a
+list and on a String, which counts in code points. Java works out the
+sequence, then `low`, then `high`, and only then calls the copy, which
+checks `0 <= low <= high <= length`: `the slice 2:9 is outside a list
+of 3 elements` (`a String`, `an array`, `a Vec`, `a view`). A left-out
+`low` is `0`, a left-out `high` is `null`, the length the copy finds.
+
+## Equality and Dicts
+
+**`==` and `!=`** on two Ints, Floats or Bools are Java's own, on two
+Strings `equals`, on two Chars `java.util.Objects.equals`, and on two
+lists, tuples, structs or datatypes `PykRuntime.equal(a, b)`: part by
+part, a datatype by its constructor's tag and then field by field, and
+a Float inside by IEEE's `==`, so `[nan] == [nan]` is false and `(-0.0,
+1) == (0.0, 1)` true -- which a record's own `equals`, comparing with
+`Double.compare`, would get wrong.
+
+A **`Dict(K, V)`** (PYKING.md, "Dicts") is `PykRuntime.PykDict<K, V>`,
+a `java.util.LinkedHashMap` of its entries in the order their keys were
+first put, and a `version` counting the keys put and taken. A key is
+compared and hashed by its own `equals` and `hashCode`: a key's type
+holds no Float and nothing mutable, so a record's, a `List`'s and the
+runtime's own classes' are Pyking's `==`. On java8, where a tuple or a
+datatype is a plain class, the class's `equals` and `hashCode` are
+`PykRuntime.equal` and `PykRuntime.hash`, a hash agreeing with it.
+
+| Pyking | Java |
+|---|---|
+| `dict()`, `dict(pairs)` | `PykRuntime.<K, V>dictEmpty()`, `PykRuntime.<K, V>dictOfList(pairs)`: a key given twice keeps its first place and its last value |
+| `d[k]` | `d.get(k)`, or `the Dict has no key "bo"` |
+| `d[k] := v` | `d.put(k, v);` -- Java works out the Dict, the key and the value, then puts |
+| `get(d, k, x)`, `has(d, k)` | `d.get(k, x)`, `d.has(k)` |
+| `remove(d, k)`, `discard(d, k)`, `clear(d)` | `d.remove(k)` (or `the Dict has no key "bo" to remove`), `d.discard(k)`, `d.clear()` |
+| `keys(d)`, `values(d)`, `items(d)` | `d.keys()`, `d.values()`, `d.items()`: new lists, in order |
+| `len(d)`, `same(d, e)` | `d.size()`, `(Object) d == (Object) e` |
+| `for k in d` | Java's enhanced `for` over the keys |
+
+A put of a key already there replaces its value where it is; one taken
+and put again goes to the end. **Walking a Dict** reads its keys in
+order through an iterator that remembers the `version` it started at:
+a key put or taken during the walk stops the program with `the Dict
+changed while a for loop was reading it` at the next `hasNext`, the one
+that would end the loop too, before the `LinkedHashMap`'s own iterator
+is touched; a value replaced is no change. A comprehension over a Dict
+walks `keys()`, the keys as they are when it starts.
+
+## Pointers
+
+A **`Ptr(T)`** (PYKING.md, "Pointers") is `PykRuntime.PykPtr<T>`: the
+store it points into and a slot in it, read by `get()` and written by
+`set(v)`. The store is one of three:
+
+| `&place` | Java | the store, the slot |
+|---|---|---|
+| `&x`, `x` a `var` | `PykRuntime.<T>pointer(x, 0)` | the `var`'s cell, 0 |
+| `&a[i]`, `a` an array or a view | `a.pointer(i)`, the index checked now | the array, `i` (a view's `offset + i`) |
+| `&s.f`, `s` a var struct | `PykRuntime.<T>pointer(s, k)` | the struct, its field's position `k` |
+| `&*p` | `p` | |
+| `*p` | `p.get()` | |
+| `*p := v` | `p.set(v);` -- Java works out the pointer, then the value, then writes | |
+
+A **`var` whose address is taken** lives in a cell, as a `var` a
+closure captures does, but of the boxed type -- `final Integer[] x = {
+1 };`, a static `Integer[]` at top level -- since a pointer reads and
+writes it as an `Object[]`. The cell is made where the `var` is
+declared, so a `var` declared in a loop is a new one each turn, and a
+pointer to a local outlives its method as the cell does. A var struct
+class implements `PykRuntime.Struct`, a `Data` with `pykSet(i, v)`,
+through which a pointer writes field `i`; it reads it from
+`pykFields()`.
+
+**Two pointers are equal** (`PykPtr.equals`, so `PykRuntime.equal`
+inside a list or a tuple too) when they name one place: the same store,
+by identity, and the same slot. Two `&x` are equal; two `&j` from
+different turns of a loop are not. A pointer **prints** as `Ptr(` and
+what it points at now, as inside a list, then `)`; on the cycle path it
+is the store it points into, so a pointer back into what is being
+printed is `...`.
 
 ## Naming the class
 

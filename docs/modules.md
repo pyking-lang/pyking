@@ -404,7 +404,7 @@ module's external half and never a module of its own: a name ending in
 |---|---|---|
 | `python` | `sys_external.py` | `import sys_external` |
 | `node` | `sys_external_node.js` | `import * as sys_external from './sys_external.js'` |
-| `c89`, `c23` | `sys_external.c` | declares `sys_loadfile` and calls it |
+| `c89`, `c99`, `c23`, `c23-gc` | `sys_external.c` | declares `sys_loadfile` and calls it |
 | `java8`/`17`/`21` | `SysExternal.java` | `SysExternal.loadfile(...)` |
 | `ocaml` | `sys_external.ml` | `Sys_external.loadfile ...` |
 | `web`, `iweb` | `sys_external_browser.js` | `import * as sys_external from './sys_external.js'` |
@@ -527,7 +527,7 @@ as before. `pyk compile` and the playground's Compile both check.
 The types a declaration may name are the ones the target can carry, and
 they are not the same everywhere:
 
-| Pyking | python | node, web, iweb | c89, c99, c23 | java | ocaml |
+| Pyking | python | node, web, iweb | c89, c99, c23, c23-gc | java | ocaml |
 |---|---|---|---|---|---|
 | `Int` | `int` | `number` | `int` | `int` | `int` |
 | `Float` | `float` | `number` | `double` | `double` | `float` |
@@ -535,8 +535,8 @@ they are not the same everywhere:
 | `Char` | `str` of one character | `number` (the code point) | `int` (the code point) | `PykRuntime.PykChar` | `int` (the code point) |
 | `Bool` | `bool` | `boolean` | `bool` / `int` | `boolean` | `bool` |
 | `()` | `()` | `undefined` | `void` | `void` | `unit` |
-| `(A, B)` | `tuple` | `Array` | refused | refused | tuple |
-| `[A]` | `list` | `Array` + marker | refused | refused | `list` |
+| `(A, B)` | `tuple` | `Array` | the struct `pyk_t_...`, of scalars | refused | tuple |
+| `[A]` | `list` | `Array` + marker | refused; on c23-gc a pointer to its first cell, `pyk_l_... *` | refused | `list` |
 
 Three of these need care from whoever writes the implementation.
 

@@ -34,37 +34,79 @@ let reserved_names modules = modules
    tuple, which is an array here and prints in Pyking's own notation;
    a string inside one, which is quoted where a string on its own is
    not; and a datatype's value, built by the compiled program's
-   `pykData`. Everything else -- numbers, booleans -- already prints the way
-   Pyking wants. *)
+   `pykData` or `pykStruct`. Everything else -- numbers, booleans --
+   already prints the way Pyking wants. It walks with the values it is
+   inside of as its path, so that an array or a `var struct` holding
+   itself prints `...` where it repeats -- display_value's rule in
+   interpreter.ml (docs/target_js.md, "Mutable structs"). *)
 let format_js =
   String.concat "\n"
     [
-      "function pykFormat(value, inner) {";
+      "function pykFormat(value, inner, path = []) {";
       "  if (value === undefined) return '()';";
       "  if (typeof value === 'string') return inner ? pykQuote(value) : value;";
+      "  if (value === null || typeof value !== 'object') return String(value);";
+      "  // A print argument whose descriptor waited for the others (`pykLater`).";
+      "  if (value.pykLater !== undefined) return pykShaped(value.value, value.pykLater, inner, path);";
+      "  // `path` holds the values printing is inside of. Only an array or a";
+      "  // `var struct` can contain itself, and where one does, the repetition";
+      "  // prints as `...`; a value that is only shared is not on the path the";
+      "  // second time, and prints in full.";
+      "  // A view stands on the path for the array it is a view of, and a";
+      "  // pointer for the store its place is in.";
+      "  const holder =";
+      "    value.pykView === true ? value.owner : value.pykPtr === true ? value.store : value;";
+      "  if (path.includes(holder)) return '...';";
+      "  path.push(holder);";
+      "  const text = pykFormatHolder(value, path);";
+      "  path.pop();";
+      "  return text;";
+      "}";
+      "";
+      "// A value holding others, on the path while its parts print.";
+      "function pykFormatHolder(value, path) {";
       "  // A Pyking list and a Pyking tuple are both JavaScript arrays and";
       "  // print differently, so a list carries a marker (see `pykList` in the";
       "  // compiled program). A property rather than a class, because for the";
       "  // `esm` target the two live in different modules.";
       "  if (Array.isArray(value) && value.pykList === true) {";
-      "    return '[' + value.map((element) => pykFormat(element, true)).join(', ') + ']';";
+      "    return '[' + value.map((element) => pykFormat(element, true, path)).join(', ') + ']';";
       "  }";
       "  // A Pyking array carries a marker of its own (`pykArray`), and";
       "  // prints as what makes one.";
       "  if (Array.isArray(value) && value.pykArray === true) {";
-      "    return 'array([' + value.map((element) => pykFormat(element, true)).join(', ') + '])';";
+      "    return 'array([' + value.map((element) => pykFormat(element, true, path)).join(', ') + '])';";
+      "  }";
+      "  // A Dict is a Map of [key, value] entries (`pykDict` in the compiled";
+      "  // program), each printed as the tuple it is.";
+      "  if (value.pykDict === true) {";
+      "    return 'dict([' + Array.from(value.values(), (entry) => pykFormat(entry, true, path)).join(', ') + '])';";
+      "  }";
+      "  // A pointer prints as what it points at now.";
+      "  if (value.pykPtr === true) return 'Ptr(' + pykFormat(value.get(), true, path) + ')';";
+      "  // A view (`pykView` in the compiled program): its array's elements";
+      "  // from its offset, as they are now.";
+      "  if (value.pykView === true) {";
+      "    const items = value.owner.slice(value.offset, value.offset + value.length);";
+      "    return 'view([' + items.map((element) => pykFormat(element, true, path)).join(', ') + '])';";
+      "  }";
+      "  // A Vec has its own marker (`pykVec`) too.";
+      "  if (Array.isArray(value) && value.pykVec === true) {";
+      "    return 'vec([' + value.map((element) => pykFormat(element, true, path)).join(', ') + '])';";
       "  }";
       "  if (Array.isArray(value)) {";
-      "    const parts = value.map((element) => pykFormat(element, true));";
+      "    const parts = value.map((element) => pykFormat(element, true, path));";
       "    return parts.length === 1 ? '(' + parts[0] + ',)' : '(' + parts.join(', ') + ')';";
       "  }";
-      "  // A datatype's value: its constructor and its fields by position,";
-      "  // each Float one written as a Float where the compiler said so.";
-      "  if (value !== null && typeof value === 'object' && value.pykTag !== undefined) {";
-      "    if (value.pykValues.length === 0) return value.pykTag;";
+      "  // A datatype's value, or a `var struct`'s: its constructor and its";
+      "  // fields by position, each Float one written as a Float where the";
+      "  // compiler said so.";
+      "  if (value.pykTag !== undefined) {";
+      "    const values = value.pykValues;";
+      "    if (values.length === 0) return value.pykTag;";
       "    const shapes = value.pykShape === null ? null : pykShapeParts(value.pykShape.slice(1, -1));";
-      "    const parts = value.pykValues.map((element, i) =>";
-      "      shapes === null ? pykFormat(element, true) : pykShaped(element, shapes[i], true));";
+      "    const parts = values.map((element, i) =>";
+      "      shapes === null ? pykFormat(element, true, path) : pykShaped(element, shapes[i], true, path));";
       "    return value.pykTag + '(' + parts.join(', ') + ')';";
       "  }";
       "  return String(value);";
@@ -140,8 +182,8 @@ let float_js =
       "  let start = 0;";
       "  for (let i = 0; i < body.length; i++) {";
       "    const c = body[i];";
-      "    if (c === '[' || c === '(' || c === '{') depth++;";
-      "    else if (c === ']' || c === ')' || c === '}') depth--;";
+      "    if (c === '[' || c === '(' || c === '{' || c === '<') depth++;";
+      "    else if (c === ']' || c === ')' || c === '}' || c === '>') depth--;";
       "    else if (c === ',' && depth === 0) {";
       "      parts.push(body.slice(start, i));";
       "      start = i + 1;";
@@ -152,21 +194,43 @@ let float_js =
       "}";
       "";
       "// `f` is a Float, `c` a Char (a code point), `.` anything pykFormat";
-      "// already prints right, `[s]` a list of s, `{s}` an array of s and";
-      "// `(s,s)` a tuple.";
-      "function pykShaped(value, shape, inner) {";
+      "// already prints right, `[s]` a list of s, `{s}` an array of s, `<s>`";
+      "// a Vec of s, `v{s}` a view of s, `p(s)` a pointer to s, `@(k,v)` a";
+      "// Dict whose entries are (k, v), and `(s,s)` a tuple. `path` is pykFormat's: a value can only reach";
+      "// itself through a datatype's value, which is a `.` here, so the";
+      "// guard is pykFormat's alone and this passes the path on.";
+      "function pykShaped(value, shape, inner, path = []) {";
       "  if (shape === 'f') return pykFloatStr(value);";
       "  if (shape === 'c') return inner ? pykQuoteChar(value) : String.fromCodePoint(value);";
-      "  if (shape === '.') return pykFormat(value, inner);";
+      "  if (shape === '.') return pykFormat(value, inner, path);";
+      "  if (shape[0] === 'p') return 'Ptr(' + pykShaped(value.get(), shape.slice(2, -1), true, path) + ')';";
+      "  if (shape[0] === 'v') {";
+      "    const items = value.owner.slice(value.offset, value.offset + value.length);";
+      "    return 'view([' + items.map((e) => pykShaped(e, shape.slice(2, -1), true, path)).join(', ') + '])';";
+      "  }";
+      "  if (shape[0] === '@') {";
+      "    const entry = shape.slice(1);";
+      "    return 'dict([' + Array.from(value.values(), (e) => pykShaped(e, entry, true, path)).join(', ') + '])';";
+      "  }";
       "  const body = shape.slice(1, -1);";
       "  if (shape[0] === '[') {";
-      "    return '[' + value.map((e) => pykShaped(e, body, true)).join(', ') + ']';";
+      "    return '[' + value.map((e) => pykShaped(e, body, true, path)).join(', ') + ']';";
       "  }";
       "  if (shape[0] === '{') {";
-      "    return 'array([' + value.map((e) => pykShaped(e, body, true)).join(', ') + '])';";
+      "    return 'array([' + value.map((e) => pykShaped(e, body, true, path)).join(', ') + '])';";
       "  }";
-      "  const parts = pykShapeParts(body).map((s, i) => pykShaped(value[i], s, true));";
+      "  if (shape[0] === '<') {";
+      "    return 'vec([' + value.map((e) => pykShaped(e, body, true, path)).join(', ') + '])';";
+      "  }";
+      "  const parts = pykShapeParts(body).map((s, i) => pykShaped(value[i], s, true, path));";
       "  return parts.length === 1 ? '(' + parts[0] + ',)' : '(' + parts.join(', ') + ')';";
+      "}";
+      "";
+      "// A `print` argument holding an array, a Vec, a view or a Dict whose";
+      "// parts need a descriptor: formatted by `print` itself, once every";
+      "// argument after it is worked out -- a later one may write into it.";
+      "function pykLater(value, shape) {";
+      "  return { pykLater: shape, value };";
       "}";
     ]
 
@@ -363,8 +427,8 @@ let shared_runtime target =
         "";
         line_via "debug" "console.error";
         "";
-        "export { print, debug, pykFormat, pykFloatStr, pykShaped, pykParseInt, pykTrunc,";
-        "  pykParseFloat };";
+        "export { print, debug, pykFormat, pykFloatStr, pykShaped, pykLater, pykParseInt,";
+        "  pykTrunc, pykParseFloat };";
         "";
       ])
 
@@ -387,9 +451,14 @@ let js_module (unit : Module.t) js_program renames main target =
   in
   let wanted =
     List.filter (calls js_program) [ "print"; "debug" ]
-    @ List.filter (uses_name js_program)
-        [ "pykFormat"; "pykFloatStr"; "pykShaped"; "pykParseInt"; "pykTrunc";
-          "pykParseFloat" ]
+    @ List.filter
+        (fun name ->
+          uses_name js_program name
+          (* A missing key's error shows the key as a value is shown. *)
+          || name = "pykShaped"
+             && (uses_name js_program "pykDictGet" || uses_name js_program "pykDictRemove"))
+        [ "pykFormat"; "pykFloatStr"; "pykShaped"; "pykLater"; "pykParseInt";
+          "pykTrunc"; "pykParseFloat" ]
   in
   let lines =
     if wanted = [] then lines

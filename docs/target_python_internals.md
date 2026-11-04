@@ -241,11 +241,114 @@ source wrote — the same distinction `target_js_packaging.ml` draws for
 its own generated preludes.
 
 **The fixed helpers.** The Char class, the conversions and the array
-helpers (`__PykArray`, `__pyk_fail`, `__pyk_array_*`) are fixed blocks
+helpers (`__PykArray`, `__pyk_fail`, `__pyk_array_*`) and the Vec
+helpers (`__PykVec`, `__pyk_vec_*`), the Dict helpers (`__PykDict`,
+`__PykKey`, `__pyk_key`, `__pyk_dict_*`) and `__pyk_eq` are fixed blocks
 of host text, not trees: `add_conversion` records a name in
 `gen.conversions` the first time the translation emits a call to it,
 along with what `conversion_needs` says that helper calls, and
 `pprint_py_body` prints each recorded one once through
 `conversion_def`. An element write's temporaries are named by
 `fresh_write_names`, checked against `gen.used` as the comprehension
-helper's names are.
+helper's names are; a `var struct` field write (`SSetField`) borrows its
+owner name when it has to hold the owner.
+
+**Vecs.** A Vec is told from an array by its type alone: `is_vec_expr`
+asks `types` whether an expression is a `TCon "Vec"`, and `EIndex`,
+`SSetIndex` and a comprehension's sequence read it. The two makers,
+`empty__vec` and `list__vec`, are both the class `__PykVec` (an `EVar`
+case beside the array makers'). The builtins that change a Vec go
+through `vec_call`, which picks a list method or a helper;
+`vec_unit_builtins` (`push`, `insert`, `clear`) are added to
+`yields_unit`, so `runtime_call_stmt` writes them bare as a statement
+and `translate_expr` follows them with `()` in value position, as it
+does `print`. In `SSetIndex` a Vec's write puts its index check in the
+subscript as well, after the value; where the value is `stable` the
+statement ahead of it is dropped. `late` (below) does not count a call
+of a builtin outside `vec_changers` as one that could change an
+argument.
+
+**Dicts.** `is_dict_expr` asks `types` for a `TCon "Dict"`, and the
+same places read it as for a Vec, plus `walked` (a `for` goes through
+`__pyk_dict_walk`). `vec_call` takes every builtin over Vecs and Dicts,
+`store_value_builtins` being those that answer a value; `remove` and
+`clear` pick the Dict helper by their first argument's type. Two Dict
+helpers, `__pyk_dict_get` and `__pyk_dict_remove`, show a missing key
+through the Bool walker, whose name is only settled per module: so
+`add_conversion` builds the walker (`format_helper_name`) when it
+records either, and `conversion_def` takes the walker's name as
+`~formatter`, which `pprint_py_body` reads from the program's
+`format_helper` field. The fixed blocks never reference the classes
+inside a class body, where Python would mangle a `__name`; `__PykKey`'s
+methods ask for the class by its name instead, which also makes a key
+held in one module compare with one held in another.
+
+**Slices and views.** `ESlice` is always `__pyk_slice`, which decides
+by the class at run time: the kind names the error, and the class
+rebuilds the copy. A view is told by its type, `is_view_expr` asking
+for a `TCon "Slice"`, in `EIndex`, `SSetIndex` (a case of its own,
+whose write target is `owner.owner[...]`) and a comprehension's
+sequence; `view` and `copy_into` go through `vec_call` with the other
+store builtins, `copy_into` among the unit ones. The fixed helpers ask
+whether a value is a view by its class's name, so one made in another
+module is one too, and the print walker's view arm puts the id of the
+view's array on the path rather than the view's own.
+
+**Pointers.** `translate_program` collects into `gen.boxed` the name
+of every `var` the module takes the address of (`EAddr (EVar _)`,
+through `Walk`). `is_boxed` asks whether a name is one of those *and*
+the binding in scope is a `var` (`scope.mutables`, which a non-`var`
+binding of the name removes it from), so a box is used exactly for the
+bindings that may be addressed, and possibly for a same-named `var`
+elsewhere, which is harmless. `gen.boxed` also holds every `var` declared in
+a loop's body that a `def` or lambda in that body names
+(`loop_vars_captured`): `SVar` binds a boxed one as loop-carried, and
+`loop_names_before` (through `turn_groups`) counts it, so the turn's
+factory takes the turn's box; `scope_declarations` is not given a
+boxed name, which is written through its box rather than rebound. `SVar` wraps the value in `__PykBox`,
+`EVar` reads `.value`, and `SMutate` writes it through `PyTargetAttr`.
+`free_in_expr` follows `EAddr`, `EDeref` and `ESlice` into their
+operands. `float_inside` takes a `Ptr` to hold no Float, so pointer
+equality stays Python's `==`.
+
+**Equality.** `EEq` and `EBinary (BNeq)` go through `__pyk_eq` where
+`float_inside` says a Float can sit inside the left operand's type --
+the same name lookup among the `TData` entries of `types` as
+`changeable`, a datatype from elsewhere taken to hold one -- and are
+Python's own operators otherwise.
+
+**Comprehension lambdas.** `EListComp` gives its scope `loop_names`:
+the enclosing loop's, and after each `for` clause the names its pattern
+binds (`pattern_captured_names`). `ELambda` pins every loop name it
+reads as a defaulted parameter, so a lambda made in a comprehension
+keeps its own turn's values. The one-element comprehension a tuple
+`let` is translated through is left alone.
+
+**The recursion-path guard.** `build_format_helper` gives the walker a
+third parameter, `path=()`, a tuple of the ids of the arrays and
+datatype values the walk is inside of (the `enter` statements, in front
+of the array arm and the dataclass arm). A value whose id is already on
+it is a cycle and prints `...`; a shared one prints in full. Every
+dataclass goes on the path, not only a `var struct`'s, because the
+interpreter's `display_value` puts every datatype value with fields on
+its own: an immutable value can be met again inside itself only
+through a var struct, and where printing *starts* at that immutable
+value it is the repetition, so both have to agree on which one is cut.
+A Pyking list or a tuple never holds itself, and stays off the path. A
+tuple and `id` keep the helper pure: an id is a safe key while the
+value is on the path, since the path keeps it alive.
+
+**Arguments before formatting.** `runtime_call` translates and wraps
+each `print`/`debug` argument as before, then `late` asks whether some
+argument the format helper wraps has a type `changeable` says can be
+changed after it is made -- an array, a var struct, a datatype of this
+module holding one (looked up by name among the `TData` entries of
+`types`, with a list of names already seen against a recursive one), or
+anything it cannot see into, which is taken to be changeable -- and
+whether a later argument holds an `ECall` (`Walk.exists`) of anything
+but a builtin that changes nothing. Only then is
+the call wrapped in a lambda of `__pyk_arg1`, ... (`first_bound`), the
+arguments passed to it and formatted inside, so the common `print` stays
+the plain call. The lambda's parameter names cannot clash with
+anything: the arguments are evaluated outside it, and its body names
+only the helpers and `print`.

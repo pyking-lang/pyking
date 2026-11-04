@@ -57,6 +57,16 @@ val overload_sets : (string * string list) list
     the interpreter and every backend implement. [string] *)
 val member_names : string list
 
+(** The builtins that change a mutable collection in place -- `push`,
+    `pop`, `insert`, `remove`, `clear` -- which need `use mutation`.
+    [string] *)
+val writers : string list
+
+(** The builtins a module's own definition or import may take the name
+    of, since they are younger than the programs that use the name for
+    something of their own. [string] *)
+val yielding : string list
+
 (** Every builtin's name and every builtin overload set's: the words a
     reader sees as builtin. [string] *)
 val words : string list

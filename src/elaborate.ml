@@ -346,6 +346,18 @@ and expression_body e qmap work =
       let l, work = go l work in
       let index, work = go index work in
       (EIndex (i, l, index, s), work)
+  | EAddr (i, e, s) ->
+      let e, work = go e work in
+      (EAddr (i, e, s), work)
+  | EDeref (i, e, s) ->
+      let e, work = go e work in
+      (EDeref (i, e, s), work)
+  | ESlice (i, l, a, b, s) ->
+      let l, work = go l work in
+      let bound b work = match b with Some e -> let e, work = go e work in (Some e, work) | None -> (None, work) in
+      let a, work = bound a work in
+      let b, work = bound b work in
+      (ESlice (i, l, a, b, s), work)
   | EList (i, elements, s) ->
       let elements, work = each elements work in
       (EList (i, elements, s), work)
@@ -468,6 +480,14 @@ and statement s qmap work =
       let index, work = go index work in
       let value, work = go value work in
       (SSetIndex (i, owner, index, value, sym), work)
+  | SSetField (i, owner, field, value, sym) ->
+      let owner, work = go owner work in
+      let value, work = go value work in
+      (SSetField (i, owner, field, value, sym), work)
+  | SSetDeref (i, pointer, value, sym) ->
+      let pointer, work = go pointer work in
+      let value, work = go value work in
+      (SSetDeref (i, pointer, value, sym), work)
   | SMutate (i, name, e, sym) ->
       let e, work = go e work in
       (SMutate (i, name, e, sym), work)

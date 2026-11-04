@@ -1,8 +1,8 @@
 use mutation
 counts: Array(Int) = list::array([5, 1, 2])
 names: Array(String) = fill::array(2, "none")
-squares: Array(Int) = init::array(4, lam (i:Int). i * i)
-powers: Array(Int) = unfold::array(5, 1, lam (s:Int). (s, s * 2))
+squares: Array(Int) = init::array_init(4, lam (i:Int). i * i)
+powers: Array(Int) = unfold::array_init(5, 1, lam (s:Int). (s, s * 2))
 counts[0] := counts[1] + len(names)
 names[1] := "some"
 print(counts, names, squares, powers)
@@ -15,7 +15,7 @@ def first(xs:Array(a)) -> a:
     xs[0]
 print(total(counts), first(names), same(counts, counts))
 copies: Array((Array(Int)) -> Int) = fill::array(2, total)
-made: Array(Bool) = init::array(3, lam (i:Int). i == 1)
-print(copies[0](squares), made, list::array(["a"]), unfold::array(2, 'x', lam (c:Char). (c, c)))
+made: Array(Bool) = init::array_init(3, lam (i:Int). i == 1)
+print(copies[0](squares), made, list::array(["a"]), unfold::array_init(2, 'x', lam (c:Char). (c, c)))
 none: Array(Float) = list::array([])
 print(len(none))
