@@ -1,0 +1,100 @@
+## Option: a value, or none. `Option(a)` is `Some(value)` or `None`.
+##
+## Every module that uses `Option`, `Some` or `None` without declaring
+## its own has them as if it began `from option import Option` (PYKING.md,
+## "Option"); a module declaring its own Option, or its own `Some` or
+## `None`, means its own. `import option` reaches the functions below.
+#
+# Written in Pyking alone, so every target runs the same code.
+
+
+## A value, or none: what a pointer that may point nowhere is (PYKING.md,
+## "Pointers"), and what a search that may find nothing answers.
+##
+## # Examples
+## ```pyking
+## found = Some(42)
+## missing: Option(Int) = None
+## match found:
+##     case Some(n): print(found, missing, n)
+##     case None: print("none")
+## ```
+## ```stdout
+## Some(42) None 42
+## ```
+public datatype Option(a):
+    None
+    Some(value: a)
+
+
+## Whether `o` holds a value.
+##
+## # Parameters
+## - `o`: the option.
+##
+## # Returns
+## `true` for a `Some`, `false` for `None`.
+##
+## # Examples
+## ```pyking
+## import option
+## print(option.is_some(Some(3)), option.is_some(None))
+## ```
+## ```stdout
+## true false
+## ```
+public def is_some(o: Option(a)) -> Bool:
+    match o:
+        case Some(_):
+            true
+        case None:
+            false
+
+
+## Whether `o` holds nothing.
+##
+## # Parameters
+## - `o`: the option.
+##
+## # Returns
+## `true` for `None`, `false` for a `Some`.
+##
+## # Examples
+## ```pyking
+## import option
+## print(option.is_none(None), option.is_none(Some("x")))
+## ```
+## ```stdout
+## true false
+## ```
+public def is_none(o: Option(a)) -> Bool:
+    match o:
+        case Some(_):
+            false
+        case None:
+            true
+
+
+## The value `o` holds, or `default` where it holds none.
+##
+## # Parameters
+## - `o`: the option.
+## - `default`: what to answer for `None`.
+##
+## # Returns
+## The value of a `Some`, or `default`.
+##
+## # Examples
+## ```pyking
+## import option
+## print(option.or_else(Some(3), 0), option.or_else(None, 0))
+## ```
+## ```stdout
+## 3 0
+## ```
+public def or_else(o: Option(a), default: a) -> a:
+    match o:
+        case Some(v):
+            v
+        case None:
+            default
