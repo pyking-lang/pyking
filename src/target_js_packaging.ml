@@ -77,10 +77,10 @@ let format_js =
       "  if (Array.isArray(value) && value.pykArray === true) {";
       "    return 'array([' + value.map((element) => pykFormat(element, true, path)).join(', ') + '])';";
       "  }";
-      "  // A Dict is a Map of [key, value] entries (`pykDict` in the compiled";
+      "  // A MutMap is a Map of [key, value] entries (`pykMutMap` in the compiled";
       "  // program), each printed as the tuple it is.";
-      "  if (value.pykDict === true) {";
-      "    return 'dict([' + Array.from(value.values(), (entry) => pykFormat(entry, true, path)).join(', ') + '])';";
+      "  if (value.pykMutMap === true) {";
+      "    return 'mutmap([' + Array.from(value.values(), (entry) => pykFormat(entry, true, path)).join(', ') + '])';";
       "  }";
       "  // A pointer prints as what it points at now.";
       "  if (value.pykPtr === true) return 'Ptr(' + pykFormat(value.get(), true, path) + ')';";
@@ -90,9 +90,9 @@ let format_js =
       "    const items = value.owner.slice(value.offset, value.offset + value.length);";
       "    return 'view([' + items.map((element) => pykFormat(element, true, path)).join(', ') + '])';";
       "  }";
-      "  // A Vec has its own marker (`pykVec`) too.";
-      "  if (Array.isArray(value) && value.pykVec === true) {";
-      "    return 'vec([' + value.map((element) => pykFormat(element, true, path)).join(', ') + '])';";
+      "  // A DynArray has its own marker (`pykDynArray`) too.";
+      "  if (Array.isArray(value) && value.pykDynArray === true) {";
+      "    return 'dynarray([' + value.map((element) => pykFormat(element, true, path)).join(', ') + '])';";
       "  }";
       "  if (Array.isArray(value)) {";
       "    const parts = value.map((element) => pykFormat(element, true, path));";
@@ -195,8 +195,8 @@ let float_js =
       "";
       "// `f` is a Float, `c` a Char (a code point), `.` anything pykFormat";
       "// already prints right, `[s]` a list of s, `{s}` an array of s, `<s>`";
-      "// a Vec of s, `v{s}` a view of s, `p(s)` a pointer to s, `@(k,v)` a";
-      "// Dict whose entries are (k, v), and `(s,s)` a tuple. `path` is pykFormat's: a value can only reach";
+      "// a DynArray of s, `v{s}` a view of s, `p(s)` a pointer to s, `@(k,v)` a";
+      "// MutMap whose entries are (k, v), and `(s,s)` a tuple. `path` is pykFormat's: a value can only reach";
       "// itself through a datatype's value, which is a `.` here, so the";
       "// guard is pykFormat's alone and this passes the path on.";
       "function pykShaped(value, shape, inner, path = []) {";
@@ -210,7 +210,7 @@ let float_js =
       "  }";
       "  if (shape[0] === '@') {";
       "    const entry = shape.slice(1);";
-      "    return 'dict([' + Array.from(value.values(), (e) => pykShaped(e, entry, true, path)).join(', ') + '])';";
+      "    return 'mutmap([' + Array.from(value.values(), (e) => pykShaped(e, entry, true, path)).join(', ') + '])';";
       "  }";
       "  const body = shape.slice(1, -1);";
       "  if (shape[0] === '[') {";
@@ -220,13 +220,13 @@ let float_js =
       "    return 'array([' + value.map((e) => pykShaped(e, body, true, path)).join(', ') + '])';";
       "  }";
       "  if (shape[0] === '<') {";
-      "    return 'vec([' + value.map((e) => pykShaped(e, body, true, path)).join(', ') + '])';";
+      "    return 'dynarray([' + value.map((e) => pykShaped(e, body, true, path)).join(', ') + '])';";
       "  }";
       "  const parts = pykShapeParts(body).map((s, i) => pykShaped(value[i], s, true, path));";
       "  return parts.length === 1 ? '(' + parts[0] + ',)' : '(' + parts.join(', ') + ')';";
       "}";
       "";
-      "// A `print` argument holding an array, a Vec, a view or a Dict whose";
+      "// A `print` argument holding an array, a DynArray, a view or a MutMap whose";
       "// parts need a descriptor: formatted by `print` itself, once every";
       "// argument after it is worked out -- a later one may write into it.";
       "function pykLater(value, shape) {";
@@ -456,7 +456,7 @@ let js_module (unit : Module.t) js_program renames main target =
           uses_name js_program name
           (* A missing key's error shows the key as a value is shown. *)
           || name = "pykShaped"
-             && (uses_name js_program "pykDictGet" || uses_name js_program "pykDictRemove"))
+             && (uses_name js_program "pykMutMapGet" || uses_name js_program "pykMutMapRemove"))
         [ "pykFormat"; "pykFloatStr"; "pykShaped"; "pykLater"; "pykParseInt";
           "pykTrunc"; "pykParseFloat" ]
   in

@@ -1,0 +1,10 @@
+# A DynArray's element moves when the DynArray grows, so it has no address: an
+# array's does.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation, pointers
+
+v = dynarray([1, 2])
+p = &v[0]

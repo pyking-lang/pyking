@@ -1,0 +1,10 @@
+mutmap([("ada", 37), ("bo", 6), ("cy", 12)]) 3 37
+false true 0 6
+6 ["ada", "cy"] [37, 12] [("ada", 37), ("cy", 12)]
+mutmap([("cy", 12), ("bo", 1), ("ada", 40)])
+mutmap([("cy", 24), ("bo", 2), ("ada", 80)]) ["cy!", "bo!", "ada!"]
+mutmap([("the", 3), ("cat", 1), ("hat", 1)])
+x black false mutmap([(true, 1)])
+2 true false
+mutmap([]) 0
+mutmap([(2, dynarray(["ox"])), (3, dynarray(["ant", "bee", "elk"]))]) mutmap([("a", Box(10))])

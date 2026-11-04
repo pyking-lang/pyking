@@ -1,0 +1,10 @@
+dynarray([5, 10, 20, 30, 40]) 5 5 40
+dynarray([5, 11, 22, 30, 40])
+40 11 dynarray([5, 22, 30]) 3
+dynarray([0, 1, 4, 9, 16, 25]) [1, 2, 5, 10, 17, 26]
+25 5 true false
+dynarray([0, 1, 4, 9, 16, 99])
+dynarray(["a", "ab", "abb", "abbb"])
+9 dynarray([4, 5, 6])
+dynarray([dynarray([1, 4]), dynarray([2, 3])]) dynarray([Score("ada", 3), Score("bo", 11)])
+dynarray([]) 0

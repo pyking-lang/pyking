@@ -70,19 +70,19 @@ Beside them it always holds the helpers every program may call: the
 value printer (`str`, `show`, and `line` for a print whose arguments
 must all be worked out first), `equal` and `hash` (Pyking's `==`, and a
 hash agreeing with it), the conversions, `PykChar`, the stores --
-`PykStore` and its `PykArray`, `PykVec` and `PykView` -- with their
+`PykStore` and its `PykArray`, `PykDynArray` and `PykView` -- with their
 factories (`arrayOfList`, `arrayFill`, `arrayInit`, `arrayUnfold`,
-`vecEmpty`, `vecOfList`), `PykDict` with `dictEmpty` and `dictOfList`,
+`dynarrayEmpty`, `dynarrayOfList`), `PykMutMap` with `mutmapEmpty` and `mutmapOfList`,
 `copyInto`, the list and String `slice`, and `fail`, which ends the
 program with a runtime error.
 
-## Stores and Dicts
+## Stores and MutMaps
 
-`store_of` tells an array, a Vec and a view (`Slice(T)`) apart, and
-`jt` writes each as its runtime class, and a Dict (`dict_parts`) as
-`PykDict<K, V>`, before the general `TCon` case, which would take them
-for datatypes. `make_array` compiles the members of `array`, `vec` and
-`dict` the elaborator leaves as calls, with the element type (a Dict's
+`store_of` tells an array, a DynArray and a view (`Slice(T)`) apart, and
+`jt` writes each as its runtime class, and a MutMap (`mutmap_parts`) as
+`PykMutMap<K, V>`, before the general `TCon` case, which would take them
+for datatypes. `make_array` compiles the members of `array`, `dynarray` and
+`mutmap` the elaborator leaves as calls, with the element type (a MutMap's
 key and value types) as explicit type arguments where `settled` says
 Java can be told them; `typed_value` casts a lambda argument to its
 interface. `a[i]`, `d[k]` and `len` need nothing of their own: each
@@ -92,11 +92,11 @@ class has `get` and `size` as a list does. `builtin` compiles `push`,
 (`method_call`), and `effect_of` writes one whose value nobody reads as
 a statement of its own. `SSetIndex` on a store holds the owner and the
 index in temporaries and writes the check before the statement working
-the value out, so the write runs in Pyking's order; on a Dict it is one
+the value out, so the write runs in Pyking's order; on a MutMap it is one
 `put`, which Java already evaluates in Pyking's order (target_java.md,
-"Arrays, Vecs and views", "Equality and Dicts"). `ESlice` is the
+"Arrays, DynArrays and views", "Equality and MutMaps"). `ESlice` is the
 store's `slice` or the runtime's, `null` for a left-out `high`.
-`walked` gives a `for` the store or Dict itself, an `Iterable`; `listed`
+`walked` gives a `for` the store or MutMap itself, an `Iterable`; `listed`
 gives a comprehension a list of the elements or keys as they are when it
 starts. `equal` (the OCaml helper) writes `==` on lists, tuples and
 datatypes as `PykRuntime.equal`, and `structural_methods` gives java8's

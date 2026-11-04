@@ -121,25 +121,25 @@ let t_array info element = TCon (info, array_name, [ element ], 0)
 let array_element type_ =
   match type_ with TCon (_, name, [ element ], _) when name = array_name -> Some element | _ -> None
 
-(* `Vec(T)`: an array that grows, made by `vec(...)` alone and changed by
-   `push`, `pop`, `insert`, `remove` and `clear` (PYKING.md, "Vecs"). *)
-let vec_name = "Vec"
-let t_vec info element = TCon (info, vec_name, [ element ], 0)
+(* `DynArray(T)`: an array that grows, made by `dynarray(...)` alone and changed by
+   `push`, `pop`, `insert`, `remove` and `clear` (PYKING.md, "DynArrays"). *)
+let dynarray_name = "DynArray"
+let t_dynarray info element = TCon (info, dynarray_name, [ element ], 0)
 
-(** The element type of a Vec type, or None for anything else.
+(** The element type of a DynArray type, or None for anything else.
     typ -> typ option *)
-let vec_element type_ =
-  match type_ with TCon (_, name, [ element ], _) when name = vec_name -> Some element | _ -> None
+let dynarray_element type_ =
+  match type_ with TCon (_, name, [ element ], _) when name = dynarray_name -> Some element | _ -> None
 
-(* `Dict(K, V)`: a mutable map, insertion-ordered, made by `dict(...)`
-   alone (PYKING.md, "Dicts"). *)
-let dict_name = "Dict"
-let t_dict info key value = TCon (info, dict_name, [ key; value ], 0)
+(* `MutMap(K, V)`: a mutable map, insertion-ordered, made by `mutmap(...)`
+   alone (PYKING.md, "MutMaps"). *)
+let mutmap_name = "MutMap"
+let t_mutmap info key value = TCon (info, mutmap_name, [ key; value ], 0)
 
-(** The key and value types of a Dict type, or None for anything else.
+(** The key and value types of a MutMap type, or None for anything else.
     typ -> (typ * typ) option *)
-let dict_parts type_ =
-  match type_ with TCon (_, name, [ key; value ], _) when name = dict_name -> Some (key, value) | _ -> None
+let mutmap_parts type_ =
+  match type_ with TCon (_, name, [ key; value ], _) when name = mutmap_name -> Some (key, value) | _ -> None
 
 (* `Ptr(T)`: a pointer to a place holding a T -- a `var`, an array's or a
    view's element, a var struct's field -- made by `&` alone (PYKING.md,
@@ -162,13 +162,13 @@ let t_slice info element = TCon (info, slice_name, [ element ], 0)
 let slice_element type_ =
   match type_ with TCon (_, name, [ element ], _) when name = slice_name -> Some element | _ -> None
 
-(** The element type of an array, a Vec or a Slice -- a store of
+(** The element type of an array, a DynArray or a Slice -- a store of
     elements read and written by index -- or None for anything else.
     typ -> typ option *)
 let store_element type_ =
   match array_element type_ with
   | Some element -> Some element
-  | None -> ( match vec_element type_ with Some element -> Some element | None -> slice_element type_)
+  | None -> ( match dynarray_element type_ with Some element -> Some element | None -> slice_element type_)
 
 (** The type a definition has once its implicit parameters are ordinary
     ones: what every stage after `elaborate.ml` sees of it. typ -> typ *)
@@ -315,7 +315,7 @@ let empty_store sigmaps =
     tmap = IntMap.empty;
     qmap = IntMap.empty;
     types =
-      List.fold_left (fun m n -> SMap.add n n m) SMap.empty [ array_name; vec_name; dict_name; slice_name; ptr_name ];
+      List.fold_left (fun m n -> SMap.add n n m) SMap.empty [ array_name; dynarray_name; mutmap_name; slice_name; ptr_name ];
     datatypes = SMap.empty;
     constructors = SMap.empty;
     field_defaults = SMap.empty;
@@ -998,7 +998,7 @@ let demand_sequence actual info what store =
   match prune actual store with
   | TString _ -> (TChar (info, 0), store)
   | settled when store_element settled <> None -> (Option.get (store_element settled), store)
-  | settled when dict_parts settled <> None -> (fst (Option.get (dict_parts settled)), store)
+  | settled when mutmap_parts settled <> None -> (fst (Option.get (mutmap_parts settled)), store)
   | _ -> demand_list actual info what store
 
 (* --- what the store records --- *)
@@ -1086,7 +1086,7 @@ let record store sym type_ =
 (* --- ground types, and the tables that name them --- *)
 
 (** The ground types the operator and builtin tables name. *)
-type kind = KInt | KFloat | KString | KChar | KBool | KList | KTuple | KData | KArray | KVec | KDict | KSlice
+type kind = KInt | KFloat | KString | KChar | KBool | KList | KTuple | KData | KArray | KDynArray | KMutMap | KSlice
 
 (** Whether a type is of this kind, deciding nothing.
     kind -> typ -> bool *)
@@ -1102,8 +1102,8 @@ let kind_matches kind type_ =
   | KData, TCon _ ->
       true
   | KArray, TCon (_, name, _, _) -> name = array_name
-  | KVec, TCon (_, name, _, _) -> name = vec_name
-  | KDict, TCon (_, name, _, _) -> name = dict_name
+  | KDynArray, TCon (_, name, _, _) -> name = dynarray_name
+  | KMutMap, TCon (_, name, _, _) -> name = mutmap_name
   | KSlice, TCon (_, name, _, _) -> name = slice_name
   | _ -> false
 
@@ -1121,8 +1121,8 @@ let kind_type kind info =
   | KTuple -> t_tuple info []
   | KData -> t_tuple info []
   | KArray -> t_array info (t_unknown info)
-  | KVec -> t_vec info (t_unknown info)
-  | KDict -> t_dict info (t_unknown info) (t_unknown info)
+  | KDynArray -> t_dynarray info (t_unknown info)
+  | KMutMap -> t_mutmap info (t_unknown info) (t_unknown info)
   | KSlice -> t_slice info (t_unknown info)
 
 (** Whether type_ is one of kinds. A flexible variable counts as any of
@@ -1225,13 +1225,13 @@ let rec alternative expr left_type right_type =
       ". A pointer has no arithmetic: a run of an array's elements is a \
        view, 'view(a, i, j)', and an element's address is '&a[i]'"
   | (EEq _ | EBinary (_, BNeq, _, _, _))
-    when kind_matches KDict left_type || kind_matches KDict right_type ->
-      ". Dicts are compared with 'same(a, b)', which asks whether they are \
-       one Dict"
+    when kind_matches KMutMap left_type || kind_matches KMutMap right_type ->
+      ". MutMaps are compared with 'same(a, b)', which asks whether they are \
+       one MutMap"
   | (EEq _ | EBinary (_, BNeq, _, _, _))
-    when kind_matches KVec left_type || kind_matches KVec right_type ->
-      ". Vecs are compared with 'same(a, b)', which asks whether they are \
-       one Vec, or with 'vec.equal(a, b)' from lib/vec, which compares \
+    when kind_matches KDynArray left_type || kind_matches KDynArray right_type ->
+      ". DynArrays are compared with 'same(a, b)', which asks whether they are \
+       one DynArray, or with 'dynarray.equal(a, b)' from lib/dynarray, which compares \
        their elements"
   | (EEq _ | EBinary (_, BNeq, _, _, _)) when kind_matches KData left_type && kind_matches KData right_type ->
       ". A struct or a datatype's value is compared field by field, by a \
@@ -1535,8 +1535,8 @@ let rec resolved ?params store type_ =
           let wanted =
             match SMap.find_opt canonical store.datatypes with
             | Some (Datatype (_, wanted, _, _)) -> List.length wanted
-            | None when List.mem canonical [ array_name; vec_name; slice_name; ptr_name ] -> 1
-            | None when canonical = dict_name -> 2
+            | None when List.mem canonical [ array_name; dynarray_name; slice_name; ptr_name ] -> 1
+            | None when canonical = mutmap_name -> 2
             | None -> List.length args
           in
           if List.length args <> wanted then
@@ -1767,9 +1767,9 @@ let builtin_env () =
       (fun env name -> bind env name (t_builtin builtin_info name))
       SMap.empty Builtin.names
   in
-  (* `array`, `array_init` and `vec` are overload sets of builtin
+  (* `array`, `array_init` and `dynarray` are overload sets of builtin
      definitions, resolved by their arguments as any `::` set is
-     (PYKING.md, "Arrays", "Vecs"); each set's members take different
+     (PYKING.md, "Arrays", "DynArrays"); each set's members take different
      numbers of arguments, so a call is never ambiguous. *)
   let i = builtin_info in
   let a = t_var i "a" and s = t_var i "s" in
@@ -1782,10 +1782,10 @@ let builtin_env () =
       ("fill::array", [ "a" ], [ t_int i; a ], t_array i a);
       ("init::array_init", [ "a" ], [ t_int i; t_function i [ t_int i ] a ], t_array i a);
       ("unfold::array_init", [ "a"; "s" ], [ t_int i; s; t_function i [ s ] (t_tuple i [ a; s ]) ], t_array i a);
-      ("empty::vec", [ "a" ], [], t_vec i a);
-      ("list::vec", [ "a" ], [ t_list i a ], t_vec i a);
-      ("empty::dict", [ "k"; "v" ], [], t_dict i (t_var i "k") (t_var i "v"));
-      ("list::dict", [ "k"; "v" ], [ t_list i (t_tuple i [ t_var i "k"; t_var i "v" ]) ], t_dict i (t_var i "k") (t_var i "v"));
+      ("empty::dynarray", [ "a" ], [], t_dynarray i a);
+      ("list::dynarray", [ "a" ], [ t_list i a ], t_dynarray i a);
+      ("empty::mutmap", [ "k"; "v" ], [], t_mutmap i (t_var i "k") (t_var i "v"));
+      ("list::mutmap", [ "k"; "v" ], [ t_list i (t_tuple i [ t_var i "k"; t_var i "v" ]) ], t_mutmap i (t_var i "k") (t_var i "v"));
     ]
 
 (** What a module exports, or a refusal saying it cannot be reached from
@@ -2620,7 +2620,7 @@ let pattern_shape wanted type_ info store =
 (** Why `==` cannot compare values of type t, or None where it can:
     structurally, part by part, every part a scalar or itself something
     `==` compares (PYKING.md, "Comparison operators"). A function has no
-    equality; an array, a Vec, a Dict and a `var struct` have an identity
+    equality; an array, a DynArray, a MutMap and a `var struct` have an identity
     instead, which `same` asks; a type variable may stand for any of
     those. A metavariable is left to what decides it. Answers the part
     that has none, as a reader names it, and what to say of it.
@@ -2634,8 +2634,8 @@ let equality_problem store t =
     | TList (_, element, _) -> go seen element
     | TFunction _ | TBuiltin _ | TForall _ -> Some ("a function", "")
     | TCon (_, name, _, _) when name = array_name -> Some ("an array", same_hint)
-    | TCon (_, name, _, _) when name = vec_name -> Some ("a Vec", same_hint)
-    | TCon (_, name, _, _) when name = dict_name -> Some ("a Dict", same_hint)
+    | TCon (_, name, _, _) when name = dynarray_name -> Some ("a DynArray", same_hint)
+    | TCon (_, name, _, _) when name = mutmap_name -> Some ("a MutMap", same_hint)
     | TCon (_, name, _, _) when name = slice_name -> Some ("a view", same_hint)
     | TCon (_, name, args, _) -> (
         match SMap.find_opt name store.datatypes with
@@ -2657,7 +2657,7 @@ let equality_problem store t =
   in
   go [] t
 
-(** Why values of type t cannot be a Dict's keys, or None where they can
+(** Why values of type t cannot be a MutMap's keys, or None where they can
     (FCR-F3): Int, Char, String, Bool and (), and tuples, lists and
     immutable datatypes of keys. A Float is not one -- NaN is equal to
     nothing, itself included -- nor is a function or anything with an
@@ -2670,7 +2670,7 @@ let key_problem store t =
     | TTuple (_, parts, _) -> List.find_map (go seen) parts
     | TList (_, element, _) -> go seen element
     | TCon (_, name, _, _) when name = ptr_name -> Some "a pointer, whose target changes"
-    | TCon (_, name, _, _) when List.mem name [ array_name; vec_name; dict_name; slice_name ] ->
+    | TCon (_, name, _, _) when List.mem name [ array_name; dynarray_name; mutmap_name; slice_name ] ->
         Some (Printf.sprintf "%s, which changes" (if name = array_name then "an array" else "a " ^ name))
     | TCon (_, name, args, _) -> (
         match SMap.find_opt name store.datatypes with
@@ -2689,7 +2689,7 @@ let key_problem store t =
   in
   go [] t
 
-(** Raises Type_error where a Dict's key type is settled enough to say it
+(** Raises Type_error where a MutMap's key type is settled enough to say it
     cannot be one. info -> typ -> store -> () *)
 let demand_key info key store =
   match key_problem store key with
@@ -2699,7 +2699,7 @@ let demand_key info key store =
         (Type_error
            ( info,
              Printf.sprintf
-               "a Dict's keys are compared and hashed, so a key is an Int, a \
+               "a MutMap's keys are compared and hashed, so a key is an Int, a \
                 Char, a String, a Bool, or a tuple, list or datatype of \
                 those; the key type here, %s, is or holds %s"
                (shown key store) part ))
@@ -2892,10 +2892,10 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
         if o.row1 = o.row2 && o.col1 = o.col2 then info else o
       in
       (match prune owner_type store with
-      | settled when dict_parts settled <> None ->
-          (* `d[k] := v` puts an entry in a Dict, or replaces the value of
-             the one it has (PYKING.md, "Dicts"). *)
-          let key, wanted = Option.get (dict_parts settled) in
+      | settled when mutmap_parts settled <> None ->
+          (* `d[k] := v` puts an entry in a MutMap, or replaces the value of
+             the one it has (PYKING.md, "MutMaps"). *)
+          let key, wanted = Option.get (mutmap_parts settled) in
           let key_type, store = check_expr index env store in
           let store =
             match unify key key_type store with
@@ -2904,7 +2904,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
                 raise
                   (Type_error
                      ( expr_info index,
-                       Printf.sprintf "this Dict's keys are %s, and this one is %s"
+                       Printf.sprintf "this MutMap's keys are %s, and this one is %s"
                          (shown key store) (shown key_type store) ))
           in
           demand_key (expr_info index) key store;
@@ -2916,7 +2916,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
                 raise
                   (Type_error
                      ( info,
-                       Printf.sprintf "this Dict's values are %s, but this '%s' gives %s"
+                       Printf.sprintf "this MutMap's values are %s, but this '%s' gives %s"
                          (shown wanted store) (assignment_word statement) (shown actual store) ))
           in
           let store = record store sym (unit_type info) in
@@ -2952,11 +2952,11 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
               (Type_error
                  ( owner_info,
                    Printf.sprintf
-                     "only an array's or a Vec's element is written with '%s', \
+                     "only an array's or a DynArray's element is written with '%s', \
                       and this value is %s"
                      (assignment_word statement) (shown settled store) ))
       in
-      let what = if vec_element (prune owner_type store) <> None then "Vec" else "array" in
+      let what = if dynarray_element (prune owner_type store) <> None then "DynArray" else "array" in
       let index_type, store = check_expr index env store in
       let store =
         match unify (t_int info) index_type store with
@@ -2966,7 +2966,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
               (Type_error
                  ( expr_info index,
                    Printf.sprintf "%s index is an Int, and this one is %s"
-                     (if what = "Vec" then "a Vec's" else "an array's")
+                     (if what = "DynArray" then "a DynArray's" else "an array's")
                      (shown index_type store) ))
       in
       let actual, store = check_expr value env store in
@@ -3742,9 +3742,9 @@ and expr_type e env store =
           | settled when array_element settled <> None || slice_element settled <> None ->
               let target, store = check_expr place env store in
               (t_ptr info (zonk target store), store)
-          | settled when vec_element settled <> None ->
-              refuse "a Vec's element moves when the Vec grows: take the address of an array's"
-          | _ -> refuse "this element is of a value that never changes, or of a Dict")
+          | settled when dynarray_element settled <> None ->
+              refuse "a DynArray's element moves when the DynArray grows: take the address of an array's"
+          | _ -> refuse "this element is of a value that never changes, or of a MutMap")
       | EField (_, owner, _, _) -> (
           let owner_type, _ = check_expr owner env store in
           match prune owner_type store with
@@ -3779,7 +3779,7 @@ and expr_type e env store =
                  Printf.sprintf "'*' reads through a pointer, and this value is %s"
                    (shown settled store) )))
   | ESlice (info, seq, low, high, _) ->
-      (* `s[i:j]` copies a run of a list, a String, an array, a Vec or a
+      (* `s[i:j]` copies a run of a list, a String, an array, a DynArray or a
          view into a new value of its own kind -- a view's into an array
          -- and its bounds are Ints (PYKING.md, "Slices"). *)
       let seq_type, store = check_expr seq env store in
@@ -3787,7 +3787,7 @@ and expr_type e env store =
         match prune seq_type store with
         | TString _ as t -> (t, store)
         | TList _ as t -> (zonk t store, store)
-        | settled when array_element settled <> None || vec_element settled <> None -> (zonk settled store, store)
+        | settled when array_element settled <> None || dynarray_element settled <> None -> (zonk settled store, store)
         | settled when slice_element settled <> None -> (t_array info (zonk (Option.get (slice_element settled)) store), store)
         | settled when is_meta settled -> (
             let element, store = fresh_meta info store in
@@ -3799,7 +3799,7 @@ and expr_type e env store =
               (Type_error
                  ( expr_info seq,
                    Printf.sprintf
-                     "only a list, a String, an array, a Vec or a view is sliced \
+                     "only a list, a String, an array, a DynArray or a view is sliced \
                       with '[i:j]', and this value is %s"
                      (shown settled store) ))
       in
@@ -3822,12 +3822,12 @@ and expr_type e env store =
   | EIndex (info, list, index, _) ->
       (* `xs[i]` reads element i of a list, so the list is `[a]` for some
          a, the index an Int, and the element is worth an `a`. A String
-         is indexed too, and its element is a Char. A Dict is indexed by
-         its key, and its element is a value (PYKING.md, "Dicts"). *)
+         is indexed too, and its element is a Char. A MutMap is indexed by
+         its key, and its element is a value (PYKING.md, "MutMaps"). *)
       let list_type, store = check_expr list env store in
       match prune list_type store with
-      | settled when dict_parts settled <> None ->
-          let key, value = Option.get (dict_parts settled) in
+      | settled when mutmap_parts settled <> None ->
+          let key, value = Option.get (mutmap_parts settled) in
           let key_type, store = check_expr index env store in
           let store =
             match unify key key_type store with
@@ -3836,7 +3836,7 @@ and expr_type e env store =
                 raise
                   (Type_error
                      ( expr_info index,
-                       Printf.sprintf "this Dict's keys are %s, and this one is %s"
+                       Printf.sprintf "this MutMap's keys are %s, and this one is %s"
                          (shown key store) (shown key_type store) ))
           in
           demand_key (expr_info index) key store;
@@ -3845,7 +3845,7 @@ and expr_type e env store =
       let indexed =
         if kind_matches KString (prune list_type store) then "a String"
         else if kind_matches KArray (prune list_type store) then "an array"
-        else if kind_matches KVec (prune list_type store) then "a Vec"
+        else if kind_matches KDynArray (prune list_type store) then "a DynArray"
         else if kind_matches KSlice (prune list_type store) then "a view"
         else "a list"
       in
@@ -3862,7 +3862,7 @@ and expr_type e env store =
                   (Type_error
                      ( expr_info list,
                        Printf.sprintf
-                         "only a list, an array, a Vec, a Dict or a String is indexed \
+                         "only a list, an array, a DynArray, a MutMap or a String is indexed \
                           with '[...]', and this value is %s"
                          (shown list_type store) )))
       in
@@ -3965,7 +3965,7 @@ and check_binary e env store =
     match common with
     | TList _ -> true
     | TTuple (_, parts, _) -> parts <> []
-    | TCon (_, name, _, _) -> not (List.mem name [ array_name; vec_name; dict_name; slice_name ])
+    | TCon (_, name, _, _) -> not (List.mem name [ array_name; dynarray_name; mutmap_name; slice_name ])
     | _ -> false
   in
   let answer =
@@ -4380,27 +4380,27 @@ and check_builtin_call name call env store =
       (t_char info, store)
   | "len", [ value ] ->
       check_builtin_arity name info given;
-      if not (every value [ KList; KString; KArray; KVec; KDict; KSlice ]) then
+      if not (every value [ KList; KString; KArray; KDynArray; KMutMap; KSlice ]) then
         raise
           (builtin_argument_error name (List.hd args) value
-             "a list, an array, a Vec, a Dict, a view or a String");
+             "a list, an array, a DynArray, a MutMap, a view or a String");
       (t_int info, store)
   | ("remove" | "clear" | "discard" | "get" | "has" | "keys" | "values" | "items"), first :: _
-    when dict_parts (prune first store) <> None
+    when mutmap_parts (prune first store) <> None
          || List.mem name [ "discard"; "get"; "has"; "keys"; "values"; "items" ] ->
-      (* A Dict's builtins (PYKING.md, "Dicts"): the first argument is
+      (* A MutMap's builtins (PYKING.md, "MutMaps"): the first argument is
          one, a key is its key type, a default its value type. One
-         nothing has decided is a Dict. *)
+         nothing has decided is a MutMap. *)
       check_builtin_arity name info given;
       let key, value, store =
-        match dict_parts (prune first store) with
+        match mutmap_parts (prune first store) with
         | Some (key, value) -> (key, value, store)
         | None -> (
             let key, store = fresh_meta info store in
             let value, store = fresh_meta info store in
-            match unify (t_dict info key value) first store with
+            match unify (t_mutmap info key value) first store with
             | Some store -> (key, value, store)
-            | None -> raise (builtin_argument_error name (List.hd args) first "a Dict"))
+            | None -> raise (builtin_argument_error name (List.hd args) first "a MutMap"))
       in
       let expect store position wanted what =
         match unify wanted (List.nth types position) store with
@@ -4409,13 +4409,13 @@ and check_builtin_call name call env store =
       in
       let store =
         if List.mem name [ "remove"; "discard"; "get"; "has" ] then (
-          let store = expect store 1 key (Printf.sprintf "%s, the Dict's key type" (shown key store)) in
+          let store = expect store 1 key (Printf.sprintf "%s, the MutMap's key type" (shown key store)) in
           demand_key (expr_info (List.nth args 1)) key store;
           store)
         else store
       in
       let store =
-        if name = "get" then expect store 2 value (Printf.sprintf "%s, the Dict's value type" (shown value store))
+        if name = "get" then expect store 2 value (Printf.sprintf "%s, the MutMap's value type" (shown value store))
         else store
       in
       ( (match name with
@@ -4471,22 +4471,22 @@ and check_builtin_call name call env store =
       in
       (unit_type info, store)
   | ("push" | "pop" | "insert" | "remove" | "clear"), first :: rest ->
-      (* A writer changes a Vec (PYKING.md, "Vecs"): its first argument
+      (* A writer changes a DynArray (PYKING.md, "DynArrays"): its first argument
          is one, an index is an Int, and a value is the element type. One
-         nothing has decided is a Vec. *)
+         nothing has decided is a DynArray. *)
       check_builtin_arity name info given;
       let element, store = fresh_meta info store in
       let store =
-        match unify (t_vec info element) first store with
+        match unify (t_dynarray info element) first store with
         | Some store -> store
-        | None -> raise (builtin_argument_error name (List.hd args) first "a Vec")
+        | None -> raise (builtin_argument_error name (List.hd args) first "a DynArray")
       in
       let expect store position wanted what =
         match unify wanted (List.nth types position) store with
         | Some store -> store
         | None -> raise (builtin_argument_error name (List.nth args position) (List.nth types position) what)
       in
-      let element_text store = Printf.sprintf "%s, the Vec's element type" (shown element store) in
+      let element_text store = Printf.sprintf "%s, the DynArray's element type" (shown element store) in
       let store =
         match (name, rest) with
         | "push", [ _ ] -> expect store 1 element (element_text store)
@@ -4503,10 +4503,10 @@ and check_builtin_call name call env store =
          element type, or both one `var struct` -- the values that have
          an identity; one nothing has decided is an array. *)
       check_builtin_arity name info given;
-      let wanted = "two arrays, Vecs, Dicts, views or var structs, of one type" in
+      let wanted = "two arrays, DynArrays, MutMaps, views or var structs, of one type" in
       let identity settled =
         match settled with
-        | TCon (_, c, _, _) when List.mem c [ array_name; vec_name; dict_name; slice_name ] -> true
+        | TCon (_, c, _, _) when List.mem c [ array_name; dynarray_name; mutmap_name; slice_name ] -> true
         | TCon (_, c, _, _) -> (
             match SMap.find_opt c store.datatypes with
             | Some (Datatype (_, _, _, writable)) -> writable
@@ -5346,9 +5346,9 @@ let check_open_arrays stmts store =
   in
   let rec open_array type_ =
     match type_ with
-    | TCon (_, name, [ element ], _) when name = array_name || name = vec_name || name = slice_name ->
+    | TCon (_, name, [ element ], _) when name = array_name || name = dynarray_name || name = slice_name ->
         metas_in element store <> [] || open_array element
-    | TCon (_, name, args, _) when name = dict_name ->
+    | TCon (_, name, args, _) when name = mutmap_name ->
         List.exists (fun arg -> metas_in arg store <> []) args || List.exists open_array args
     | TCon (_, name, args, _) when writable name ->
         List.exists (fun arg -> metas_in arg store <> []) args || List.exists open_array args
@@ -5356,12 +5356,12 @@ let check_open_arrays stmts store =
     | TList (_, element, _) -> open_array element
     | _ -> false
   in
-  (* A Dict's key type, wherever one is in a binding's type, is one a
+  (* A MutMap's key type, wherever one is in a binding's type, is one a
      key can be: what `d[k]` and `has` check at a use, this checks of a
-     Dict nothing used. *)
+     MutMap nothing used. *)
   let rec keys_fit info type_ =
     match type_ with
-    | TCon (_, name, [ key; _ ], _) when name = dict_name -> demand_key info key store
+    | TCon (_, name, [ key; _ ], _) when name = mutmap_name -> demand_key info key store
     | TCon (_, _, args, _) | TTuple (_, args, _) -> List.iter (keys_fit info) args
     | TList (_, element, _) -> keys_fit info element
     | _ -> ()

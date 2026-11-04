@@ -1,0 +1,7 @@
+# Making a DynArray is mutation's: `dynarray(...)` in a module without `use
+# mutation` is refused.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+v = dynarray([1, 2])

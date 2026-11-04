@@ -346,16 +346,16 @@ let ctor_ref ctx canonical name =
   | None, _ -> ctor_class ctx.own_class name
 
 (* The stores an element is read from and written to by index: an
-   array, a Vec and a view (`Slice(T)`) -- each a class of the runtime
+   array, a DynArray and a view (`Slice(T)`) -- each a class of the runtime
    extending its `PykStore`. *)
-type store = SArray | SVec | SView
+type store = SArray | SDynArray | SView
 
 (** A store type's kind and element type, or None for any other type.
     typ -> (store * typ) option *)
 let store_of t =
   match t with
   | TCon (_, _, [ e ], _) when Typesystem.array_element t <> None -> Some (SArray, e)
-  | TCon (_, _, [ e ], _) when Typesystem.vec_element t <> None -> Some (SVec, e)
+  | TCon (_, _, [ e ], _) when Typesystem.dynarray_element t <> None -> Some (SDynArray, e)
   | TCon (_, "Slice", [ e ], _) -> Some (SView, e)
   | _ -> None
 
@@ -364,7 +364,7 @@ let store_of t =
 let ptr_target t = match t with TCon (_, "Ptr", [ e ], _) -> Some e | _ -> None
 
 (** The runtime class of a store. store -> string *)
-let store_class = function SArray -> "PykArray" | SVec -> "PykVec" | SView -> "PykView"
+let store_class = function SArray -> "PykArray" | SDynArray -> "PykDynArray" | SView -> "PykView"
 
 (** A Pyking type as Java writes it; `boxed` where Java needs a reference
     type, as a type argument does. ctx -> bool? -> typ -> string *)
@@ -388,9 +388,9 @@ let rec jt ctx ?(boxed = false) ?(erase = false) t =
       let kind, e = Option.get (store_of t) in
       runtime_class ^ "." ^ store_class kind ^ "<" ^ jt ctx ~boxed:true e ^ ">"
   | TCon _ when ptr_target t <> None -> runtime_class ^ ".PykPtr<" ^ jt ctx ~boxed:true (Option.get (ptr_target t)) ^ ">"
-  | TCon _ when Typesystem.dict_parts t <> None ->
-      let k, v = Option.get (Typesystem.dict_parts t) in
-      runtime_class ^ ".PykDict<" ^ jt ctx ~boxed:true k ^ ", " ^ jt ctx ~boxed:true v ^ ">"
+  | TCon _ when Typesystem.mutmap_parts t <> None ->
+      let k, v = Option.get (Typesystem.mutmap_parts t) in
+      runtime_class ^ ".PykMutMap<" ^ jt ctx ~boxed:true k ^ ", " ^ jt ctx ~boxed:true v ^ ">"
   | TCon (_, canonical, args, _) ->
       datatype_ref ctx canonical ^ if args = [] then "" else "<" ^ targs ctx args ^ ">"
   | TForall _ as p ->
@@ -695,8 +695,8 @@ let char_code (v : jexpr) =
   else atom (at p_atom v ^ ".code")
 
 (** A sequence a `for` walks: a String's Chars as a list of them, a
-    list, a store or a Dict as itself -- a store is an Iterable whose
-    iterator reads each element as it is reached, a Dict one over its
+    list, a store or a MutMap as itself -- a store is an Iterable whose
+    iterator reads each element as it is reached, a MutMap one over its
     keys. typ -> jexpr -> jexpr *)
 let walked t (seq : jexpr) =
   match t with
@@ -704,11 +704,11 @@ let walked t (seq : jexpr) =
   | _ -> seq
 
 (** A sequence a comprehension walks: as `walked`, but a store's
-    elements and a Dict's keys as a list of them as they are when it
+    elements and a MutMap's keys as a list of them as they are when it
     starts. typ -> jexpr -> jexpr *)
 let listed t (seq : jexpr) =
   if store_of t <> None then atom (at p_atom seq ^ ".toList()")
-  else if Typesystem.dict_parts t <> None then atom (at p_atom seq ^ ".keys()")
+  else if Typesystem.mutmap_parts t <> None then atom (at p_atom seq ^ ".keys()")
   else walked t seq
 
 (** The type of a sequence's items: a String's are Chars. typ -> typ *)
@@ -716,7 +716,7 @@ let item_type t =
   match t with
   | TList (_, el, _) -> el
   | TCon _ when store_of t <> None -> snd (Option.get (store_of t))
-  | TCon _ when Typesystem.dict_parts t <> None -> fst (Option.get (Typesystem.dict_parts t))
+  | TCon _ when Typesystem.mutmap_parts t <> None -> fst (Option.get (Typesystem.mutmap_parts t))
   | TString (i, _) -> TChar (i, 0)
   | _ -> TUnknown (no_info, 0)
 
@@ -1551,12 +1551,12 @@ and builtin ctx st scope e name args =
       | TString _ -> (helper "len", st)
       | _ -> (atom (at p_atom v ^ ".size()"), st))
   | "string", [ v ] -> (printed ctx (arg_type 0) v, st)
-  (* A Vec's, a Dict's and a view's own methods; one answering nothing
+  (* A DynArray's, a MutMap's and a view's own methods; one answering nothing
      answers a Void, as a call where a value is wanted must. *)
   | ("push" | "insert" | "get"), first :: rest ->
       let last = List.length rest - 1 in
       let element = item_type (arg_type 0) in
-      let element = match Typesystem.dict_parts (arg_type 0) with Some (_, value) -> value | None -> element in
+      let element = match Typesystem.mutmap_parts (arg_type 0) with Some (_, value) -> value | None -> element in
       let rest = List.mapi (fun i v -> if i = last then typed_value ctx element v else v) rest in
       (method_call first name rest, st)
   | "has", [ d; k ] -> (atom (Printf.sprintf "%s.has(%s)" (at p_atom d) k.text), st)
@@ -1644,11 +1644,11 @@ and method_call receiver name args =
   atom ~boxed:true
     (Printf.sprintf "%s.%s(%s)" (at p_atom receiver) name (String.concat ", " (List.map (fun (v : jexpr) -> v.text) args)))
 
-(** A call making an array, a Vec or a Dict -- `list__array`,
+(** A call making an array, a DynArray or a MutMap -- `list__array`,
     `fill__array`, `init__array_init` or `unfold__array_init`, the members
-    of the builtin `array`, `empty__vec` or `list__vec`, `vec`'s, and
-    `empty__dict` or `list__dict`, `dict`'s -- as the runtime's factory
-    for it. The element type (a Dict's key and value types) is
+    of the builtin `array`, `empty__dynarray` or `list__dynarray`, `dynarray`'s, and
+    `empty__mutmap` or `list__mutmap`, `mutmap`'s -- as the runtime's factory
+    for it. The element type (a MutMap's key and value types) is
     given explicitly where the checker settled it, which also gives a
     lambda argument its interface; a lambda is cast to its own type
     besides, for where Java has to infer.
@@ -1663,17 +1663,17 @@ and make_array ctx st scope e name args =
     | "fill__array" -> "arrayFill"
     | "init__array_init" -> "arrayInit"
     | "unfold__array_init" -> "arrayUnfold"
-    | "empty__vec" -> "vecEmpty"
-    | "list__vec" -> "vecOfList"
-    | "empty__dict" -> "dictEmpty"
-    | "list__dict" -> "dictOfList"
+    | "empty__dynarray" -> "dynarrayEmpty"
+    | "list__dynarray" -> "dynarrayOfList"
+    | "empty__mutmap" -> "mutmapEmpty"
+    | "list__mutmap" -> "mutmapOfList"
     | _ -> unsupported info (Printf.sprintf "the builtin `%s`" name)
   in
   let t = type_of ctx scope e in
   let st = need_type st t in
-  let st = if name = "unfold__array_init" || name = "list__dict" then need_tuple st 2 else st in
+  let st = if name = "unfold__array_init" || name = "list__mutmap" then need_tuple st 2 else st in
   let explicit =
-    match (Option.map snd (store_of t), Typesystem.dict_parts t) with
+    match (Option.map snd (store_of t), Typesystem.mutmap_parts t) with
     | _, Some (k, v) when settled ctx k && settled ctx v -> Printf.sprintf "<%s, %s>" (jt ctx ~boxed:true k) (jt ctx ~boxed:true v)
     | Some el, _ when settled ctx el ->
         if name = "unfold__array_init" then
@@ -1776,7 +1776,7 @@ and effect_of ctx st scope e =
         st )
   | ECall (_, EVar (_, name, _), _, _)
     when List.mem name [ "push"; "pop"; "insert"; "remove"; "clear"; "discard"; "copy_into" ] && not (SMap.mem name scope.names) ->
-      (* A builtin changing a store or a Dict: its method call is the
+      (* A builtin changing a store or a MutMap: its method call is the
          statement. *)
       let v, st = expr ctx st scope e in
       ([ JLine (v.text ^ ";") ], st)
@@ -2070,20 +2070,20 @@ and stmt ctx st scope s =
         | _ -> v
       in
       ([ JLine (Printf.sprintf "%s = %s;" (struct_field o name).text v.text) ], scope, st)
-  | SSetIndex (_, owner, index, value, _) when Typesystem.dict_parts (type_of ctx scope owner) <> None ->
-      (* `d[k] := v`: Java works out the Dict, then the key, then the
+  | SSetIndex (_, owner, index, value, _) when Typesystem.mutmap_parts (type_of ctx scope owner) <> None ->
+      (* `d[k] := v`: Java works out the MutMap, then the key, then the
          value, and only then calls `put` -- Pyking's order, with nothing
          to check first. *)
       let o, st = expr ctx st scope owner in
       let k, st = expr ctx st scope index in
       let v, st = expr ctx st scope value in
-      let v = typed_value ctx (snd (Option.get (Typesystem.dict_parts (type_of ctx scope owner)))) v in
+      let v = typed_value ctx (snd (Option.get (Typesystem.mutmap_parts (type_of ctx scope owner)))) v in
       ([ JLine (Printf.sprintf "%s.put(%s, %s);" (at p_atom o) k.text v.text) ], scope, st)
   | SSetIndex (_, owner, index, value, _) ->
       (* `owner[index] := value`: the store and the index held first, the
          index checked, and only then the value worked out and written --
          into the store held, whatever the value rebinds, and checked
-         again there, since working the value out may have shrunk a Vec.
+         again there, since working the value out may have shrunk a DynArray.
          Java's own `a[i] = v` would work v out before it checks. *)
       let kind, element =
         match store_of (type_of ctx scope owner) with
@@ -2092,7 +2092,7 @@ and stmt ctx st scope s =
       in
       let o, st = expr ctx st scope owner in
       let i, st = expr ctx st scope index in
-      let held, st = temp st (match kind with SArray -> "array" | SVec -> "vec" | SView -> "view") in
+      let held, st = temp st (match kind with SArray -> "array" | SDynArray -> "dynarray" | SView -> "view") in
       let place, st = temp st "index" in
       let v, st = expr ctx st scope value in
       let v = typed_value ctx element v in
@@ -3041,7 +3041,7 @@ let pprint_method m =
 
 (** A java8 class's `equals` and `hashCode`, Pyking's `==` and a hash
     agreeing with it -- what a record's are on java17 and java21 -- so
-    that a tuple or a datatype can be a Dict's key. string -> [string] *)
+    that a tuple or a datatype can be a MutMap's key. string -> [string] *)
 let structural_methods pad =
   [
     pad ^ "@Override";
@@ -3346,7 +3346,7 @@ let runtime_source programs version =
         "    }";
         "";
         "    // What an element is read from and written to by index: an array, a";
-        "    // Vec or a view. Every index is checked, a read's and a write's alike,";
+        "    // DynArray or a view. Every index is checked, a read's and a write's alike,";
         "    // against the length as it is then; walking one reads element i when";
         "    // turn i is reached, and goes on while i is below the length.";
         "    public static abstract class PykStore<T> implements Iterable<T> {";
@@ -3357,7 +3357,7 @@ let runtime_source programs version =
         "";
         "        abstract void put(int i, Object value);";
         "";
-        "        // \"an array\", \"a Vec\" or \"a view\", for a message.";
+        "        // \"an array\", \"a DynArray\" or \"a view\", for a message.";
         "        abstract String kind();";
         "";
         "        public void check(int i) {";
@@ -3508,12 +3508,12 @@ let runtime_source programs version =
       ]
     @ [
         "";
-        "    // A Vec: an array that grows and shrinks at run time, shared by every";
+        "    // A DynArray: an array that grows and shrinks at run time, shared by every";
         "    // name holding it.";
-        "    public static final class PykVec<T> extends PykStore<T> {";
+        "    public static final class PykDynArray<T> extends PykStore<T> {";
         "        final java.util.ArrayList<Object> items;";
         "";
-        "        PykVec(java.util.ArrayList<Object> items) {";
+        "        PykDynArray(java.util.ArrayList<Object> items) {";
         "            this.items = items;";
         "        }";
         "";
@@ -3530,7 +3530,7 @@ let runtime_source programs version =
         "        }";
         "";
         "        String kind() {";
-        "            return \"a Vec\";";
+        "            return \"a DynArray\";";
         "        }";
         "";
         "        public Void push(Object value) {";
@@ -3540,13 +3540,13 @@ let runtime_source programs version =
         "";
         "        @SuppressWarnings(\"unchecked\")";
         "        public T pop() {";
-        "            if (items.isEmpty()) throw fail(\"pop from an empty Vec\");";
+        "            if (items.isEmpty()) throw fail(\"pop from an empty DynArray\");";
         "            return (T) items.remove(items.size() - 1);";
         "        }";
         "";
         "        public Void insert(int i, Object value) {";
         "            if (i < 0 || i > items.size())";
-        "                throw fail(\"insert's index \" + i + \" is outside 0 to \" + items.size() + \", the Vec's length\");";
+        "                throw fail(\"insert's index \" + i + \" is outside 0 to \" + items.size() + \", the DynArray's length\");";
         "            items.add(i, value);";
         "            return null;";
         "        }";
@@ -3562,9 +3562,9 @@ let runtime_source programs version =
         "            return null;";
         "        }";
         "";
-        "        // v[low:high]: a new Vec.";
-        "        public PykVec<T> slice(int low, Integer high) {";
-        "            return new PykVec<T>(new java.util.ArrayList<Object>(java.util.Arrays.asList(copy(low, high))));";
+        "        // v[low:high]: a new DynArray.";
+        "        public PykDynArray<T> slice(int low, Integer high) {";
+        "            return new PykDynArray<T>(new java.util.ArrayList<Object>(java.util.Arrays.asList(copy(low, high))));";
         "        }";
         "    }";
         "";
@@ -3614,14 +3614,14 @@ let runtime_source programs version =
         "    public static <T> PykPtr<T> pointer(Struct struct, int slot) {";
         "        return new PykPtr<T>(struct, slot);";
         "    }";
-        "    // vec(): no elements.";
-        "    public static <T> PykVec<T> vecEmpty() {";
-        "        return new PykVec<T>(new java.util.ArrayList<Object>());";
+        "    // dynarray(): no elements.";
+        "    public static <T> PykDynArray<T> dynarrayEmpty() {";
+        "        return new PykDynArray<T>(new java.util.ArrayList<Object>());";
         "    }";
         "";
-        "    // vec(xs): the list's elements.";
-        "    public static <T> PykVec<T> vecOfList(java.util.List<T> list) {";
-        "        return new PykVec<T>(new java.util.ArrayList<Object>(list));";
+        "    // dynarray(xs): the list's elements.";
+        "    public static <T> PykDynArray<T> dynarrayOfList(java.util.List<T> list) {";
+        "        return new PykDynArray<T>(new java.util.ArrayList<Object>(list));";
         "    }";
         "";
         "    // copy_into(dst, src): src's elements over dst's first ones, right";
@@ -3661,12 +3661,12 @@ let runtime_source programs version =
         "        return s.substring(s.offsetByCodePoints(0, low), s.offsetByCodePoints(0, h));";
         "    }";
         "";
-        "    // A Dict: its entries in the order their keys were first put, keys";
+        "    // A MutMap: its entries in the order their keys were first put, keys";
         "    // compared and hashed by their own equals and hashCode, which are";
         "    // Pyking's `==` for every type a key can have. Shared by every name";
         "    // holding it. `version` counts the keys put and taken, which a walk";
         "    // over the keys watches.";
-        "    public static final class PykDict<K, V> implements Iterable<K> {";
+        "    public static final class PykMutMap<K, V> implements Iterable<K> {";
         "        private final java.util.LinkedHashMap<Object, Object> entries = new java.util.LinkedHashMap<Object, Object>();";
         "        private int version = 0;";
         "";
@@ -3676,7 +3676,7 @@ let runtime_source programs version =
         "";
         "        @SuppressWarnings(\"unchecked\")";
         "        public V get(Object key) {";
-        "            if (!entries.containsKey(key)) throw fail(\"the Dict has no key \" + show(key));";
+        "            if (!entries.containsKey(key)) throw fail(\"the MutMap has no key \" + show(key));";
         "            return (V) entries.get(key);";
         "        }";
         "";
@@ -3698,7 +3698,7 @@ let runtime_source programs version =
         "";
         "        @SuppressWarnings(\"unchecked\")";
         "        public V remove(Object key) {";
-        "            if (!entries.containsKey(key)) throw fail(\"the Dict has no key \" + show(key) + \" to remove\");";
+        "            if (!entries.containsKey(key)) throw fail(\"the MutMap has no key \" + show(key) + \" to remove\");";
         "            version++;";
         "            return (V) entries.remove(key);";
         "        }";
@@ -3744,7 +3744,7 @@ let runtime_source programs version =
         "            return new java.util.Iterator<K>() {";
         "                @Override";
         "                public boolean hasNext() {";
-        "                    if (version != seen) throw fail(\"the Dict changed while a for loop was reading it\");";
+        "                    if (version != seen) throw fail(\"the MutMap changed while a for loop was reading it\");";
         "                    return keys.hasNext();";
         "                }";
         "";
@@ -3759,15 +3759,15 @@ let runtime_source programs version =
       ]
     @ [
         "";
-        "    // dict(): no entries.";
-        "    public static <K, V> PykDict<K, V> dictEmpty() {";
-        "        return new PykDict<K, V>();";
+        "    // mutmap(): no entries.";
+        "    public static <K, V> PykMutMap<K, V> mutmapEmpty() {";
+        "        return new PykMutMap<K, V>();";
         "    }";
         "";
-        "    // dict(pairs): a key given twice keeps its first place and its last";
+        "    // mutmap(pairs): a key given twice keeps its first place and its last";
         "    // value.";
-        "    public static <K, V> PykDict<K, V> dictOfList(java.util.List<T2<K, V>> pairs) {";
-        "        PykDict<K, V> out = new PykDict<K, V>();";
+        "    public static <K, V> PykMutMap<K, V> mutmapOfList(java.util.List<T2<K, V>> pairs) {";
+        "        PykMutMap<K, V> out = new PykMutMap<K, V>();";
         "        for (T2<K, V> pair : pairs) {";
         "            Object[] kv = pair.pykItems();";
         "            out.put(kv[0], kv[1]);";
@@ -3804,7 +3804,7 @@ let runtime_source programs version =
         "    }";
         "";
         "    // A hash agreeing with equal: what a java8 tuple's or datatype's";
-        "    // hashCode is, so that one can be a Dict's key.";
+        "    // hashCode is, so that one can be a MutMap's key.";
         "    public static int hash(Object value) {";
         "        if (value == null) return 0;";
         "        if (value instanceof java.util.List) {";
@@ -3970,9 +3970,9 @@ let runtime_source programs version =
         "        return out.toString();";
         "    }";
         "";
-        "    // path: the stores, Dicts and datatype values writing is inside";
+        "    // path: the stores, MutMaps and datatype values writing is inside";
         "    // of. One met again inside itself -- a cycle, which only a store, a";
-        "    // Dict or a var struct can make -- is written `...`; one that is";
+        "    // MutMap or a var struct can make -- is written `...`; one that is";
         "    // only shared is written in full wherever it is.";
         "    private static void write(StringBuilder out, Object value, java.util.Set<Object> path) {";
         "        if (value == null) {";
@@ -4000,7 +4000,7 @@ let runtime_source programs version =
         "                out.append(\"...\");";
         "                return;";
         "            }";
-        "            out.append(store instanceof PykVec ? \"vec([\" : store instanceof PykView ? \"view([\" : \"array([\");";
+        "            out.append(store instanceof PykDynArray ? \"dynarray([\" : store instanceof PykView ? \"view([\" : \"array([\");";
         "            for (int i = 0; i < store.size(); i++) {";
         "                if (i > 0) out.append(\", \");";
         "                write(out, store.at(i), path);";
@@ -4019,14 +4019,14 @@ let runtime_source programs version =
         "            write(out, ((PykPtr<?>) value).get(), path);";
         "            out.append(')');";
         "            path.remove(store);";
-        "        } else if (value instanceof PykDict) {";
+        "        } else if (value instanceof PykMutMap) {";
         "            if (!path.add(value)) {";
         "                out.append(\"...\");";
         "                return;";
         "            }";
-        "            out.append(\"dict([\");";
+        "            out.append(\"mutmap([\");";
         "            boolean first = true;";
-        "            for (java.util.Map.Entry<Object, Object> entry : ((PykDict<?, ?>) value).entries.entrySet()) {";
+        "            for (java.util.Map.Entry<Object, Object> entry : ((PykMutMap<?, ?>) value).entries.entrySet()) {";
         "                if (!first) out.append(\", \");";
         "                first = false;";
         "                out.append('(');";

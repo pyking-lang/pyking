@@ -422,8 +422,8 @@ let rec value_type v =
   | Interpreter.VList (first :: _) -> Option.map (fun e -> TList (none, e, 0)) (value_type first)
   | Interpreter.VArray elements when Array.length elements > 0 ->
       Option.map (fun e -> TCon (none, "Array", [ e ], 0)) (value_type elements.(0))
-  | Interpreter.VVec v when v.size > 0 ->
-      Option.map (fun e -> TCon (none, "Vec", [ e ], 0)) (value_type v.items.(0))
+  | Interpreter.VDynArray v when v.size > 0 ->
+      Option.map (fun e -> TCon (none, "DynArray", [ e ], 0)) (value_type v.items.(0))
   | Interpreter.VTuple parts -> Option.map (fun ts -> TTuple (none, ts, 0)) (all parts)
   | _ -> None
 
@@ -957,8 +957,8 @@ let has_parts v =
   | Interpreter.VList (_ :: _) | Interpreter.VTuple (_ :: _) -> true
   | Interpreter.VData (_, fields) -> Array.length fields > 0
   | Interpreter.VArray elements -> Array.length elements > 0
-  | Interpreter.VVec v -> v.size > 0
-  | Interpreter.VDict d -> d.live > 0
+  | Interpreter.VDynArray v -> v.size > 0
+  | Interpreter.VMutMap d -> d.live > 0
   | Interpreter.VView v -> v.length > 0
   | Interpreter.VPtr _ -> true
   | _ -> false
@@ -1039,15 +1039,15 @@ let variables t reference =
             (* An array is shown element by element, as a list is; its
                elements are read as they are now. *)
             List.mapi (fun i v -> (Printf.sprintf "[%d]" i, v)) (Array.to_list items)
-        | Interpreter.VVec v ->
+        | Interpreter.VDynArray v ->
             List.mapi (fun i x -> (Printf.sprintf "[%d]" i, x)) (Array.to_list (Array.sub v.items 0 v.size))
         | Interpreter.VView v ->
             List.mapi (fun i x -> (Printf.sprintf "[%d]" i, x)) (Array.to_list (Array.sub v.owner v.offset v.length))
         | Interpreter.VPtr location ->
             (* A pointer opens to what it points at, now. *)
             [ ("*", Interpreter.read_location location) ]
-        | Interpreter.VDict d ->
-            (* A Dict is shown entry by entry, each under its key. *)
+        | Interpreter.VMutMap d ->
+            (* A MutMap is shown entry by entry, each under its key. *)
             List.filter_map
               (Option.map (fun (k, x) -> ("[" ^ Interpreter.display_value k ^ "]", x)))
               (Array.to_list (Array.sub d.entries 0 d.used))

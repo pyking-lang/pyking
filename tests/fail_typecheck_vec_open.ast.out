@@ -1,3 +1,0 @@
-'tests/fail_typecheck_vec_open.pyk' 8:0-8:1 Type error: the type of
-  'v' is Vec(?): nothing says what it holds. Use it, or annotate it
-  ('v: Vec(Int) = ...')

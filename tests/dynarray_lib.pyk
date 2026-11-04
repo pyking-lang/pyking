@@ -1,0 +1,31 @@
+# lib/dynarray: copying, converting, extending, reversing, comparing and
+# sorting DynArrays, the same on every target.
+
+use mutation
+import dynarray
+
+v = dynarray([3, 1, 2])
+w = dynarray.copy(v)
+push(w, 0)
+print(v, w, same(v, w), dynarray.equal(v, w))
+dynarray.extend(v, [9, 8])
+print(v, dynarray.to_list(v), dynarray.to_array(v))
+dynarray.reverse(v)
+print(v)
+dynarray.sort(v)
+print(v)
+names = dynarray(["pear", "Fig", "apple", "app"])
+dynarray.sort(names)
+print(names, dynarray.equal(names, dynarray(["Fig", "app", "apple", "pear"])))
+nan = float("nan")
+inf = float("inf")
+xs = dynarray.from_array(array([2.5, nan, -1.0, inf, 0.0]))
+dynarray.sort(xs)
+print(xs, dynarray.equal(dynarray([nan]), dynarray([nan])))
+cs = dynarray(['c', 'a', 'b'])
+dynarray.sort(cs)
+print(cs, dynarray.equal(dynarray([true, false]), dynarray([true, false])))
+empty: DynArray(Int) = dynarray()
+dynarray.reverse(empty)
+dynarray.sort(empty)
+print(empty, dynarray.equal(empty, dynarray([])))

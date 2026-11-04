@@ -24,9 +24,9 @@
   the checker accepts but a polymorphic parameter: lists as typed cons
   cells, a datatype holding itself as a pointer to a collected struct,
   and a closure's environment on the collected heap (see "Memory").
-- On all four, a `var struct`, a `Vec`, a `Dict` and a view are
-  pointers to a struct written in place (see "Var structs", "Vecs",
-  "Dicts" and "Slices and views"), `==` compares lists, tuples, structs
+- On all four, a `var struct`, a `DynArray`, a `MutMap` and a view are
+  pointers to a struct written in place (see "Var structs", "DynArrays",
+  "MutMaps" and "Slices and views"), `==` compares lists, tuples, structs
   and datatypes part by part, and printing a value that holds itself
   writes `...` where it repeats.
 - A polymorphic function is compiled **once per type it is used at**; a
@@ -186,16 +186,16 @@ escaped) and a String by `pyk_quote` (`"abc"`, with `\\`, `\"`, `\n`,
 | `(Int) -> Int` | `pyk_c_Fi_i_`: a function `fn` taking the environment first, the environment `env`, and `plain`, the function itself where it captures nothing |
 | `Array(Int)` | `pyk_a_Ai_`: a struct of `len` and a pointer to the elements, `items` |
 | `[Int]` (c23-gc) | `pyk_l_Li_ *`: a pointer to the first cell, `NULL` for `[]` |
-| `Vec(Int)` | `pyk_v_Vi_ *`: a pointer to a struct of `len`, `cap` and `items` |
+| `DynArray(Int)` | `pyk_v_Vi_ *`: a pointer to a struct of `len`, `cap` and `items` |
 | a `var struct` `Point` | `pyk_d_D<module>_Point__ *`: a pointer to its struct |
-| `Dict(String, Int)` | `pyk_m_Msi_ *`: a pointer to its entries' struct |
+| `MutMap(String, Int)` | `pyk_m_Msi_ *`: a pointer to its entries' struct |
 | `Slice(Int)`, a view | `pyk_w_Wi_ *`: a pointer to the array's elements, a start and a length |
 | `Ptr(Int)` | `int *`: C's own pointer |
 
 A compound type's name is its **code**: one letter per scalar (`i`,
 `c`, `f`, `b`, `s`, `u` for unit), and `T...`, `D<module>_<name>_...`,
 `F..._..._`, `A..._`, `V..._`, `W..._`, `M..._`, `P..._` and `L..._` for
-a tuple, a datatype, a function, an array, a Vec, a view, a Dict, a
+a tuple, a datatype, a function, an array, a DynArray, a view, a MutMap, a
 pointer and a list. A datatype is
 always named with its module, so every file of a program writes the
 same struct. Each type is declared guarded (`#ifndef PYK_TYPE_...`), so
@@ -304,14 +304,14 @@ pyk_d_Dmain_Counter__ *pyk_owner17 = field__owner;
 pyk_owner17->n = field__owner->n + switch_();
 ```
 
-A datatype that reaches itself through a var struct, an array or a Vec
+A datatype that reaches itself through a var struct, an array or a DynArray
 holds only a pointer to it, so it stays a value: it is declared ahead,
 as a datatype holding itself is, and needs no heap of its own (plain C
 compiles it).
 
-## Vecs
+## DynArrays
 
-A Vec (PYKING.md, "Vecs") is a **pointer** to a struct declared once per
+A DynArray (PYKING.md, "DynArrays") is a **pointer** to a struct declared once per
 element type -- its length, its capacity and its elements:
 
 ```c
@@ -329,21 +329,21 @@ element type:
 
 | Pyking | C |
 |---|---|
-| `vec()`, `vec([1, 2])` | `pyk_new_Vi_(0)`; `(t = pyk_new_Vi_(2), t->items[0] = 1, t->items[1] = 2, t)` |
-| `vec(xs)`, any other list (c23-gc) | `pyk_of_list_Vi_(xs)` |
+| `dynarray()`, `dynarray([1, 2])` | `pyk_new_Vi_(0)`; `(t = pyk_new_Vi_(2), t->items[0] = 1, t->items[1] = 2, t)` |
+| `dynarray(xs)`, any other list (c23-gc) | `pyk_of_list_Vi_(xs)` |
 | `push(v, x)`, `insert(v, i, x)` | `pyk_push_Vi_(v, x)`, `pyk_insert_Vi_(v, i, x)` |
 | `pop(v)`, `remove(v, i)`, `clear(v)` | `pyk_pop_Vi_(v)`, `pyk_remove_Vi_(v, i)`, `pyk_clear_Vi_(v)` |
 | `v[i]`, `v[i] := x` | `v->items[i]` on plain C; `pyk_at_Vi_(v, i)` and a checked write on c23-gc |
 | `len(v)`, `same(v, w)` | `v->len`, `v == w` |
 | `for x in v` | `for (x_at = 0; x_at < x_array->len; x_at++) { x = x_array->items[x_at]; ... }`: the length read again every turn |
 
-**Plain C checks nothing**: popping an empty Vec, or an index outside
+**Plain C checks nothing**: popping an empty DynArray, or an index outside
 it, is undefined, as in C. **c23-gc** checks each and stops the program
-with status 1: `pop from an empty Vec`, `insert's index 5 is outside 0
-to 2, the Vec's length`, and `the index 5 is outside a Vec of 2
+with status 1: `pop from an empty DynArray`, `insert's index 5 is outside 0
+to 2, the DynArray's length`, and `the index 5 is outside a DynArray of 2
 elements` -- an element write checks its index before the value is
 worked out and again before it writes, since the value may have shrunk
-the Vec. It also clears a slot an element leaves where the element can
+the DynArray. It also clears a slot an element leaves where the element can
 hold a pointer, so the collector does not keep what it held.
 
 ## Structural `==`
@@ -357,9 +357,9 @@ Float by IEEE's rule, so `nan` equals nothing and the two zeros are
 equal -- and a String with `strcmp`; `!=` is `!pyk_eq_...`. Scalars
 compare as they always did, inline.
 
-## Dicts
+## MutMaps
 
-A Dict (PYKING.md, "Dicts") is a **pointer** to a struct declared once
+A MutMap (PYKING.md, "MutMaps") is a **pointer** to a struct declared once
 per key and value type: its entries' keys and values side by side, in
 the order the keys came. Replacing a key's value keeps its place;
 removing an entry moves the later ones down.
@@ -379,37 +379,37 @@ typedef struct pyk_m_Msi_ {
 **Finding a key** is `pyk_find_<code>(d, k)`, its position or -1.
 
 - **Plain C** looks at each key in turn with `pyk_eq_<code>`: simple to
-  read, and linear in the Dict's size. It checks nothing: reading or
-  removing a missing key, and changing a Dict a `for` is walking, are
+  read, and linear in the MutMap's size. It checks nothing: reading or
+  removing a missing key, and changing a MutMap a `for` is walking, are
   undefined.
 - **c23-gc** keeps a hash index, `slots`: open addressing over the
   positions, at least twice as many slots as entries, hashed by
   `pyk_hash_<code>` (FNV-1a for a String, combined part by part for a
   tuple, a list or a datatype -- agreeing with `pyk_eq_<code>`). It is
   rebuilt when it fills and when a removal moves entries, so a removal
-  is linear. A missing key stops the program with `the Dict has no key
+  is linear. A missing key stops the program with `the MutMap has no key
   "b"` (`... to remove` for `remove`), the key written as a value is.
   `version` counts the keys put in and taken out (not a replaced
   value), and a `for` checks it at every advance, the last included:
-  `the Dict changed while a for loop was reading it`.
+  `the MutMap changed while a for loop was reading it`.
 
 | Pyking | C |
 |---|---|
-| `dict()`, `dict([("a", 1)])` | `pyk_new_Msi_()`; `(t = pyk_new_Msi_(), pyk_put_Msi_(t, "a", 1), t)` |
+| `mutmap()`, `mutmap([("a", 1)])` | `pyk_new_Msi_()`; `(t = pyk_new_Msi_(), pyk_put_Msi_(t, "a", 1), t)` |
 | `d[k]`, `d[k] := v` | `pyk_at_Msi_(d, k)`, `pyk_put_Msi_(d, k, v);` |
 | `get`, `has`, `remove`, `discard`, `clear` | `pyk_get_Msi_`, `pyk_has_Msi_`, ... |
 | `keys`, `values`, `items` (c23-gc) | lists, in order |
 | `len(d)`, `same(d, e)` | `d->len`, `d == e` |
-| `for k in d` | `for (k_at = 0; k_at < k_dict->len; k_at++) { k = k_dict->keys[k_at]; ... }`, with `pyk_dict_walk` in the test on c23-gc |
+| `for k in d` | `for (k_at = 0; k_at < k_mutmap->len; k_at++) { k = k_mutmap->keys[k_at]; ... }`, with `pyk_mutmap_walk` in the test on c23-gc |
 
-Printing one is `dict([(k, v), ...])`, guarded on the path as a Vec is.
+Printing one is `mutmap([(k, v), ...])`, guarded on the path as a DynArray is.
 
 ## Slices and views
 
 `s[i:j]` copies a run into a new value of the sequence's own kind --
 a view's into an array -- through `pyk_slice_<code>(s, i, j)`; a bound
 left out is 0 or the length, read off the sequence held in a name. It
-slices an array, a Vec, a view and a String (by code point, allocated
+slices an array, a DynArray, a view and a String (by code point, allocated
 as every String is) on every C target, and a list on c23-gc.
 
 A view, `view(a, i, j)`, is a **pointer** to a struct of the array's
@@ -436,7 +436,7 @@ an array of 4 elements`, `the index 2 is outside a view of 2 elements`,
 `copy_into copies 3 elements into 2`. Plain C checks none of them.
 
 On the path, a view counts as the array it is a run of.
-`tests/dict_slice_nolist.pyk` exercises Dicts, `==`, slices and views
+`tests/mutmap_slice_nolist.pyk` exercises MutMaps, `==`, slices and views
 with no list, so plain C runs it too.
 
 ## Pointers
@@ -470,7 +470,7 @@ may outlive the function (`tests/pointers_escape.pyk`).
 
 ## Printing a value that holds itself
 
-An array, a Vec or a var struct may hold itself, through a datatype:
+An array, a DynArray or a var struct may hold itself, through a datatype:
 printing one already being printed further out writes `...`, as every
 target does; one only shared prints in full each time. Only a printer
 that can meet such a store takes the path from the value printed first,
@@ -507,7 +507,7 @@ constructor holding the same stores (`tests/cycle_immutable.pyk`). Two
 such values built apart from the same parts count as one here where the
 interpreter, which compares the objects, would print one more level.
 `tests/var_struct.pyk` and `tests/mutable_values.pyk` print cycles
-through var structs, an array and a Vec.
+through var structs, an array and a DynArray.
 
 ## Polymorphic functions
 
@@ -627,12 +627,12 @@ backend pins down two kinds of operand:
   call graph the OCaml backend uses -- before any later one that prints;
 - one a call could **change** -- it reads a `var` a call can write (a
   top-level one, or one a closure captures), a field of a var struct,
-  an element of an array or a Vec, a Vec's length, or itself calls
+  an element of an array or a DynArray, a DynArray's length, or itself calls
   something -- before a later operand with a call that can change
   something; and an operand with such a call before a later one it
   could change. Which calls can change something is a walk of the call
   graph beside the printing one (`changes`): a def that writes a `var`
-  not its own, a field, an element or a Vec, or calls one that does, a
+  not its own, a field, an element or a DynArray, or calls one that does, a
   builtin that writes, or another module's function (whose body this
   walk cannot see); a call through a function value can wherever
   anything in the program writes. A def that only computes, such as a
@@ -676,7 +676,7 @@ operands stay exactly where the source put them; no temporary is
 declared.
 
 **`print` writes its arguments once every one is worked out.** Where an
-argument holds an array, a Vec or a var struct and a later argument
+argument holds an array, a DynArray or a var struct and a later argument
 calls something, which could change it, every argument is put in a
 temporary first, in order, and only then formatted:
 

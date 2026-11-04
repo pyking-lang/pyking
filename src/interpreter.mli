@@ -106,18 +106,18 @@ type value =
   | VArray of value array
       (* an array: one store of elements, shared by every name holding
          it and written in place *)
-  | VVec of vec
-      (* a Vec: an array that grows, shared by every name holding it *)
-  | VDict of dict
-      (* a Dict: a map that keeps the order its keys were put in *)
+  | VDynArray of dynarray
+      (* a DynArray: an array that grows, shared by every name holding it *)
+  | VMutMap of mutmap
+      (* a MutMap: a map that keeps the order its keys were put in *)
   | VView of view
       (* a view of a run of an array's elements, which it shares *)
   | VPtr of location
       (* a pointer: the place it points at (PYKING.md, "Pointers") *)
 
-(** A Vec's storage: `items` has room for at least `size` elements, and
+(** A DynArray's storage: `items` has room for at least `size` elements, and
     only the first `size` are its elements; the rest are never read. *)
-and vec = { mutable items : value array; mutable size : int }
+and dynarray = { mutable items : value array; mutable size : int }
 
 (** A view: elements `offset` up to `offset + length` of `owner`. *)
 and view = { owner : value array; offset : int; length : int }
@@ -127,10 +127,10 @@ and view = { owner : value array; offset : int; length : int }
    equal when they name one place. *)
 and location = LCell of value ref | LElem of value array * int | LField of (string option * value) array * int
 
-(** A Dict's storage: its entries in insertion order, `None` where one
+(** A MutMap's storage: its entries in insertion order, `None` where one
     was removed, an index from key to position, and a count of the
-    insertions and removals, which a `for` over the Dict watches. *)
-and dict = {
+    insertions and removals, which a `for` over the MutMap watches. *)
+and mutmap = {
   mutable entries : (value * value) option array;
   mutable used : int;
   mutable live : int;

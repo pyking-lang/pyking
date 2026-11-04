@@ -1,2 +1,0 @@
-'tests/fail_typecheck_dict_use.pyk' 7:4-7:8 Parsing error: 'dict'
-  makes a Dict, which needs 'use mutation' at the top of this module

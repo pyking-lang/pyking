@@ -1,2 +1,0 @@
-'tests/fail_typecheck_vec_push_type.pyk' 9:8-9:15 Type error: 'push'
-  cannot be applied to String; it accepts Int, the Vec's element type

@@ -1,0 +1,2 @@
+'tests/fail_typecheck_mutmap_key_type.pyk' 9:11-9:12 Type error: this
+  MutMap's keys are String, and this one is Int

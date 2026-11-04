@@ -1,4 +1,4 @@
-# Var structs, Vecs and arrays together, with no list anywhere, so plain
+# Var structs, DynArrays and arrays together, with no list anywhere, so plain
 # C runs it as well as every other target: stores that hold themselves
 # through a datatype print `...` where they repeat, `print` works out
 # every argument before it writes any, and a field write takes its owner
@@ -14,7 +14,7 @@ datatype Slot:
 
 datatype Item:
     Leaf(value: Int)
-    Many(items: Vec(Item))
+    Many(items: DynArray(Item))
 
 var struct Pair(left: Int, right: Pair2)
 var struct Pair2(label: String, back: Hold)
@@ -23,14 +23,14 @@ datatype Hold:
     Nothing
     Back(pair: Pair)
 
-# An array and a Vec that hold themselves, and a cycle through two var
+# An array and a DynArray that hold themselves, and a cycle through two var
 # structs.
 a = array([Empty, Empty])
 a[1] := Holds(a)
 print(a)
-v = vec([Leaf(1)])
+v = dynarray([Leaf(1)])
 push(v, Many(v))
-push(v, Many(vec([Leaf(2)])))
+push(v, Many(dynarray([Leaf(2)])))
 print(v, len(v))
 p = Pair(1, Pair2("x", Nothing))
 p.right.back := Back(p)
@@ -43,13 +43,13 @@ def bump(c: Counter) -> Int:
     c.n
 
 
-def take(xs: Vec(Int)) -> Int:
+def take(xs: DynArray(Int)) -> Int:
     pop(xs)
 
 
 c = Counter("c", 0)
 print(c, bump(c), c.n, bump(c))
-nums = vec([1, 2, 3])
+nums = dynarray([1, 2, 3])
 print(nums, take(nums), nums)
 grid = array([0, 0])
 
@@ -76,17 +76,17 @@ current.n += switch()
 print(first, current)
 
 
-def pick(cs: Vec(Counter), i: Int) -> Counter:
+def pick(cs: DynArray(Counter), i: Int) -> Counter:
     cs[i]
 
 
-counters = vec([Counter("a", 1), Counter("b", 2)])
+counters = dynarray([Counter("a", 1), Counter("b", 2)])
 pick(counters, 1).n := 20
 counters[0].name += "!"
 print(counters, same(pick(counters, 0), counters[0]))
 
-# Every Vec operation, and a walk that sees what it pushes.
-w: Vec(String) = vec()
+# Every DynArray operation, and a walk that sees what it pushes.
+w: DynArray(String) = dynarray()
 push(w, "x")
 insert(w, 0, "w")
 insert(w, 2, "z")
@@ -98,6 +98,6 @@ for s in w:
 print(w)
 clear(w)
 print(w, len(w))
-table = vec([vec([1]), vec([])])
+table = dynarray([dynarray([1]), dynarray([])])
 push(table[1], 5)
 print(table, table[1][0])

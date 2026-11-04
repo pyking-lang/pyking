@@ -1,0 +1,8 @@
+# `==` compares no MutMaps: `same` asks whether two are one.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+print(mutmap([(1, 2)]) == mutmap([(1, 2)]))

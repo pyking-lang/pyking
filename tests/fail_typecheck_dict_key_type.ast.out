@@ -1,2 +1,0 @@
-'tests/fail_typecheck_dict_key_type.pyk' 9:11-9:12 Type error: this
-  Dict's keys are String, and this one is Int

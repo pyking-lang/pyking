@@ -3,11 +3,11 @@ var struct Point(x: Int, y: Int)
 p = Point(1, 2)
 p.x += 10
 p
-v = vec([1, 2])
+v = dynarray([1, 2])
 push(v, 3)
 pop(v)
 v
-d = dict([("a", 1)])
+d = mutmap([("a", 1)])
 d["b"] := 2
 d
 keys(d)

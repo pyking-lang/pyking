@@ -1,0 +1,2 @@
+'tests/fail_typecheck_dynarray_not_dynarray.pyk' 9:5-9:7 Type error:
+  'push' cannot be applied to [Int]; it accepts a DynArray

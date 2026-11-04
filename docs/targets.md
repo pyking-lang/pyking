@@ -268,9 +268,9 @@ compiles a polymorphic parameter:
 | modules, external modules | ✅ | ✅ | ✅ | ✅ | ✅ (a list or a closure at the boundary is refused) | ✅ (a list crosses as its first cell; a capturing closure does not) |
 | arrays (`array`, `array_init`, `a[i] := v`) | ✅ | ✅ | ✅ (`PykArray`) | ✅ | ✅ (unchecked; `array(xs)` from a list literal only) | ✅ (checked) |
 | `var struct`, field writes, cycle-safe printing | ✅ | ✅ | ✅ (a final class) | ✅ (mutable record fields) | ✅ (a malloc'd struct, by pointer) | ✅ (a collected struct) |
-| Vecs | ✅ | ✅ | ✅ (`PykVec`) | ✅ | ✅ (unchecked) | ✅ |
+| DynArrays | ✅ | ✅ | ✅ (`PykDynArray`) | ✅ | ✅ (unchecked) | ✅ |
 | `==` on lists, tuples, datatypes | ✅ | ✅ | ✅ | ✅ | ✅ on what plain C compiles | ✅ |
-| Dicts | ✅ | ✅ (`Map`) | ✅ (`PykDict`) | ✅ (`Hashtbl`) | ✅ (linear search, unchecked; `keys`/`values`/`items` need lists) | ✅ (hashed, checked) |
+| MutMaps | ✅ | ✅ (`Map`) | ✅ (`PykMutMap`) | ✅ (`Hashtbl`) | ✅ (linear search, unchecked; `keys`/`values`/`items` need lists) | ✅ (hashed, checked) |
 | slices, views, `copy_into` | ✅ | ✅ | ✅ | ✅ | ✅ (no list slices; unchecked) | ✅ |
 | pointers (`&`, `*`) | ✅ | ✅ | ✅ | ✅ | ✅ (C's own; an address escaping its function is refused) | ✅ (an escaping local in a collected cell) |
 | operands evaluate left to right | ✅ | ✅ | ✅ | ✅ (`let` pins it down) | ✅ (temporaries and the comma operator pin it down) | ✅ |

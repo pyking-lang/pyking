@@ -50,15 +50,15 @@ section; everything else compiles:
 - pointers: `&` of a `var`, an array's or a view's element, a var
   struct's field, or `*p`; `*p`, `*p := v`, `==` by place, printing
   (see "Pointers");
-- slices `s[i:j]` of lists, Strings, arrays, Vecs and views; views
+- slices `s[i:j]` of lists, Strings, arrays, DynArrays and views; views
   (`view(a, i, j)`, `Slice(T)`) and `copy_into` (see "Slices and
   views");
-- Dicts: `dict(...)`, `d[k]`, `d[k] := v`, `get`, `has`, `keys`,
+- MutMaps: `mutmap(...)`, `d[k]`, `d[k] := v`, `get`, `has`, `keys`,
   `values`, `items`, `remove`, `discard`, `clear`, `len`, `same`, `for`
-  and comprehensions (see "Dicts");
-- Vecs: `vec(...)`, `push`, `pop`, `insert`, `remove`, `clear`,
+  and comprehensions (see "MutMaps");
+- DynArrays: `dynarray(...)`, `push`, `pop`, `insert`, `remove`, `clear`,
   `v[i]`, `v[i] := x`, `len`, `same`, `for` and comprehensions (see
-  "Vecs");
+  "DynArrays");
 - `var struct`s: fields written with `:=` and the compound operators,
   values shared by reference, `same`, and cycles printed with `...`
   (see "Var structs");
@@ -767,7 +767,7 @@ elements can lead back to it.
 Which printers take the path is decided from the datatype's
 declaration and those of its own module alone, so every module that
 sees a datatype hands its printer the same arguments: one takes it
-where its values can hold a cycle through an array, a Vec, a Dict or a
+where its values can hold a cycle through an array, a DynArray, a MutMap or a
 var struct, a type variable's value, or a type of another module. Such
 a printer guards its value too, immutable or not, as the interpreter
 puts every datatype value with fields on its path: the cycle stops at
@@ -789,10 +789,10 @@ let rec pyk_show_opt : 'a. (Obj.t list -> 'a -> string) -> Obj.t list -> 'a opt 
 and pyk_show_n path value = ... pyk_show_opt (fun path tmp12 -> pyk_show_n path tmp12) path f1 ...
 ```
 
-### Vecs
+### DynArrays
 
-A `Vec(T)` is a cell holding its storage and its length,
-`(T option array * int) ref`. The cell is what every holder of the Vec
+A `DynArray(T)` is a cell holding its storage and its length,
+`(T option array * int) ref`. The cell is what every holder of the DynArray
 shares, so `same(v, w)` is `v == w`; the storage is replaced when it
 grows, and the length changes, by writing a new pair into the cell.
 Stdlib's types alone make it up, so every module of a program writes
@@ -804,23 +804,23 @@ left.
 
 | Pyking | OCaml |
 |---|---|
-| `vec()` | `ref ([\|\|], 0)`, its type written on it where it is plain, as `array([])`'s is |
-| `vec(xs)` | `pyk_vec_of_list xs` |
-| `v[i]` | `pyk_vec_get v i`, checked against the length it has now |
-| `v[i] := x` | `pyk_vec_check v i; pyk_vec_set v i x`: checked before `x` is worked out, and again as it is written |
-| `push(v, x)` | `pyk_vec_push v x`, the storage doubled where it is full |
-| `pop(v)` | `pyk_vec_pop v` |
-| `insert(v, i, x)` | `pyk_vec_insert v i x`, for 0 <= i <= the length |
-| `remove(v, i)` | `pyk_vec_remove v i` |
-| `clear(v)` | `pyk_vec_clear v`, which drops the storage |
-| `len(v)` | `pyk_vec_length v` |
-| `for x in v` | a walk by index, while it is below `pyk_vec_length v` at that turn |
-| `[e for x in v]` | the comprehension walks `pyk_vec_to_list v` |
-| printing | `"vec([" ^ … ^ "])"`, guarded as an array is (see "Var structs") |
+| `dynarray()` | `ref ([\|\|], 0)`, its type written on it where it is plain, as `array([])`'s is |
+| `dynarray(xs)` | `pyk_dynarray_of_list xs` |
+| `v[i]` | `pyk_dynarray_get v i`, checked against the length it has now |
+| `v[i] := x` | `pyk_dynarray_check v i; pyk_dynarray_set v i x`: checked before `x` is worked out, and again as it is written |
+| `push(v, x)` | `pyk_dynarray_push v x`, the storage doubled where it is full |
+| `pop(v)` | `pyk_dynarray_pop v` |
+| `insert(v, i, x)` | `pyk_dynarray_insert v i x`, for 0 <= i <= the length |
+| `remove(v, i)` | `pyk_dynarray_remove v i` |
+| `clear(v)` | `pyk_dynarray_clear v`, which drops the storage |
+| `len(v)` | `pyk_dynarray_length v` |
+| `for x in v` | a walk by index, while it is below `pyk_dynarray_length v` at that turn |
+| `[e for x in v]` | the comprehension walks `pyk_dynarray_to_list v` |
+| printing | `"dynarray([" ^ … ^ "])"`, guarded as an array is (see "Var structs") |
 
 A failure is a Pyking runtime error, through `pyk_array_fail`: `error:
-the index 5 is outside a Vec of 2 elements`, `error: pop from an empty
-Vec`, `error: insert's index 7 is outside 0 to 3, the Vec's length`.
+the index 5 is outside a DynArray of 2 elements`, `error: pop from an empty
+DynArray`, `error: insert's index 7 is outside 0 to 3, the DynArray's length`.
 The helpers are emitted only into a program that uses them. A
 program's own `push` (or `pop`, ..., `same`) is called as any of its
 functions is: the checker gave it a type, which a builtin has none of.
@@ -830,7 +830,7 @@ functions is: the checker gave it a type, which a builtin has none of.
 `s[i:j]` copies, into a new value of the sequence's own kind -- a
 view's into an array -- through one helper per kind,
 `pyk_slice_list`, `pyk_slice_string` (by code point), `pyk_slice_array`,
-`pyk_slice_vec` and `pyk_slice_view`. Each takes the sequence, the low
+`pyk_slice_dynarray` and `pyk_slice_view`. Each takes the sequence, the low
 bound (`0` where it was left out) and the high one as an option (`None`
 where it was left out, the length then), worked out in that order, and
 checks them with `pyk_slice_bounds` before copying: `error: the slice
@@ -873,7 +873,7 @@ A `Ptr(T)` is an OCaml object naming a place:
 it is more than a plain name, so it is worked out before the value),
 and `place` is the store the place is in and its slot there, which is
 what two pointers are compared by. An object type is structural, so
-every module writes the same type for a pointer, as for a Vec.
+every module writes the same type for a pointer, as for a DynArray.
 
 | Pyking | OCaml |
 |---|---|
@@ -899,39 +899,39 @@ pointer -- the only object a Pyking value holds -- with
 `pyk_ptr_same`, a Float by IEEE and a String by its text, as `=` does.
 Every other `==` stays `=`.
 
-### Dicts
+### MutMaps
 
-A `Dict(K, V)` is a Stdlib hash table from each key to the *stamp* it
+A `MutMap(K, V)` is a Stdlib hash table from each key to the *stamp* it
 was put in under and its value, beside a counter:
 `(K, int * V) Stdlib.Hashtbl.t * int ref`. Putting a new key in or
 taking one out moves the counter on, and a new key is stamped with the
 counter, so the stamps are the order the keys were put in; replacing a
 value keeps its stamp, and so its place. The pair is made once, when
-the Dict is, and is what every holder shares, so `same(d, e)` is
-`d == e`. Like a Vec's, the type is Stdlib's alone, so every module
+the MutMap is, and is what every holder shares, so `same(d, e)` is
+`d == e`. Like a DynArray's, the type is Stdlib's alone, so every module
 writes it the same. A key type is one OCaml's structural hashing and
 `compare` agree with Pyking's `==` on -- the checker allows no Float,
 function or mutable value in one.
 
 | Pyking | OCaml |
 |---|---|
-| `dict()` | `(Stdlib.Hashtbl.create 8, ref 0)`, its type written on it where it is plain |
-| `dict(pairs)` | `pyk_dict_of_list pairs`: a key twice keeps its first place and its last value |
-| `d[k]` | `pyk_dict_get show d k`, `show` writing the key for the error |
-| `d[k] := v` | `pyk_dict_set d k v`, the Dict and the key held first |
-| `get(d, k, x)` | `pyk_dict_get_or d k x`, `x` worked out as any argument is |
-| `has(d, k)`, `len(d)` | `pyk_dict_has d k`, `pyk_dict_length d` |
-| `remove(d, k)`, `discard(d, k)`, `clear(d)` | `pyk_dict_remove show d k`, `pyk_dict_discard d k`, `pyk_dict_clear d` |
-| `keys(d)`, `values(d)`, `items(d)` | `pyk_dict_keys d`, ...: the entries sorted by stamp |
-| `for k in d` | a walk by index over `pyk_dict_walk d`, the keys and the counter as the walk begins |
-| `[e for k in d]` | the comprehension walks `pyk_dict_keys d` |
-| printing | `"dict([" ^ … ^ "])"`, each entry as a `(k, v)` tuple, guarded as an array is |
+| `mutmap()` | `(Stdlib.Hashtbl.create 8, ref 0)`, its type written on it where it is plain |
+| `mutmap(pairs)` | `pyk_mutmap_of_list pairs`: a key twice keeps its first place and its last value |
+| `d[k]` | `pyk_mutmap_get show d k`, `show` writing the key for the error |
+| `d[k] := v` | `pyk_mutmap_set d k v`, the MutMap and the key held first |
+| `get(d, k, x)` | `pyk_mutmap_get_or d k x`, `x` worked out as any argument is |
+| `has(d, k)`, `len(d)` | `pyk_mutmap_has d k`, `pyk_mutmap_length d` |
+| `remove(d, k)`, `discard(d, k)`, `clear(d)` | `pyk_mutmap_remove show d k`, `pyk_mutmap_discard d k`, `pyk_mutmap_clear d` |
+| `keys(d)`, `values(d)`, `items(d)` | `pyk_mutmap_keys d`, ...: the entries sorted by stamp |
+| `for k in d` | a walk by index over `pyk_mutmap_walk d`, the keys and the counter as the walk begins |
+| `[e for k in d]` | the comprehension walks `pyk_mutmap_keys d` |
+| printing | `"mutmap([" ^ … ^ "])"`, each entry as a `(k, v)` tuple, guarded as an array is |
 
-**Walking.** The walk asks `pyk_dict_walk_length` for its length at
+**Walking.** The walk asks `pyk_mutmap_walk_length` for its length at
 every advance, the last included, and that is where the counter is
 compared with the one the walk began with: a key put in or taken out
-during the walk is `error: the Dict changed while a for loop was
-reading it`. A value replaced is not. A missing key is `error: the Dict
+during the walk is `error: the MutMap changed while a for loop was
+reading it`. A value replaced is not. A missing key is `error: the MutMap
 has no key "b"` (or `... to remove`), the key written as inside a
 value.
 
@@ -947,7 +947,7 @@ what Pyking does on every type the checker lets them compare: scalars
 by value (a Float by IEEE, so `nan = nan` is false and `-0.0 = 0.0`
 true), lists and tuples element by element, datatypes by constructor
 and then field by field. The checker refuses them on functions, arrays,
-Vecs, Dicts, var structs and type variables, the values `=` would raise
+DynArrays, MutMaps, var structs and type variables, the values `=` would raise
 on or compare by contents where Pyking compares by identity, so none
 reaches it.
 
@@ -1045,16 +1045,16 @@ as a printing one is: `a[0] + change()`, where `change` writes `a[0]`,
 reads the element first, as the interpreter does.
 
 The rule in full: where one operand *writes* -- prints, can fail (an
-element read of an array, a Vec or a Dict, making an array), or calls
+element read of an array, a DynArray or a MutMap, making an array), or calls
 something that can change what a caller sees -- every operand that can
 *see* it is pinned. Seeing is writing, or reading a `var`, a var
-struct's field, a builtin's reading of a Vec or a Dict (`len`, `get`,
+struct's field, a builtin's reading of a DynArray or a MutMap (`len`, `get`,
 `has`, `keys`, ...), a `string(v)` of something that can hold an array,
-a Vec, a Dict or a var struct, or calling any function, which may read
+a DynArray, a MutMap or a var struct, or calling any function, which may read
 those. A builtin is told from a program's own function of the same
 name by the type the checker gave the latter. Which functions change something is worked out like which print:
 a function that writes a `var` it did not declare, an element, a field
-or a Vec, or calls one that does; a call this module cannot follow (a
+or a DynArray, or calls one that does; a call this module cannot follow (a
 parameter, another module's function) is taken to change something
 where the program imports a module or has a changing function of its
 own. So `print(tick(), tick())`, where `tick` increments a `var`,

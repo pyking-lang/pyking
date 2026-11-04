@@ -1,0 +1,9 @@
+# A DynArray holds one element type: what `push` adds is one of them.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+v = dynarray([1, 2])
+push(v, "three")

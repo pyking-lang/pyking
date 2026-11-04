@@ -80,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `from option import Option`. A program declaring its own Option keeps
   it.
 - Slices and views (mutation design, step 8): `s[i:j]` copies elements
-  i up to j of a list, a String (by character), an array or a Vec into a
+  i up to j of a list, a String (by character), an array or a DynArray into a
   new value of its kind, either bound left out for the start or the
   end, and checked (`0 <= i <= j <= len(s)`) on every target but plain
   C. Under `use mutation`, `view(a, i, j)` is a `Slice(T)` sharing
@@ -92,11 +92,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tuples, structs or datatype values are equal when they are built the
   same way from equal parts, Floats inside by IEEE's rule (`[nan] ==
   [nan]` is false). `==` on a value holding a function, an array, a
-  Vec, a Dict or a `var struct`, or on a type variable, is refused,
+  DynArray, a MutMap or a `var struct`, or on a type variable, is refused,
   naming what it holds.
-- Dicts under `use mutation` (mutation design, step 7): `Dict(K, V)`, a
-  map that keeps the order its keys were put in. `dict()` and
-  `dict(pairs)` make one; `d[k]` reads (a missing key is a runtime
+- MutMaps under `use mutation` (mutation design, step 7): `MutMap(K, V)`, a
+  map that keeps the order its keys were put in. `mutmap()` and
+  `mutmap(pairs)` make one; `d[k]` reads (a missing key is a runtime
   error), `d[k] := v` and the compound forms write; `get`, `has`,
   `remove`, `discard`, `keys`, `values`, `items`, `clear`, `len` and
   `same` are builtins, and a module's own definition or import of one
@@ -104,18 +104,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   adding or removing a key during the walk is a runtime error. A key's
   type is one whose values never change and equal themselves -- no
   Float, function or mutable value -- which the checker says when it is
-  not. A Dict prints as `dict([(k, v), ...])`.
-- Vecs under `use mutation` (mutation design, step 6): `Vec(T)`, an
-  array that grows, for building a collection in linear time. `vec()`
-  and `vec(xs)` make one; the builtins `push`, `pop`, `insert`,
+  not. A MutMap prints as `mutmap([(k, v), ...])`.
+- DynArrays under `use mutation` (mutation design, step 6): `DynArray(T)`, an
+  array that grows, for building a collection in linear time. `dynarray()`
+  and `dynarray(xs)` make one; the builtins `push`, `pop`, `insert`,
   `remove` and `clear` change it; `v[i]`, `v[i] := x`, the compound
   writes, `len`, `same` and comprehensions are an array's; a `for` walks
-  it while its index is below the length the Vec has at that turn. An
+  it while its index is below the length the DynArray has at that turn. An
   index outside one and `pop` of an empty one are runtime errors on
   every target but plain C. A module's own definition or import named
   `push`, `pop`, `insert`, `remove`, `clear` or `same` means itself
   there, so existing programs and libraries (tinyweb's `push`) keep
-  their names. The new library `lib/vec` has `copy`, `to_list`,
+  their names. The new library `lib/dynarray` has `copy`, `to_list`,
   `to_array`, `from_array`, `extend`, `reverse`, `equal` and `sort`.
 - Mutable structs under `use mutation` (mutation design, step 5): `var
   struct Point(x: Int, y: Int = 0)` declares a struct whose fields are

@@ -208,9 +208,9 @@ comparisons, and calls. Tail position and `return if c:` are supported
 (see below); nested `def` and lambdas work too — JavaScript has
 closures. Arrays (`array(...)`, `a[i]`, `a[i] := v`, `len`, `same`) are
 too; see "Arrays" below. So are mutable structs (`var struct`,
-`p.x := v`, `same`); see "Mutable structs", and Vecs (`vec(...)`,
-`push`, `pop`, `insert`, `remove`, `clear`); see "Vecs", and Dicts;
-see "Dicts"; slices (`s[i:j]`), views (`view`) and `copy_into`; see
+`p.x := v`, `same`); see "Mutable structs", and DynArrays (`dynarray(...)`,
+`push`, `pop`, `insert`, `remove`, `clear`); see "DynArrays", and MutMaps;
+see "MutMaps"; slices (`s[i:j]`), views (`view`) and `copy_into`; see
 "Slices and views"; and pointers (`&`, `*`); see "Pointers".
 `==` and `!=` compare lists, tuples, structs and
 datatypes part by part; see "Equality".
@@ -697,8 +697,8 @@ Both answer a String, and a String at the top level prints bare, so
 
 **The descriptor** says which positions of a value are Floats, which is
 all `pykFormat` is missing: `f` a Float, `.` anything it already prints
-correctly, `[s]` a list of `s`, `{s}` an array of `s`, `<s>` a Vec of
-`s`, `v{s}` a view of `s`, `p(s)` a pointer to `s`, `@(k,v)` a Dict
+correctly, `[s]` a list of `s`, `{s}` an array of `s`, `<s>` a DynArray of
+`s`, `v{s}` a view of `s`, `p(s)` a pointer to `s`, `@(k,v)` a MutMap
 whose entries are `(k, v)`, and `(s,s)` a tuple. It nests:
 
 ```javascript
@@ -918,23 +918,23 @@ holds the value and its descriptor until `print`'s own `pykFormat`
 applies it. A list or tuple of Floats cannot change and keeps its
 `pykShaped`, and a `var struct` carries its descriptor inside it.
 
-## Vecs
+## DynArrays
 
-**A Vec is a JavaScript array carrying a marker of its own**,
-`pykVec = true`, as an array carries `pykArray`: a JavaScript array
-already grows and shrinks, so a Vec needs nothing an array does not
-have, and `pykFormat` reads the marker to print `vec([1, 2])`. It is a
+**A DynArray is a JavaScript array carrying a marker of its own**,
+`pykDynArray = true`, as an array carries `pykArray`: a JavaScript array
+already grows and shrinks, so a DynArray needs nothing an array does not
+have, and `pykFormat` reads the marker to print `dynarray([1, 2])`. It is a
 reference, shared by every name, parameter and element holding it, and
 `same(v, w)` is `v === w`. Indexing, `len` and element writes are an
-array's, with the index checked against the length the Vec has now;
-the error says `a Vec` where an array's says `an array` (`pykIndexError`
+array's, with the index checked against the length the DynArray has now;
+the error says `a DynArray` where an array's says `an array` (`pykIndexError`
 reads the marker).
 
 ```pyking            // generated JavaScript
-vec()                pykVecEmpty()
-vec(xs)              pykVecOfList(xs)          // a copy, marked
+dynarray()                pykDynArrayEmpty()
+dynarray(xs)              pykDynArrayOfList(xs)          // a copy, marked
 push(v, x)           pykPush(v, x)             // answers (), not the length
-pop(v)               pykPop(v)                 // 'pop from an empty Vec'
+pop(v)               pykPop(v)                 // 'pop from an empty DynArray'
 insert(v, i, x)      pykInsert(v, i, x)        // 0 <= i <= len(v)
 remove(v, i)         pykRemove(v, i)           // checked as a read is
 clear(v)             pykClear(v)               // length = 0
@@ -951,7 +951,7 @@ own `push` (or any of the five) calls its own. `splice`, `pop` and
 nothing alive.
 
 **An element write is checked twice.** Working out `x` in `v[i] := x`
-may shrink the Vec, so after the check `pykCheckIndex` makes before the
+may shrink the DynArray, so after the check `pykCheckIndex` makes before the
 value, `pykSetAt` checks the index again as it writes -- an array
 cannot change length, so its write stays the plain `JsSetIndex`.
 
@@ -959,12 +959,12 @@ cannot change length, so its write stays the plain `JsSetIndex`.
 reads `length` afresh at every turn and each element as it is reached:
 exactly Pyking's rule, so what is pushed during the walk is walked and
 what is removed ends it sooner. A comprehension's `flatMap` maps the
-elements the Vec holds when it starts.
+elements the DynArray holds when it starts.
 
-**Printing** is the marker case, with `<s>` in a descriptor for a Vec
-of Floats or Chars, and a Vec is on `pykFormat`'s path like any value
+**Printing** is the marker case, with `<s>` in a descriptor for a DynArray
+of Floats or Chars, and a DynArray is on `pykFormat`'s path like any value
 holding others, so one reached again inside itself prints `...` (see
-"Mutable structs"). A Vec with a descriptor that is not `print`'s last
+"Mutable structs"). A DynArray with a descriptor that is not `print`'s last
 argument is handed over as `pykLater`, as an array is.
 
 ## Slices and views
@@ -974,9 +974,9 @@ argument is handed over as `pykLater`, as an array is.
 The call works out the sequence, then the bounds, in that order, and
 the helper checks `0 <= i <= j <= length` before it copies: outside
 that, the runtime error `the slice 2:4 is outside an array of 3
-elements` (`a list`, `a String`, `a Vec`, `a view`). The result is a
+elements` (`a list`, `a String`, `a DynArray`, `a view`). The result is a
 new value of the sequence's own kind, read off its marker: an array
-(`pykArray`) or a view gives an array, a Vec a Vec, anything else a
+(`pykArray`) or a view gives an array, a DynArray a DynArray, anything else a
 list; a String is sliced by code point (`Array.from`) and joined again.
 The copy is shallow, as JavaScript's `slice` is.
 
@@ -1094,60 +1094,60 @@ identity as its equality, so `xs == xs` is false where `xs` holds a
 NaN, as in every other target. The checker refuses `==` on anything
 mutable, so a cycle cannot reach it.
 
-## Dicts
+## MutMaps
 
-**A Dict is a JavaScript `Map`** with two properties on it: the marker
-`pykDict = true`, which `pykFormat` reads, and `pykVersion`. A `Map`
+**A MutMap is a JavaScript `Map`** with two properties on it: the marker
+`pykMutMap = true`, which `pykFormat` reads, and `pykVersion`. A `Map`
 already keeps its keys in the order they were put in, keeps a replaced
 key where it is, and puts a key deleted and put back at the end --
-Pyking's rules exactly. It is a reference, so every name holding a Dict
+Pyking's rules exactly. It is a reference, so every name holding a MutMap
 shares it, and `same(d, e)` is `d === e`.
 
 A `Map` compares object keys by identity, so a key is stored under
 `pykKey(k)`: a number, String, Bool or `()` key is itself, and a tuple,
 list or datatype key is text built from its parts (Strings quoted, so
 `("a,b", "c")` and `("a", "b,c")` have different texts) -- two keys have one
-text exactly when they are `==`. A Dict's keys are all of one type, so
+text exactly when they are `==`. A MutMap's keys are all of one type, so
 a key's text never meets a String key. Each entry is the `[key, value]`
 pair, which is also what printing writes as a tuple.
 
 ```pyking            // generated JavaScript
-dict()               pykDict()
-dict(pairs)          pykDictOfList(pairs)      // first place, last value
-d[k]                 pykDictGet(d, k)          // missing: an error
-d[k] := v            pykDictPut(d, k, v);
-get(d, k, x)         pykDictGetOr(d, k, x)
-has(d, k)            pykDictHas(d, k)
-keys(d)              pykDictKeys(d)            // also values, items
-remove(d, k)         pykDictRemove(d, k)
-discard(d, k)        pykDictDiscard(d, k)
-clear(d)             pykDictClear(d)
+mutmap()               pykMutMap()
+mutmap(pairs)          pykMutMapOfList(pairs)      // first place, last value
+d[k]                 pykMutMapGet(d, k)          // missing: an error
+d[k] := v            pykMutMapPut(d, k, v);
+get(d, k, x)         pykMutMapGetOr(d, k, x)
+has(d, k)            pykMutMapHas(d, k)
+keys(d)              pykMutMapKeys(d)            // also values, items
+remove(d, k)         pykMutMapRemove(d, k)
+discard(d, k)        pykMutMapDiscard(d, k)
+clear(d)             pykMutMapClear(d)
 len(d)               d.size
-for k in d:          for (const k of pykDictWalk(d)) {
-[f(k) for k in d]    pykList(pykDictKeys(d).flatMap(...))
+for k in d:          for (const k of pykMutMapWalk(d)) {
+[f(k) for k in d]    pykList(pykMutMapKeys(d).flatMap(...))
 ```
 
-`remove` and `clear` are a Vec's or a Dict's by their first argument's
+`remove` and `clear` are a DynArray's or a MutMap's by their first argument's
 type, and each of these names is the program's own where it defines or
-imports one. `d[k] := v` is a call, so the Dict, the key and the value
+imports one. `d[k] := v` is a call, so the MutMap, the key and the value
 are worked out in that order before the write, with nothing checked
-first. A missing key is the runtime error `the Dict has no key "b"`
+first. A missing key is the runtime error `the MutMap has no key "b"`
 (`... to remove` for `remove`), the key written as a value inside
 another is; where the key's type holds a Char, the call passes the key's
 descriptor too, so `'z'` prints as a Char rather than its code point.
-`pykShaped` writes it, so a module reading a Dict imports `pykShaped`.
+`pykShaped` writes it, so a module reading a MutMap imports `pykShaped`.
 
 **A `for` notices a change.** `pykVersion` counts keys put in and taken
-out -- not values replaced -- and `pykDictWalk` is a generator that
+out -- not values replaced -- and `pykMutMapWalk` is a generator that
 compares it with the count it started with at every step, the one that
 would end the walk included, so putting a key in or taking one out
-during the walk is the error `the Dict changed while a for loop was
+during the walk is the error `the MutMap changed while a for loop was
 reading it`, at the next step, as in the interpreter.
 
-**Printing** is `dict([("ada", 37), ("bo", 6)])`: the entries as
-tuples. A Dict holding Floats or Chars goes through `pykShaped` with
+**Printing** is `mutmap([("ada", 37), ("bo", 6)])`: the entries as
+tuples. A MutMap holding Floats or Chars goes through `pykShaped` with
 `@(k,v)`, and is handed to `print` as `pykLater` when it is not the last
-argument, as an array is. A Dict is on `pykFormat`'s path like any
+argument, as an array is. A MutMap is on `pykFormat`'s path like any
 value holding others, so one reached again inside itself prints `...`.
 
 ## Modules

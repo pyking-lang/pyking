@@ -642,42 +642,42 @@ let array_makers =
     ("unfold__array_init", "__pyk_array_unfold");
   ]
 
-(* A Vec is a Python list of a class of its own too, grown and shrunk
-   by the list's own methods; its index checks and the Vec builtins that
-   can fail are helpers here (docs/target_python.md, "Vecs"). The class
-   is called directly to make one: `__PykVec()` and `__PykVec(xs)`. *)
-let vec_class = "__PykVec"
-let vec_index_helper = "__pyk_vec_index"
-let vec_get_helper = "__pyk_vec_get"
-let vec_pop_helper = "__pyk_vec_pop"
-let vec_insert_helper = "__pyk_vec_insert"
-let vec_remove_helper = "__pyk_vec_remove"
+(* A DynArray is a Python list of a class of its own too, grown and shrunk
+   by the list's own methods; its index checks and the DynArray builtins that
+   can fail are helpers here (docs/target_python.md, "DynArrays"). The class
+   is called directly to make one: `__PykDynArray()` and `__PykDynArray(xs)`. *)
+let dynarray_class = "__PykDynArray"
+let dynarray_index_helper = "__pyk_dynarray_index"
+let dynarray_get_helper = "__pyk_dynarray_get"
+let dynarray_pop_helper = "__pyk_dynarray_pop"
+let dynarray_insert_helper = "__pyk_dynarray_insert"
+let dynarray_remove_helper = "__pyk_dynarray_remove"
 
-(** The two makers of `vec`, by the plain name elaborate.ml gives them. *)
-let vec_makers = [ "empty__vec"; "list__vec" ]
+(** The two makers of `dynarray`, by the plain name elaborate.ml gives them. *)
+let dynarray_makers = [ "empty__dynarray"; "list__dynarray" ]
 
-(* A Dict is a Python dict of a class of its own, which keeps its keys in
+(* A MutMap is a Python dict of a class of its own, which keeps its keys in
    the order they were put in as Pyking's does, and counts the keys put
    in and taken out for a `for` over it to check (docs/target_python.md,
-   "Dicts"). A key holding a list, which Python cannot hash, is held in a
+   "MutMaps"). A key holding a list, which Python cannot hash, is held in a
    `__PykKey` that hashes a form of it made of tuples; every helper that
    takes a key goes through `__pyk_key`, and every one that gives keys
    back through `__pyk_unkey`. *)
-let dict_class = "__PykDict"
+let mutmap_class = "__PykMutMap"
 let key_class = "__PykKey"
 let frozen_helper = "__pyk_frozen"
 let key_helper = "__pyk_key"
 let unkey_helper = "__pyk_unkey"
-let dict_list_helper = "__pyk_dict_list"
-let dict_get_helper = "__pyk_dict_get"
-let dict_set_helper = "__pyk_dict_set"
-let dict_has_helper = "__pyk_dict_has"
-let dict_remove_helper = "__pyk_dict_remove"
-let dict_discard_helper = "__pyk_dict_discard"
-let dict_clear_helper = "__pyk_dict_clear"
-let dict_keys_helper = "__pyk_dict_keys"
-let dict_items_helper = "__pyk_dict_items"
-let dict_walk_helper = "__pyk_dict_walk"
+let mutmap_list_helper = "__pyk_mutmap_list"
+let mutmap_get_helper = "__pyk_mutmap_get"
+let mutmap_set_helper = "__pyk_mutmap_set"
+let mutmap_has_helper = "__pyk_mutmap_has"
+let mutmap_remove_helper = "__pyk_mutmap_remove"
+let mutmap_discard_helper = "__pyk_mutmap_discard"
+let mutmap_clear_helper = "__pyk_mutmap_clear"
+let mutmap_keys_helper = "__pyk_mutmap_keys"
+let mutmap_items_helper = "__pyk_mutmap_items"
+let mutmap_walk_helper = "__pyk_mutmap_walk"
 
 (* A view is an object of a class of its own holding the array, the
    offset of its first element and its length; it answers `len` and a
@@ -721,15 +721,15 @@ let conversion_needs name =
   else if name = copy_into_helper then [ fail_helper ]
   else if name = slice_helper then [ array_class; fail_helper ]
   else if name = key_helper then [ key_class; frozen_helper ]
-  else if name = dict_list_helper then dict_class :: keyed
-  else if name = dict_get_helper || name = dict_remove_helper then keyed @ [ fail_helper ]
-  else if name = dict_set_helper || name = dict_has_helper || name = dict_discard_helper then keyed
-  else if name = dict_keys_helper || name = dict_items_helper then [ unkey_helper ]
-  else if name = dict_walk_helper then [ unkey_helper; fail_helper ]
-  else if name = fail_helper || name = array_class || name = vec_class then []
-  else if name = vec_index_helper || name = vec_pop_helper || name = vec_insert_helper then
+  else if name = mutmap_list_helper then mutmap_class :: keyed
+  else if name = mutmap_get_helper || name = mutmap_remove_helper then keyed @ [ fail_helper ]
+  else if name = mutmap_set_helper || name = mutmap_has_helper || name = mutmap_discard_helper then keyed
+  else if name = mutmap_keys_helper || name = mutmap_items_helper then [ unkey_helper ]
+  else if name = mutmap_walk_helper then [ unkey_helper; fail_helper ]
+  else if name = fail_helper || name = array_class || name = dynarray_class then []
+  else if name = dynarray_index_helper || name = dynarray_pop_helper || name = dynarray_insert_helper then
     [ fail_helper ]
-  else if name = vec_get_helper || name = vec_remove_helper then [ vec_index_helper; fail_helper ]
+  else if name = dynarray_get_helper || name = dynarray_remove_helper then [ dynarray_index_helper; fail_helper ]
   else if name = array_size_helper || name = array_index_helper then [ fail_helper ]
   else if name = array_get_helper then [ array_index_helper; fail_helper ]
   else if name = List.assoc "list__array" array_makers then [ array_class ]
@@ -738,7 +738,7 @@ let conversion_needs name =
   else []
 
 (** The text of one conversion helper; `formatter` is what the print
-    walker is called, which a Dict's missing-key error shows the key
+    walker is called, which a MutMap's missing-key error shows the key
     with. ?formatter:string -> string -> string *)
 let conversion_def ?(formatter = "__pyk_str") name =
   String.concat "\n"
@@ -861,8 +861,8 @@ let conversion_def ?(formatter = "__pyk_str") name =
          "    if not 0 <= low <= high <= n:";
          "        kind = type(s).__name__";
          Printf.sprintf
-           "        what = {'str': 'a String', 'list': 'a list', '%s': 'an array', '%s': 'a Vec'}.get(kind, 'a view')"
-           array_class vec_class;
+           "        what = {'str': 'a String', 'list': 'a list', '%s': 'an array', '%s': 'a DynArray'}.get(kind, 'a view')"
+           array_class dynarray_class;
          Printf.sprintf
            "        %s('the slice ' + str(low) + ':' + str(high) + ' is outside ' + what + ' of ' + str(n)"
            fail_helper;
@@ -873,10 +873,10 @@ let conversion_def ?(formatter = "__pyk_str") name =
          "        return s[low:high]";
          "    return type(s)(s[low:high])";
        ]
-     else if name = dict_class then
+     else if name = mutmap_class then
        [
          Printf.sprintf "class %s(dict):" name;
-         "    # A Dict: a dict, in the order its keys were put in, and a count";
+         "    # A MutMap: a dict, in the order its keys were put in, and a count";
          "    # of the keys put in and taken out, which a for loop over it checks.";
          "    __slots__ = ('changes',)";
          "";
@@ -922,24 +922,24 @@ let conversion_def ?(formatter = "__pyk_str") name =
          Printf.sprintf "def %s(k):" name;
          Printf.sprintf "    return k.key if type(k).__name__ == '%s' else k" key_class;
        ]
-     else if name = dict_list_helper then
+     else if name = mutmap_list_helper then
        [
          Printf.sprintf "def %s(pairs):" name;
          "    # A key written twice keeps its first place and its last value.";
-         Printf.sprintf "    d = %s()" dict_class;
+         Printf.sprintf "    d = %s()" mutmap_class;
          "    for k, v in pairs:";
          Printf.sprintf "        d[%s(k)] = v" key_helper;
          "    return d";
        ]
-     else if name = dict_get_helper then
+     else if name = mutmap_get_helper then
        [
          Printf.sprintf "def %s(d, k):" name;
          Printf.sprintf "    key = %s(k)" key_helper;
          "    if key in d:";
          "        return d[key]";
-         Printf.sprintf "    %s('the Dict has no key ' + %s(k, False))" fail_helper formatter;
+         Printf.sprintf "    %s('the MutMap has no key ' + %s(k, False))" fail_helper formatter;
        ]
-     else if name = dict_set_helper then
+     else if name = mutmap_set_helper then
        [
          Printf.sprintf "def %s(d, k, v):" name;
          "    # A new key goes at the end; an existing one keeps its place.";
@@ -948,18 +948,18 @@ let conversion_def ?(formatter = "__pyk_str") name =
          "        d.changes += 1";
          "    d[key] = v";
        ]
-     else if name = dict_has_helper then
+     else if name = mutmap_has_helper then
        [ Printf.sprintf "def %s(d, k):" name; Printf.sprintf "    return %s(k) in d" key_helper ]
-     else if name = dict_remove_helper then
+     else if name = mutmap_remove_helper then
        [
          Printf.sprintf "def %s(d, k):" name;
          Printf.sprintf "    key = %s(k)" key_helper;
          "    if key in d:";
          "        d.changes += 1";
          "        return d.pop(key)";
-         Printf.sprintf "    %s('the Dict has no key ' + %s(k, False) + ' to remove')" fail_helper formatter;
+         Printf.sprintf "    %s('the MutMap has no key ' + %s(k, False) + ' to remove')" fail_helper formatter;
        ]
-     else if name = dict_discard_helper then
+     else if name = mutmap_discard_helper then
        [
          Printf.sprintf "def %s(d, k):" name;
          Printf.sprintf "    key = %s(k)" key_helper;
@@ -967,16 +967,16 @@ let conversion_def ?(formatter = "__pyk_str") name =
          "        d.changes += 1";
          "        del d[key]";
        ]
-     else if name = dict_clear_helper then
+     else if name = mutmap_clear_helper then
        [ Printf.sprintf "def %s(d):" name; "    d.changes += 1"; "    d.clear()" ]
-     else if name = dict_keys_helper then
+     else if name = mutmap_keys_helper then
        [ Printf.sprintf "def %s(d):" name; Printf.sprintf "    return [%s(k) for k in d]" unkey_helper ]
-     else if name = dict_items_helper then
+     else if name = mutmap_items_helper then
        [
          Printf.sprintf "def %s(d):" name;
          Printf.sprintf "    return [(%s(k), v) for k, v in d.items()]" unkey_helper;
        ]
-     else if name = dict_walk_helper then
+     else if name = mutmap_walk_helper then
        [
          Printf.sprintf "def %s(d):" name;
          "    # Each key in order. A key put in or taken out while the loop";
@@ -985,7 +985,7 @@ let conversion_def ?(formatter = "__pyk_str") name =
          "    for k in list(d):";
          Printf.sprintf "        yield %s(k)" unkey_helper;
          "        if d.changes != changes:";
-         Printf.sprintf "            %s('the Dict changed while a for loop was reading it')" fail_helper;
+         Printf.sprintf "            %s('the MutMap changed while a for loop was reading it')" fail_helper;
        ]
      else if name = equal_helper then
        [
@@ -1005,50 +1005,50 @@ let conversion_def ?(formatter = "__pyk_str") name =
          "    # An array: a list never grown, told from a list when printed.";
          "    __slots__ = ()";
        ]
-     else if name = vec_class then
+     else if name = dynarray_class then
        [
          Printf.sprintf "class %s(list):" name;
-         "    # A Vec: an array that grows, told from a list when printed.";
+         "    # A DynArray: an array that grows, told from a list when printed.";
          "    __slots__ = ()";
        ]
-     else if name = vec_index_helper then
+     else if name = dynarray_index_helper then
        [
          Printf.sprintf "def %s(v, i):" name;
-         "    # Checked against the length the Vec has now.";
+         "    # Checked against the length the DynArray has now.";
          "    n = len(v)";
          "    if 0 <= i < n:";
          "        return i";
          Printf.sprintf
-           "    %s('the index ' + str(i) + ' is outside a Vec of ' + str(n)" fail_helper;
+           "    %s('the index ' + str(i) + ' is outside a DynArray of ' + str(n)" fail_helper;
          "        + (' element' if n == 1 else ' elements'))";
        ]
-     else if name = vec_get_helper then
+     else if name = dynarray_get_helper then
        [
          Printf.sprintf "def %s(v, i):" name;
          "    if 0 <= i < len(v):";
          "        return v[i]";
-         Printf.sprintf "    %s(v, i)" vec_index_helper;
+         Printf.sprintf "    %s(v, i)" dynarray_index_helper;
        ]
-     else if name = vec_pop_helper then
+     else if name = dynarray_pop_helper then
        [
          Printf.sprintf "def %s(v):" name;
          "    if not v:";
-         Printf.sprintf "        %s('pop from an empty Vec')" fail_helper;
+         Printf.sprintf "        %s('pop from an empty DynArray')" fail_helper;
          "    return v.pop()";
        ]
-     else if name = vec_insert_helper then
+     else if name = dynarray_insert_helper then
        [
          Printf.sprintf "def %s(v, i, x):" name;
          "    if not 0 <= i <= len(v):";
          Printf.sprintf
            "        %s(\"insert's index \" + str(i) + ' is outside 0 to ' + str(len(v))" fail_helper;
-         "            + \", the Vec's length\")";
+         "            + \", the DynArray's length\")";
          "    v.insert(i, x)";
        ]
-     else if name = vec_remove_helper then
+     else if name = dynarray_remove_helper then
        [
          Printf.sprintf "def %s(v, i):" name;
-         Printf.sprintf "    return v.pop(%s(v, i))" vec_index_helper;
+         Printf.sprintf "    return v.pop(%s(v, i))" dynarray_index_helper;
        ]
      else if name = fail_helper then
        [
@@ -2189,8 +2189,8 @@ let build_format_helper info name floats =
         ( info,
           isa v "list",
           [
-            (* An array or a Vec is a list of a class of its own
-               (`array_class`, `vec_class`), which may hold itself; a
+            (* An array or a DynArray is a list of a class of its own
+               (`array_class`, `dynarray_class`), which may hold itself; a
                list never does. *)
             PyIf
               ( info,
@@ -2199,7 +2199,7 @@ let build_format_helper info name floats =
                 None );
             PyAssign (info, PyTargetName (info, "out"), text "");
             PyFor (info, "e", v, [ step ], None);
-            (* An array or a Vec is written as what makes one. A Vec's
+            (* An array or a DynArray is written as what makes one. A DynArray's
                class is asked for by name, so one made in any module
                prints right. *)
             PyIf
@@ -2212,8 +2212,8 @@ let build_format_helper info name floats =
                         [
                           PyIfExp
                             ( info,
-                              PyEq (info, PyAttr (info, call "type" [ v ], "__name__"), text vec_class),
-                              text "vec([",
+                              PyEq (info, PyAttr (info, call "type" [ v ], "__name__"), text dynarray_class),
+                              text "dynarray([",
                               text "array([" );
                           out;
                           text "])";
@@ -2313,7 +2313,7 @@ let build_format_helper info name floats =
             PyReturn (info, joined [ text "view(["; out; text "])" ]);
           ],
           None );
-      (* A Dict is written as what makes one: its entries, in order, as
+      (* A MutMap is written as what makes one: its entries, in order, as
          (key, value) tuples. A key held as a `key_class` is shown as it
          was. *)
       PyIf
@@ -2346,7 +2346,7 @@ let build_format_helper info name floats =
                     step;
                   ],
                   None );
-              PyReturn (info, joined [ text "dict(["; out; text "])" ]);
+              PyReturn (info, joined [ text "mutmap(["; out; text "])" ]);
             ],
           None );
       PyReturn (info, call "str" [ v ]);
@@ -2404,10 +2404,10 @@ let is_array_expr e gen =
   | Some t -> Typesystem.array_element t <> None
   | None -> false
 
-(** Whether the checker gave this expression a Vec type. expr -> gen -> bool *)
-let is_vec_expr e gen =
+(** Whether the checker gave this expression a DynArray type. expr -> gen -> bool *)
+let is_dynarray_expr e gen =
   match IntMap.find_opt (expr_sym e) gen.types with
-  | Some (TCon (_, "Vec", [ _ ], _)) -> true
+  | Some (TCon (_, "DynArray", [ _ ], _)) -> true
   | _ -> false
 
 (** Whether a type is exactly Float, which is the one case a bare
@@ -2425,7 +2425,7 @@ let rec holds_float type_ =
   | TFunction (_, params, result, _, _, _, _) ->
       List.exists holds_float params || holds_float result
   | TForall (_, _, body, _) -> holds_float body
-  | TCon (_, ("Array" | "Vec" | "Dict" | "Slice" | "Ptr"), args, _) -> List.exists holds_float args
+  | TCon (_, ("Array" | "DynArray" | "MutMap" | "Slice" | "Ptr"), args, _) -> List.exists holds_float args
   | _ -> false
 
 (** Whether a value of this type can be changed after it is made --
@@ -2810,26 +2810,26 @@ let is_builtin_range e scope =
   | ECall (_, EVar (_, "range", _), _, _) -> not (is_bound "range" scope)
   | _ -> false
 
-(* The Vec builtins worth unit, which are a list method's call (or a
+(* The DynArray builtins worth unit, which are a list method's call (or a
    helper's) answering None: like print, written bare as a statement and
    followed by the unit they are worth in value position. *)
-let vec_unit_builtins = [ "push"; "insert"; "clear"; "discard"; "copy_into" ]
+let dynarray_unit_builtins = [ "push"; "insert"; "clear"; "discard"; "copy_into" ]
 
-(* Every builtin that changes a Vec or a Dict. *)
-let vec_changers = vec_unit_builtins @ [ "pop"; "remove" ]
+(* Every builtin that changes a DynArray or a MutMap. *)
+let dynarray_changers = dynarray_unit_builtins @ [ "pop"; "remove" ]
 
-(* The builtins over Vecs and Dicts that answer a value. *)
+(* The builtins over DynArrays and MutMaps that answer a value. *)
 let store_value_builtins = [ "pop"; "remove"; "get"; "has"; "keys"; "values"; "items"; "view" ]
 
 (** Whether expr is a call that crosses the host boundary (print or
-    debug), or a Vec builtin worth unit -- and not a definition of the
+    debug), or a DynArray builtin worth unit -- and not a definition of the
     program's own by that name -- which needs no return emitted in tail
     position.
     expr -> scope -> bool *)
 let yields_unit e scope =
   match e with
   | ECall (_, EVar (_, name, _), _, _) ->
-      (Builtin.crosses_host name || List.mem name vec_unit_builtins) && not (is_bound name scope)
+      (Builtin.crosses_host name || List.mem name dynarray_unit_builtins) && not (is_bound name scope)
   | _ -> false
 
 (** A target read back as an expression: what a loop's accumulator holds
@@ -3085,7 +3085,7 @@ let add_conversion name gen =
   let gen = List.fold_left (fun gen need -> add need gen) gen (conversion_needs name) in
   (* A missing key is shown as the print walker shows it. *)
   let gen =
-    if name = dict_get_helper || name = dict_remove_helper then
+    if name = mutmap_get_helper || name = mutmap_remove_helper then
       snd (format_helper_name Lexer.{ file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 } gen)
     else gen
   in
@@ -3139,11 +3139,11 @@ let is_view_expr e gen =
   | Some (TCon (_, "Slice", [ _ ], _)) -> true
   | _ -> false
 
-(** Whether the checker gave this expression a Dict type.
+(** Whether the checker gave this expression a MutMap type.
     expr -> gen -> bool *)
-let is_dict_expr e gen =
+let is_mutmap_expr e gen =
   match IntMap.find_opt (expr_sym e) gen.types with
-  | Some (TCon (_, "Dict", [ _; _ ], _)) -> true
+  | Some (TCon (_, "MutMap", [ _; _ ], _)) -> true
   | _ -> false
 
 (** Whether the checker gave this expression the type String -- what
@@ -3157,10 +3157,10 @@ let is_string_expr e gen =
     characters are made Chars on the way. expr -> pyexpr -> gen ->
     (pyexpr, gen) *)
 let walked sequence py_sequence gen =
-  if is_dict_expr sequence gen then
-    (* A Dict's keys, in order, checked for a change at every step. *)
-    ( PyCall (expr_info sequence, PyVar (expr_info sequence, dict_walk_helper), [ py_sequence ]),
-      add_conversion dict_walk_helper gen )
+  if is_mutmap_expr sequence gen then
+    (* A MutMap's keys, in order, checked for a change at every step. *)
+    ( PyCall (expr_info sequence, PyVar (expr_info sequence, mutmap_walk_helper), [ py_sequence ]),
+      add_conversion mutmap_walk_helper gen )
   else if is_string_expr sequence gen then
     ( PyCall (expr_info sequence, PyVar (expr_info sequence, chars_helper), [ py_sequence ]),
       add_conversion chars_helper gen )
@@ -3186,13 +3186,13 @@ let rec translate_expr e scope gen =
       (* `array(...)` in its four forms, each a prelude helper. *)
       let helper = List.assoc name array_makers in
       (PyVar (info, helper), add_conversion helper gen)
-  | EVar (info, "empty__dict", _) when not (is_bound "empty__dict" scope) ->
-      (PyVar (info, dict_class), add_conversion dict_class gen)
-  | EVar (info, "list__dict", _) when not (is_bound "list__dict" scope) ->
-      (PyVar (info, dict_list_helper), add_conversion dict_list_helper gen)
-  | EVar (info, name, _) when List.mem name vec_makers && not (is_bound name scope) ->
-      (* `vec()` and `vec(xs)` are the class itself, called. *)
-      (PyVar (info, vec_class), add_conversion vec_class gen)
+  | EVar (info, "empty__mutmap", _) when not (is_bound "empty__mutmap" scope) ->
+      (PyVar (info, mutmap_class), add_conversion mutmap_class gen)
+  | EVar (info, "list__mutmap", _) when not (is_bound "list__mutmap" scope) ->
+      (PyVar (info, mutmap_list_helper), add_conversion mutmap_list_helper gen)
+  | EVar (info, name, _) when List.mem name dynarray_makers && not (is_bound name scope) ->
+      (* `dynarray()` and `dynarray(xs)` are the class itself, called. *)
+      (PyVar (info, dynarray_class), add_conversion dynarray_class gen)
   | EVar (info, name, _) ->
       (* A name this module *declared* rather than defined is the host's,
          and lives in the implementation beside this file -- the two
@@ -3352,7 +3352,7 @@ let rec translate_expr e scope gen =
       (PyCall (info, PyAttr (info, py_pointer, "get"), []), gen)
   | ESlice (info, seq, low, high, _) ->
       (* One helper for every kind: Python's own slice clamps where
-         Pyking checks, and an array's or a Vec's would be a plain list.
+         Pyking checks, and an array's or a DynArray's would be a plain list.
          The sequence, then the bounds, then the check. *)
       let py_seq, gen = translate_expr seq scope gen in
       let bound b default gen =
@@ -3375,18 +3375,18 @@ let rec translate_expr e scope gen =
       let py_index, gen = translate_expr index scope gen in
       ( PyCall (info, PyVar (info, view_get_helper), [ py_l; py_index ]),
         add_conversion view_get_helper gen )
-  | EIndex (info, l, index, _) when is_dict_expr l gen ->
+  | EIndex (info, l, index, _) when is_mutmap_expr l gen ->
       (* A missing key is an error, not Python's KeyError. *)
       let py_l, gen = translate_expr l scope gen in
       let py_index, gen = translate_expr index scope gen in
-      ( PyCall (info, PyVar (info, dict_get_helper), [ py_l; py_index ]),
-        add_conversion dict_get_helper gen )
-  | EIndex (info, l, index, _) when is_vec_expr l gen ->
-      (* A Vec's index is checked against its length as it is now. *)
+      ( PyCall (info, PyVar (info, mutmap_get_helper), [ py_l; py_index ]),
+        add_conversion mutmap_get_helper gen )
+  | EIndex (info, l, index, _) when is_dynarray_expr l gen ->
+      (* A DynArray's index is checked against its length as it is now. *)
       let py_l, gen = translate_expr l scope gen in
       let py_index, gen = translate_expr index scope gen in
-      ( PyCall (info, PyVar (info, vec_get_helper), [ py_l; py_index ]),
-        add_conversion vec_get_helper gen )
+      ( PyCall (info, PyVar (info, dynarray_get_helper), [ py_l; py_index ]),
+        add_conversion dynarray_get_helper gen )
   | EIndex (info, l, index, sym) -> (
       (* A String's s[i] is its i-th code point, which a Python str
          indexes too; it is made a Char. *)
@@ -3406,16 +3406,16 @@ let rec translate_expr e scope gen =
       | Some (TString _) -> helper char_of_string_helper
       | _ -> helper char_of_int_helper)
   | ECall (info, EVar (_, name, _), args, _)
-    when List.mem name vec_unit_builtins && not (is_bound name scope) ->
+    when List.mem name dynarray_unit_builtins && not (is_bound name scope) ->
       (* push, insert and clear answer None, so in value position the
          call is followed by the unit it is worth, as print's is. *)
-      let call, gen = vec_call info name (arg_exprs args) scope gen in
+      let call, gen = dynarray_call info name (arg_exprs args) scope gen in
       ( PyIndex
           (info, PyTuple (info, [ call; PyTuple (info, []) ]), PyInt (info, 1)),
         gen )
   | ECall (info, EVar (_, name, _), args, _)
     when List.mem name store_value_builtins && not (is_bound name scope) ->
-      vec_call info name (arg_exprs args) scope gen
+      dynarray_call info name (arg_exprs args) scope gen
   | ECall (info, EVar (_, name, _), args, _)
     when Builtin.crosses_host name && not (is_bound name scope) ->
       (* Python's own `print` answers None, and Pyking's answers unit --
@@ -3676,7 +3676,7 @@ and runtime_call info name args scope gen =
                  (function
                    | Walk.NExpr (ECall (_, EVar (_, name, _), _, _))
                      when List.mem name Builtin.names
-                          && (not (List.mem name vec_changers))
+                          && (not (List.mem name dynarray_changers))
                           && not (is_bound name scope) ->
                        (* len, string and the like change nothing. *)
                        false
@@ -3735,13 +3735,13 @@ and translate_comp_for clause scope gen =
   match clause with
   | CompFor (info, pattern, sequence, _) ->
       let py_sequence, gen = translate_expr sequence scope gen in
-      (* A comprehension walks the Vec's elements, or the Dict's keys, as
+      (* A comprehension walks the DynArray's elements, or the MutMap's keys, as
          they are when it starts, which a call in it cannot change. *)
       let py_sequence, gen =
-        if is_dict_expr sequence gen then
-          ( PyCall (info, PyVar (info, dict_keys_helper), [ py_sequence ]),
-            add_conversion dict_keys_helper gen )
-        else if is_vec_expr sequence gen || is_view_expr sequence gen then
+        if is_mutmap_expr sequence gen then
+          ( PyCall (info, PyVar (info, mutmap_keys_helper), [ py_sequence ]),
+            add_conversion mutmap_keys_helper gen )
+        else if is_dynarray_expr sequence gen || is_view_expr sequence gen then
           (PyCall (info, PyVar (info, "list"), [ py_sequence ]), gen)
         else walked sequence py_sequence gen
       in
@@ -3785,15 +3785,15 @@ and lazy_range call scope gen =
       (PyCall (info, PyVar (info, "range"), py_args), gen)
   | e -> translate_expr e scope gen
 
-(** One of the builtins over Vecs and Dicts, as the bare Python call: a
+(** One of the builtins over DynArrays and MutMaps, as the bare Python call: a
     list or dict method where Python's agrees, a helper where an index, a
-    length or a key has to be checked first or a Dict counts the change.
-    `remove` and `clear` are a Vec's or a Dict's by their first
+    length or a key has to be checked first or a MutMap counts the change.
+    `remove` and `clear` are a DynArray's or a MutMap's by their first
     argument's type. Every argument is worked out first, left to right,
     as for any call.
     info -> string -> [expr] -> scope -> gen -> (pyexpr, gen) *)
-and vec_call info name args scope gen =
-  let on_dict = match args with first :: _ -> is_dict_expr first gen | [] -> false in
+and dynarray_call info name args scope gen =
+  let on_mutmap = match args with first :: _ -> is_mutmap_expr first gen | [] -> false in
   let py_args, gen = translate_each args scope gen in
   let method_ m = function
     | owner :: rest -> PyCall (info, PyAttr (info, owner, m), rest)
@@ -3810,28 +3810,28 @@ and vec_call info name args scope gen =
                 [ PyCall (info, PyVar (info, key_helper), [ k ]); default ] ),
             add_conversion key_helper gen )
       | _ -> (PyCall (info, PyVar (info, "get"), py_args), gen))
-  | "has" -> helper dict_has_helper
+  | "has" -> helper mutmap_has_helper
   | "view" -> helper view_helper
   | "copy_into" -> helper copy_into_helper
-  | "keys" -> helper dict_keys_helper
+  | "keys" -> helper mutmap_keys_helper
   | "values" -> (PyCall (info, PyVar (info, "list"), [ method_ "values" py_args ]), gen)
-  | "items" -> helper dict_items_helper
-  | "discard" -> helper dict_discard_helper
-  | "clear" when on_dict -> helper dict_clear_helper
-  | "remove" when on_dict -> helper dict_remove_helper
+  | "items" -> helper mutmap_items_helper
+  | "discard" -> helper mutmap_discard_helper
+  | "clear" when on_mutmap -> helper mutmap_clear_helper
+  | "remove" when on_mutmap -> helper mutmap_remove_helper
   | "push" -> (method_ "append" py_args, gen)
   | "clear" -> (method_ "clear" py_args, gen)
-  | "insert" -> helper vec_insert_helper
-  | "pop" -> helper vec_pop_helper
-  | _ -> helper vec_remove_helper
+  | "insert" -> helper dynarray_insert_helper
+  | "pop" -> helper dynarray_pop_helper
+  | _ -> helper dynarray_remove_helper
 
 (** A host-crossing call written as a statement: the bare call, with
     none of the unit `translate_expr` adds for value position.
     expr -> scope -> gen -> (pystmt, gen) *)
 and runtime_call_stmt e scope gen =
   match e with
-  | ECall (info, EVar (_, name, _), args, _) when List.mem name vec_unit_builtins ->
-      let call, gen = vec_call info name (arg_exprs args) scope gen in
+  | ECall (info, EVar (_, name, _), args, _) when List.mem name dynarray_unit_builtins ->
+      let call, gen = dynarray_call info name (arg_exprs args) scope gen in
       (PyExprStmt (info, call), gen)
   | ECall (info, EVar (_, name, _), args, _) ->
       let call, gen = runtime_call info name (arg_exprs args) scope gen in
@@ -4156,13 +4156,13 @@ and translate_stmt s scope gen =
       in
       let py_value, gen = translate_expr value scope gen in
       (setup @ [ PyAssign (info, target, py_value) ], scope, gen)
-  | SSetIndex (info, owner, index, value, _) when is_dict_expr owner gen ->
-      (* `d[k] := v`: the Dict, the key, the value, then the write -- a
+  | SSetIndex (info, owner, index, value, _) when is_mutmap_expr owner gen ->
+      (* `d[k] := v`: the MutMap, the key, the value, then the write -- a
          call's own order, with nothing to check ahead of the value. *)
       let py_args, gen = translate_each [ owner; index; value ] scope gen in
-      ( [ PyExprStmt (info, PyCall (info, PyVar (info, dict_set_helper), py_args)) ],
+      ( [ PyExprStmt (info, PyCall (info, PyVar (info, mutmap_set_helper), py_args)) ],
         scope,
-        add_conversion dict_set_helper gen )
+        add_conversion mutmap_set_helper gen )
   | SSetIndex (info, owner, index, value, _) ->
       (* `owner[index] := value`: the array and the index first, then the
          index checked, then the value, then the write -- into the array
@@ -4180,11 +4180,11 @@ and translate_stmt s scope gen =
       in
       let py_owner, gen = translate_expr owner scope gen in
       let py_index, gen = translate_expr index scope gen in
-      (* A Vec's index is checked against its length as it is now, and
+      (* A DynArray's index is checked against its length as it is now, and
          checked again at the write where the value's own work could
-         have shrunk it (docs/target_python.md, "Vecs"). *)
-      let vec = is_vec_expr owner gen in
-      let index_helper = if vec then vec_index_helper else array_index_helper in
+         have shrunk it (docs/target_python.md, "DynArrays"). *)
+      let dynarray = is_dynarray_expr owner gen in
+      let index_helper = if dynarray then dynarray_index_helper else array_index_helper in
       let gen = add_conversion index_helper gen in
       let check owner_ index_ =
         PyCall (info, PyVar (info, index_helper), [ owner_; index_ ])
@@ -4205,7 +4205,7 @@ and translate_stmt s scope gen =
       let py_value, gen = translate_expr value scope gen in
       let setup, py_index =
         match setup with
-        | _ when (not vec) || not (stable value) -> (setup, if vec then check py_owner py_index else py_index)
+        | _ when (not dynarray) || not (stable value) -> (setup, if dynarray then check py_owner py_index else py_index)
         | [ PyExprStmt _ ] ->
             (* Nothing can happen between the check and the write: the
                one check goes in the write itself. *)
@@ -4398,16 +4398,16 @@ and annotation t scope gen =
     | TVar (_, v, _, _) -> (public_py_name v, gen, false)
     | TForall (_, _, body, _) -> text body gen
     | TCon (_, _, [ element ], _) when Typesystem.array_element t <> None
-                                        || (match t with TCon (_, "Vec", _, _) -> true | _ -> false) ->
-        (* An array, or a Vec, is a list of a class of its own. *)
+                                        || (match t with TCon (_, "DynArray", _, _) -> true | _ -> false) ->
+        (* An array, or a DynArray, is a list of a class of its own. *)
         let e, gen, f = text element gen in
         ("list[" ^ e ^ "]", gen, f)
     | TCon (_, ("Slice" | "Ptr"), _, _) ->
         (* A view is an object of the prelude's class, which a module
            handed one need not have. *)
         ("object", gen, false)
-    | TCon (_, "Dict", [ k; v ], _) ->
-        (* A Dict is a dict of a class of its own. *)
+    | TCon (_, "MutMap", [ k; v ], _) ->
+        (* A MutMap is a dict of a class of its own. *)
         let k, gen, f1 = text k gen in
         let v, gen, f2 = text v gen in
         ("dict[" ^ k ^ ", " ^ v ^ "]", gen, f1 || f2)

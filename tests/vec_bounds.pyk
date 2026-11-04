@@ -1,9 +1,0 @@
-# A Vec's index is checked against its length as it is now: one past the
-# end is a runtime error, on every target but plain C.
-
-use mutation
-
-v = vec([1, 2])
-pop(v)
-print(v[0])
-print(v[1])

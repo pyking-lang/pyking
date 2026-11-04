@@ -1,12 +1,12 @@
 array([Empty, Holds(...)])
-vec([Leaf(1), Many(...), Many(vec([Leaf(2)]))]) 3
+dynarray([Leaf(1), Many(...), Many(dynarray([Leaf(2)]))]) 3
 Pair(1, Pair2("x", Back(...)))
 Counter("c", 2) 1 1 2
-vec([1, 2]) 3 vec([1, 2])
+dynarray([1, 2]) 3 dynarray([1, 2])
 array([9, 0]) 1
 Counter("first", 11) Counter("second", 2)
-vec([Counter("a!", 1), Counter("b", 20)]) true
-vec(["xy"]) w z vec(["xy"])
-vec(["xy", "xy+", "xy++"])
-vec([]) 0
-vec([vec([1]), vec([5])]) 5
+dynarray([Counter("a!", 1), Counter("b", 20)]) true
+dynarray(["xy"]) w z dynarray(["xy"])
+dynarray(["xy", "xy+", "xy++"])
+dynarray([]) 0
+dynarray([dynarray([1]), dynarray([5])]) 5

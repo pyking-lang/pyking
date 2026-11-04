@@ -184,17 +184,17 @@ let rec holds_float type_ =
   | TFloat _ | TChar _ -> true
   | TList (_, element, _) -> holds_float element
   | TCon (_, "Array", [ element ], _) -> holds_float element
-  | TCon (_, "Vec", [ element ], _) -> holds_float element
+  | TCon (_, "DynArray", [ element ], _) -> holds_float element
   | TCon (_, "Slice", [ element ], _) -> holds_float element
   | TCon (_, "Ptr", [ target ], _) -> holds_float target
-  | TCon (_, "Dict", [ key; value ], _) -> holds_float key || holds_float value
+  | TCon (_, "MutMap", [ key; value ], _) -> holds_float key || holds_float value
   | TTuple (_, elements, _) -> List.exists holds_float elements
   | _ -> false
 
 (** Which positions of a value are Floats or Chars, as the descriptor
     `pykShaped` reads: `f` a Float, `c` a Char, `.` anything else, `[s]`
-    a list, `{s}` an array, `<s>` a Vec, `v{s}` a view, `p(s)` a
-    pointer, `@(k,v)` a Dict whose entries are (k, v), `(s,s)` a tuple.
+    a list, `{s}` an array, `<s>` a DynArray, `v{s}` a view, `p(s)` a
+    pointer, `@(k,v)` a MutMap whose entries are (k, v), `(s,s)` a tuple.
     typ -> string *)
 let rec float_shape type_ =
   match type_ with
@@ -202,10 +202,10 @@ let rec float_shape type_ =
   | TChar _ -> "c"
   | TList (_, element, _) -> "[" ^ float_shape element ^ "]"
   | TCon (_, "Array", [ element ], _) -> "{" ^ float_shape element ^ "}"
-  | TCon (_, "Vec", [ element ], _) -> "<" ^ float_shape element ^ ">"
+  | TCon (_, "DynArray", [ element ], _) -> "<" ^ float_shape element ^ ">"
   | TCon (_, "Slice", [ element ], _) -> "v{" ^ float_shape element ^ "}"
   | TCon (_, "Ptr", [ target ], _) -> "p(" ^ float_shape target ^ ")"
-  | TCon (_, "Dict", [ key; value ], _) ->
+  | TCon (_, "MutMap", [ key; value ], _) ->
       "@(" ^ float_shape key ^ "," ^ float_shape value ^ ")"
   | TTuple (_, elements, _) ->
       "(" ^ String.concat "," (List.map float_shape elements) ^ ")"
@@ -225,13 +225,13 @@ let is_array_expr e scope =
   | Some t -> Typesystem.array_element t <> None
   | None -> false
 
-(** Whether the checker settled this expression's type as a Vec, an
+(** Whether the checker settled this expression's type as a DynArray, an
     array that grows: indexed, measured and written as an array is, and
-    told from one by its marker at run time (docs/target_js.md, "Vecs").
+    told from one by its marker at run time (docs/target_js.md, "DynArrays").
     expr -> scope -> bool *)
-let is_vec_expr e scope =
+let is_dynarray_expr e scope =
   match type_of e scope with
-  | Some (TCon (_, "Vec", [ _ ], _)) -> true
+  | Some (TCon (_, "DynArray", [ _ ], _)) -> true
   | _ -> false
 
 (** Whether the checker settled this expression's type as a view,
@@ -242,11 +242,11 @@ let is_view_expr e scope =
   | Some (TCon (_, "Slice", [ _ ], _)) -> true
   | _ -> false
 
-(** Whether the checker settled this expression's type as a Dict.
+(** Whether the checker settled this expression's type as a MutMap.
     expr -> scope -> bool *)
-let is_dict_expr e scope =
+let is_mutmap_expr e scope =
   match type_of e scope with
-  | Some (TCon (_, "Dict", [ _; _ ], _)) -> true
+  | Some (TCon (_, "MutMap", [ _; _ ], _)) -> true
   | _ -> false
 
 (** Whether `==` on values of this type is JavaScript's `===`: a value
@@ -258,7 +258,7 @@ let compares_as_primitive type_ =
   | Some (TInt _ | TFloat _ | TString _ | TChar _ | TBool _ | TTuple (_, [], _)) -> true
   | _ -> false
 
-(** The key-shape argument a Dict helper that reports a missing key
+(** The key-shape argument a MutMap helper that reports a missing key
     needs, where the key's type holds a Char (printed quoted rather than
     as its code point): `[]` where `pykFormat` already prints it right.
     info -> expr -> scope -> [jsexpr] *)
@@ -267,9 +267,9 @@ let key_shape info key scope =
   | Some t when holds_float t -> [ JsStr (info, float_shape t) ]
   | _ -> []
 
-(** An array or a Vec: what `a[i]` checks and `len` measures directly.
+(** An array or a DynArray: what `a[i]` checks and `len` measures directly.
     expr -> scope -> bool *)
-let is_store_expr e scope = is_array_expr e scope || is_vec_expr e scope
+let is_store_expr e scope = is_array_expr e scope || is_dynarray_expr e scope
 
 (** A sequence a `for` walks, as an array: a String's Chars are its code
     points, which `pykChars` lists. info -> jsexpr -> bool -> jsexpr *)
@@ -277,11 +277,11 @@ let walked info js_sequence is_string =
   if is_string then JsCall (info, JsVar (info, "pykChars"), [ js_sequence ])
   else js_sequence
 
-(** The sequence a `for` (`in_for`) or a comprehension walks. A Dict's is
-    its keys: a comprehension takes them as they are (`pykDictKeys`), and
-    a `for` walks them through `pykDictWalk`, which stops the program
+(** The sequence a `for` (`in_for`) or a comprehension walks. A MutMap's is
+    its keys: a comprehension takes them as they are (`pykMutMapKeys`), and
+    a `for` walks them through `pykMutMapWalk`, which stops the program
     where a key is put in or taken out during the walk
-    (docs/target_js.md, "Dicts"). info -> jsexpr -> expr -> scope -> bool
+    (docs/target_js.md, "MutMaps"). info -> jsexpr -> expr -> scope -> bool
     -> jsexpr *)
 let walked_sequence info js_sequence sequence scope in_for =
   if is_view_expr sequence scope then
@@ -291,10 +291,10 @@ let walked_sequence info js_sequence sequence scope in_for =
       ( info,
         JsVar (info, if in_for then "pykViewWalk" else "pykViewItems"),
         [ js_sequence ] )
-  else if is_dict_expr sequence scope then
+  else if is_mutmap_expr sequence scope then
     JsCall
       ( info,
-        JsVar (info, if in_for then "pykDictWalk" else "pykDictKeys"),
+        JsVar (info, if in_for then "pykMutMapWalk" else "pykMutMapKeys"),
         [ js_sequence ] )
   else walked info js_sequence (is_string_expr sequence scope)
 
@@ -336,11 +336,11 @@ let reserved =
         init pykChars pykCharAt pykCharOfInt pykCharOfString pykFloatStr \
         pykShaped pykParseInt pykTrunc pykParseFloat pykFail pykArray \
         pykArraySize pykArrayOfList pykArrayFill pykArrayInit pykArrayUnfold \
-        pykAt pykCheckIndex pykIndexError pykStruct pykLater pykVec \
-        pykVecEmpty pykVecOfList pykPush pykPop pykInsert pykRemove pykClear \
-        pykSetAt pykEqual pykDict pykDictOfList pykKey pykKeyText pykDictPut \
-        pykDictGet pykDictGetOr pykDictHas pykDictKeys pykDictValues pykDictItems \
-        pykDictRemove pykDictDiscard pykDictClear pykDictWalk pykDictChanged pykSlice pykView \
+        pykAt pykCheckIndex pykIndexError pykStruct pykLater pykDynArray \
+        pykDynArrayEmpty pykDynArrayOfList pykPush pykPop pykInsert pykRemove pykClear \
+        pykSetAt pykEqual pykMutMap pykMutMapOfList pykKey pykKeyText pykMutMapPut \
+        pykMutMapGet pykMutMapGetOr pykMutMapHas pykMutMapKeys pykMutMapValues pykMutMapItems \
+        pykMutMapRemove pykMutMapDiscard pykMutMapClear pykMutMapWalk pykMutMapChanged pykSlice pykView \
         pykViewAt pykViewSet pykViewItems pykViewWalk pykCopyInto pykVarPlace \
         pykElemPlace pykFieldPlace pykSlotPlace pykNew")
 
@@ -614,12 +614,12 @@ let rec translate_expr e scope =
         ( info,
           JsVar (info, "pykCharAt"),
           [ translate_expr text scope; translate_expr index scope ] )
-  | EIndex (info, dict, key, _) when is_dict_expr dict scope ->
-      (* A Dict's value for a key, or the error a missing key is. *)
+  | EIndex (info, mutmap, key, _) when is_mutmap_expr mutmap scope ->
+      (* A MutMap's value for a key, or the error a missing key is. *)
       JsCall
         ( info,
-          JsVar (info, "pykDictGet"),
-          [ translate_expr dict scope; translate_expr key scope ] @ key_shape info key scope )
+          JsVar (info, "pykMutMapGet"),
+          [ translate_expr mutmap scope; translate_expr key scope ] @ key_shape info key scope )
   | EIndex (info, view, index, _) when is_view_expr view scope ->
       (* A view's element is its array's, checked against the view. *)
       JsCall
@@ -732,16 +732,16 @@ let rec translate_expr e scope =
   | ECall (info, EVar (_, "len", _), [ (_, argument) ], _)
     when (not (SMap.mem "len" scope.names))
          && (is_store_expr argument scope || is_view_expr argument scope) ->
-      (* An array's or a Vec's length is its JavaScript array's: O(1), no
+      (* An array's or a DynArray's length is its JavaScript array's: O(1), no
          helper. A view keeps its own as `length`. *)
       JsMember (info, translate_expr argument scope, "length")
   | ECall (info, EVar (_, "len", _), [ (_, argument) ], _)
-    when (not (SMap.mem "len" scope.names)) && is_dict_expr argument scope ->
-      (* A Dict's is its Map's number of entries. *)
+    when (not (SMap.mem "len" scope.names)) && is_mutmap_expr argument scope ->
+      (* A MutMap's is its Map's number of entries. *)
       JsMember (info, translate_expr argument scope, "size")
   | ECall (info, EVar (_, "same", _), [ (_, left); (_, right) ], _)
     when not (SMap.mem "same" scope.names) ->
-      (* Two arrays (Vecs, var structs) are the same when they are one
+      (* Two arrays (DynArrays, var structs) are the same when they are one
          JavaScript object. *)
       JsBinary (info, "===", translate_expr left scope, translate_expr right scope)
   | ECall (info, EVar (_, name, _), args, _)
@@ -757,10 +757,10 @@ let rec translate_expr e scope =
         | "fill__array" -> "pykArrayFill"
         | "init__array_init" -> "pykArrayInit"
         | "unfold__array_init" -> "pykArrayUnfold"
-        | "empty__vec" -> "pykVecEmpty"
-        | "list__vec" -> "pykVecOfList"
-        | "empty__dict" -> "pykDict"
-        | "list__dict" -> "pykDictOfList"
+        | "empty__dynarray" -> "pykDynArrayEmpty"
+        | "list__dynarray" -> "pykDynArrayOfList"
+        | "empty__mutmap" -> "pykMutMap"
+        | "list__mutmap" -> "pykMutMapOfList"
         | _ ->
             unsupported_because (expr_info e)
               (Printf.sprintf
@@ -780,22 +780,22 @@ let rec translate_expr e scope =
           List.map (fun a -> translate_expr a scope) (arg_exprs args) )
   | ECall (info, EVar (_, (("push" | "pop" | "insert" | "remove" | "clear") as name), _), args, _)
     when not (SMap.mem name scope.names) ->
-      (* What grows and shrinks a Vec, each a helper of the module's own
+      (* What grows and shrinks a DynArray, each a helper of the module's own
          that checks what it must and answers what Pyking says it does --
          `push` answers `()`, where JavaScript's answers the length.
-         `remove` and `clear` are a Dict's where their first argument
+         `remove` and `clear` are a MutMap's where their first argument
          is one, with the key's descriptor where `remove` may report it
          missing. *)
       let values = arg_exprs args in
-      let on_dict =
-        match values with first :: _ -> is_dict_expr first scope | [] -> false
+      let on_mutmap =
+        match values with first :: _ -> is_mutmap_expr first scope | [] -> false
       in
       let helper =
-        if on_dict then (if name = "remove" then "pykDictRemove" else "pykDictClear")
+        if on_mutmap then (if name = "remove" then "pykMutMapRemove" else "pykMutMapClear")
         else "pyk" ^ String.capitalize_ascii name
       in
       let shape =
-        match (on_dict, values) with
+        match (on_mutmap, values) with
         | true, [ _; key ] -> key_shape info key scope
         | _ -> []
       in
@@ -816,12 +816,12 @@ let rec translate_expr e scope =
         args,
         _ )
     when not (SMap.mem name scope.names) ->
-      (* What reads a Dict, and `discard`, each a helper of the module's
-         own (docs/target_js.md, "Dicts"). *)
+      (* What reads a MutMap, and `discard`, each a helper of the module's
+         own (docs/target_js.md, "MutMaps"). *)
       let helper =
         match name with
-        | "get" -> "pykDictGetOr"
-        | other -> "pykDict" ^ String.capitalize_ascii other
+        | "get" -> "pykMutMapGetOr"
+        | other -> "pykMutMap" ^ String.capitalize_ascii other
       in
       JsCall
         ( info,
@@ -1614,8 +1614,8 @@ and translate_stmt s scope =
          `p.x += e` arrives with its owner held in a name of its own. *)
       ( [ JsSetField (info, translate_expr owner scope, field, translate_expr value scope) ],
         scope )
-  | SSetIndex (info, owner, key, value, _) when is_dict_expr owner scope ->
-      (* `d[k] := v`: the Dict, the key, the value, then the write -- an
+  | SSetIndex (info, owner, key, value, _) when is_mutmap_expr owner scope ->
+      (* `d[k] := v`: the MutMap, the key, the value, then the write -- an
          ordinary call's order, and nothing to check first: a missing key
          is put in. *)
       ( [
@@ -1623,7 +1623,7 @@ and translate_stmt s scope =
             ( info,
               JsCall
                 ( info,
-                  JsVar (info, "pykDictPut"),
+                  JsVar (info, "pykMutMapPut"),
                   [ translate_expr owner scope; translate_expr key scope; translate_expr value scope ] ) );
         ],
         scope )
@@ -1663,9 +1663,9 @@ and translate_stmt s scope =
                 ( info,
                   JsVar (info, "pykViewSet"),
                   [ js_owner; js_index; translate_expr value scope ] ) )
-        else if is_vec_expr owner scope then
-          (* Working out the value may shrink a Vec, so its index is
-             checked again as it is written (docs/target_js.md, "Vecs"). *)
+        else if is_dynarray_expr owner scope then
+          (* Working out the value may shrink a DynArray, so its index is
+             checked again as it is written (docs/target_js.md, "DynArrays"). *)
           JsExprStmt
             ( info,
               JsCall
@@ -2363,10 +2363,10 @@ let array_helpers =
       [ "pykFail" ],
       String.concat "\n"
         [
-          "// An index outside an array, a view, or a Vec as long as it is now.";
+          "// An index outside an array, a view, or a DynArray as long as it is now.";
           "function pykIndexError(items, index) {";
           "  const n = items.length;";
-          "  const what = items.pykVec === true ? 'a Vec' : items.pykView === true ? 'a view' : 'an array';";
+          "  const what = items.pykDynArray === true ? 'a DynArray' : items.pykView === true ? 'a view' : 'an array';";
           "  pykFail(`the index ${index} is outside ${what} of ${n} element${n === 1 ? '' : 's'}`);";
           "}";
         ] );
@@ -2408,17 +2408,17 @@ let array_helpers =
           "  return a === b;";
           "}";
         ] );
-    ( "pykDict",
+    ( "pykMutMap",
       [],
       String.concat "\n"
         [
-          "// A Pyking Dict: a JavaScript Map, which keeps its keys in the order";
+          "// A Pyking MutMap: a JavaScript Map, which keeps its keys in the order";
           "// they were put in, from each key's `pykKey` to its [key, value]";
           "// entry. `pykVersion` counts keys put in and taken out, which is how";
-          "// a `for` over it notices one (`pykDictWalk`).";
-          "function pykDict() {";
+          "// a `for` over it notices one (`pykMutMapWalk`).";
+          "function pykMutMap() {";
           "  const d = new Map();";
-          "  d.pykDict = true;";
+          "  d.pykMutMap = true;";
           "  d.pykVersion = 0;";
           "  return d;";
           "}";
@@ -2427,9 +2427,9 @@ let array_helpers =
       [],
       String.concat "\n"
         [
-          "// What a Dict is keyed by: a number, String, Bool or () key itself;";
+          "// What a MutMap is keyed by: a number, String, Bool or () key itself;";
           "// a tuple, list or datatype as text that only an equal one shares,";
-          "// since a Map compares objects by identity. A Dict's keys are all of";
+          "// since a Map compares objects by identity. A MutMap's keys are all of";
           "// one type, so a key's text never meets a String key.";
           "function pykKey(key) {";
           "  return key !== null && typeof key === 'object' ? pykKeyText(key) : key;";
@@ -2442,13 +2442,13 @@ let array_helpers =
           "  return key.pykTag + '(' + key.pykValues.map((k) => pykKeyText(k)).join(',') + ')';";
           "}";
         ] );
-    ( "pykDictPut",
+    ( "pykMutMapPut",
       [ "pykKey" ],
       String.concat "\n"
         [
           "// `d[k] := v`: an existing key's value replaced where it is, a new";
           "// key put at the end.";
-          "function pykDictPut(d, key, value) {";
+          "function pykMutMapPut(d, key, value) {";
           "  const code = pykKey(key);";
           "  const entry = d.get(code);";
           "  if (entry !== undefined) {";
@@ -2459,117 +2459,117 @@ let array_helpers =
           "  }";
           "}";
         ] );
-    ( "pykDictOfList",
-      [ "pykDict"; "pykDictPut" ],
+    ( "pykMutMapOfList",
+      [ "pykMutMap"; "pykMutMapPut" ],
       String.concat "\n"
         [
-          "// `dict(pairs)`: a key written twice keeps its first place and its";
+          "// `mutmap(pairs)`: a key written twice keeps its first place and its";
           "// last value.";
-          "function pykDictOfList(pairs) {";
-          "  const d = pykDict();";
-          "  for (const [key, value] of pairs) pykDictPut(d, key, value);";
+          "function pykMutMapOfList(pairs) {";
+          "  const d = pykMutMap();";
+          "  for (const [key, value] of pairs) pykMutMapPut(d, key, value);";
           "  return d;";
           "}";
         ] );
-    ( "pykDictGet",
+    ( "pykMutMapGet",
       [ "pykKey"; "pykFail" ],
       String.concat "\n"
         [
           "// `d[k]`: the key's value, or the error a missing key is. `shape` is";
           "// the key's descriptor where it holds a Char.";
-          "function pykDictGet(d, key, shape = '.') {";
+          "function pykMutMapGet(d, key, shape = '.') {";
           "  const entry = d.get(pykKey(key));";
-          "  if (entry === undefined) pykFail(`the Dict has no key ${pykShaped(key, shape, true)}`);";
+          "  if (entry === undefined) pykFail(`the MutMap has no key ${pykShaped(key, shape, true)}`);";
           "  return entry[1];";
           "}";
         ] );
-    ( "pykDictGetOr",
+    ( "pykMutMapGetOr",
       [ "pykKey" ],
       String.concat "\n"
         [
           "// `get(d, k, default)`.";
-          "function pykDictGetOr(d, key, fallback) {";
+          "function pykMutMapGetOr(d, key, fallback) {";
           "  const entry = d.get(pykKey(key));";
           "  return entry === undefined ? fallback : entry[1];";
           "}";
         ] );
-    ( "pykDictHas",
+    ( "pykMutMapHas",
       [ "pykKey" ],
       String.concat "\n"
         [
           "// `has(d, k)`.";
-          "function pykDictHas(d, key) {";
+          "function pykMutMapHas(d, key) {";
           "  return d.has(pykKey(key));";
           "}";
         ] );
-    ( "pykDictKeys",
+    ( "pykMutMapKeys",
       [ "pykList" ],
       String.concat "\n"
         [
-          "// `keys(d)`, `values(d)` and `items(d)`: lists, in the Dict's order.";
-          "function pykDictKeys(d) {";
+          "// `keys(d)`, `values(d)` and `items(d)`: lists, in the MutMap's order.";
+          "function pykMutMapKeys(d) {";
           "  return pykList(Array.from(d.values(), (entry) => entry[0]));";
           "}";
         ] );
-    ( "pykDictValues",
+    ( "pykMutMapValues",
       [ "pykList" ],
       String.concat "\n"
         [
-          "function pykDictValues(d) {";
+          "function pykMutMapValues(d) {";
           "  return pykList(Array.from(d.values(), (entry) => entry[1]));";
           "}";
         ] );
-    ( "pykDictItems",
+    ( "pykMutMapItems",
       [ "pykList" ],
       String.concat "\n"
         [
-          "function pykDictItems(d) {";
+          "function pykMutMapItems(d) {";
           "  return pykList(Array.from(d.values(), ([key, value]) => [key, value]));";
           "}";
         ] );
-    ( "pykDictRemove",
+    ( "pykMutMapRemove",
       [ "pykKey"; "pykFail" ],
       String.concat "\n"
         [
           "// `remove(d, k)`: the key's value, its entry taken out.";
-          "function pykDictRemove(d, key, shape = '.') {";
+          "function pykMutMapRemove(d, key, shape = '.') {";
           "  const code = pykKey(key);";
           "  const entry = d.get(code);";
-          "  if (entry === undefined) pykFail(`the Dict has no key ${pykShaped(key, shape, true)} to remove`);";
+          "  if (entry === undefined) pykFail(`the MutMap has no key ${pykShaped(key, shape, true)} to remove`);";
           "  d.delete(code);";
           "  d.pykVersion++;";
           "  return entry[1];";
           "}";
         ] );
-    ( "pykDictDiscard",
+    ( "pykMutMapDiscard",
       [ "pykKey" ],
       String.concat "\n"
         [
           "// `discard(d, k)`: the key's entry taken out, if it has one.";
-          "function pykDictDiscard(d, key) {";
+          "function pykMutMapDiscard(d, key) {";
           "  if (d.delete(pykKey(key))) d.pykVersion++;";
           "}";
         ] );
-    ( "pykDictClear",
+    ( "pykMutMapClear",
       [],
       String.concat "\n"
         [
           "// `clear(d)`: every entry taken out.";
-          "function pykDictClear(d) {";
+          "function pykMutMapClear(d) {";
           "  d.clear();";
           "  d.pykVersion++;";
           "}";
         ] );
-    ( "pykDictWalk",
+    ( "pykMutMapWalk",
       [ "pykFail" ],
       String.concat "\n"
         [
           "// `for k in d`: the keys in order. A key put in or taken out while";
           "// the walk is under way is an error at the next step, the last one";
           "// included; a value replaced is not a change.";
-          "function* pykDictWalk(d) {";
+          "function* pykMutMapWalk(d) {";
           "  const version = d.pykVersion;";
-          "  const changed = 'the Dict changed while a for loop was reading it';";
+          "  const changed = 'the MutMap changed while a for loop was reading it';";
           "  for (const entry of d.values()) {";
           "    if (d.pykVersion !== version) pykFail(changed);";
           "    yield entry[0];";
@@ -2578,7 +2578,7 @@ let array_helpers =
           "}";
         ] );
     ( "pykSlice",
-      [ "pykFail"; "pykList"; "pykArray"; "pykVec"; "pykViewItems" ],
+      [ "pykFail"; "pykList"; "pykArray"; "pykDynArray"; "pykViewItems" ],
       String.concat "\n"
         [
           "// `s[i:j]`: elements i up to j, copied into a new value of the";
@@ -2591,13 +2591,13 @@ let array_helpers =
           "  const end = high === undefined ? n : high;";
           "  if (low < 0 || low > end || end > n) {";
           "    const what = text ? 'a String' : view ? 'a view' : seq.pykArray === true ? 'an array'";
-          "      : seq.pykVec === true ? 'a Vec' : 'a list';";
+          "      : seq.pykDynArray === true ? 'a DynArray' : 'a list';";
           "    pykFail(`the slice ${low}:${end} is outside ${what} of ${n} element${n === 1 ? '' : 's'}`);";
           "  }";
           "  const part = items.slice(low, end);";
           "  if (text) return part.join('');";
           "  if (view || seq.pykArray === true) return pykArray(part);";
-          "  return seq.pykVec === true ? pykVec(part) : pykList(part);";
+          "  return seq.pykDynArray === true ? pykDynArray(part) : pykList(part);";
           "}";
         ] );
     ( "pykView",
@@ -2730,41 +2730,41 @@ let array_helpers =
       [ "pykIndexError" ],
       String.concat "\n"
         [
-          "// `v[i] := x` on a Vec: checked again at the write, since working";
-          "// out x may have shrunk the Vec.";
+          "// `v[i] := x` on a DynArray: checked again at the write, since working";
+          "// out x may have shrunk the DynArray.";
           "function pykSetAt(items, index, value) {";
           "  if (index < 0 || index >= items.length) pykIndexError(items, index);";
           "  items[index] = value;";
           "}";
         ] );
-    ( "pykVec",
+    ( "pykDynArray",
       [],
       String.concat "\n"
         [
-          "// A Pyking Vec, an array that grows: a JavaScript array with a";
+          "// A Pyking DynArray, an array that grows: a JavaScript array with a";
           "// marker of its own, as an array has, so `pykFormat` prints it";
-          "// `vec([...])`. `for..of` reads its length afresh every turn.";
-          "function pykVec(items) {";
-          "  items.pykVec = true;";
+          "// `dynarray([...])`. `for..of` reads its length afresh every turn.";
+          "function pykDynArray(items) {";
+          "  items.pykDynArray = true;";
           "  return items;";
           "}";
         ] );
-    ( "pykVecEmpty",
-      [ "pykVec" ],
+    ( "pykDynArrayEmpty",
+      [ "pykDynArray" ],
       String.concat "\n"
         [
-          "// `vec()`: a Vec with no elements.";
-          "function pykVecEmpty() {";
-          "  return pykVec([]);";
+          "// `dynarray()`: a DynArray with no elements.";
+          "function pykDynArrayEmpty() {";
+          "  return pykDynArray([]);";
           "}";
         ] );
-    ( "pykVecOfList",
-      [ "pykVec" ],
+    ( "pykDynArrayOfList",
+      [ "pykDynArray" ],
       String.concat "\n"
         [
-          "// `vec(xs)`: a new Vec holding the list's elements.";
-          "function pykVecOfList(items) {";
-          "  return pykVec(items.slice());";
+          "// `dynarray(xs)`: a new DynArray holding the list's elements.";
+          "function pykDynArrayOfList(items) {";
+          "  return pykDynArray(items.slice());";
           "}";
         ] );
     ( "pykPush",
@@ -2782,7 +2782,7 @@ let array_helpers =
         [
           "// `pop(v)`: the last element, removed.";
           "function pykPop(items) {";
-          "  if (items.length === 0) pykFail('pop from an empty Vec');";
+          "  if (items.length === 0) pykFail('pop from an empty DynArray');";
           "  return items.pop();";
           "}";
         ] );
@@ -2793,7 +2793,7 @@ let array_helpers =
           "// `insert(v, i, x)`: x put before index i, 0 <= i <= len(v).";
           "function pykInsert(items, index, value) {";
           "  const n = items.length;";
-          "  if (index < 0 || index > n) pykFail(`insert's index ${index} is outside 0 to ${n}, the Vec's length`);";
+          "  if (index < 0 || index > n) pykFail(`insert's index ${index} is outside 0 to ${n}, the DynArray's length`);";
           "  items.splice(index, 0, value);";
           "}";
         ] );

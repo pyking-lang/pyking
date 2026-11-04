@@ -1,0 +1,12 @@
+use mutation
+datatype Pos:
+    Pos(row: Int, col: Int)
+board: MutMap(Pos, Char) = empty::mutmap()
+board[Pos(row = 0, col = 0)] := 'x'
+scores: MutMap(String, Int) = list::mutmap([("ada", 3), ("bo", 1)])
+scores["cy"] := scores["ada"] + get(scores, "dee", 0)
+def winners(s:MutMap(String, Int)) -> [String]:
+    [name for name in s if s[name] > 1]
+pairs: [(String, Int)] = items(scores)
+print(winners(scores), keys(board), has(board, Pos(row = 1, col = 1)), pairs == [("ada", 3), ("bo", 1), ("cy", 3)])
+print(remove(scores, "bo"), values(scores), Pos(row = 0, col = 0) == Pos(row = 0, col = 0), (1, [2.5]) != (1, [2.5]))

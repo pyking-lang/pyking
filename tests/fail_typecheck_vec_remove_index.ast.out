@@ -1,2 +1,0 @@
-'tests/fail_typecheck_vec_remove_index.pyk' 9:10-9:13 Type error:
-  'remove' cannot be applied to String; it accepts Int, an index

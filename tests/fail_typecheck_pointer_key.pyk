@@ -1,4 +1,4 @@
-# A pointer's target changes, so a pointer is never a Dict's key.
+# A pointer's target changes, so a pointer is never a MutMap's key.
 #
 # This program is expected to FAIL. Its `.ast.out` holds the error
 # message, not a program's output.
@@ -6,4 +6,4 @@
 use mutation, pointers
 
 var x = 1
-seen = dict([(&x, true)])
+seen = mutmap([(&x, true)])

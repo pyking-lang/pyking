@@ -1,0 +1,6 @@
+'tests/fail_typecheck_dynarray_eq.pyk' 9:6-9:36 Type error: `==`
+  cannot be applied to DynArray(Int) and DynArray(Int); it accepts Int
+  == Int or Float == Float or String == String or Char == Char or Bool
+  == Bool. DynArrays are compared with 'same(a, b)', which asks
+  whether they are one DynArray, or with 'dynarray.equal(a, b)' from
+  lib/dynarray, which compares their elements

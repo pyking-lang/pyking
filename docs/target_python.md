@@ -139,7 +139,7 @@ def __pyk_str(v, top, path=()):
             out = out + ('\\\\' if c == '\\' else ...)
         return out + '"'
     if isinstance(v, list):
-        if type(v) is not list:               # an array or a Vec
+        if type(v) is not list:               # an array or a DynArray
             if id(v) in path:
                 return '...'
             path = path + (id(v),)
@@ -151,7 +151,7 @@ def __pyk_str(v, top, path=()):
             return '...'
         path = path + (id(v),)
         ...
-    if isinstance(v, dict):                   # a Dict
+    if isinstance(v, dict):                   # a MutMap
         ...
     return str(v)
 
@@ -277,21 +277,21 @@ held[0] := replace_held()          __pyk_owner1 = held
 a write of `element__array[element__index] + e`, both names ones no
 `:=` writes.
 
-### Vecs
+### DynArrays
 
-A Vec is a Python list of a class of its own too, emitted in the
+A DynArray is a Python list of a class of its own too, emitted in the
 prelude of every module that makes one, and grown and shrunk by the
 list's own methods:
 
 ```python
-class __PykVec(list):
-    # A Vec: an array that grows, told from a list when printed.
+class __PykDynArray(list):
+    # A DynArray: an array that grows, told from a list when printed.
     __slots__ = ()
 ```
 
-The print helper writes a list whose class is named `__PykVec` as
-`vec([1, 2])`, its elements as inside a list; asking by name is what
-makes a Vec made in any module print right. Like an array, a Vec is
+The print helper writes a list whose class is named `__PykDynArray` as
+`dynarray([1, 2])`, its elements as inside a list; asking by name is what
+makes a DynArray made in any module print right. Like an array, a DynArray is
 never copied: a name, a parameter, an element or a field holds the one
 list. As an annotation it is `list[T]`. Python's `list.pop` and `del`
 leave nothing of a removed element behind, so a removed value is not
@@ -299,22 +299,22 @@ kept alive.
 
 | Pyking | generated Python |
 |---|---|
-| `vec()` | `__PykVec()` |
-| `vec(xs)` | `__PykVec(xs)` |
+| `dynarray()` | `__PykDynArray()` |
+| `dynarray(xs)` | `__PykDynArray(xs)` |
 | `push(v, x)` | `v.append(x)` |
-| `pop(v)` | `__pyk_vec_pop(v)`: the error `pop from an empty Vec` on an empty one |
-| `insert(v, i, x)` | `__pyk_vec_insert(v, i, x)`: `0 <= i <= len(v)` checked, then `v.insert(i, x)` |
-| `remove(v, i)` | `__pyk_vec_remove(v, i)`: `v.pop(i)`, the index checked |
+| `pop(v)` | `__pyk_dynarray_pop(v)`: the error `pop from an empty DynArray` on an empty one |
+| `insert(v, i, x)` | `__pyk_dynarray_insert(v, i, x)`: `0 <= i <= len(v)` checked, then `v.insert(i, x)` |
+| `remove(v, i)` | `__pyk_dynarray_remove(v, i)`: `v.pop(i)`, the index checked |
 | `clear(v)` | `v.clear()` |
-| `v[i]` | `__pyk_vec_get(v, i)` |
+| `v[i]` | `__pyk_dynarray_get(v, i)` |
 | `len(v)` | `len(v)` |
 | `same(v, w)` | `v is w` |
 | `for x in v` | `for x in v` |
 | `[e for x in v]` | `[e for x in list(v)]` |
 
-An index is checked against the length the Vec has *now*, with the
-message `the index 5 is outside a Vec of 2 elements`, through
-`__pyk_vec_index`. `push`, `insert` and `clear` are worth unit: as a
+An index is checked against the length the DynArray has *now*, with the
+message `the index 5 is outside a DynArray of 2 elements`, through
+`__pyk_dynarray_index`. `push`, `insert` and `clear` are worth unit: as a
 statement each is the bare call, and in value position it is followed
 by the `()` it is worth, as `print` is (`(v.append(x), ())[1]`). A
 program's own definition named `push`, `pop`, `insert`, `remove` or
@@ -324,38 +324,38 @@ program's own definition named `push`, `pop`, `insert`, `remove` or
 Pyking's rule: Python's list iterator keeps an index and compares it
 with the list's length at every turn, so what is pushed during the walk
 is walked too, a removal ends it sooner, and each element is read when
-its turn is reached. A comprehension walks the elements the Vec has
+its turn is reached. A comprehension walks the elements the DynArray has
 when it starts, so it walks a copy, `list(v)`: a call in it that pushes
 cannot lengthen it.
 
 An element write `v[i] := x` keeps an array's order, with one more
 check: the index is checked before the value is worked out and again
-at the write, since the value's own work may have shrunk the Vec. The
+at the write, since the value's own work may have shrunk the DynArray. The
 second check is the subscript itself, which Python works out after the
 value. Where the value is a literal or a name no `:=` writes, nothing
 can happen between the two, and the one check in the subscript is
 enough:
 
 ```pyking                          # generated Python
-v[2] := 7                          v[__pyk_vec_index(v, 2)] = 7
-v[1] := shrink()                   __pyk_vec_index(v, 1)
-                                   v[__pyk_vec_index(v, 1)] = shrink()
+v[2] := 7                          v[__pyk_dynarray_index(v, 2)] = 7
+v[1] := shrink()                   __pyk_dynarray_index(v, 1)
+                                   v[__pyk_dynarray_index(v, 1)] = shrink()
 ```
 
-A Vec is a container on the printing path like an array (see "Mutable
-structs" below): a Vec holding itself prints `...` where it repeats.
+A DynArray is a container on the printing path like an array (see "Mutable
+structs" below): a DynArray holding itself prints `...` where it repeats.
 
 ### Slices and views
 
 A slice `s[i:j]` is one prelude helper for every kind, `__pyk_slice(s,
 i, j)`, with `0` for a left-out low bound and `None` for a left-out
 high one. Python's own slice clamps a bound past the end where Pyking
-checks it, and an array's or a Vec's slice would be a plain list, so
+checks it, and an array's or a DynArray's slice would be a plain list, so
 the helper checks `0 <= i <= j <= len(s)` first -- the error `the slice
 2:4 is outside an array of 3 elements`, naming a list, a String, an
-array, a Vec or a view -- and then copies with Python's own slice: a
+array, a DynArray or a view -- and then copies with Python's own slice: a
 list and a String as they are (a String's `len` and slice count code
-points, as Pyking's do), an array or a Vec wrapped in its own class
+points, as Pyking's do), an array or a DynArray wrapped in its own class
 again, and a view's elements into a new array. The sequence, then the
 bounds, then the check, as Pyking orders them.
 
@@ -514,7 +514,7 @@ interpreter's rule (`display_value`), for `print` and `string` alike.
 All of a `print`'s arguments are worked out before any is formatted,
 so `print(a, f())` shows what `f` did to `a`. Python formats each
 argument as it reaches it, so where an argument the walker formats can
-still be changed -- its type holds an array, a Vec or a var struct, or
+still be changed -- its type holds an array, a DynArray or a var struct, or
 is one the backend cannot see into -- and a later argument makes a call
 (other than to a builtin that changes nothing, such as `len`), the
 arguments are handed to a lambda first and formatted inside it:
@@ -955,9 +955,9 @@ Circle(1.0) != shape               not __pyk_eq(Circle(1.0), shape)
 A datatype of another module is taken to hold a Float, since the
 backend does not look into it. `tests/equality.pyk` is the case.
 
-### Dicts
+### MutMaps
 
-A Dict is a Python dict of a class of its own, emitted in the prelude
+A MutMap is a Python dict of a class of its own, emitted in the prelude
 of every module that makes one. A Python dict keeps its keys in the
 order they were put in, and replacing a value keeps its key's place,
 which is Pyking's order; re-inserting a removed key puts it at the end
@@ -965,8 +965,8 @@ in both. The class adds one thing, a count of the keys put in and
 taken out, which a `for` over it checks:
 
 ```python
-class __PykDict(dict):
-    # A Dict: a dict, in the order its keys were put in, and a count
+class __PykMutMap(dict):
+    # A MutMap: a dict, in the order its keys were put in, and a count
     # of the keys put in and taken out, which a for loop over it checks.
     __slots__ = ('changes',)
 
@@ -976,27 +976,27 @@ class __PykDict(dict):
 
 | Pyking | generated Python |
 |---|---|
-| `dict()` | `__PykDict()` |
-| `dict(pairs)` | `__pyk_dict_list(pairs)`: a key written twice keeps its first place, its last value |
-| `d[k]` | `__pyk_dict_get(d, k)`: `the Dict has no key "b"` where it has none |
-| `d[k] := v` | `__pyk_dict_set(d, k, v)` |
+| `mutmap()` | `__PykMutMap()` |
+| `mutmap(pairs)` | `__pyk_mutmap_list(pairs)`: a key written twice keeps its first place, its last value |
+| `d[k]` | `__pyk_mutmap_get(d, k)`: `the MutMap has no key "b"` where it has none |
+| `d[k] := v` | `__pyk_mutmap_set(d, k, v)` |
 | `get(d, k, x)` | `d.get(__pyk_key(k), x)` |
-| `has(d, k)` | `__pyk_dict_has(d, k)` |
-| `remove(d, k)` | `__pyk_dict_remove(d, k)`: `the Dict has no key "b" to remove` where it has none |
-| `discard(d, k)` | `__pyk_dict_discard(d, k)` |
-| `clear(d)` | `__pyk_dict_clear(d)` |
-| `keys(d)` / `values(d)` / `items(d)` | `__pyk_dict_keys(d)` / `list(d.values())` / `__pyk_dict_items(d)` |
+| `has(d, k)` | `__pyk_mutmap_has(d, k)` |
+| `remove(d, k)` | `__pyk_mutmap_remove(d, k)`: `the MutMap has no key "b" to remove` where it has none |
+| `discard(d, k)` | `__pyk_mutmap_discard(d, k)` |
+| `clear(d)` | `__pyk_mutmap_clear(d)` |
+| `keys(d)` / `values(d)` / `items(d)` | `__pyk_mutmap_keys(d)` / `list(d.values())` / `__pyk_mutmap_items(d)` |
 | `len(d)` | `len(d)` |
 | `same(d, e)` | `d is e` |
-| `for k in d` | `for k in __pyk_dict_walk(d)` |
-| `[e for k in d]` | `[e for k in __pyk_dict_keys(d)]`, the keys as they are when it starts |
+| `for k in d` | `for k in __pyk_mutmap_walk(d)` |
+| `[e for k in d]` | `[e for k in __pyk_mutmap_keys(d)]`, the keys as they are when it starts |
 
-`remove` and `clear` are a Vec's or a Dict's by their first argument's
+`remove` and `clear` are a DynArray's or a MutMap's by their first argument's
 type; a program's own `get`, `has`, `keys`, `values`, `items`,
 `discard`, `remove` or `clear` is an ordinary call. A missing key is
 shown as `print` shows it inside a value, a String quoted, through the
-Bool walker, which is in the prelude of any module that reads a Dict.
-`d[k] := v` is a call, so the Dict, the key and the value are worked
+Bool walker, which is in the prelude of any module that reads a MutMap.
+`d[k] := v` is a call, so the MutMap, the key and the value are worked
 out in that order before the write; `d[k] += 1` arrives as an array's
 does and reads the key first.
 
@@ -1011,22 +1011,22 @@ other -- a list, or a tuple or datatype with one inside -- in a
 (`__pyk_unkey`). Two equal values are the same shape, so they are both
 held or both not, and the choice is made the same way in every module.
 
-**`for` over a Dict.** `__pyk_dict_walk` is a generator over the keys
+**`for` over a MutMap.** `__pyk_mutmap_walk` is a generator over the keys
 as they are when the loop starts. Each time the loop asks for the next
 key -- the step that ends the loop included -- it compares the count
 of changes with the count it started with, and a key put in or taken
-out meanwhile is the error `the Dict changed while a for loop was
+out meanwhile is the error `the MutMap changed while a for loop was
 reading it`. Replacing a value is not a change. Python's own check
 (`dictionary changed size during iteration`) is not used: it sees a
 change of size, not one insertion and one removal, and its message is
 not ours.
 
-**Printing.** A Dict prints as what makes one, `dict([("ada", 37),
+**Printing.** A MutMap prints as what makes one, `mutmap([("ada", 37),
 ("bo", 6)])`: the Bool walker writes each entry as a `(key, value)`
-tuple. A Dict is a container on the printing path like an array or a
-Vec, so one holding itself prints `...` there. `tests/dict_basic.pyk`,
-`tests/dict_changed.pyk`, `tests/dict_missing.pyk` and
-`tests/typecheck_dict.pyk` are the cases.
+tuple. A MutMap is a container on the printing path like an array or a
+DynArray, so one holding itself prints `...` there. `tests/mutmap_basic.pyk`,
+`tests/mutmap_changed.pyk`, `tests/mutmap_missing.pyk` and
+`tests/typecheck_mutmap.pyk` are the cases.
 
 ### Statement forms that Python spells differently
 

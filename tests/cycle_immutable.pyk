@@ -1,5 +1,5 @@
 # A cycle closed by an immutable value: a generic datatype holding a var
-# struct that holds it again, and a datatype holding a Dict that holds
+# struct that holds it again, and a datatype holding a MutMap that holds
 # it again. Printing stops with `...` at whatever on the path repeats
 # first -- here the immutable value -- and a value only shared prints
 # in full each time.
@@ -21,9 +21,9 @@ print((around, first))
 
 datatype Tree:
     Leaf
-    Node(kids: Dict(String, Tree))
+    Node(kids: MutMap(String, Tree))
 
-kids: Dict(String, Tree) = dict()
+kids: MutMap(String, Tree) = mutmap()
 root = Node(kids)
 kids["self"] := root
 kids["leaf"] := Leaf

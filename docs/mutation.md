@@ -20,8 +20,8 @@ Remarks"), whose decisions are named `FCR-...` below.
    2. [Variables: `var`, `:=` and compound assignment](#variables-var--and-compound-assignment)
    3. [Several variables at once: tuple `:=`](#several-variables-at-once-tuple-)
    4. [Arrays](#arrays)
-   5. [Vecs](#vecs)
-   6. [Dicts](#dicts)
+   5. [DynArrays](#dynarrays)
+   6. [MutMaps](#mutmaps)
    7. [Slices and views](#slices-and-views)
    8. [Mutable structs: `var struct`](#mutable-structs-var-struct)
    9. [Sharing, identity and equality](#sharing-identity-and-equality)
@@ -105,50 +105,50 @@ print(a, len(a), squares[4], powers)
 
 PYKING.md, "Arrays", has every rule.
 
-### Vecs
+### DynArrays
 
-`Vec(T)`: an array that grows, for building a collection one element at
+`DynArray(T)`: an array that grows, for building a collection one element at
 a time (FCR-B8).
 
 ```pyking
 use mutation
 
-v: Vec(String) = vec()
+v: DynArray(String) = dynarray()
 push(v, "a")
 push(v, "c")
 insert(v, 1, "b")
-print(v)                     # vec(["a", "b", "c"])
-print(pop(v), remove(v, 0), v)       # c a vec(["b"])
+print(v)                     # dynarray(["a", "b", "c"])
+print(pop(v), remove(v, 0), v)       # c a dynarray(["b"])
 ```
 
-- `vec()` and `vec(xs)` make one; `push`, `pop`, `insert`, `remove` and
+- `dynarray()` and `dynarray(xs)` make one; `push`, `pop`, `insert`, `remove` and
   `clear` change it; `v[i]`, `v[i] := x`, `len(v)` and `same` are an
   array's.
-- A `for` goes on while its index is below the length the Vec has at
+- A `for` goes on while its index is below the length the DynArray has at
   that turn: it walks what it pushes, and ends sooner after a `remove`.
 - The writers' names yield to a module's own: a `def insert` or an
   imported `push` means itself in that module.
-- `lib/vec` has `copy`, `to_list`, `to_array`, `from_array`, `extend`,
+- `lib/dynarray` has `copy`, `to_list`, `to_array`, `from_array`, `extend`,
   `reverse`, `equal` and `sort`.
 
-PYKING.md, "Vecs", has every rule.
+PYKING.md, "DynArrays", has every rule.
 
-### Dicts
+### MutMaps
 
-`Dict(K, V)`: a map that remembers the order its keys were put in
+`MutMap(K, V)`: a map that remembers the order its keys were put in
 (FCR-F1 to F4).
 
 ```pyking
 use mutation
 
-stock = dict([("apple", 3)])
+stock = mutmap([("apple", 3)])
 stock["pear"] := 5
 stock["apple"] -= 1
 print(stock, get(stock, "fig", 0), has(stock, "pear"))
 print(remove(stock, "apple"), keys(stock), items(stock))
 ```
 
-- `dict()` and `dict(pairs)` make one; `d[k]` reads (a missing key is
+- `mutmap()` and `mutmap(pairs)` make one; `d[k]` reads (a missing key is
   an error), `d[k] := v` adds or replaces.
 - `get`, `has`, `remove`, `discard`, `keys`, `values`, `items`, `clear`,
   `len` and `same` do the rest; a key taken out and put back goes to the
@@ -159,11 +159,11 @@ print(remove(stock, "apple"), keys(stock), items(stock))
   themselves (the `Key` capability, FCR-F3): no Float, no function, no
   mutable value, nothing holding one.
 
-PYKING.md, "Dicts", has every rule.
+PYKING.md, "MutMaps", has every rule.
 
 ### Slices and views
 
-`s[i:j]` copies a run of a list, a String, an array or a Vec; `view(a,
+`s[i:j]` copies a run of a list, a String, an array or a DynArray; `view(a,
 i, j)` shares one of an array (FCR-G1).
 
 ```pyking
@@ -220,13 +220,13 @@ PYKING.md, "Mutable structs", has every rule.
 
 ### Sharing, identity and equality
 
-An array, a Vec, a Dict and a `var struct` are *shared*: `b = a`, `f(a)`, `[a, a]` and
+An array, a DynArray, a MutMap and a `var struct` are *shared*: `b = a`, `f(a)`, `[a, a]` and
 a field holding `a` are all the one value, and a write through any of
 them is seen through every other. This is Java's and Python's model,
 and there are no reference parameters: a function changes what it is
 given by writing into it (FCR-E, section 8 of the plan).
 
-`same(a, b)` asks whether two arrays, Vecs, Dicts or `var struct`s are
+`same(a, b)` asks whether two arrays, DynArrays, MutMaps or `var struct`s are
 one.
 `==` compares neither: equal contents are a question the program asks
 explicitly -- `array.equal(a, b)` for arrays, a function of its own for
@@ -275,8 +275,8 @@ Every write has one order, on every target (FCR-C3):
 |---|---|---|---|---|---|---|
 | `var` | a variable | `let` | a local, or a static field at the top level | a `ref` | a variable | a variable |
 | array | a `list` subclass, never grown | a JS array marked `pykArray` | `PykRuntime.PykArray<T>` | `'a array` | `struct { int len; T *items; }`, malloc'd | the same, from the collector |
-| Vec | `__PykVec`, a `list` subclass | a JS array marked `pykVec` | (see target_java.md) | `(T option array * int) ref` | (see target_c.md) | (see target_c.md) |
-| Dict | (see target_python.md) | (see target_js.md) | (see target_java.md) | (see target_ocaml.md) | (see target_c.md) | (see target_c.md) |
+| DynArray | `__PykDynArray`, a `list` subclass | a JS array marked `pykDynArray` | (see target_java.md) | `(T option array * int) ref` | (see target_c.md) | (see target_c.md) |
+| MutMap | (see target_python.md) | (see target_js.md) | (see target_java.md) | (see target_ocaml.md) | (see target_c.md) | (see target_c.md) |
 | index check | yes | yes | yes | yes | **no** | yes |
 | `var struct` | a class with writable fields | an object | a final class | a record with `mutable` fields | a pointer to a malloc'd struct | a pointer to a collected struct |
 | freed | by Python | by JS | by the JVM | by OCaml | **never** | by bdwgc |
@@ -293,7 +293,7 @@ bounded amount; `c23-gc` runs the rest.
 | piece | files |
 |---|---|
 | `use` gates | `parser.ml` (`check_features`), `typesystem.ml` (`store.mutation`, for an imported `var struct`'s constructor) |
-| builtins | `builtin.ml`: `overload_sets` (`array`, `array_init`, `vec`, `dict`), `writers` (`push`, `pop`, `insert`, `remove`, `clear`, `discard`), `yielding` (those, `same`, `get`, `has`, `keys`, `values`, `items`) |
+| builtins | `builtin.ml`: `overload_sets` (`array`, `array_init`, `dynarray`, `mutmap`), `writers` (`push`, `pop`, `insert`, `remove`, `clear`, `discard`), `yielding` (those, `same`, `get`, `has`, `keys`, `values`, `items`) |
 | equality and keys | `typesystem.ml`: `equality_problem`, `key_problem`, `demand_key`; `interpreter.ml`: `equal_parts` |
 | compound tokens | `lexer.ml` (`TokCompound`) |
 | statements | `syntax.ml`: `SVar`, `SMutate`, `SMutateTuple`, `SSetIndex`, `SSetField` |
@@ -303,7 +303,7 @@ bounded amount; `c23-gc` runs the rest.
 | the `var` rule | `analyses.ml` (`analyze_mutability`) |
 | running | `interpreter.ml`: `VArray`, `VData`'s field array, the write continuations, `display_value` |
 | warnings | `warnings.ml`: `shared-fill`; a compound write counts as a read |
-| library | `lib/array/array.pyk`, `lib/vec/vec.pyk` |
+| library | `lib/array/array.pyk`, `lib/dynarray/dynarray.pyk` |
 
 ### Lexer and parser
 
@@ -359,7 +359,7 @@ a write's errors at the statement.
   `type_check ~mutation` sets from the module's `use` lines
   (`Module.uses_mutation`).
 - **`same`** takes two values of one type that has an identity: an
-  array, a Vec or a `var struct`. One nothing has decided is an array.
+  array, a DynArray or a `var struct`. One nothing has decided is an array.
 - **Equality**: `check_binary` accepts `==` and `!=` on a list, a tuple
   or an immutable datatype when `equality_problem` finds no part without
   equality -- a function, an identity type, a type variable -- and
@@ -368,17 +368,17 @@ a write's errors at the statement.
   kind (a view's slice is an array). `Slice` is a type of one parameter
   that `store_element` reads like an array's, so indexing, writing,
   `for` and `len` take it; `view` and `copy_into` are builtins.
-- **Dicts**: `Dict` is a type of two parameters; `dict_parts` reads them.
-  `EIndex` and `SSetIndex` on a Dict take a key, `for` and a
+- **MutMaps**: `MutMap` is a type of two parameters; `mutmap_parts` reads them.
+  `EIndex` and `SSetIndex` on a MutMap take a key, `for` and a
   comprehension walk its keys, and `check_builtin_call` types its
   builtins. `demand_key` refuses a key type `key_problem` finds a
   non-key in, at each use and, for every binding, at the end of the
   module.
-- **Vecs**: `Vec` is a type of one parameter like `Array`;
+- **DynArrays**: `DynArray` is a type of one parameter like `Array`;
   `store_element` reads the element type of either, which is what
   `EIndex`, `SSetIndex`, `for` and `len` ask. `builtin_env` binds
-  `empty::vec` and `list::vec`, and `check_builtin_call` types the five
-  writers: the first argument is unified with a Vec, an index with Int,
+  `empty::dynarray` and `list::dynarray`, and `check_builtin_call` types the five
+  writers: the first argument is unified with a DynArray, an index with Int,
   a value with the element type.
 - **Open types** (FCR-H2): `check_open_arrays` refuses a binding whose
   type holds an array of undecided elements, or a `var struct` of an
@@ -386,10 +386,10 @@ a write's errors at the statement.
 
 ### The interpreter
 
-- An array is `VArray of value array`, shared by reference; a Vec is
-  `VVec of vec`, a record of an array of room and a length, grown by
+- An array is `VArray of value array`, shared by reference; a DynArray is
+  `VDynArray of dynarray`, a record of an array of room and a length, grown by
   doubling, a removed element's slot cleared.
-- A Dict is `VDict of dict`: its entries in insertion order (`None`
+- A MutMap is `VMutMap of mutmap`: its entries in insertion order (`None`
   where one was removed, compacted as the store grows), a `Hashtbl` from
   key to position -- a key's structure is OCaml's structural hash and
   equality, since no key holds a Float, a function or a mutable value --
@@ -432,9 +432,9 @@ docs/target_c.md. All share the rules above: the order of evaluation,
 | tuple `:=` | `typecheck_tuple_mutate`, `fail_typecheck_tuple_mutate_*` |
 | arrays | `array_*`, `typecheck_array`, `fail_typecheck_array_*`, `tests/warnings/shared_fill.pyk`, `tests/repl/arrays.repl` |
 | the collector | `gc_strings` (`c_peak_mb`, on `c23-gc`) |
-| Vec | `vec_basic`, `vec_lib`, `vec_bounds`, `vec_pop_empty`, `typecheck_vec`, `fail_typecheck_vec_*` |
+| DynArray | `dynarray_basic`, `dynarray_lib`, `dynarray_bounds`, `dynarray_pop_empty`, `typecheck_dynarray`, `fail_typecheck_dynarray_*` |
 | `==` | `equality`, `fail_typecheck_eq_*` |
-| Dict | `dict_basic`, `dict_changed`, `dict_missing`, `typecheck_dict`, `fail_typecheck_dict_*` |
+| MutMap | `mutmap_basic`, `mutmap_changed`, `mutmap_missing`, `typecheck_mutmap`, `fail_typecheck_mutmap_*` |
 | slices and views | `slices`, `slice_bounds`, `view_bounds`, `typecheck_slices`, `fail_typecheck_slice_*`, `fail_typecheck_view_*`, `fail_typecheck_copy_into_type` |
 | all of them on every C | `mutable_values` |
 | order | `eval_order_calls` |

@@ -1,8 +1,0 @@
-# Changing a Vec is mutation's: a module without `use mutation` may
-# read a Vec it is given, but not push to it.
-#
-# This program is expected to FAIL. Its `.ast.out` holds the error
-# message, not a program's output.
-
-def add(v: Vec(Int)) -> ():
-    push(v, 1)

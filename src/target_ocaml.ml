@@ -341,8 +341,8 @@ let is_unit t = match t with TTuple (_, [], _) -> true | _ -> false
 
 let is_list t = match t with TList _ -> true | _ -> false
 
-let vec_element = Typesystem.vec_element
-let dict_parts = Typesystem.dict_parts
+let dynarray_element = Typesystem.dynarray_element
+let mutmap_parts = Typesystem.mutmap_parts
 
 (** The type a pointer type, `Ptr(T)`, points at, or None for any other
     type. typ -> typ option *)
@@ -352,22 +352,22 @@ let ptr_target t = match t with TCon (_, "Ptr", [ target ], _) -> Some target | 
     other type. typ -> typ option *)
 let slice_element t = match t with TCon (_, "Slice", [ element ], _) -> Some element | _ -> None
 
-(** The element type of an array, a Vec or a view, or None for any other
+(** The element type of an array, a DynArray or a view, or None for any other
     type. typ -> typ option *)
 let store_element t =
   match Typesystem.array_element t with
   | Some element -> Some element
-  | None -> ( match vec_element t with Some element -> Some element | None -> slice_element t)
+  | None -> ( match dynarray_element t with Some element -> Some element | None -> slice_element t)
 
 (** What a container of mutable values holds, as printing and the path
-    see it: an array's or a Vec's element, a Dict's `(key, value)`
+    see it: an array's or a DynArray's element, a MutMap's `(key, value)`
     entry. typ -> typ option *)
 let held_element t =
   match store_element t with
   | Some element -> Some element
   | None when ptr_target t <> None -> ptr_target t
   | None -> (
-      match dict_parts t with
+      match mutmap_parts t with
       | Some (key, value) -> Some
           (TTuple ({ file = "<ocaml>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }, [ key; value ], 0))
       | None -> None)
@@ -1340,20 +1340,20 @@ let array_unfold_helper = "pyk_array_unfold"
    arrays and var structs from printing forever. *)
 let guard_helper = "pyk_guard"
 
-(* A Vec's helpers (docs/target_ocaml.md, "Vecs"). *)
-let vec_of_list_helper = "pyk_vec_of_list"
-let vec_length_helper = "pyk_vec_length"
-let vec_item_helper = "pyk_vec_item"
-let vec_check_helper = "pyk_vec_check"
-let vec_get_helper = "pyk_vec_get"
-let vec_set_helper = "pyk_vec_set"
-let vec_room_helper = "pyk_vec_room"
-let vec_push_helper = "pyk_vec_push"
-let vec_pop_helper = "pyk_vec_pop"
-let vec_insert_helper = "pyk_vec_insert"
-let vec_remove_helper = "pyk_vec_remove"
-let vec_clear_helper = "pyk_vec_clear"
-let vec_to_list_helper = "pyk_vec_to_list"
+(* A DynArray's helpers (docs/target_ocaml.md, "DynArrays"). *)
+let dynarray_of_list_helper = "pyk_dynarray_of_list"
+let dynarray_length_helper = "pyk_dynarray_length"
+let dynarray_item_helper = "pyk_dynarray_item"
+let dynarray_check_helper = "pyk_dynarray_check"
+let dynarray_get_helper = "pyk_dynarray_get"
+let dynarray_set_helper = "pyk_dynarray_set"
+let dynarray_room_helper = "pyk_dynarray_room"
+let dynarray_push_helper = "pyk_dynarray_push"
+let dynarray_pop_helper = "pyk_dynarray_pop"
+let dynarray_insert_helper = "pyk_dynarray_insert"
+let dynarray_remove_helper = "pyk_dynarray_remove"
+let dynarray_clear_helper = "pyk_dynarray_clear"
+let dynarray_to_list_helper = "pyk_dynarray_to_list"
 
 (* Slices', views' and copy_into's helpers (docs/target_ocaml.md,
    "Slices and views"). *)
@@ -1382,36 +1382,36 @@ let equal_helper = "pyk_equal"
 (** The helper that slices a value of this kind. string -> string *)
 let slice_helper kind = "pyk_slice_" ^ kind
 
-(* A Dict's helpers (docs/target_ocaml.md, "Dicts"). *)
-let dict_set_helper = "pyk_dict_set"
-let dict_of_list_helper = "pyk_dict_of_list"
-let dict_items_helper = "pyk_dict_items"
-let dict_keys_helper = "pyk_dict_keys"
-let dict_values_helper = "pyk_dict_values"
-let dict_get_helper = "pyk_dict_get"
-let dict_get_or_helper = "pyk_dict_get_or"
-let dict_has_helper = "pyk_dict_has"
-let dict_length_helper = "pyk_dict_length"
-let dict_remove_helper = "pyk_dict_remove"
-let dict_discard_helper = "pyk_dict_discard"
-let dict_clear_helper = "pyk_dict_clear"
-let dict_walk_helper = "pyk_dict_walk"
-let dict_walk_length_helper = "pyk_dict_walk_length"
-let dict_walk_key_helper = "pyk_dict_walk_key"
+(* A MutMap's helpers (docs/target_ocaml.md, "MutMaps"). *)
+let mutmap_set_helper = "pyk_mutmap_set"
+let mutmap_of_list_helper = "pyk_mutmap_of_list"
+let mutmap_items_helper = "pyk_mutmap_items"
+let mutmap_keys_helper = "pyk_mutmap_keys"
+let mutmap_values_helper = "pyk_mutmap_values"
+let mutmap_get_helper = "pyk_mutmap_get"
+let mutmap_get_or_helper = "pyk_mutmap_get_or"
+let mutmap_has_helper = "pyk_mutmap_has"
+let mutmap_length_helper = "pyk_mutmap_length"
+let mutmap_remove_helper = "pyk_mutmap_remove"
+let mutmap_discard_helper = "pyk_mutmap_discard"
+let mutmap_clear_helper = "pyk_mutmap_clear"
+let mutmap_walk_helper = "pyk_mutmap_walk"
+let mutmap_walk_length_helper = "pyk_mutmap_walk_length"
+let mutmap_walk_key_helper = "pyk_mutmap_walk_key"
 
 (** The helpers each array helper calls, nearest first. string -> [string] *)
 let array_helper_needs name =
   if name = array_size_helper || name = array_check_helper then [ array_fail_helper ]
   else if name = array_get_helper then [ array_fail_helper; array_check_helper ]
-  else if name = vec_check_helper then [ array_fail_helper; vec_length_helper ]
-  else if name = vec_get_helper || name = vec_set_helper then
-    [ array_fail_helper; vec_length_helper; vec_check_helper; vec_item_helper ]
-  else if name = vec_push_helper then [ vec_room_helper ]
-  else if name = vec_pop_helper then [ array_fail_helper; vec_item_helper ]
-  else if name = vec_insert_helper then [ array_fail_helper; vec_room_helper ]
-  else if name = vec_remove_helper then
-    [ array_fail_helper; vec_length_helper; vec_check_helper; vec_item_helper ]
-  else if name = vec_to_list_helper then [ vec_item_helper ]
+  else if name = dynarray_check_helper then [ array_fail_helper; dynarray_length_helper ]
+  else if name = dynarray_get_helper || name = dynarray_set_helper then
+    [ array_fail_helper; dynarray_length_helper; dynarray_check_helper; dynarray_item_helper ]
+  else if name = dynarray_push_helper then [ dynarray_room_helper ]
+  else if name = dynarray_pop_helper then [ array_fail_helper; dynarray_item_helper ]
+  else if name = dynarray_insert_helper then [ array_fail_helper; dynarray_room_helper ]
+  else if name = dynarray_remove_helper then
+    [ array_fail_helper; dynarray_length_helper; dynarray_check_helper; dynarray_item_helper ]
+  else if name = dynarray_to_list_helper then [ dynarray_item_helper ]
   else if name = view_helper || name = view_of_view_helper || name = copy_into_helper then
     [ array_fail_helper ]
   else if name = view_check_helper then [ array_fail_helper ]
@@ -1423,11 +1423,11 @@ let array_helper_needs name =
   else if name = ptr_elem_helper then [ array_fail_helper ]
   else if name = ptr_view_elem_helper then [ array_fail_helper; ptr_elem_helper ]
   else if name = equal_helper then [ ptr_same_helper ]
-  else if name = dict_of_list_helper then [ dict_set_helper ]
-  else if name = dict_keys_helper || name = dict_values_helper then [ dict_items_helper ]
-  else if name = dict_get_helper || name = dict_remove_helper then [ array_fail_helper ]
-  else if name = dict_walk_helper then [ dict_items_helper; dict_keys_helper ]
-  else if name = dict_walk_length_helper then [ array_fail_helper ]
+  else if name = mutmap_of_list_helper then [ mutmap_set_helper ]
+  else if name = mutmap_keys_helper || name = mutmap_values_helper then [ mutmap_items_helper ]
+  else if name = mutmap_get_helper || name = mutmap_remove_helper then [ array_fail_helper ]
+  else if name = mutmap_walk_helper then [ mutmap_items_helper; mutmap_keys_helper ]
+  else if name = mutmap_walk_length_helper then [ array_fail_helper ]
   else if name = array_fill_helper || name = array_init_helper || name = array_unfold_helper
   then [ array_fail_helper; array_size_helper ]
   else []
@@ -1515,54 +1515,54 @@ let array_helper_lines name =
         "    a";
         "  end";
       ]
-  else if name = vec_of_list_helper then
+  else if name = dynarray_of_list_helper then
     Some
       [
-        "(* A Vec is a cell holding its storage and its length. The storage";
+        "(* A DynArray is a cell holding its storage and its length. The storage";
         "   has room for at least the length, and a slot past it is None,";
         "   so it keeps no value alive; the cell is what every holder of";
-        "   the Vec shares. *)";
+        "   the DynArray shares. *)";
         Printf.sprintf "let %s xs =" name;
         "  let items = Stdlib.Array.of_list (List.map Option.some xs) in";
         "  ref (items, Stdlib.Array.length items)";
       ]
-  else if name = vec_length_helper then
+  else if name = dynarray_length_helper then
     Some [ Printf.sprintf "let %s v = snd !v" name ]
-  else if name = vec_item_helper then
+  else if name = dynarray_item_helper then
     Some
       [
         "(* The element at i, which is below the length. *)";
         Printf.sprintf "let %s v i =" name;
         "  match Stdlib.Array.unsafe_get (fst !v) i with Some x -> x | None -> assert false";
       ]
-  else if name = vec_check_helper then
+  else if name = dynarray_check_helper then
     Some
       [
         Printf.sprintf "let %s v i =" name;
-        "  let n = pyk_vec_length v in";
+        "  let n = pyk_dynarray_length v in";
         "  if i < 0 || i >= n then";
         "    pyk_array_fail";
-        "      (\"the index \" ^ string_of_int i ^ \" is outside a Vec of \" ^ string_of_int n";
+        "      (\"the index \" ^ string_of_int i ^ \" is outside a DynArray of \" ^ string_of_int n";
         "       ^ (if n = 1 then \" element\" else \" elements\"))";
       ]
-  else if name = vec_get_helper then
+  else if name = dynarray_get_helper then
     Some
       [
         Printf.sprintf "let %s v i =" name;
-        "  pyk_vec_check v i;";
-        "  pyk_vec_item v i";
+        "  pyk_dynarray_check v i;";
+        "  pyk_dynarray_item v i";
       ]
-  else if name = vec_set_helper then
+  else if name = dynarray_set_helper then
     Some
       [
         Printf.sprintf "let %s v i x =" name;
-        "  pyk_vec_check v i;";
+        "  pyk_dynarray_check v i;";
         "  Stdlib.Array.unsafe_set (fst !v) i (Some x)";
       ]
-  else if name = vec_room_helper then
+  else if name = dynarray_room_helper then
     Some
       [
-        "(* The Vec's storage with room for one more element: doubled where";
+        "(* The DynArray's storage with room for one more element: doubled where";
         "   it is full. *)";
         Printf.sprintf "let %s v =" name;
         "  let items, n = !v in";
@@ -1573,27 +1573,27 @@ let array_helper_lines name =
         "    grown";
         "  end";
       ]
-  else if name = vec_push_helper then
+  else if name = dynarray_push_helper then
     Some
       [
         Printf.sprintf "let %s v x =" name;
-        "  let items = pyk_vec_room v in";
+        "  let items = pyk_dynarray_room v in";
         "  let n = snd !v in";
         "  Stdlib.Array.unsafe_set items n (Some x);";
         "  v := (items, n + 1)";
       ]
-  else if name = vec_pop_helper then
+  else if name = dynarray_pop_helper then
     Some
       [
         Printf.sprintf "let %s v =" name;
         "  let items, n = !v in";
-        "  if n = 0 then pyk_array_fail \"pop from an empty Vec\";";
-        "  let last = pyk_vec_item v (n - 1) in";
+        "  if n = 0 then pyk_array_fail \"pop from an empty DynArray\";";
+        "  let last = pyk_dynarray_item v (n - 1) in";
         "  Stdlib.Array.unsafe_set items (n - 1) None;";
         "  v := (items, n - 1);";
         "  last";
       ]
-  else if name = vec_insert_helper then
+  else if name = dynarray_insert_helper then
     Some
       [
         Printf.sprintf "let %s v i x =" name;
@@ -1601,31 +1601,31 @@ let array_helper_lines name =
         "  if i < 0 || i > n then";
         "    pyk_array_fail";
         "      (\"insert's index \" ^ string_of_int i ^ \" is outside 0 to \" ^ string_of_int n";
-        "       ^ \", the Vec's length\");";
-        "  let items = pyk_vec_room v in";
+        "       ^ \", the DynArray's length\");";
+        "  let items = pyk_dynarray_room v in";
         "  Stdlib.Array.blit items i items (i + 1) (n - i);";
         "  Stdlib.Array.unsafe_set items i (Some x);";
         "  v := (items, n + 1)";
       ]
-  else if name = vec_remove_helper then
+  else if name = dynarray_remove_helper then
     Some
       [
         Printf.sprintf "let %s v i =" name;
-        "  pyk_vec_check v i;";
+        "  pyk_dynarray_check v i;";
         "  let items, n = !v in";
-        "  let taken = pyk_vec_item v i in";
+        "  let taken = pyk_dynarray_item v i in";
         "  Stdlib.Array.blit items (i + 1) items i (n - i - 1);";
         "  Stdlib.Array.unsafe_set items (n - 1) None;";
         "  v := (items, n - 1);";
         "  taken";
       ]
-  else if name = vec_clear_helper then
+  else if name = dynarray_clear_helper then
     Some [ Printf.sprintf "let %s v = v := ([||], 0)" name ]
-  else if name = vec_to_list_helper then
+  else if name = dynarray_to_list_helper then
     Some
       [
         "(* The elements as they are now. *)";
-        Printf.sprintf "let %s v = List.init (snd !v) (pyk_vec_item v)" name;
+        Printf.sprintf "let %s v = List.init (snd !v) (pyk_dynarray_item v)" name;
       ]
   else if name = ptr_cell_helper then
     Some
@@ -1744,12 +1744,12 @@ let array_helper_lines name =
         "  let high = pyk_slice_bounds \"an array\" (Stdlib.Array.length a) low high in";
         "  Stdlib.Array.sub a low (high - low)";
       ]
-  else if name = slice_helper "vec" then
+  else if name = slice_helper "dynarray" then
     Some
       [
         Printf.sprintf "let %s v low high =" name;
         "  let items, n = !v in";
-        "  let high = pyk_slice_bounds \"a Vec\" n low high in";
+        "  let high = pyk_slice_bounds \"a DynArray\" n low high in";
         "  ref (Stdlib.Array.sub items low (high - low), high - low)";
       ]
   else if name = slice_helper "view" then
@@ -1842,10 +1842,10 @@ let array_helper_lines name =
         "       ^ \" into \" ^ string_of_int dlength);";
         "  Stdlib.Array.blit sowner soffset downer doffset slength";
       ]
-  else if name = dict_set_helper then
+  else if name = mutmap_set_helper then
     Some
       [
-        "(* A Dict is a table from each key to its stamp and its value,";
+        "(* A MutMap is a table from each key to its stamp and its value,";
         "   beside a counter. Putting a new key in or taking one out moves";
         "   the counter on, and a new key is stamped with it, so the stamps";
         "   are the order the keys were put in, and a `for` sees the counter";
@@ -1855,15 +1855,15 @@ let array_helper_lines name =
         "  | Some (stamp, _) -> Stdlib.Hashtbl.replace table k (stamp, v)";
         "  | None -> incr counter; Stdlib.Hashtbl.replace table k (!counter, v)";
       ]
-  else if name = dict_of_list_helper then
+  else if name = mutmap_of_list_helper then
     Some
       [
         Printf.sprintf "let %s pairs =" name;
         "  let d = (Stdlib.Hashtbl.create 8, ref 0) in";
-        "  List.iter (fun (k, v) -> pyk_dict_set d k v) pairs;";
+        "  List.iter (fun (k, v) -> pyk_mutmap_set d k v) pairs;";
         "  d";
       ]
-  else if name = dict_items_helper then
+  else if name = mutmap_items_helper then
     Some
       [
         "(* The entries, in the order their keys were put in. *)";
@@ -1872,68 +1872,68 @@ let array_helper_lines name =
         "  |> List.sort (fun (a, _) (b, _) -> compare (a : int) b)";
         "  |> List.map snd";
       ]
-  else if name = dict_keys_helper then
-    Some [ Printf.sprintf "let %s d = List.map fst (pyk_dict_items d)" name ]
-  else if name = dict_values_helper then
-    Some [ Printf.sprintf "let %s d = List.map snd (pyk_dict_items d)" name ]
-  else if name = dict_get_helper then
+  else if name = mutmap_keys_helper then
+    Some [ Printf.sprintf "let %s d = List.map fst (pyk_mutmap_items d)" name ]
+  else if name = mutmap_values_helper then
+    Some [ Printf.sprintf "let %s d = List.map snd (pyk_mutmap_items d)" name ]
+  else if name = mutmap_get_helper then
     Some
       [
         "(* k's value; show writes a key as an error names it. *)";
         Printf.sprintf "let %s show (table, _) k =" name;
         "  match Stdlib.Hashtbl.find_opt table k with";
         "  | Some (_, v) -> v";
-        "  | None -> pyk_array_fail (\"the Dict has no key \" ^ show k)";
+        "  | None -> pyk_array_fail (\"the MutMap has no key \" ^ show k)";
       ]
-  else if name = dict_has_helper then
+  else if name = mutmap_has_helper then
     Some [ Printf.sprintf "let %s (table, _) k = Stdlib.Hashtbl.mem table k" name ]
-  else if name = dict_length_helper then
+  else if name = mutmap_length_helper then
     Some [ Printf.sprintf "let %s (table, _) = Stdlib.Hashtbl.length table" name ]
-  else if name = dict_get_or_helper then
+  else if name = mutmap_get_or_helper then
     Some
       [
         Printf.sprintf "let %s (table, _) k default =" name;
         "  match Stdlib.Hashtbl.find_opt table k with Some (_, v) -> v | None -> default";
       ]
-  else if name = dict_remove_helper then
+  else if name = mutmap_remove_helper then
     Some
       [
         Printf.sprintf "let %s show (table, counter) k =" name;
         "  match Stdlib.Hashtbl.find_opt table k with";
         "  | Some (_, v) -> Stdlib.Hashtbl.remove table k; incr counter; v";
-        "  | None -> pyk_array_fail (\"the Dict has no key \" ^ show k ^ \" to remove\")";
+        "  | None -> pyk_array_fail (\"the MutMap has no key \" ^ show k ^ \" to remove\")";
       ]
-  else if name = dict_discard_helper then
+  else if name = mutmap_discard_helper then
     Some
       [
         Printf.sprintf "let %s (table, counter) k =" name;
         "  if Stdlib.Hashtbl.mem table k then (Stdlib.Hashtbl.remove table k; incr counter)";
       ]
-  else if name = dict_clear_helper then
+  else if name = mutmap_clear_helper then
     Some
       [
         Printf.sprintf "let %s (table, counter) =" name;
         "  Stdlib.Hashtbl.reset table;";
         "  incr counter";
       ]
-  else if name = dict_walk_helper then
+  else if name = mutmap_walk_helper then
     Some
       [
         "(* What a `for` walks: the keys as the walk begins, and the counter";
         "   as it was then. *)";
         Printf.sprintf "let %s ((_, counter) as d) =" name;
-        "  (Stdlib.Array.of_list (pyk_dict_keys d), counter, !counter)";
+        "  (Stdlib.Array.of_list (pyk_mutmap_keys d), counter, !counter)";
       ]
-  else if name = dict_walk_length_helper then
+  else if name = mutmap_walk_length_helper then
     Some
       [
         "(* Asked at every advance, the last included. *)";
         Printf.sprintf "let %s (keys, counter, start) =" name;
         "  if !counter <> start then";
-        "    pyk_array_fail \"the Dict changed while a for loop was reading it\";";
+        "    pyk_array_fail \"the MutMap changed while a for loop was reading it\";";
         "  Stdlib.Array.length keys";
       ]
-  else if name = dict_walk_key_helper then
+  else if name = mutmap_walk_key_helper then
     Some [ Printf.sprintf "let %s (keys, _, _) i = Stdlib.Array.unsafe_get keys i" name ]
   else if name = guard_helper then
     (* The path is what formatting is inside of, innermost first: an
@@ -2096,7 +2096,7 @@ let record_pattern ctor pairs some =
 
 (** Whether the printer of the datatype `canonical` is handed the path
     (docs/target_ocaml.md, "Var structs"): whether a value of it can hold
-    a cycle -- one that leads back through an array, a Vec, a Dict or a
+    a cycle -- one that leads back through an array, a DynArray, a MutMap or a
     var struct to where it started -- or a type variable's value, which
     may. Such a value goes on the path itself before its fields are
     formatted, as the interpreter's does, so the cycle stops at whatever
@@ -2186,7 +2186,7 @@ let rec holds_mutable ctx t =
   | _ -> false
 
 (** Whether one call can change what a caller sees: a builtin that
-    changes a Vec, a function of the program's own that is in `known`, a
+    changes a DynArray, a function of the program's own that is in `known`, a
     function of another module, and -- where `unknown` -- one reached
     some other way, a parameter or a name brought in by a `from` line.
     StringSet.t -> StringSet.t -> bool -> typ IntMap.t -> expr -> bool *)
@@ -2203,7 +2203,7 @@ let call_changes defined known unknown tmap e =
 
 (** The functions of a program that can change something a caller can
     see -- a `var` they did not declare themselves, an element of an
-    array or a Vec, a field of a var struct, a Vec's length -- directly
+    array or a DynArray, a field of a var struct, a DynArray's length -- directly
     or through a call, worked out to a fixed point over the call graph;
     and whether a call that cannot be followed is taken to change
     something, which it is where the program imports a module or any of
@@ -2274,7 +2274,7 @@ let typed ctx pred e =
 (** Whether working out e can do something another operand could see or
     be seen by (docs/target_ocaml.md, "Evaluation order"): print, change
     something through a call, or fail -- an element read of an array or a
-    Vec, or making an array of a size that may be refused.
+    DynArray, or making an array of a size that may be refused.
     ctx -> expr -> bool *)
 let writes ctx e =
   Analyses.may_print ctx.printing e
@@ -2282,7 +2282,7 @@ let writes ctx e =
        (fun node ->
          match node with
          | Walk.NExpr (EIndex (_, owner, _, _)) ->
-             typed ctx (fun t -> store_element t <> None || dict_parts t <> None) owner
+             typed ctx (fun t -> store_element t <> None || mutmap_parts t <> None) owner
          (* An element's address checks the index. *)
          | Walk.NExpr (EAddr (_, EIndex _, _)) -> true
          | Walk.NExpr (ECall (_, EVar (_, name, _), _, _))
@@ -2293,7 +2293,7 @@ let writes ctx e =
        e
 
 (** Whether e can see what another operand does: whether it writes, or
-    reads a `var`, a var struct's field, a Vec's length, or anything
+    reads a `var`, a var struct's field, a DynArray's length, or anything
     `string` formats that can hold an array or a var struct, or calls a
     function, which may read any of those. ctx -> expr -> bool *)
 let observes ctx e =
@@ -2313,10 +2313,10 @@ let observes ctx e =
            when List.mem name Builtin.pure_names && not (IntMap.mem callee ctx.tmap) -> (
              (* A builtin -- the checker gave a program's own function of
                 the name a type, and none to the builtin. `len`, `get`,
-                `has`, `keys`, ... read a Vec or a Dict. *)
+                `has`, `keys`, ... read a DynArray or a MutMap. *)
              match args with
              | (_, first) :: _ ->
-                 vec_element (type_of ctx first) <> None || dict_parts (type_of ctx first) <> None
+                 dynarray_element (type_of ctx first) <> None || mutmap_parts (type_of ctx first) <> None
              | [] -> false)
          | Walk.NExpr (ECall (_, EVar _, _, _)) -> true
          | Walk.NExpr (ECall _) -> true
@@ -2384,17 +2384,17 @@ let rec expr ctx acc e =
         | "fill__array" -> (array_fill_helper, need acc array_fill_helper)
         | "init__array_init" -> (array_init_helper, need acc array_init_helper)
         | "unfold__array_init" -> (array_unfold_helper, need acc array_unfold_helper)
-        | "list__vec" -> (vec_of_list_helper, need acc vec_of_list_helper)
-        | "empty__vec" -> ("ref", acc)
-        | "list__dict" -> (dict_of_list_helper, need acc dict_of_list_helper)
-        | "empty__dict" -> ("Stdlib.Hashtbl.create", acc)
+        | "list__dynarray" -> (dynarray_of_list_helper, need acc dynarray_of_list_helper)
+        | "empty__dynarray" -> ("ref", acc)
+        | "list__mutmap" -> (mutmap_of_list_helper, need acc mutmap_of_list_helper)
+        | "empty__mutmap" -> ("Stdlib.Hashtbl.create", acc)
         | _ ->
             unsupported (expr_info e)
               (Printf.sprintf "the builtin `%s` is not supported yet" name)
       in
       let made =
-        if name = "empty__vec" then OApp (OVar "ref", [ OTuple [ OVar "[||]"; OInt 0 ] ])
-        else if name = "empty__dict" then
+        if name = "empty__dynarray" then OApp (OVar "ref", [ OTuple [ OVar "[||]"; OInt 0 ] ])
+        else if name = "empty__mutmap" then
           OTuple [ OApp (OVar "Stdlib.Hashtbl.create", [ OInt 8 ]); OApp (OVar "ref", [ OInt 0 ]) ]
         else sequence (OApp (OVar helper, pieces))
       in
@@ -2403,8 +2403,8 @@ let rec expr ctx acc e =
          generalise: the checker's type is written on it instead. *)
       let made =
         match (name, arg_exprs args) with
-        | ("list__array" | "list__vec" | "list__dict"), [ EList (_, [], _) ]
-        | ("empty__vec" | "empty__dict"), [] ->
+        | ("list__array" | "list__dynarray" | "list__mutmap"), [ EList (_, [], _) ]
+        | ("empty__dynarray" | "empty__mutmap"), [] ->
             (* Only a type written the same in every module, with no
                variable left in it, is written. *)
             let rec plain t =
@@ -2413,7 +2413,7 @@ let rec expr ctx acc e =
               | TList (_, element, _) -> plain element
               | TTuple (_, elements, _) -> List.for_all plain elements
               | t -> (
-                  match (store_element t, dict_parts t) with
+                  match (store_element t, mutmap_parts t) with
                   | Some element, _ -> plain element
                   | None, Some (key, value) -> plain key && plain value
                   | None, None -> false)
@@ -2609,7 +2609,7 @@ let rec expr ctx acc e =
         if is_list t then "list"
         else if is_string t then "string"
         else if Typesystem.array_element t <> None then "array"
-        else if vec_element t <> None then "vec"
+        else if dynarray_element t <> None then "dynarray"
         else if slice_element t <> None then "view"
         else unsupported info (Printf.sprintf "a slice of a value of type %s" (name_of t))
       in
@@ -2634,14 +2634,14 @@ let rec expr ctx acc e =
       else if Typesystem.array_element (type_of ctx list) <> None then
         (* Checked, so a bad index stops with Pyking's message. *)
         (sequence (OApp (OVar array_get_helper, pieces)), need acc array_get_helper)
-      else if vec_element (type_of ctx list) <> None then
-        (* Checked against the length the Vec has now. *)
-        (sequence (OApp (OVar vec_get_helper, pieces)), need acc vec_get_helper)
+      else if dynarray_element (type_of ctx list) <> None then
+        (* Checked against the length the DynArray has now. *)
+        (sequence (OApp (OVar dynarray_get_helper, pieces)), need acc dynarray_get_helper)
       else if slice_element (type_of ctx list) <> None then
         (sequence (OApp (OVar view_get_helper, pieces)), need acc view_get_helper)
-      else if dict_parts (type_of ctx list) <> None then
+      else if mutmap_parts (type_of ctx list) <> None then
         let show, acc = key_printer ctx acc (type_of ctx index) in
-        (sequence (OApp (OVar dict_get_helper, show :: pieces)), need acc dict_get_helper)
+        (sequence (OApp (OVar mutmap_get_helper, show :: pieces)), need acc mutmap_get_helper)
       else (sequence (OApp (OVar "List.nth", pieces)), acc)
   | EConstruct (_, _, name, args, _) -> (
       let canonical =
@@ -2709,7 +2709,7 @@ let rec expr ctx acc e =
           | None -> unsupported (expr_info e) "a field of a datatype this module cannot see")
       | _ -> unsupported (expr_info e) "a field of a value whose type is not settled")
 
-(** A function writing a Dict's key as an error message names it: as
+(** A function writing a MutMap's key as an error message names it: as
     it is written inside a value, a String quoted.
     ctx -> acc -> typ -> (oexpr, acc) *)
 and key_printer ctx acc key_type =
@@ -2953,14 +2953,14 @@ and string_of ctx acc type_ translated info top =
               OLet ([ { bound = OPatName name; params = []; value = translated } ], made, false)),
           acc )
     | TCon _ when held_element type_ <> None ->
-        (* What makes one: `array([`, `vec([` or `dict([`, and the
-           elements -- a Dict's entries, as `(key, value)` tuples -- as a
+        (* What makes one: `array([`, `dynarray([` or `mutmap([`, and the
+           elements -- a MutMap's entries, as `(key, value)` tuples -- as a
            list writes them. *)
         let element = Option.get (held_element type_) in
         let opening, lister, acc =
-          if vec_element type_ <> None then ("vec([", vec_to_list_helper, need acc vec_to_list_helper)
-          else if dict_parts type_ <> None then
-            ("dict([", dict_items_helper, need acc dict_items_helper)
+          if dynarray_element type_ <> None then ("dynarray([", dynarray_to_list_helper, need acc dynarray_to_list_helper)
+          else if mutmap_parts type_ <> None then
+            ("mutmap([", mutmap_items_helper, need acc mutmap_items_helper)
           else if slice_element type_ <> None then
             ("view([", view_to_list_helper, need acc view_to_list_helper)
           else ("array([", "Stdlib.Array.to_list", acc)
@@ -3125,10 +3125,10 @@ and builtin_call ctx acc call name args =
         (OApp (OVar "List.length", [ o_value ]), acc)
       else if Typesystem.array_element type_ <> None then
         (OApp (OVar "Stdlib.Array.length", [ o_value ]), acc)
-      else if vec_element type_ <> None then
-        (OApp (OVar vec_length_helper, [ o_value ]), need acc vec_length_helper)
-      else if dict_parts type_ <> None then
-        (OApp (OVar dict_length_helper, [ o_value ]), need acc dict_length_helper)
+      else if dynarray_element type_ <> None then
+        (OApp (OVar dynarray_length_helper, [ o_value ]), need acc dynarray_length_helper)
+      else if mutmap_parts type_ <> None then
+        (OApp (OVar mutmap_length_helper, [ o_value ]), need acc mutmap_length_helper)
       else if slice_element type_ <> None then
         (OApp (OVar view_length_helper, [ o_value ]), need acc view_length_helper)
       else
@@ -3149,11 +3149,11 @@ and builtin_call ctx acc call name args =
             (Printf.sprintf "`char` of a value of type %s" (name_of type_)))
   (* One array under two names: identity, which OCaml's `==` is. *)
   | "same", [ left; right ] -> binary ctx acc "==" left right
-  (* What changes a Vec (docs/target_ocaml.md, "Vecs"): its arguments
+  (* What changes a DynArray (docs/target_ocaml.md, "DynArrays"): its arguments
      worked out left to right, then the helper. *)
   | ("push" | "pop" | "insert" | "remove" | "clear"), first :: _
-    when vec_element (type_of ctx first) <> None ->
-      let helper = "pyk_vec_" ^ name in
+    when dynarray_element (type_of ctx first) <> None ->
+      let helper = "pyk_dynarray_" ^ name in
       let pieces, pin, acc = in_order ctx acc args in
       (pin (OApp (OVar helper, pieces)), need acc helper)
   (* A view of an array or of a view, and copy_into
@@ -3176,20 +3176,20 @@ and builtin_call ctx acc call name args =
       let o_dst, acc = run dst o_dst acc in
       let o_src, acc = run src o_src acc in
       (pin (OApp (OVar copy_into_helper, [ o_dst; o_src ])), need acc copy_into_helper)
-  (* What reads or changes a Dict (docs/target_ocaml.md, "Dicts"). *)
+  (* What reads or changes a MutMap (docs/target_ocaml.md, "MutMaps"). *)
   | ("remove" | "discard" | "clear" | "get" | "has" | "keys" | "values" | "items"), first :: _
-    when dict_parts (type_of ctx first) <> None -> (
-      let key_type = fst (Option.get (dict_parts (type_of ctx first))) in
+    when mutmap_parts (type_of ctx first) <> None -> (
+      let key_type = fst (Option.get (mutmap_parts (type_of ctx first))) in
       let pieces, pin, acc = in_order ctx acc args in
       match (name, pieces) with
       | "remove", _ ->
           let show, acc = key_printer ctx acc key_type in
-          (pin (OApp (OVar dict_remove_helper, show :: pieces)), need acc dict_remove_helper)
+          (pin (OApp (OVar mutmap_remove_helper, show :: pieces)), need acc mutmap_remove_helper)
       | "get", _ ->
           (* The default is an argument, worked out before the look-up. *)
-          (pin (OApp (OVar dict_get_or_helper, pieces)), need acc dict_get_or_helper)
+          (pin (OApp (OVar mutmap_get_or_helper, pieces)), need acc mutmap_get_or_helper)
       | _ ->
-          let helper = "pyk_dict_" ^ name in
+          let helper = "pyk_mutmap_" ^ name in
           (pin (OApp (OVar helper, pieces)), need acc helper))
   | "range", [ count ] ->
       (* `List.init` refuses a negative length where `range` answers with
@@ -3544,13 +3544,13 @@ and clauses ctx acc clause_list element =
       let o_sequence, acc =
         if Typesystem.array_element (type_of ctx sequence) <> None then
           (OApp (OVar "Stdlib.Array.to_list", [ o_sequence ]), acc)
-        else if vec_element (type_of ctx sequence) <> None then
-          (OApp (OVar vec_to_list_helper, [ o_sequence ]), need acc vec_to_list_helper)
+        else if dynarray_element (type_of ctx sequence) <> None then
+          (OApp (OVar dynarray_to_list_helper, [ o_sequence ]), need acc dynarray_to_list_helper)
         else if slice_element (type_of ctx sequence) <> None then
           (OApp (OVar view_to_list_helper, [ o_sequence ]), need acc view_to_list_helper)
-        else if dict_parts (type_of ctx sequence) <> None then
-          (* A Dict's keys as they are. *)
-          (OApp (OVar dict_keys_helper, [ o_sequence ]), need acc dict_keys_helper)
+        else if mutmap_parts (type_of ctx sequence) <> None then
+          (* A MutMap's keys as they are. *)
+          (OApp (OVar mutmap_keys_helper, [ o_sequence ]), need acc mutmap_keys_helper)
         else (o_sequence, acc)
       in
       (* A `function` takes no `when`, so a guarded pattern is matched
@@ -3847,10 +3847,10 @@ and loop ctx acc s returning =
         match (o_sequence, walked) with
         | Some o, [ sequence ] ->
             let o, acc = walked_chars ctx acc sequence o in
-            (* A Dict is walked through its keys as the walk begins and
-               the counter it had then (docs/target_ocaml.md, "Dicts"). *)
-            if dict_parts (type_of ctx sequence) <> None then
-              (Some (OApp (OVar dict_walk_helper, [ o ])), need acc dict_walk_helper)
+            (* A MutMap is walked through its keys as the walk begins and
+               the counter it had then (docs/target_ocaml.md, "MutMaps"). *)
+            if mutmap_parts (type_of ctx sequence) <> None then
+              (Some (OApp (OVar mutmap_walk_helper, [ o ])), need acc mutmap_walk_helper)
             else (Some o, acc)
         | _ -> (o_sequence, acc)
       in
@@ -3862,7 +3862,7 @@ and loop ctx acc s returning =
         match walked with
         | [ sequence ]
           when store_element (type_of ctx sequence) <> None
-               || dict_parts (type_of ctx sequence) <> None -> (
+               || mutmap_parts (type_of ctx sequence) <> None -> (
             (* One a plain name holds is read through that name, unless
                the loop binds the same name over it. *)
             let shadowed plain =
@@ -3921,23 +3921,23 @@ and loop ctx acc s returning =
             (* The second parameter is the index of the turn, and walking
                off the end is leaving the loop. *)
             let held = OVar (Option.get walked_array) in
-            (* A Vec is walked while the index is below the length it has
+            (* A DynArray is walked while the index is below the length it has
                at that turn, so what is pushed during the walk is walked
-               too (docs/target_ocaml.md, "Vecs"). *)
+               too (docs/target_ocaml.md, "DynArrays"). *)
             let walked_type =
               match walked with [ sequence ] -> Some (type_of ctx sequence) | _ -> None
             in
             let is t pred = match t with Some t -> pred t <> None | None -> false in
             let length, reader, acc =
-              if is walked_type vec_element then
-                (vec_length_helper, vec_item_helper, need (need acc vec_length_helper) vec_item_helper)
+              if is walked_type dynarray_element then
+                (dynarray_length_helper, dynarray_item_helper, need (need acc dynarray_length_helper) dynarray_item_helper)
               else if is walked_type slice_element then
                 (view_length_helper, view_item_helper, need (need acc view_length_helper) view_item_helper)
-              else if is walked_type dict_parts then
+              else if is walked_type mutmap_parts then
                 (* The counter is asked at every advance. *)
-                ( dict_walk_length_helper,
-                  dict_walk_key_helper,
-                  need (need acc dict_walk_length_helper) dict_walk_key_helper )
+                ( mutmap_walk_length_helper,
+                  mutmap_walk_key_helper,
+                  need (need acc mutmap_walk_length_helper) mutmap_walk_key_helper )
               else ("Stdlib.Array.length", "Stdlib.Array.unsafe_get", acc)
             in
             ( [ parameter; OPatName index ],
@@ -4226,30 +4226,30 @@ and discard ctx acc statement =
       in
       let o_owner, owner_binding, acc = held o_owner acc in
       let o_index, index_binding, acc = held o_index acc in
-      (* A Vec's index is checked again as it is written: working out
-         the value may have shrunk the Vec. *)
+      (* A DynArray's index is checked again as it is written: working out
+         the value may have shrunk the DynArray. *)
       let check, set =
-        if vec_element (type_of ctx owner) <> None then (vec_check_helper, vec_set_helper)
+        if dynarray_element (type_of ctx owner) <> None then (dynarray_check_helper, dynarray_set_helper)
         else if slice_element (type_of ctx owner) <> None then (view_check_helper, view_set_helper)
         else (array_check_helper, "Stdlib.Array.unsafe_set")
       in
-      let is_dict = dict_parts (type_of ctx owner) <> None in
+      let is_mutmap = mutmap_parts (type_of ctx owner) <> None in
       let write =
-        if is_dict then
+        if is_mutmap then
           (* `d[k] := v` checks nothing: it puts the entry in, or
              replaces the key's value where it has one. *)
-          OApp (OVar dict_set_helper, [ o_owner; o_index; o_value ])
+          OApp (OVar mutmap_set_helper, [ o_owner; o_index; o_value ])
         else
           OSeq
             ( OApp (OVar check, [ o_owner; o_index ]),
               OApp (OVar set, [ o_owner; o_index; o_value ]) )
       in
-      let acc = if is_dict then need acc dict_set_helper else need acc check in
+      let acc = if is_mutmap then need acc mutmap_set_helper else need acc check in
       ( List.fold_right
           (fun b inner -> OLet ([ b ], inner, false))
           (owner_binding @ index_binding)
           write,
-        if set = vec_set_helper || set = view_set_helper then need acc set else acc )
+        if set = dynarray_set_helper || set = view_set_helper then need acc set else acc )
   | SBreak _ | SContinue _ -> unsupported (stmt_info statement) no_early_exit
   | statement ->
       unsupported (stmt_info statement)
@@ -4686,9 +4686,9 @@ let rec type_text type_ name top =
   | TVar (_, variable, _, _) -> Printf.sprintf "'%s" variable
   | TCon (_, _, [ element ], _) when Typesystem.array_element type_ <> None ->
       Printf.sprintf "%s array" (type_text element name false)
-  (* A Vec: its cell, which an importer names the same way, since it is
+  (* A DynArray: its cell, which an importer names the same way, since it is
      built from Stdlib's types alone. *)
-  | TCon (_, _, [ element ], _) when vec_element type_ <> None ->
+  | TCon (_, _, [ element ], _) when dynarray_element type_ <> None ->
       Printf.sprintf "(%s option array * int) ref" (type_text element name false)
   (* A pointer: the object naming its place. *)
   | TCon (_, _, [ target ], _) when ptr_target type_ <> None ->
@@ -4697,8 +4697,8 @@ let rec type_text type_ name top =
   (* A view: its array, where it starts, and its length. *)
   | TCon (_, _, [ element ], _) when slice_element type_ <> None ->
       Printf.sprintf "(%s array * int * int)" (type_text element name false)
-  (* A Dict: its table and its counter, Stdlib's types again. *)
-  | TCon (_, _, [ key; value ], _) when dict_parts type_ <> None ->
+  (* A MutMap: its table and its counter, Stdlib's types again. *)
+  | TCon (_, _, [ key; value ], _) when mutmap_parts type_ <> None ->
       let pair =
         Printf.sprintf "(%s, int * %s) Stdlib.Hashtbl.t * int ref" (type_text key name true)
           (type_text value name false)

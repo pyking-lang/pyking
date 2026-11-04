@@ -241,9 +241,9 @@ source wrote — the same distinction `target_js_packaging.ml` draws for
 its own generated preludes.
 
 **The fixed helpers.** The Char class, the conversions and the array
-helpers (`__PykArray`, `__pyk_fail`, `__pyk_array_*`) and the Vec
-helpers (`__PykVec`, `__pyk_vec_*`), the Dict helpers (`__PykDict`,
-`__PykKey`, `__pyk_key`, `__pyk_dict_*`) and `__pyk_eq` are fixed blocks
+helpers (`__PykArray`, `__pyk_fail`, `__pyk_array_*`) and the DynArray
+helpers (`__PykDynArray`, `__pyk_dynarray_*`), the MutMap helpers (`__PykMutMap`,
+`__PykKey`, `__pyk_key`, `__pyk_mutmap_*`) and `__pyk_eq` are fixed blocks
 of host text, not trees: `add_conversion` records a name in
 `gen.conversions` the first time the translation emits a call to it,
 along with what `conversion_needs` says that helper calls, and
@@ -253,27 +253,27 @@ along with what `conversion_needs` says that helper calls, and
 helper's names are; a `var struct` field write (`SSetField`) borrows its
 owner name when it has to hold the owner.
 
-**Vecs.** A Vec is told from an array by its type alone: `is_vec_expr`
-asks `types` whether an expression is a `TCon "Vec"`, and `EIndex`,
+**DynArrays.** A DynArray is told from an array by its type alone: `is_dynarray_expr`
+asks `types` whether an expression is a `TCon "DynArray"`, and `EIndex`,
 `SSetIndex` and a comprehension's sequence read it. The two makers,
-`empty__vec` and `list__vec`, are both the class `__PykVec` (an `EVar`
-case beside the array makers'). The builtins that change a Vec go
-through `vec_call`, which picks a list method or a helper;
-`vec_unit_builtins` (`push`, `insert`, `clear`) are added to
+`empty__dynarray` and `list__dynarray`, are both the class `__PykDynArray` (an `EVar`
+case beside the array makers'). The builtins that change a DynArray go
+through `dynarray_call`, which picks a list method or a helper;
+`dynarray_unit_builtins` (`push`, `insert`, `clear`) are added to
 `yields_unit`, so `runtime_call_stmt` writes them bare as a statement
 and `translate_expr` follows them with `()` in value position, as it
-does `print`. In `SSetIndex` a Vec's write puts its index check in the
+does `print`. In `SSetIndex` a DynArray's write puts its index check in the
 subscript as well, after the value; where the value is `stable` the
 statement ahead of it is dropped. `late` (below) does not count a call
-of a builtin outside `vec_changers` as one that could change an
+of a builtin outside `dynarray_changers` as one that could change an
 argument.
 
-**Dicts.** `is_dict_expr` asks `types` for a `TCon "Dict"`, and the
-same places read it as for a Vec, plus `walked` (a `for` goes through
-`__pyk_dict_walk`). `vec_call` takes every builtin over Vecs and Dicts,
+**MutMaps.** `is_mutmap_expr` asks `types` for a `TCon "MutMap"`, and the
+same places read it as for a DynArray, plus `walked` (a `for` goes through
+`__pyk_mutmap_walk`). `dynarray_call` takes every builtin over DynArrays and MutMaps,
 `store_value_builtins` being those that answer a value; `remove` and
-`clear` pick the Dict helper by their first argument's type. Two Dict
-helpers, `__pyk_dict_get` and `__pyk_dict_remove`, show a missing key
+`clear` pick the MutMap helper by their first argument's type. Two MutMap
+helpers, `__pyk_mutmap_get` and `__pyk_mutmap_remove`, show a missing key
 through the Bool walker, whose name is only settled per module: so
 `add_conversion` builds the walker (`format_helper_name`) when it
 records either, and `conversion_def` takes the walker's name as
@@ -288,7 +288,7 @@ by the class at run time: the kind names the error, and the class
 rebuilds the copy. A view is told by its type, `is_view_expr` asking
 for a `TCon "Slice"`, in `EIndex`, `SSetIndex` (a case of its own,
 whose write target is `owner.owner[...]`) and a comprehension's
-sequence; `view` and `copy_into` go through `vec_call` with the other
+sequence; `view` and `copy_into` go through `dynarray_call` with the other
 store builtins, `copy_into` among the unit ones. The fixed helpers ask
 whether a value is a view by its class's name, so one made in another
 module is one too, and the print walker's view arm puts the id of the

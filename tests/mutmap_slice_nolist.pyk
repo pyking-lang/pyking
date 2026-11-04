@@ -1,0 +1,86 @@
+# MutMaps, structural `==`, slices and views with no list anywhere, so
+# plain C runs it as well as every other target: keys that are tuples,
+# structs and datatypes, a MutMap that holds itself, `==` part by part, and
+# slices and views of Strings, arrays, DynArrays and views.
+
+use mutation
+
+struct Pos(row: Int, col: Int)
+
+datatype Suit:
+    Hearts
+    Spades
+    Joker(n: Int)
+
+datatype Nest:
+    Nothing
+    Inner(d: MutMap(String, Nest))
+
+# Keys of every kind a key may be, found again by an equal key made anew.
+board = mutmap([(Pos(0, 0), 'x'), (Pos(1, 2), 'o')])
+board[Pos(1, 2)] := 'X'
+board[Pos(2, 2)] := '.'
+print(board, board[Pos(1, 2)], has(board, Pos(2, 1)), len(board))
+cards = mutmap([(Joker(2), "two"), (Hearts, "red")])
+cards[Joker(2)] += "!"
+print(cards[Joker(2)], get(cards, Joker(3), "none"), get(cards, Hearts, "?"))
+pairs: MutMap((String, Int), Bool) = mutmap()
+for word in dynarray(["a", "bb", "a"]):
+    pairs[(word, len(word))] := has(pairs, (word, len(word)))
+print(pairs)
+
+# Taking out and putting back, and a walk that replaces values as it goes.
+counts = mutmap([("x", 1), ("y", 2), ("z", 3)])
+print(remove(counts, "y"), counts)
+discard(counts, "nobody")
+counts["y"] := 20
+for k in counts:
+    counts[k] := counts[k] * 10
+print(counts, same(counts, counts))
+clear(counts)
+print(counts, len(counts), has(counts, "x"))
+
+# Many entries, so the table grows; then most of them taken out.
+squares: MutMap(Int, Int) = mutmap()
+for i in range(100):
+    squares[i * 7] := i * i
+for i in range(90):
+    discard(squares, i * 7)
+var total = 0
+for k in squares:
+    total += squares[k]
+print(len(squares), total, squares[630], get(squares, 7, -1))
+
+# A MutMap that holds itself prints `...` where it repeats.
+nest: MutMap(String, Nest) = mutmap()
+nest["self"] := Inner(nest)
+nest["none"] := Nothing
+print(nest)
+
+# `==` and `!=` part by part, a Float by IEEE's rule.
+nan = float("nan")
+print(Pos(1, 2) == Pos(1, 2), (1, "a") != (1, "b"), Joker(1) == Joker(1), Hearts == Spades)
+print((nan, 1) == (nan, 1), (0.0, Hearts) == (-0.0, Hearts), ((1, 2), 'c') == ((1, 2), 'c'))
+
+# Slices copy; views share.
+s = "héllo wörld"
+print(s[1:5], s[6:], s[:0], len(s[2:]))
+a = array([10, 20, 30, 40, 50])
+part = a[1:4]
+part[0] := -1
+print(part, a, a[:], a[5:])
+v = dynarray([1, 2, 3, 4])
+print(v[1:3], v[:2], len(v[4:]))
+w = view(a, 1, 5)
+w[0] := 21
+w[3] += 9
+inner = view(w, 1, 3)
+inner[0] := 31
+print(w, inner, a, w[2:], len(inner), same(w, w), same(w, view(a, 1, 5)))
+for x in inner:
+    print("walk", x)
+b = array([1, 2, 3, 4, 5, 6])
+copy_into(view(b, 1, 6), view(b, 0, 5))
+print(b)
+copy_into(b, array([9, 8]))
+print(b)

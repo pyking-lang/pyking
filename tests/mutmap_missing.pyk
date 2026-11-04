@@ -1,0 +1,8 @@
+# Reading a key a MutMap has no entry for is a runtime error, on every
+# target but plain C; `get` gives a default instead.
+
+use mutation
+
+d = mutmap([("a", 1)])
+print(get(d, "b", 0))
+print(d["b"])

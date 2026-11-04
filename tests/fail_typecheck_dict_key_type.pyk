@@ -1,9 +1,0 @@
-# A Dict has one key type: a key of another is refused.
-#
-# This program is expected to FAIL. Its `.ast.out` holds the error
-# message, not a program's output.
-
-use mutation
-
-ages = dict([("ada", 36)])
-print(ages[3])

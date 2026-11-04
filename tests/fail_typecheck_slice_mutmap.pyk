@@ -1,0 +1,10 @@
+# A MutMap has no order of positions to slice: only a list, a String, an
+# array, a DynArray or a view is sliced.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+d = mutmap([(1, 2)])
+print(d[0:1])

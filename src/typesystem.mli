@@ -164,22 +164,22 @@ val builtin_env : unit -> env
     for any other type. typ -> typ option *)
 val array_element : typ -> typ option
 
-(** The name of the Vec type, `Vec`. string *)
-val vec_name : string
+(** The name of the DynArray type, `DynArray`. string *)
+val dynarray_name : string
 
-(** The element type of a Vec type, or None for any other type.
+(** The element type of a DynArray type, or None for any other type.
     typ -> typ option *)
-val vec_element : typ -> typ option
+val dynarray_element : typ -> typ option
 
-(** The name of the Dict type, `Dict`. string *)
-val dict_name : string
+(** The name of the MutMap type, `MutMap`. string *)
+val mutmap_name : string
 
-(** `Dict(key, value)`. info -> typ -> typ -> typ *)
-val t_dict : info -> typ -> typ -> typ
+(** `MutMap(key, value)`. info -> typ -> typ -> typ *)
+val t_mutmap : info -> typ -> typ -> typ
 
-(** The key and value types of a Dict type, or None for any other type.
+(** The key and value types of a MutMap type, or None for any other type.
     typ -> (typ * typ) option *)
-val dict_parts : typ -> (typ * typ) option
+val mutmap_parts : typ -> (typ * typ) option
 
 (** `Array(T)` for an element type. info -> typ -> typ *)
 val t_array : info -> typ -> typ

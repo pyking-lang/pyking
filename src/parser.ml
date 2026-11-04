@@ -3126,7 +3126,7 @@ let use_lines tokens =
     reads every module -- and refused here, as a syntax error that names
     the `use` line which would allow them. [string] -> [stmt] -> () *)
 let check_features enabled stmts =
-  (* `array(...)`, `array_init(...)` and `vec(...)` make a mutable
+  (* `array(...)`, `array_init(...)` and `dynarray(...)` make a mutable
      store, and `push(...)` and the other writers change one, which is
      mutation's -- unless this module binds or imports the name itself,
      which a call then means. *)
@@ -3199,7 +3199,7 @@ let check_features enabled stmts =
                      "'%s' makes %s, which needs 'use mutation' at the top of \
                       this module"
                      name
-                     (match Names.base name with "vec" -> "a Vec" | "dict" -> "a Dict" | _ -> "an array") ))
+                     (match Names.base name with "dynarray" -> "a DynArray" | "mutmap" -> "a MutMap" | _ -> "an array") ))
         | Walk.NExpr (ECall (_, EVar (i, name, _), _, _))
           when writes_store name ->
             raise
@@ -3212,7 +3212,7 @@ let check_features enabled stmts =
                      (match name with
                      | "view" -> "makes a view of an array, written in place"
                      | "copy_into" -> "writes into an array"
-                     | _ -> "changes a Vec or a Dict") ))
+                     | _ -> "changes a DynArray or a MutMap") ))
         | Walk.NStmt (SVar (i, _, _, _)) ->
             raise
               (Parse_error

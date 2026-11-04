@@ -1,0 +1,8 @@
+# Popping an empty DynArray is a runtime error, on every target but plain C.
+
+use mutation
+
+v: DynArray(Int) = dynarray()
+push(v, 1)
+print(pop(v))
+print(pop(v))

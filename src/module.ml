@@ -157,7 +157,7 @@ type context = {
 }
 
 (* --- ordered tables ---
-   The Python keeps these in dicts, which remember the order names were
+   The Python keeps these in mutmaps, which remember the order names were
    put in; an association list is the same thing with the order in
    plain sight. *)
 
@@ -1270,7 +1270,7 @@ and qualified name type_ =
     match t with
     | TCon (i, n, args, s) ->
         (* `Array` is the builtin's, every module's alike. *)
-        let n = if String.contains n '.' || List.mem n [ "Array"; "Vec"; "Dict"; "Slice" ] then n else name ^ "." ^ n in
+        let n = if String.contains n '.' || List.mem n [ "Array"; "DynArray"; "MutMap"; "Slice" ] then n else name ^ "." ^ n in
         TCon (i, n, List.map go args, s)
     | TData (i, Datatype (n, params, constructors, writable), s) ->
         let n = if String.contains n '.' then n else name ^ "." ^ n in

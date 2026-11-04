@@ -1,0 +1,7 @@
+# Making a MutMap is mutation's: `mutmap(...)` in a module without `use
+# mutation` is refused.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+d = mutmap([(1, "one")])

@@ -1,0 +1,70 @@
+# MutMaps: maps from keys to values that keep the order their keys were
+# put in. Made by `mutmap()` and `mutmap(pairs)`, read with `d[k]` and
+# written with `d[k] := v`, measured by `len`, walked by `for` key by
+# key, and changed by `remove`, `discard` and `clear`; `get`, `has`,
+# `keys`, `values` and `items` read them. Shared by every name holding
+# one, and printed as what makes one. Every target prints the same.
+
+use mutation
+
+# A key written twice keeps its first place and its last value.
+ages = mutmap([("ada", 36), ("bo", 5), ("ada", 37)])
+ages["cy"] := 12
+ages["bo"] += 1
+print(ages, len(ages), ages["ada"])
+print(has(ages, "zed"), has(ages, "bo"), get(ages, "zed", 0), get(ages, "bo", 0))
+
+# Removing and putting back: a key put back goes to the end.
+print(remove(ages, "bo"), keys(ages), values(ages), items(ages))
+ages["bo"] := 1
+discard(ages, "nobody")
+discard(ages, "ada")
+ages["ada"] := 40
+print(ages)
+
+# A `for` walks the keys in order; replacing a value as it goes is fine.
+for name in ages:
+    ages[name] := ages[name] * 2
+print(ages, [k + "!" for k in ages])
+
+# Counting, the classic use.
+counts: MutMap(String, Int) = mutmap()
+for w in ["the", "cat", "the", "hat", "the"]:
+    counts[w] := get(counts, w, 0) + 1
+print(counts)
+
+# Keys that are tuples, Chars, Bools and datatypes.
+datatype Suit:
+    Hearts
+    Spades
+
+grid: MutMap((Int, Int), String) = mutmap()
+grid[(0, 1)] := "x"
+grid[(2, 0)] := "o"
+by_suit = mutmap([(Hearts, "red"), (Spades, "black")])
+flags = mutmap([('y', true), ('n', false)])
+print(grid[(0, 1)], by_suit[Spades], flags['n'], mutmap([(true, 1)]))
+
+# Sharing: a parameter changes the MutMap it is given.
+def tally(into: MutMap(String, Int), word: String) -> ():
+    into[word] := get(into, word, 0) + 1
+
+
+alias = counts
+tally(alias, "cat")
+print(counts["cat"], same(alias, counts), same(counts, mutmap([("the", 3)])))
+
+clear(counts)
+print(counts, len(counts))
+
+# A MutMap of DynArrays, and one holding var structs.
+var struct Box(n: Int)
+
+groups: MutMap(Int, DynArray(String)) = mutmap()
+for word in ["ox", "ant", "bee", "elk"]:
+    if not has(groups, len(word)):
+        groups[len(word)] := dynarray()
+    push(groups[len(word)], word)
+boxes = mutmap([("a", Box(1))])
+boxes["a"].n += 9
+print(groups, boxes)

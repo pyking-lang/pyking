@@ -316,10 +316,10 @@ Statements:
 - **Structs** (`struct Point(x: Int, y = 78)`), datatypes of one
   constructor, and updates (`Point(x = 5, ..p)`) — Pyking extension (see
   "Structs")
-- **Vecs** (`Vec(T)`), arrays that grow by `push`, `pop`, `insert`,
-  `remove` and `clear` — Pyking extension (see "Vecs")
-- **Dicts** (`Dict(K, V)`), maps that keep their keys' order, read with
-  `d[k]` and written with `d[k] := v` — Pyking extension (see "Dicts")
+- **DynArrays** (`DynArray(T)`), arrays that grow by `push`, `pop`, `insert`,
+  `remove` and `clear` — Pyking extension (see "DynArrays")
+- **MutMaps** (`MutMap(K, V)`), maps that keep their keys' order, read with
+  `d[k]` and written with `d[k] := v` — Pyking extension (see "MutMaps")
 - **Slices** (`xs[i:j]`, a copy) and **views** (`view(a, i, j)`, sharing
   an array's elements) — Pyking extension (see "Slices and views")
 - **Option** (`Some(x)`, `None`), builtin from lib/option — Pyking
@@ -1526,7 +1526,7 @@ print([1, 2] == [1, 2], (1, "a") != (1, "b"), Point(1, 2) == Point(1, 2), Circle
 ```
 
 A value compared this way holds only what `==` compares: a function
-has no equality, and an array, a Vec, a Dict and a `var struct` have
+has no equality, and an array, a DynArray, a MutMap and a `var struct` have
 an identity instead, which `same(a, b)` asks about -- so `==` on a list
 of functions or a tuple holding an array is refused, naming what it
 holds. So is `==` on a type variable, `def f(x: a, y: a)`, which could
@@ -1859,7 +1859,7 @@ print(count)
 
 | Feature | Turns on |
 |---|---|
-| `mutation` | `var`, `:=` and compound assignment such as `+=` (see "Mutable variables"), making and writing arrays (see "Arrays"), Vecs (see "Vecs"), Dicts (see "Dicts") and views (see "Slices and views"), and declaring, making and writing `var struct`s (see "Mutable structs") |
+| `mutation` | `var`, `:=` and compound assignment such as `+=` (see "Mutable variables"), making and writing arrays (see "Arrays"), DynArrays (see "DynArrays"), MutMaps (see "MutMaps") and views (see "Slices and views"), and declaring, making and writing `var struct`s (see "Mutable structs") |
 | `pointers` | `&`, `*` and `*p := v` (see "Pointers"); needs `mutation` too |
 | `objects` | nothing yet: the name is reserved for classes and methods |
 
@@ -2133,30 +2133,30 @@ library `lib/array` (see "Modules", and its help page): `copy`,
 `sort`, which is stable and orders Floats with NaN last and Strings by
 code point, alike on every target.
 
-### Vecs (`Vec(T)`) — Pyking extension
+### DynArrays (`DynArray(T)`) — Pyking extension
 
-A **Vec** is an array that grows: its elements are read and written by
+A **DynArray** is an array that grows: its elements are read and written by
 index as an array's are, and it is shared by every name that holds it,
 but `push`, `pop`, `insert`, `remove` and `clear` change how many it
 has. It is how a collection is built one element at a time in linear
-time. Its type is `Vec(T)`. Making and changing one need `use
+time. Its type is `DynArray(T)`. Making and changing one need `use
 mutation`; reading, passing, returning and holding one do not.
 
 ```pyking
 use mutation
 
-squares: Vec(Int) = vec()
+squares: DynArray(Int) = dynarray()
 for i in range(5):
     push(squares, i * i)
-print(squares, len(squares), squares[4])      # vec([0, 1, 4, 9, 16]) 5 16
+print(squares, len(squares), squares[4])      # dynarray([0, 1, 4, 9, 16]) 5 16
 ```
 
-**Making one.** `vec()` makes one with no elements, whose element type
-its use or an annotation decides, and `vec(xs)` one holding a list's
-elements; `vec` is a builtin overload set of the two (`empty::vec`,
-`list::vec`).
+**Making one.** `dynarray()` makes one with no elements, whose element type
+its use or an annotation decides, and `dynarray(xs)` one holding a list's
+elements; `dynarray` is a builtin overload set of the two (`empty::dynarray`,
+`list::dynarray`).
 
-**Growing and shrinking.** Five builtins change a Vec:
+**Growing and shrinking.** Five builtins change a DynArray:
 
 | call | does | answers |
 |---|---|---|
@@ -2166,65 +2166,65 @@ elements; `vec` is a builtin overload set of the two (`empty::vec`,
 | `remove(v, i)` | takes the element at `i` out, moving the ones after it down | it |
 | `clear(v)` | removes every element | `()` |
 
-`pop` of an empty Vec, and an index outside one, are runtime errors on
+`pop` of an empty DynArray, and an index outside one, are runtime errors on
 every target but plain C. `push` and `pop` take constant time on
 average, `insert` and `remove` time in proportion to the elements they
 move.
 
 **Reading and writing** are an array's: `v[i]`, `v[i] := x`, `v[i] += 1`,
-`len(v)`, the index checked against the length the Vec has *now*. A
-`for` over a Vec reads each element as it is reached and goes on while
-the index is below the Vec's length at that turn, so what the loop
+`len(v)`, the index checked against the length the DynArray has *now*. A
+`for` over a DynArray reads each element as it is reached and goes on while
+the index is below the DynArray's length at that turn, so what the loop
 pushes is walked too and what it removes ends it sooner; a
-comprehension over a Vec makes a list of its elements as they are.
+comprehension over a DynArray makes a list of its elements as they are.
 
 ```pyking
 use mutation
 
-v = vec([1, 2, 3])
+v = dynarray([1, 2, 3])
 v[0] := 10
 insert(v, 1, 5)
-print(pop(v), remove(v, 0), v)                 # 3 10 vec([5, 2])
+print(pop(v), remove(v, 0), v)                 # 3 10 dynarray([5, 2])
 ```
 
 **Sharing and identity** are as for arrays: `w = v` and `f(v)` hand
-over the one Vec, `same(v, w)` asks whether two are one, and `==`
-compares none -- `vec.equal(v, w)` from `lib/vec` compares elements. A
-Vec prints as what makes one, `vec([1, 2])`.
+over the one DynArray, `same(v, w)` asks whether two are one, and `==`
+compares none -- `dynarray.equal(v, w)` from `lib/dynarray` compares elements. A
+DynArray prints as what makes one, `dynarray([1, 2])`.
 
 **The names are yours to take.** `push`, `pop`, `insert`, `remove` and
 `clear` are builtins, but a module's own definition or import of one of
 those names wins there: a module defining `insert` for a tree, or
 importing tinyweb's `push`, means its own.
 
-The rest is the library `lib/vec`: `copy`, `to_list`, `to_array`,
+The rest is the library `lib/dynarray`: `copy`, `to_list`, `to_array`,
 `from_array`, `extend`, `reverse`, `equal` and `sort` (lib/array's, the
 same on every target).
 
-### Dicts (`Dict(K, V)`) — Pyking extension
+### MutMaps (`MutMap(K, V)`) — Pyking extension
 
-A **Dict** maps keys to values, and remembers the order its keys were
+A **MutMap** maps keys to values, and remembers the order its keys were
 put in. It is written in place and shared by every name that holds one.
-Its type is `Dict(K, V)`. Making and changing one need `use mutation`;
+Its type is `MutMap(K, V)`. Making and changing one need `use mutation`;
 reading, passing, returning and holding one do not.
 
 ```pyking
 use mutation
 
-counts: Dict(String, Int) = dict()
+counts: MutMap(String, Int) = mutmap()
 for word in ["the", "cat", "the", "hat"]:
     counts[word] := get(counts, word, 0) + 1
 print(counts, counts["the"], len(counts))
-# dict([("the", 2), ("cat", 1), ("hat", 1)]) 2 3
+# mutmap([("the", 2), ("cat", 1), ("hat", 1)]) 2 3
 ```
 
-**Making one.** `dict()` makes one with no entries, whose types its use
-or an annotation decides, and `dict(pairs)` one from a list of `(key,
+**Making one.** `mutmap()` makes one with no entries, whose types its use
+or an annotation decides, and `mutmap(pairs)` one from a list of `(key,
 value)` pairs; a key written twice keeps its first place and its last
 value. There is no literal syntax.
 
 **Reading and writing.** `d[k]` reads the value of the key `k` -- one
-the Dict has no entry for is a runtime error, `the Dict has no key
+the MutMap has no entry for is a runtime error, `the MutMap has no key
 "zed"` -- and `d[k] := v` writes one: an entry for a new key goes at the
 end, and a key already there keeps its place and gets the new value.
 The compound forms read and write it back, `d[k] += 1`.
@@ -2235,23 +2235,23 @@ The compound forms read and write it back, `d[k] += 1`.
 | `has(d, k)` | whether `d` has an entry for `k` |
 | `remove(d, k)` | the value of `k`, its entry taken out -- a runtime error where there is none |
 | `discard(d, k)` | `()`, its entry taken out where there is one |
-| `keys(d)`, `values(d)`, `items(d)` | lists, in the Dict's order; `items` gives `(key, value)` pairs |
+| `keys(d)`, `values(d)`, `items(d)` | lists, in the MutMap's order; `items` gives `(key, value)` pairs |
 | `clear(d)` | `()`, every entry taken out |
-| `len(d)`, `same(d, e)` | the number of entries; whether two are one Dict |
+| `len(d)`, `same(d, e)` | the number of entries; whether two are one MutMap |
 
 A key taken out and put back goes to the end.
 
 **Walking one.** `for k in d` walks the keys in order. Putting a new
 key in or taking one out while the walk is on is a runtime error, `the
-Dict changed while a for loop was reading it`, at the next step of the
-walk; replacing a value is not a change. A comprehension over a Dict
+MutMap changed while a for loop was reading it`, at the next step of the
+walk; replacing a value is not a change. A comprehension over a MutMap
 makes a list of its keys.
 
 **Keys.** A key is compared and hashed, so its type is one whose values
 never change and always equal themselves: Int, Char, String, Bool, (),
 and tuples, lists, structs and datatypes of those. A Float is not a key
 -- NaN equals nothing, itself included -- nor is a function, nor an
-array, a Vec, a Dict or a `var struct`, nor anything holding one; the
+array, a DynArray, a MutMap or a `var struct`, nor anything holding one; the
 checker says which part of the key type is not.
 
 ```pyking
@@ -2259,15 +2259,15 @@ use mutation
 
 struct Pos(row: Int, col: Int)
 
-board = dict([(Pos(0, 0), 'x')])
+board = mutmap([(Pos(0, 0), 'x')])
 board[Pos(1, 1)] := 'o'
 print(board[Pos(1, 1)], has(board, Pos(2, 2)), keys(board))
 # o false [Pos(0, 0), Pos(1, 1)]
 ```
 
-**Sharing and printing** are as for arrays and Vecs: `same(d, e)` asks
-whether two names hold one Dict, `==` compares none, and a Dict prints
-as what makes one, `dict([(1, "a")])`.
+**Sharing and printing** are as for arrays and DynArrays: `same(d, e)` asks
+whether two names hold one MutMap, `==` compares none, and a MutMap prints
+as what makes one, `mutmap([(1, "a")])`.
 
 **Names.** `get`, `has`, `keys`, `values`, `items`, `discard`, `remove`
 and `clear` are builtins, but a module's own definition or import of
@@ -2276,7 +2276,7 @@ one of those names wins there.
 ### Slices and views — Pyking extension
 
 **A slice copies.** `s[i:j]` is a new value holding elements `i` up to
-`j` of a list, a String (by character), an array or a Vec -- of the
+`j` of a list, a String (by character), an array or a DynArray -- of the
 same kind -- with either bound left out for the start or the end. The
 bounds satisfy `0 <= i <= j <= len(s)`; anything else is a runtime
 error, `the slice 2:4 is outside an array of 3 elements`, on every
@@ -2366,7 +2366,7 @@ print(x, y)            # 2 1
 - **`&place`** is a pointer to a place something may write: a `var`, an
   element of an array or of a view (`&a[i]`, which is the array's), a
   field of a `var struct` (`&p.x`), or what a pointer points at (`&*p`
-  is `p`). Its type is `Ptr(T)`. An `=` binding, a list's or a Vec's
+  is `p`). Its type is `Ptr(T)`. An `=` binding, a list's or a DynArray's
   element, a plain struct's field, a call's result and a literal have
   no address, and `&` of one is refused with the reason.
 - **`*p`** reads what `p` points at, now; **`*p := v`** and the compound
@@ -2377,7 +2377,7 @@ print(x, y)            # 2 1
   and times between two operands, as `-` is negation or subtraction. A
   line starting with `*` or `&` is a statement of its own: `*p := 5`.
 - **Equality.** `p == q` is true when both name one place. A pointer is
-  never a Dict's key.
+  never a MutMap's key.
 - **Printing** writes what a pointer points at, `Ptr(12)`, never an
   address, so every target prints the same.
 - **Lifetime.** A `var` whose address is taken lives as long as a

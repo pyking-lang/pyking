@@ -55,16 +55,16 @@ print two ways; and a module that prints nothing imports nothing.
 
 `pykFormat` tells a Pyking list, array and tuple apart -- all three are
 JavaScript arrays -- by the marker the program put on it: `pykList` for
-a list, `pykArray` for an array (printed `array([...])`), `pykVec`
-for a Vec (printed `vec([...])`), none for a tuple; a Dict is a `Map`
-marked `pykDict`, printed `dict([...])` with its entries as tuples;
+a list, `pykArray` for an array (printed `array([...])`), `pykDynArray`
+for a DynArray (printed `dynarray([...])`), none for a tuple; a MutMap is a `Map`
+marked `pykMutMap`, printed `mutmap([...])` with its entries as tuples;
 a view is an object marked `pykView`, printed `view([...])` with its
 array's elements, and on the cycle path it stands for that array; a
 pointer (`pykPtr`) prints `Ptr(...)` with what it points at, and stands
 for its store on the path. `pykShaped`'s
-descriptor has `{s}` for an array, `<s>` for a Vec, `v{s}` for a view,
-`p(s)` for a pointer and `@(k,v)` for a Dict whose parts need their type to print, beside `[s]` for a list (target_js.md,
-"Arrays" and "Vecs"). The checks an array makes, and `pykFail`, which reports a
+descriptor has `{s}` for an array, `<s>` for a DynArray, `v{s}` for a view,
+`p(s)` for a pointer and `@(k,v)` for a MutMap whose parts need their type to print, beside `[s]` for a list (target_js.md,
+"Arrays" and "DynArrays"). The checks an array makes, and `pykFail`, which reports a
 runtime error, are the program module's own helpers rather than this
 module's, written only where a program uses them.
 
@@ -74,8 +74,8 @@ that holds itself prints its cycle once, while a value that is only
 shared prints in full each time (interpreter.ml's `display_value`;
 target_js.md, "Mutable structs"). `pykShaped` passes the path on, and
 `pykLater` is a `print` argument whose descriptor waits until every
-argument is worked out. A module whose program reports a missing Dict
-key (`pykDictGet`, `pykDictRemove`) imports `pykShaped` for it even
+argument is worked out. A module whose program reports a missing MutMap
+key (`pykMutMapGet`, `pykMutMapRemove`) imports `pykShaped` for it even
 where it prints nothing itself. `format_js` is also what the playground's
 worker reads (`pykFormatHelper`), so the path is a parameter with a
 default rather than a variable at the module's top level, which an

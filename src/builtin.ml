@@ -117,7 +117,7 @@ let all =
       max_args = Some 2;
       crosses_host = false;
       doc =
-        "Answer whether two arrays, two Vecs or two var structs are the \
+        "Answer whether two arrays, two DynArrays or two var structs are the \
          same one -- one value under two names, so writing through one is \
          seen through the other -- rather than two holding the same \
          elements or fields, which `array.equal` asks of arrays. `==` \
@@ -129,7 +129,7 @@ let all =
       max_args = Some 2;
       crosses_host = false;
       doc =
-        "Add a value to the end of a Vec: `push(v, x)`. Needs `use \
+        "Add a value to the end of a DynArray: `push(v, x)`. Needs `use \
          mutation`.";
     };
     {
@@ -138,8 +138,8 @@ let all =
       max_args = Some 1;
       crosses_host = false;
       doc =
-        "Remove a Vec's last element and answer it: `pop(v)`. Popping an \
-         empty Vec is a runtime error. Needs `use mutation`.";
+        "Remove a DynArray's last element and answer it: `pop(v)`. Popping an \
+         empty DynArray is a runtime error. Needs `use mutation`.";
     };
     {
       name = "insert";
@@ -147,7 +147,7 @@ let all =
       max_args = Some 3;
       crosses_host = false;
       doc =
-        "Put a value into a Vec before index i, moving the elements from i \
+        "Put a value into a DynArray before index i, moving the elements from i \
          on one place up: `insert(v, i, x)`, with 0 <= i <= len(v). Needs \
          `use mutation`.";
     };
@@ -157,9 +157,9 @@ let all =
       max_args = Some 2;
       crosses_host = false;
       doc =
-        "Take the element at index i out of a Vec and answer it, moving \
+        "Take the element at index i out of a DynArray and answer it, moving \
          the ones after it one place down: `remove(v, i)`; or take a key's \
-         entry out of a Dict and answer its value, `remove(d, k)`, which \
+         entry out of a MutMap and answer its value, `remove(d, k)`, which \
          is a runtime error where there is none. Needs `use mutation`.";
     };
     {
@@ -167,7 +167,7 @@ let all =
       min_args = 1;
       max_args = Some 1;
       crosses_host = false;
-      doc = "Remove every element of a Vec, or every entry of a Dict: `clear(v)`. Needs `use mutation`.";
+      doc = "Remove every element of a DynArray, or every entry of a MutMap: `clear(v)`. Needs `use mutation`.";
     };
     {
       name = "view";
@@ -197,7 +197,7 @@ let all =
       max_args = Some 3;
       crosses_host = false;
       doc =
-        "A Dict's value for a key, or a default where it has none: `get(d, \
+        "A MutMap's value for a key, or a default where it has none: `get(d, \
          k, default)`. The default is worked out whether it is needed or \
          not.";
     };
@@ -206,7 +206,7 @@ let all =
       min_args = 2;
       max_args = Some 2;
       crosses_host = false;
-      doc = "Whether a Dict has an entry for a key: `has(d, k)`.";
+      doc = "Whether a MutMap has an entry for a key: `has(d, k)`.";
     };
     {
       name = "discard";
@@ -214,7 +214,7 @@ let all =
       max_args = Some 2;
       crosses_host = false;
       doc =
-        "Remove a Dict's entry for a key, if it has one: `discard(d, k)`. \
+        "Remove a MutMap's entry for a key, if it has one: `discard(d, k)`. \
          `remove(d, k)` is the form that requires one. Needs `use \
          mutation`.";
     };
@@ -223,14 +223,14 @@ let all =
       min_args = 1;
       max_args = Some 1;
       crosses_host = false;
-      doc = "A Dict's keys, as a list, in the order they were put in: `keys(d)`.";
+      doc = "A MutMap's keys, as a list, in the order they were put in: `keys(d)`.";
     };
     {
       name = "values";
       min_args = 1;
       max_args = Some 1;
       crosses_host = false;
-      doc = "A Dict's values, as a list, in the order of their keys: `values(d)`.";
+      doc = "A MutMap's values, as a list, in the order of their keys: `values(d)`.";
     };
     {
       name = "items";
@@ -238,7 +238,7 @@ let all =
       max_args = Some 1;
       crosses_host = false;
       doc =
-        "A Dict's entries, as a list of (key, value) pairs, in the order \
+        "A MutMap's entries, as a list of (key, value) pairs, in the order \
          they were put in: `items(d)`.";
     };
     {
@@ -304,12 +304,12 @@ let overload_sets =
   [
     ("array", [ "list::array"; "fill::array" ]);
     ("array_init", [ "init::array_init"; "unfold::array_init" ]);
-    ("vec", [ "empty::vec"; "list::vec" ]);
-    ("dict", [ "empty::dict"; "list::dict" ]);
+    ("dynarray", [ "empty::dynarray"; "list::dynarray" ]);
+    ("mutmap", [ "empty::mutmap"; "list::mutmap" ]);
   ]
 
 (** The builtins that change a mutable collection in place, which need
-    `use mutation` to call (PYKING.md, "Vecs", "Dicts"). [string] *)
+    `use mutation` to call (PYKING.md, "DynArrays", "MutMaps"). [string] *)
 let writers = [ "push"; "pop"; "insert"; "remove"; "clear"; "discard"; "view"; "copy_into" ]
 
 (** The builtins younger than the programs and libraries that use the
@@ -340,16 +340,16 @@ let overload_doc name =
         "Generate an array: `array_init(n, f)` with element i being f(i), \
          and `array_init(n, seed, f)` unfolding an accumulator, f answering \
          each element and the next accumulator. Needs `use mutation`."
-  | "dict" ->
+  | "mutmap" ->
       Some
-        "Make a Dict, a mutable map from keys to values that remembers the \
-         order its keys were put in: `dict()` with no entries, and \
-         `dict(pairs)` from a list of (key, value) pairs. `d[k]` reads, \
+        "Make a MutMap, a mutable map from keys to values that remembers the \
+         order its keys were put in: `mutmap()` with no entries, and \
+         `mutmap(pairs)` from a list of (key, value) pairs. `d[k]` reads, \
          `d[k] := v` writes. Needs `use mutation`."
-  | "vec" ->
+  | "dynarray" ->
       Some
-        "Make a Vec, an array that grows: `vec()` with no elements, and \
-         `vec(xs)` from a list. `push`, `pop`, `insert`, `remove` and \
+        "Make a DynArray, an array that grows: `dynarray()` with no elements, and \
+         `dynarray(xs)` from a list. `push`, `pop`, `insert`, `remove` and \
          `clear` change it. Needs `use mutation`."
   | _ -> None
 

@@ -1,5 +1,5 @@
 # Slices and views. `s[i:j]` copies elements i up to j of a list, a
-# String (by character), an array, a Vec or a view into a new value of
+# String (by character), an array, a DynArray or a view into a new value of
 # its own kind -- a view's into an array -- with either bound left out
 # for the start or the end. `view(a, i, j)` shares elements i up to j of
 # an array: reading and writing it reads and writes the array.
@@ -14,7 +14,7 @@ print(xs[1:3], xs[:2], xs[3:], xs[:], xs[5:], xs[2:2])
 print(s[1:4], s[:1], s[4:], len(s[1:]))
 
 a = array([10, 20, 30, 40, 50])
-v = vec(["a", "b", "c"])
+v = dynarray(["a", "b", "c"])
 copied = a[1:3]
 copied[0] := 99
 print(copied, a, v[1:], v[:0])

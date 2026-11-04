@@ -72,7 +72,7 @@ type expr =
   | EDeref of info * expr * int (* *p -- what a pointer points at, now *)
   | ESlice of info * expr * expr option * expr option * int
       (* seq[low:high] -- a copy of the elements from low up to high of a
-         list, a String, an array, a Vec or a view; an omitted bound is
+         list, a String, an array, a DynArray or a view; an omitted bound is
          the start or the end (PYKING.md, "Slices") *)
   | ECall of info * expr * (string option * expr) list * int
       (* func(args...). Each argument carries the parameter name it was

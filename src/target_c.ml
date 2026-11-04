@@ -70,12 +70,12 @@ let list_element e = match e with TVar _ | TUnknown _ -> TTuple (no_info, [], 0)
    is a TCon like a datatype's but compiled as a pointer of its own. *)
 let array_name = "Array"
 
-(* The name of the type `Vec(T)` (typesystem.ml's `t_vec`), a TCon too,
+(* The name of the type `DynArray(T)` (typesystem.ml's `t_dynarray`), a TCon too,
    compiled as a pointer to a struct of its own. *)
-let vec_name = "Vec"
+let dynarray_name = "DynArray"
 
-(** A Vec type's element. typ -> typ option *)
-let vec_element t = match t with TCon (_, c, [ e ], _) when c = vec_name -> Some e | _ -> None
+(** A DynArray type's element. typ -> typ option *)
+let dynarray_element t = match t with TCon (_, c, [ e ], _) when c = dynarray_name -> Some e | _ -> None
 
 (* `Slice(T)`, a view of a run of an array's elements: a pointer to
    `pyk_w_<code>`, the array's elements, where the run starts and how
@@ -85,12 +85,12 @@ let slice_name = "Slice"
 (** A view type's element. typ -> typ option *)
 let slice_element t = match t with TCon (_, c, [ e ], _) when c = slice_name -> Some e | _ -> None
 
-(* `Dict(K, V)`: a pointer to `pyk_m_<code>`, its entries in the order
+(* `MutMap(K, V)`: a pointer to `pyk_m_<code>`, its entries in the order
    their keys came. *)
-let dict_name = "Dict"
+let mutmap_name = "MutMap"
 
-(** A Dict type's key and value types. typ -> (typ * typ) option *)
-let dict_parts t = match t with TCon (_, c, [ k; v ], _) when c = dict_name -> Some (k, v) | _ -> None
+(** A MutMap type's key and value types. typ -> (typ * typ) option *)
+let mutmap_parts t = match t with TCon (_, c, [ k; v ], _) when c = mutmap_name -> Some (k, v) | _ -> None
 
 (* `Ptr(T)`: C's own `T *`, pointing at a variable, an element or a
    field. *)
@@ -99,11 +99,11 @@ let ptr_name = "Ptr"
 (** A pointer type's target. typ -> typ option *)
 let ptr_target t = match t with TCon (_, c, [ e ], _) when c = ptr_name -> Some e | _ -> None
 
-(** Whether a TCon's name is a store's -- an array's, a Vec's, a view's,
-    a Dict's or a pointer's -- rather than a datatype's. string -> bool *)
-let is_store c = c = array_name || c = vec_name || c = slice_name || c = dict_name || c = ptr_name
+(** Whether a TCon's name is a store's -- an array's, a DynArray's, a view's,
+    a MutMap's or a pointer's -- rather than a datatype's. string -> bool *)
+let is_store c = c = array_name || c = dynarray_name || c = slice_name || c = mutmap_name || c = ptr_name
 
-(** An array's, a Vec's or a view's element type. typ -> typ option *)
+(** An array's, a DynArray's or a view's element type. typ -> typ option *)
 let store_element t = match t with TCon (_, c, [ e ], _) when is_store c && c <> ptr_name -> Some e | _ -> None
 
 (** The C standard a target writes, and whether it links the collector:
@@ -321,10 +321,10 @@ let rec code own info t =
   | TTuple (_, [], _) -> "u"
   | TTuple (_, es, _) -> "T" ^ String.concat "" (List.map (code own info) es) ^ "_"
   | TCon (_, c, [ e ], _) when c = array_name -> "A" ^ code own info e ^ "_"
-  | TCon (_, c, [ e ], _) when c = vec_name -> "V" ^ code own info e ^ "_"
+  | TCon (_, c, [ e ], _) when c = dynarray_name -> "V" ^ code own info e ^ "_"
   | TCon (_, c, [ e ], _) when c = slice_name -> "W" ^ code own info e ^ "_"
   | TCon (_, c, [ e ], _) when c = ptr_name -> "P" ^ code own info e ^ "_"
-  | TCon (_, c, [ k; v ], _) when c = dict_name -> "M" ^ code own info k ^ code own info v ^ "_"
+  | TCon (_, c, [ k; v ], _) when c = mutmap_name -> "M" ^ code own info k ^ code own info v ^ "_"
   | TCon (_, c, args, _) ->
       (* A datatype is named by its module wherever it is used, so every
          file of the program spells its struct the same. *)
@@ -344,7 +344,7 @@ let rec code own info t =
 (* --- which calls can change something ---
    Beside which calls can print (Analyses.effects), the order C leaves
    open matters where a call changes what another operand reads: a
-   `var` outside the function, a var struct's field, an element, a Vec.
+   `var` outside the function, a var struct's field, an element, a DynArray.
    A def changes something where its body writes one of those, or calls
    a def that does, a builtin that writes (`push`, ...), or another
    module; a call through a function value, which nothing here can see
@@ -943,7 +943,7 @@ let var_struct ctx t =
 
 (** Whether a datatype instance holds itself, directly or through another
     datatype, a tuple or a list: the one a tagged union by value cannot
-    be. An array, a Vec or a var struct on the way holds a pointer
+    be. An array, a DynArray or a var struct on the way holds a pointer
     already, which ends the search. ctx -> info -> typ -> bool *)
 let holds_itself ctx info t =
   let rec reaches seen t target =
@@ -992,7 +992,7 @@ let type_children ctx t =
   | TTuple (_, es, _) -> es
   | TList (_, e, _) -> [ list_element e ]
   | TCon (_, c, [ e ], _) when is_store c -> [ e ]
-  | TCon (_, c, [ k; v ], _) when c = dict_name -> [ k; v ]
+  | TCon (_, c, [ k; v ], _) when c = mutmap_name -> [ k; v ]
   | TCon (_, c, args, _) -> (
       match SMap.find_opt c ctx.datatypes with
       | Some (Datatype (_, params, ctors, _)) ->
@@ -1158,8 +1158,8 @@ let rec ctype ctx st info t =
             ]
         in
         (name, need_helper st ("pyk_new_" ^ acode) maker)
-  | TCon (_, c, [ elem ], _) when c = vec_name ->
-      (* A Vec is a pointer to its struct, shared by every name holding
+  | TCon (_, c, [ elem ], _) when c = dynarray_name ->
+      (* A DynArray is a pointer to its struct, shared by every name holding
          it: its length, its capacity and its elements, which
          pyk_grow_<code> doubles when they are full -- realloc on plain
          C, the collector's on c23-gc. pyk_new_<code>(n) makes one of n
@@ -1213,8 +1213,8 @@ let rec ctype ctx st info t =
               (declaration (pointer_to ect) "items") name
           in
           (shown, { st with types = st.types @ [ (name, decl) ] })
-  | TCon (_, c, [ key; value ], _) when c = dict_name ->
-      (* A Dict is a pointer to its struct: its keys and values side by
+  | TCon (_, c, [ key; value ], _) when c = mutmap_name ->
+      (* A MutMap is a pointer to its struct: its keys and values side by
          side, in the order the keys came. On c23-gc, `slots` is a hash
          index into them (-1 for an empty slot) and `version` counts the
          keys put in and taken out, which a `for` watches; plain C finds
@@ -1275,7 +1275,7 @@ let rec ctype ctx st info t =
          can name it before it is complete. *)
       let shown = if is_boxed then name ^ " *" else name in
       (* One that reaches itself through a pointer -- an array's
-         elements, a Vec, a var struct -- is declared ahead too, so the
+         elements, a DynArray, a var struct -- is declared ahead too, so the
          store can name it while its fields are worked out. *)
       let ahead =
         is_boxed
@@ -1444,7 +1444,7 @@ and declaration ct name =
 
 (* --- printing a value ---
    A value is written by a function per compound type, pyk_show_<code>.
-   An array, a Vec or a var struct may hold itself; printing one that is
+   An array, a DynArray or a var struct may hold itself; printing one that is
    already being printed further out writes `...` instead, so each
    printer that can meet one takes the path from the value printed
    first, `up`, a list of pyk_path cells on the C stack. Only a store
@@ -1481,7 +1481,7 @@ let on_path_helper =
     ]
 
 (** Whether a value of type t can be printed inside itself: a store -- an
-    array, a Vec, a view, a Dict, a pointer or a var struct -- whose
+    array, a DynArray, a view, a MutMap, a pointer or a var struct -- whose
     elements or fields reach its own type, or a datatype that reaches
     itself through one. ctx -> typ -> bool *)
 let cyclic ctx t =
@@ -1642,7 +1642,7 @@ let rec shower_at ctx st info t =
         let text = Printf.sprintf "static const char *%s(%s)\n{\n%s\n}" name (params ct) body in
         (call name, need_helper st name text)
   | TCon (_, c, [ elem ], _) when is_store c && c <> ptr_name ->
-      (* Written as what makes one, `array([1, 2])` or `vec([1, 2])`, its
+      (* Written as what makes one, `array([1, 2])` or `dynarray([1, 2])`, its
          elements as they are inside a list. *)
       let name = "pyk_show_" ^ code ctx.own info t in
       let ct, st = ctype ctx st info t in
@@ -1650,7 +1650,7 @@ let rec shower_at ctx st info t =
       else
         let show, st = shower_at ctx st info elem in
         let st = need_concat st in
-        let sel, opening = if c = vec_name then ("->", "vec([") else if c = slice_name then ("->", "view([") else (".", "array([") in
+        let sel, opening = if c = dynarray_name then ("->", "dynarray([") else if c = slice_name then ("->", "view([") else (".", "array([") in
         (* A view counts on the path as the array it is a run of. *)
         let decls, checks, inner = guard (if c = array_name then "v.items" else if c = slice_name then "v->items" else "v") in
         let item = if c = slice_name then "v->items[v->start + i]" else Printf.sprintf "v%sitems[i]" sel in
@@ -1686,8 +1686,8 @@ let rec shower_at ctx st info t =
             @ [ Printf.sprintf "    return pyk_concat(pyk_concat(\"Ptr(\", %s), \")\");" (show "*v" inner); "}" ])
         in
         (call name, need_helper st name text)
-  | TCon (_, c, [ key; value ], _) when c = dict_name ->
-      (* `dict([("ada", 37), ("bo", 6)])`: its entries as pairs, in order. *)
+  | TCon (_, c, [ key; value ], _) when c = mutmap_name ->
+      (* `mutmap([("ada", 37), ("bo", 6)])`: its entries as pairs, in order. *)
       let name = "pyk_show_" ^ code ctx.own info t in
       let ct, st = ctype ctx st info t in
       if List.mem_assoc name st.helpers then (call name, st)
@@ -1698,7 +1698,7 @@ let rec shower_at ctx st info t =
         let st = need_concat st in
         let text =
           String.concat "\n"
-            ([ Printf.sprintf "static const char *%s(%s)" name (params ct); "{"; "    const char *out = \"dict([\";"; "    int i;" ]
+            ([ Printf.sprintf "static const char *%s(%s)" name (params ct); "{"; "    const char *out = \"mutmap([\";"; "    int i;" ]
             @ decls @ checks
             @ [
                 "    for (i = 0; i < v->len; i++) {";
@@ -1830,7 +1830,7 @@ let shower ctx st info t =
 (* --- structural equality and hashing ---
    `==` on a list, a tuple, a struct or a datatype compares part by part
    (a Float by IEEE's rule, as C's `==` does), through a function written
-   once per type, pyk_eq_<code>, answering 1 or 0. A Dict's keys are
+   once per type, pyk_eq_<code>, answering 1 or 0. A MutMap's keys are
    compared by the same functions, and on c23-gc hashed by
    pyk_hash_<code>, which agree with them. *)
 
@@ -2094,37 +2094,37 @@ let rec list_helper ctx st info t kind =
     in
     (name, need_helper st name (String.concat "\n" lines))
 
-(* --- Vecs ---
-   A Vec is a pointer to `pyk_v_<code>`, its length, its capacity and
-   its elements. Plain C checks nothing: popping an empty Vec or an index
+(* --- DynArrays ---
+   A DynArray is a pointer to `pyk_v_<code>`, its length, its capacity and
+   its elements. Plain C checks nothing: popping an empty DynArray or an index
    outside it is undefined, as in C. c23-gc checks each, with the
    messages every target writes, and clears a slot an element leaves so
    the collector does not keep what it held. *)
 
-let vec_index_helper =
+let dynarray_index_helper =
   String.concat "\n"
     [
-      "static void pyk_check_vec_index(int i, int n)";
+      "static void pyk_check_dynarray_index(int i, int n)";
       "{";
       "    if (i < 0 || i >= n) {";
-      "        fprintf(stderr, \"error: the index %d is outside a Vec of %d element%s\\n\", i, n, n == 1 ? \"\" : \"s\");";
+      "        fprintf(stderr, \"error: the index %d is outside a DynArray of %d element%s\\n\", i, n, n == 1 ? \"\" : \"s\");";
       "        exit(1);";
       "    }";
       "}";
     ]
 
-(** A helper over Vecs of type t -- `push`, `pop`, `insert`, `remove`,
+(** A helper over DynArrays of type t -- `push`, `pop`, `insert`, `remove`,
     `clear`, `at` (a checked read) or `of_list` -- written once in the
     file: its name. ctx -> state -> info -> typ -> string -> (string,
     state) *)
-let vec_helper ctx st info t kind =
+let dynarray_helper ctx st info t kind =
   let t = substitute ctx.sigma t in
   let vcode = code ctx.own info t in
   let name = Printf.sprintf "pyk_%s_%s" kind vcode in
   let vt, st = ctype ctx st info t in
   if List.mem_assoc name st.helpers then (name, st)
   else
-    let elem = Option.value (vec_element t) ~default:(TTuple (no_info, [], 0)) in
+    let elem = Option.value (dynarray_element t) ~default:(TTuple (no_info, [], 0)) in
     let ect, st = ctype ctx st info elem in
     let fn result params = Printf.sprintf "static %s(%s)" (declaration result name) (String.concat ", " params) in
     let grow = "pyk_grow_" ^ vcode in
@@ -2146,7 +2146,7 @@ let vec_helper ctx st info t kind =
     (* On c23-gc, a slot an element leaves is cleared where it can hold a
        pointer. *)
     let clears = ctx.gc && holds_pointers ctx [] elem in
-    let check_index st = if ctx.gc then ([ "    pyk_check_vec_index(i, v->len);" ], need_helper st "pyk_check_vec_index" vec_index_helper) else ([], st) in
+    let check_index st = if ctx.gc then ([ "    pyk_check_dynarray_index(i, v->len);" ], need_helper st "pyk_check_dynarray_index" dynarray_index_helper) else ([], st) in
     let lines, st =
       match kind with
       | "push" ->
@@ -2154,7 +2154,7 @@ let vec_helper ctx st info t kind =
       | "pop" ->
           ( [ fn ect [ declaration vt "v" ]; "{"; Printf.sprintf "    %s;" (declaration ect "x") ]
             @ (if ctx.gc then
-                 [ "    if (v->len == 0) {"; "        fprintf(stderr, \"error: pop from an empty Vec\\n\");"; "        exit(1);"; "    }" ]
+                 [ "    if (v->len == 0) {"; "        fprintf(stderr, \"error: pop from an empty DynArray\\n\");"; "        exit(1);"; "    }" ]
                else [])
             @ [ "    x = v->items[--v->len];" ]
             @ (if clears then [ "    memset(&v->items[v->len], 0, sizeof *v->items);" ] else [])
@@ -2165,7 +2165,7 @@ let vec_helper ctx st info t kind =
             @ (if ctx.gc then
                  [
                    "    if (i < 0 || i > v->len) {";
-                   "        fprintf(stderr, \"error: insert's index %d is outside 0 to %d, the Vec's length\\n\", i, v->len);";
+                   "        fprintf(stderr, \"error: insert's index %d is outside 0 to %d, the DynArray's length\\n\", i, v->len);";
                    "        exit(1);";
                    "    }";
                  ]
@@ -2190,7 +2190,7 @@ let vec_helper ctx st info t kind =
           let checks, st = check_index st in
           ([ fn ect [ declaration vt "v"; "int i" ]; "{" ] @ checks @ [ "    return v->items[i];"; "}" ], st)
       | _ ->
-          (* A Vec of a list's elements, in order. *)
+          (* A DynArray of a list's elements, in order. *)
           let lt = TList (no_info, elem, 0) in
           let lct, st = ctype ctx st info lt in
           let length, st = list_helper ctx st info lt "length" in
@@ -2209,46 +2209,46 @@ let vec_helper ctx st info t kind =
     in
     (name, need_helper st name (String.concat "\n" lines))
 
-(* --- Dicts ---
-   A Dict is a pointer to `pyk_m_<code>`: `len` entries, their keys and
+(* --- MutMaps ---
+   A MutMap is a pointer to `pyk_m_<code>`: `len` entries, their keys and
    values side by side in the order the keys came; a key's entry keeps
    its place when its value is replaced, and removing one moves the later
    ones down. pyk_find_<code> answers a key's position, or -1. On c23-gc
    it looks the key up in `slots`, a hash index of the positions, which
    is rebuilt when it fills or an entry moves, and `version` counts the
-   keys put in and taken out; a missing key and a Dict changed under a
+   keys put in and taken out; a missing key and a MutMap changed under a
    `for` stop the program. Plain C looks at each key in turn and checks
    nothing: a missing key is undefined there. *)
 
-let dict_walk_helper =
+let mutmap_walk_helper =
   String.concat "\n"
     [
-      "static void pyk_dict_walk(int now, int then)";
+      "static void pyk_mutmap_walk(int now, int then)";
       "{";
       "    if (now != then) {";
-      "        fprintf(stderr, \"error: the Dict changed while a for loop was reading it\\n\");";
+      "        fprintf(stderr, \"error: the MutMap changed while a for loop was reading it\\n\");";
       "        exit(1);";
       "    }";
       "}";
     ]
 
-(** A helper over Dicts of type t -- `find`, `index` and `slot` (c23-gc),
+(** A helper over MutMaps of type t -- `find`, `index` and `slot` (c23-gc),
     `put`, `at`, `remove`, `discard`, `get`, `has`, `keys`, `values`,
     `items`, `clear` or `of_list` -- written once in the file: its name.
     ctx -> state -> info -> typ -> string -> (string, state) *)
-let rec dict_helper ctx st info t kind =
+let rec mutmap_helper ctx st info t kind =
   let t = substitute ctx.sigma t in
   let mcode = code ctx.own info t in
   let name = Printf.sprintf "pyk_%s_%s" kind mcode in
   let dt, st = ctype ctx st info t in
   if List.mem_assoc name st.helpers then (name, st)
   else
-    let key, value = Option.value (dict_parts t) ~default:(TTuple (no_info, [], 0), TTuple (no_info, [], 0)) in
+    let key, value = Option.value (mutmap_parts t) ~default:(TTuple (no_info, [], 0), TTuple (no_info, [], 0)) in
     let kct, st = ctype ctx st info key in
     let vct, st = ctype ctx st info value in
     let fn result params = Printf.sprintf "static %s(%s)" (declaration result name) (String.concat ", " params) in
     let d = declaration dt "d" in
-    let helper st kind = dict_helper ctx st info t kind in
+    let helper st kind = mutmap_helper ctx st info t kind in
     let eq, st = structural ctx st info "eq" key in
     (* On c23-gc, an entry's memory left behind is cleared where it can
        hold a pointer, so the collector does not keep what it held. *)
@@ -2258,7 +2258,7 @@ let rec dict_helper ctx st info t kind =
         let show, st = shower ctx st info key in
         ( [
             "    if (i < 0) {";
-            Printf.sprintf "        fprintf(stderr, \"error: the Dict has no key %%s%s\\n\", %s);" suffix (show "k");
+            Printf.sprintf "        fprintf(stderr, \"error: the MutMap has no key %%s%s\\n\", %s);" suffix (show "k");
             "        exit(1);";
             "    }";
           ],
@@ -2450,7 +2450,7 @@ let rec dict_helper ctx st info t kind =
           in
           ([ fn "void" [ d ]; "{" ] @ rest @ [ "    d->len = 0;"; "}" ], st)
       | _ ->
-          (* A Dict of a list of pairs: a key written twice keeps its first
+          (* A MutMap of a list of pairs: a key written twice keeps its first
              place and its last value. *)
           let pair = TTuple (no_info, [ key; value ], 0) in
           let lt = TList (no_info, pair, 0) in
@@ -2470,22 +2470,22 @@ let rec dict_helper ctx st info t kind =
     in
     (name, need_helper st name (String.concat "\n" lines))
 
-(** How a `for` walks an array, a Vec, a view or a Dict t held in held,
+(** How a `for` walks an array, a DynArray, a view or a MutMap t held in held,
     by the index idx: the element's type, the declarations it needs
-    (version, a Dict's version when the walk began, on c23-gc), the
-    loop's test and the element read. A Dict's walk is its keys, and on
+    (version, a MutMap's version when the walk began, on c23-gc), the
+    loop's test and the element read. A MutMap's walk is its keys, and on
     c23-gc checks at every advance that no key came or went.
     ctx -> state -> typ -> string -> string -> string -> (typ, [cstmt],
     string, string, state) *)
 let walk_of ctx st t held idx version =
-  match (dict_parts t, slice_element t, vec_element t, store_element t) with
+  match (mutmap_parts t, slice_element t, dynarray_element t, store_element t) with
   | Some (key, _), _, _, _ ->
       if ctx.gc then
         ( key,
           [ CDecl ("int", version, Some (held ^ "->version")) ],
-          Printf.sprintf "pyk_dict_walk(%s->version, %s), %s < %s->len" held version idx held,
+          Printf.sprintf "pyk_mutmap_walk(%s->version, %s), %s < %s->len" held version idx held,
           Printf.sprintf "%s->keys[%s]" held idx,
-          need_helper st "pyk_dict_walk" dict_walk_helper )
+          need_helper st "pyk_mutmap_walk" mutmap_walk_helper )
       else (key, [], Printf.sprintf "%s < %s->len" idx held, Printf.sprintf "%s->keys[%s]" held idx, st)
   | _, Some e, _, _ -> (e, [], Printf.sprintf "%s < %s->len" idx held, Printf.sprintf "%s->items[%s->start + %s]" held held idx, st)
   | _, _, Some e, _ -> (e, [], Printf.sprintf "%s < %s->len" idx held, Printf.sprintf "%s->items[%s]" held idx, st)
@@ -2493,7 +2493,7 @@ let walk_of ctx st t held idx version =
   | _ -> (t, [], "0", "0", st)
 
 (* --- slices and views ---
-   `s[i:j]` copies a run of a list, a String, an array, a Vec or a view
+   `s[i:j]` copies a run of a list, a String, an array, a DynArray or a view
    into a new value of its own kind (a view's into an array), through
    pyk_slice_<code>. A view is a pointer to `pyk_w_<code>`, sharing its
    array's elements: element k is `items[start + k]`. c23-gc checks
@@ -2604,21 +2604,21 @@ let run_helper ctx st info t kind =
             @ [ Printf.sprintf "    return %s(%s(xs, lo), hi - lo);" take drop; "}" ],
             st )
       | _ ->
-          (* An array, a Vec or a view: a new array (a new Vec of a Vec)
+          (* An array, a DynArray or a view: a new array (a new DynArray of a DynArray)
              of the run's elements. *)
           let elem = Option.value (store_element t) ~default:(TTuple (no_info, [], 0)) in
-          let is_vec = vec_element t <> None and is_view = slice_element t <> None in
-          let made = if is_vec then t else TCon (no_info, array_name, [ elem ], 0) in
+          let is_dynarray = dynarray_element t <> None and is_view = slice_element t <> None in
+          let made = if is_dynarray then t else TCon (no_info, array_name, [ elem ], 0) in
           let mt, st = ctype ctx st info made in
           let mcode = code ctx.own info made in
-          let what, first = if is_vec then ("a Vec", "a->items") else if is_view then ("a view", "a->items + a->start") else ("an array", "a.items") in
-          let sel = if is_vec || is_view then "->" else "." in
+          let what, first = if is_dynarray then ("a DynArray", "a->items") else if is_view then ("a view", "a->items + a->start") else ("an array", "a.items") in
+          let sel = if is_dynarray || is_view then "->" else "." in
           ( [ fn mt [ declaration ct "a"; "int lo"; "int hi" ]; "{"; Printf.sprintf "    int n = a%slen;" sel; Printf.sprintf "    %s;" (declaration mt "out"); "    int k;" ]
             @ bounds what "lo" "hi"
             @ [
                 Printf.sprintf "    out = pyk_new_%s(hi - lo);" mcode;
                 "    for (k = lo; k < hi; k++) {";
-                Printf.sprintf "        out%sitems[k - lo] = (%s)[k];" (if is_vec then "->" else ".") first;
+                Printf.sprintf "        out%sitems[k - lo] = (%s)[k];" (if is_dynarray then "->" else ".") first;
                 "    }";
                 "    return out;";
                 "}";
@@ -3078,7 +3078,7 @@ let rec in_order ?(expected = []) ctx st scope es =
 
 (** Whether nothing a call could do changes e's value: e reads no
     `var` a call can write (a captured one, or one of the top level), no
-    field of a var struct, no element and no Vec's length, and calls
+    field of a var struct, no element and no DynArray's length, and calls
     nothing but a builtin that only reads. ctx -> state -> scope -> expr
     -> bool *)
 and stable ctx st scope e =
@@ -3092,7 +3092,7 @@ and stable ctx st scope e =
          found
          ||
          match node with
-         | Walk.NExpr (ECall (_, EVar (_, "len", _), [ (_, a) ], _)) when reads "len" -> vec_element (type_of ctx scope a) <> None
+         | Walk.NExpr (ECall (_, EVar (_, "len", _), [ (_, a) ], _)) when reads "len" -> dynarray_element (type_of ctx scope a) <> None
          | Walk.NExpr (ECall (_, EVar (_, name, _), _, _)) -> not (reads name)
          | Walk.NExpr (ECall _) -> true
          | Walk.NExpr (EVar (_, name, _)) -> (
@@ -3312,19 +3312,19 @@ and expr ctx st scope e =
             let getter, st = array_getter ctx st info array_t in
             (sequenced steps (atom (Printf.sprintf "%s(%s, %s)" getter a.text i.text)), st)
           else (sequenced steps (atom (Printf.sprintf "%s.items[%s]" (at p_atom a) i.text)), st)
-      | dict_t when dict_parts dict_t <> None ->
+      | mutmap_t when mutmap_parts mutmap_t <> None ->
           let pieces, steps, st = in_order ctx st scope [ l; r ] in
-          let at, st = dict_helper ctx st info dict_t "at" in
+          let at, st = mutmap_helper ctx st info mutmap_t "at" in
           (sequenced steps (atom (Printf.sprintf "%s(%s, %s)" at (List.nth pieces 0).text (List.nth pieces 1).text)), st)
       | view_t when slice_element view_t <> None ->
           let pieces, steps, st = in_order ctx st scope [ l; r ] in
           let at, st = run_helper ctx st info view_t "at" in
           (sequenced steps (atom (Printf.sprintf "%s(%s, %s)" at (List.nth pieces 0).text (List.nth pieces 1).text)), st)
-      | vec_t when vec_element vec_t <> None ->
+      | dynarray_t when dynarray_element dynarray_t <> None ->
           let pieces, steps, st = in_order ctx st scope [ l; r ] in
           let a = List.nth pieces 0 and i = List.nth pieces 1 in
           if ctx.gc then
-            let getter, st = vec_helper ctx st info vec_t "at" in
+            let getter, st = dynarray_helper ctx st info dynarray_t "at" in
             (sequenced steps (atom (Printf.sprintf "%s(%s, %s)" getter a.text i.text)), st)
           else (sequenced steps (atom (Printf.sprintf "%s->items[%s]" (at p_atom a) i.text)), st)
       | TList _ as list_t when ctx.gc ->
@@ -3454,19 +3454,19 @@ and array_getter ctx st info t =
 and make_array ctx st scope e name args =
   let info = expr_info e in
   let t = type_of ctx scope e in
-  match (vec_element t, name, args) with
-  | _, "empty__dict", [] ->
+  match (dynarray_element t, name, args) with
+  | _, "empty__mutmap", [] ->
       let _, st = ctype ctx st info t in
       (atom (Printf.sprintf "pyk_new_%s()" (code ctx.own info t)), st)
-  | _, "list__dict", [ EList (_, items, _) ] ->
+  | _, "list__mutmap", [ EList (_, items, _) ] ->
       (* Each pair put in turn, its key and value worked out left to
          right first; a pair that is not written out is held whole. *)
       let dt, st = ctype ctx st info t in
       let mcode = code ctx.own info t in
-      let put, st = dict_helper ctx st info t "put" in
+      let put, st = mutmap_helper ctx st info t "put" in
       let pieces = List.concat_map (fun item -> match item with ETuple (_, [ k; v ], _) -> [ k; v ] | e -> [ e ]) items in
       let values, steps, st = in_order ctx st scope pieces in
-      if List.exists (fun v -> v.local_env) values then unsupported info (escaping "a Dict");
+      if List.exists (fun v -> v.local_env) values then unsupported info (escaping "a MutMap");
       let held, st = fresh_temp st dt in
       let rec puts items values st =
         match (items, values) with
@@ -3482,31 +3482,31 @@ and make_array ctx st scope e name args =
       in
       let made, st = puts items values st in
       (sequenced steps (atom ("(" ^ String.concat ", " ((Printf.sprintf "%s = pyk_new_%s()" held mcode :: made) @ [ held ]) ^ ")")), st)
-  | _, "list__dict", [ xs ] when ctx.gc ->
+  | _, "list__mutmap", [ xs ] when ctx.gc ->
       let v, st = expr ctx st scope xs in
-      let helper, st = dict_helper ctx st info t "of_list" in
+      let helper, st = mutmap_helper ctx st info t "of_list" in
       (atom (Printf.sprintf "%s(%s)" helper v.text), st)
-  | _, "list__dict", _ -> unsupported info heap_reason
-  | Some _, "empty__vec", [] ->
+  | _, "list__mutmap", _ -> unsupported info heap_reason
+  | Some _, "empty__dynarray", [] ->
       let _, st = ctype ctx st info t in
       (atom (Printf.sprintf "pyk_new_%s(0)" (code ctx.own info t)), st)
-  | Some _, "list__vec", [ EList (_, items, _) ] ->
+  | Some _, "list__dynarray", [ EList (_, items, _) ] ->
       (* Made as long as the literal, each element written straight in,
          left to right: no list is made. *)
       let vt, st = ctype ctx st info t in
       let values, st =
         List.fold_left (fun (out, st) item -> let v, st = expr ctx st scope item in (out @ [ v ], st)) ([], st) items
       in
-      if List.exists (fun v -> v.local_env) values then unsupported info (escaping "a Vec");
+      if List.exists (fun v -> v.local_env) values then unsupported info (escaping "a DynArray");
       let held, st = fresh_temp st vt in
       let steps =
         Printf.sprintf "%s = pyk_new_%s(%d)" held (code ctx.own info t) (List.length items)
         :: List.mapi (fun i v -> Printf.sprintf "%s->items[%d] = %s" held i (at p_assign v)) values
       in
       (atom ("(" ^ String.concat ", " (steps @ [ held ]) ^ ")"), st)
-  | Some _, "list__vec", [ xs ] when ctx.gc ->
+  | Some _, "list__dynarray", [ xs ] when ctx.gc ->
       let v, st = expr ctx st scope xs in
-      let helper, st = vec_helper ctx st info t "of_list" in
+      let helper, st = dynarray_helper ctx st info t "of_list" in
       (atom (Printf.sprintf "%s(%s)" helper v.text), st)
   | Some _, _, _ -> unsupported info heap_reason
   | None, _, _ -> make_store ctx st scope e name args
@@ -3966,17 +3966,17 @@ and builtin ctx st scope e name args =
       match arg_type 0 with
       | TString _ -> (sequenced steps (atom (Printf.sprintf "pyk_utf8_length(%s)" v.text)), need_char st "pyk_utf8_length")
       | t when Typesystem.array_element t <> None -> wrap (atom (at p_atom v ^ ".len"))
-      | t when vec_element t <> None || slice_element t <> None || dict_parts t <> None -> wrap (atom (at p_atom v ^ "->len"))
+      | t when dynarray_element t <> None || slice_element t <> None || mutmap_parts t <> None -> wrap (atom (at p_atom v ^ "->len"))
       | TList _ as t when ctx.gc ->
           let length, st = list_helper ctx st info t "length" in
           (sequenced steps (atom (Printf.sprintf "%s(%s)" length v.text)), st)
       | _ -> unsupported info heap_reason)
   | ("remove" | "discard" | "get" | "has" | "keys" | "values" | "items" | "clear"), (_ :: _ as vs)
-    when dict_parts (arg_type 0) <> None ->
-      (* A Dict's: `keys`, `values` and `items` make lists, which plain C
+    when mutmap_parts (arg_type 0) <> None ->
+      (* A MutMap's: `keys`, `values` and `items` make lists, which plain C
          refuses. *)
       if (not ctx.gc) && List.mem name [ "keys"; "values"; "items" ] then unsupported info heap_reason;
-      let helper, st = dict_helper ctx st info (arg_type 0) name in
+      let helper, st = mutmap_helper ctx st info (arg_type 0) name in
       let called = Printf.sprintf "%s(%s)" helper (String.concat ", " (List.map (fun v -> v.text) vs)) in
       (sequenced steps (atom (if List.mem name [ "discard"; "clear" ] then Printf.sprintf "(%s, 0)" called else called)), st)
   | "view", [ a; i; j ] ->
@@ -4007,13 +4007,13 @@ and builtin ctx st scope e name args =
          elements, so two arrays never share one. *)
       wrap (binary p_eq "==" (atom (at p_atom a ^ ".items")) (atom (at p_atom b ^ ".items")))
   | "same", [ a; b ] ->
-      (* A Vec or a var struct is a pointer: one is one pointer. *)
+      (* A DynArray or a var struct is a pointer: one is one pointer. *)
       wrap (binary p_eq "==" a b)
-  | ("push" | "insert" | "clear"), (_ :: _ as vs) when vec_element (arg_type 0) <> None ->
-      let helper, st = vec_helper ctx st info (arg_type 0) name in
+  | ("push" | "insert" | "clear"), (_ :: _ as vs) when dynarray_element (arg_type 0) <> None ->
+      let helper, st = dynarray_helper ctx st info (arg_type 0) name in
       (sequenced steps (atom (Printf.sprintf "(%s(%s), 0)" helper (String.concat ", " (List.map (fun v -> v.text) vs)))), st)
-  | ("pop" | "remove"), (_ :: _ as vs) when vec_element (arg_type 0) <> None ->
-      let helper, st = vec_helper ctx st info (arg_type 0) name in
+  | ("pop" | "remove"), (_ :: _ as vs) when dynarray_element (arg_type 0) <> None ->
+      let helper, st = dynarray_helper ctx st info (arg_type 0) name in
       (sequenced steps (atom (Printf.sprintf "%s(%s)" helper (String.concat ", " (List.map (fun v -> v.text) vs)))), st)
   | "string", [ v ] -> (
       match arg_type 0 with
@@ -4060,7 +4060,7 @@ and print_call ctx st scope name args =
   let values, steps, st = in_order ctx st scope args in
   (* Every argument is worked out before any is written: where a later
      one calls something that could change an earlier one -- an array, a
-     Vec or a var struct, or what holds one -- each is put in a
+     DynArray or a var struct, or what holds one -- each is put in a
      temporary first, in order. *)
   let changeable a =
     reaches_type ctx (fun u -> (match u with TCon (_, c, _, _) when is_store c -> true | _ -> false) || var_struct ctx u) (type_of ctx scope a)
@@ -4214,11 +4214,11 @@ and each ctx st scope info p sequence body =
                 CFor (Printf.sprintf "%s = %s; %s != NULL; %s = %s->tail" cell (at p_assign v) cell cell cell,
                       CLine (Printf.sprintf "%s = %s->head;" cname cell) :: inner) ],
             st )
-      | at_t when store_element at_t <> None || dict_parts at_t <> None ->
+      | at_t when store_element at_t <> None || mutmap_parts at_t <> None ->
           let act, st = ctype ctx st info at_t in
-          let held, st = fresh st (base ^ (if dict_parts at_t <> None then "_dict" else "_array")) in
+          let held, st = fresh st (base ^ (if mutmap_parts at_t <> None then "_mutmap" else "_array")) in
           let idx, st = fresh st (base ^ "_at") in
-          let version, st = if dict_parts at_t <> None then fresh st (base ^ "_version") else ("", st) in
+          let version, st = if mutmap_parts at_t <> None then fresh st (base ^ "_version") else ("", st) in
           let elem, decls, test, item, st = walk_of ctx st at_t held idx version in
           let ect, st = ctype ctx st info elem in
           let inner, st = matched st elem in
@@ -4511,13 +4511,13 @@ and stmt ctx st scope s =
       if vv.local_env then unsupported info (escaping "a var struct");
       let vpre, st = flush st in
       (opre @ decls @ vpre @ [ CLine (Printf.sprintf "%s->%s = %s;" (at p_atom held) path (at p_assign vv)) ], scope, st)
-  | SSetIndex (info, owner, key, value, _) when dict_parts (type_of ctx scope owner) <> None ->
-      (* d[k] := v: the Dict, the key and the value in order, then the
+  | SSetIndex (info, owner, key, value, _) when mutmap_parts (type_of ctx scope owner) <> None ->
+      (* d[k] := v: the MutMap, the key and the value in order, then the
          entry put -- at the end, or over the key's own value. *)
       let values, steps, st = in_order ctx st scope [ owner; key; value ] in
       let pre, st = flush st in
-      if (List.nth values 2).local_env then unsupported info (escaping "a Dict");
-      let put, st = dict_helper ctx st info (type_of ctx scope owner) "put" in
+      if (List.nth values 2).local_env then unsupported info (escaping "a MutMap");
+      let put, st = mutmap_helper ctx st info (type_of ctx scope owner) "put" in
       ( pre
         @ List.map (fun step -> CLine (step ^ ";")) steps
         @ [ CLine (Printf.sprintf "%s(%s);" put (String.concat ", " (List.map (fun v -> v.text) values))) ],
@@ -4552,13 +4552,13 @@ and stmt ctx st scope s =
         scope,
         st )
   | SSetIndex (info, owner, index, value, _) when not ctx.gc ->
-      (* Plain C: owner.items[index] = value (owner->items for a Vec),
+      (* Plain C: owner.items[index] = value (owner->items for a DynArray),
          nothing checked; operands that can print are pinned in order
          first. *)
       let owner_t = type_of ctx scope owner in
-      if Typesystem.array_element owner_t = None && vec_element owner_t = None then
-        unsupported info "an element write into what is not an array or a Vec";
-      let sel = if vec_element owner_t <> None then "->" else "." in
+      if Typesystem.array_element owner_t = None && dynarray_element owner_t = None then
+        unsupported info "an element write into what is not an array or a DynArray";
+      let sel = if dynarray_element owner_t <> None then "->" else "." in
       let values, steps, st = in_order ctx st scope [ owner; index; value ] in
       let pre, st = flush st in
       let o = List.nth values 0 and i = List.nth values 1 and v = List.nth values 2 in
@@ -4568,27 +4568,27 @@ and stmt ctx st scope s =
         @ [ CLine (Printf.sprintf "%s%sitems[%s] = %s;" (at p_atom o) sel i.text (at p_assign v)) ],
         scope,
         st )
-  | SSetIndex (info, owner, index, value, _) when vec_element (type_of ctx scope owner) <> None ->
-      (* owner[index] := value on c23-gc, for a Vec: the Vec and the
+  | SSetIndex (info, owner, index, value, _) when dynarray_element (type_of ctx scope owner) <> None ->
+      (* owner[index] := value on c23-gc, for a DynArray: the DynArray and the
          index each into a temporary, the index checked, the value worked
          out, and the index checked again before the write -- the value
-         may have shrunk the Vec. *)
+         may have shrunk the DynArray. *)
       let owner_t = type_of ctx scope owner in
-      let elem = Option.get (vec_element owner_t) in
+      let elem = Option.get (dynarray_element owner_t) in
       let vt, st = ctype ctx st info owner_t in
       let ect, st = ctype ctx st info elem in
       let ov, st = expr ctx st scope owner in
       let opre, st = flush st in
-      let held, st = temp st "vec" in
+      let held, st = temp st "dynarray" in
       let iv, st = expr ctx st scope index in
       let ipre, st = flush st in
       let idx, st = temp st "idx" in
       let vv, st = expr ctx st scope value in
-      if vv.local_env then unsupported info (escaping "a Vec");
+      if vv.local_env then unsupported info (escaping "a DynArray");
       let vpre, st = flush st in
       let worked, st = temp st "value" in
-      let st = need_helper st "pyk_check_vec_index" vec_index_helper in
-      let check = CLine (Printf.sprintf "pyk_check_vec_index(%s, %s->len);" idx held) in
+      let st = need_helper st "pyk_check_dynarray_index" dynarray_index_helper in
+      let check = CLine (Printf.sprintf "pyk_check_dynarray_index(%s, %s->len);" idx held) in
       ( opre
         @ [ CDecl (vt, held, Some ov.text) ]
         @ ipre
@@ -4918,18 +4918,18 @@ and loop ctx st scope s =
             @ spre @ [ CFor (header, body_stmts) ],
             value, acc_t, st )
       | Some (ForIn (iter_info, element, sequence, _))
-        when (let t = type_of ctx scope sequence in store_element t <> None || dict_parts t <> None) ->
+        when (let t = type_of ctx scope sequence in store_element t <> None || mutmap_parts t <> None) ->
           (* An array's elements by index, each read as its turn is
-             reached, so a write ahead of the loop is seen; a Vec's and a
+             reached, so a write ahead of the loop is seen; a DynArray's and a
              view's while the index is below the length at that turn; a
-             Dict's keys, which on c23-gc no key may come or go under. *)
+             MutMap's keys, which on c23-gc no key may come or go under. *)
           let at = type_of ctx scope sequence in
           let v, st = expr ctx st scope sequence in
           let spre, st = flush st in
           let act, st = ctype ctx st iter_info at in
-          let held, st = fresh st (element ^ (if dict_parts at <> None then "_dict" else "_array")) in
+          let held, st = fresh st (element ^ (if mutmap_parts at <> None then "_mutmap" else "_array")) in
           let idx, st = fresh st (element ^ "_at") in
-          let version, st = if dict_parts at <> None then fresh st (element ^ "_version") else ("", st) in
+          let version, st = if mutmap_parts at <> None then fresh st (element ^ "_version") else ("", st) in
           let elem, decls, test, item, st = walk_of ctx st at held idx version in
           let ect, st = ctype ctx st iter_info elem in
           let cname, st = fresh st element in

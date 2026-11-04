@@ -1,0 +1,18 @@
+mutmap([(Pos(0, 0), 'x'), (Pos(1, 2), 'X'), (Pos(2, 2), '.')]) X false 3
+two! none red
+mutmap([(("a", 1), true), (("bb", 2), false)])
+2 mutmap([("x", 1), ("z", 3)])
+mutmap([("x", 10), ("z", 30), ("y", 200)]) true
+mutmap([]) 0 false
+10 89385 8100 -1
+mutmap([("self", Inner(...)), ("none", Nothing)])
+true true true false
+false true true
+éllo wörld  9
+array([-1, 30, 40]) array([10, 20, 30, 40, 50]) array([10, 20, 30, 40, 50]) array([])
+dynarray([2, 3]) dynarray([1, 2]) 0
+view([21, 31, 40, 59]) view([31, 40]) array([10, 21, 31, 40, 59]) array([40, 59]) 2 true false
+walk 31
+walk 40
+array([1, 1, 2, 3, 4, 5])
+array([9, 8, 2, 3, 4, 5])

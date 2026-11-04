@@ -1,10 +1,10 @@
 Pyking REPL.  :help for commands, :quit to leave.
 > > > > > Point(11, 2) : Point
 > > > 3 : Int
-> vec([1, 2]) : Vec(Int)
-> > > dict([("a", 1), ("b", 2)]) : Dict(String, Int)
+> dynarray([1, 2]) : DynArray(Int)
+> > > mutmap([("a", 1), ("b", 2)]) : MutMap(String, Int)
 > ["a", "b"] : [String]
-> '<repl>' 1:0-1:8 Runtime error: the Dict has no key "zed"
+> '<repl>' 1:0-1:8 Runtime error: the MutMap has no key "zed"
 > true : Bool
 > > [20, 30] : [Int]
 > > view([1, 2]) : Slice(Int)

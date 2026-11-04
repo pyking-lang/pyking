@@ -125,11 +125,11 @@ wrote them.
 
 Mutation widens what counts, and `in_order` asks two questions of each
 expression rather than one. `writes` is true of one that can print,
-can fail (an element read of an array, a Vec or a Dict, or a call to
+can fail (an element read of an array, a DynArray or a MutMap, or a call to
 one of `Builtin.member_names`, which checks a size), or calls something
 that can change what a caller sees. `observes` is true of one that
 writes, or reads a `var` (a name in `ctx.refs`), a var struct's field,
-a Vec or a Dict through a builtin (`len`, `get`, `has`, `keys`, ...),
+a DynArray or a MutMap through a builtin (`len`, `get`, `has`, `keys`, ...),
 or a `string(v)` of something that can hold a mutable value, or calls
 any function at all -- a builtin being a callee the checker recorded
 no type for, since `get` or `keys` may be a program's own. Where anything among
@@ -194,7 +194,7 @@ same by the declaring module and every importer, since one writes the
 printer and the others call it. It is worked out from declarations of
 the datatype's own module alone: a walk over its fields' types, with
 what it is inside of on a stack, that answers yes on meeting a datatype
-already on the stack with an array, a Vec, a Dict or a var struct
+already on the stack with an array, a DynArray, a MutMap or a var struct
 between (a cycle a mutable value can close), one of those containers or
 a type of another module, or a type variable. A printer that takes the
 path also guards its own value, immutable or not, because the
@@ -207,20 +207,20 @@ names a private one — so every module gets the same answer. A guard is
 only emitted where what it wraps actually reads the path (`free`), so
 an array of Ints, or a var struct of plain fields, prints as before.
 
-## Vecs, Dicts and views: Stdlib types only
+## DynArrays, MutMaps and views: Stdlib types only
 
 A var struct can be an OCaml type of its own because one module
-declares it and every other names it through that module. A Vec, a
-Dict and a view belong to no module, and each generated `.ml` carries
+declares it and every other names it through that module. A DynArray, a
+MutMap and a view belong to no module, and each generated `.ml` carries
 its own helpers, so a record declared for one in every file would be a
-different type in each, and a Vec could not pass from a library to its
+different type in each, and a DynArray could not pass from a library to its
 caller. So each is built from Stdlib's types alone, which every file
-writes the same: a Vec is `(T option array * int) ref`, a Dict
+writes the same: a DynArray is `(T option array * int) ref`, a MutMap
 `(K, int * V) Stdlib.Hashtbl.t * int ref`, a view `(T array * int *
 int)`. Each is one allocation made once, when the value is, so `==` is
 identity and `pyk_guard` keys on it -- a view on its array, as the
-interpreter keys it. Every operation is a small helper (`pyk_vec_push`,
-`pyk_dict_set`, `pyk_view_get`, ...), emitted only where used, so a
+interpreter keys it. Every operation is a small helper (`pyk_dynarray_push`,
+`pyk_mutmap_set`, `pyk_view_get`, ...), emitted only where used, so a
 reader of the generated code sees the operation's name rather than the
 tuple taken apart. Slices go through one helper per kind of sequence,
 which `ESlice` picks from the checker's type.

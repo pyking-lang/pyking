@@ -1,8 +1,0 @@
-# Popping an empty Vec is a runtime error, on every target but plain C.
-
-use mutation
-
-v: Vec(Int) = vec()
-push(v, 1)
-print(pop(v))
-print(pop(v))

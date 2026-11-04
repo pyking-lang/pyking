@@ -1,9 +1,0 @@
-# A key that changes would be lost in its Dict: an array, a Vec, a
-# Dict or a var struct is never a key, nor anything holding one.
-#
-# This program is expected to FAIL. Its `.ast.out` holds the error
-# message, not a program's output.
-
-use mutation
-
-seen: Dict([Vec(Int)], Bool) = dict()

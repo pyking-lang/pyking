@@ -20,7 +20,7 @@ lib/time/   time.pyk  time_external.pyk  time_external.{py,ml}
 lib/tinyweb/ tinyweb.pyk  tinyweb_external.pyk  tinyweb_external.{py,c,ml}  TinywebExternal.java
 ```
 
-`array`, `random` and `vec` are one file each, `<name>.pyk`, written in
+`array`, `random` and `dynarray` are one file each, `<name>.pyk`, written in
 Pyking alone.
 
 and every one of them `<name>_external_node.js` and
@@ -726,14 +726,14 @@ cannot provide").
 | `text` | yes | yes | yes | yes | yes, but not `split`, `words`, `join` or `lines` | yes | yes | yes | yes |
 | `time` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
 | `tinyweb` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
-| `vec` | yes | yes | yes | yes | yes, but not `to_list` or `extend`, which take or answer a list | yes | yes | yes | yes |
+| `dynarray` | yes | yes | yes | yes | yes, but not `to_list` or `extend`, which take or answer a list | yes | yes | yes | yes |
 
 "Not supported" and "output only" are the browser implementations above:
 the import compiles and a function the page cannot provide says so.
 
 `array` is written in Pyking alone too, over the builtin arrays, so
 `sort` is one merge sort with the same comparisons everywhere. So is
-`vec`, over the builtin Vecs and `array`, whose `sort` it uses.
+`dynarray`, over the builtin DynArrays and `array`, whose `sort` it uses.
 
 `random` is written in Pyking alone, a Park--Miller generator kept in
 32 bits, so a seed gives the same numbers on every target; without one it

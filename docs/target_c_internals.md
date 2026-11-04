@@ -112,38 +112,38 @@ assignments -- so it is never `local_env` and may be returned or held
 anywhere; plain C keeps it on the stack, filled through `pre`. A `var`
 a closure captures is a collected cell on c23-gc (`stmt`, `SVar`).
 
-## Var structs and Vecs
+## Var structs and DynArrays
 
 `var_struct` reads a datatype's `writable` flag. `boxed` is true for
 one on every target, so `ctype` declares it ahead and its makers
 allocate through the allocator markers (malloc on plain C), and
 `member_of` reads it through `->`. `holds_itself` stops at a var
-struct, an array and a Vec -- each holds a pointer -- and `ctype`
+struct, an array and a DynArray -- each holds a pointer -- and `ctype`
 declares ahead any datatype that reaches itself through one
 (`type_children`, `reaches_type`), so it stays a value. `SSetField`
 in `stmt` writes `p->x = v`, its owner in a temporary only where the
 value could change what the owner names (`has_call`).
 
-A Vec is `TCon "Vec"` beside `Array`: `is_store`, `vec_element` and
+A DynArray is `TCon "DynArray"` beside `Array`: `is_store`, `dynarray_element` and
 `store_element` tell them apart from datatypes. `ctype` declares
-`pyk_v_<code>` and `pyk_new_<code>(n)`; `vec_helper` writes the rest on
+`pyk_v_<code>` and `pyk_new_<code>(n)`; `dynarray_helper` writes the rest on
 demand (`push`, `pop`, `insert`, `remove`, `clear`, the checked `at`,
 `of_list`), with c23-gc's checks and slot clearing behind `ctx.gc`.
-`make_array` makes them (`empty__vec`, `list__vec`), `builtin` calls
+`make_array` makes them (`empty__dynarray`, `list__dynarray`), `builtin` calls
 them, and `loop`/`each` walk one by index against its length as it is.
 
-## Equality, Dicts, slices and views
+## Equality, MutMaps, slices and views
 
 `structural ctx st info kind t` writes `pyk_eq_<code>` (kind "eq") or
 `pyk_hash_<code>` (kind "hash") for a list, a tuple or a datatype and
 answers how to call it -- scalars inline -- with the same
 `building`/`helper_protos` guard as `shower` for recursive types. `EEq`
-and `BNeq` use it for every non-scalar operand. `dict_helper` writes a
-Dict's helpers on demand (`find`, `put`, `at`, `take`, `remove`, ...;
+and `BNeq` use it for every non-scalar operand. `mutmap_helper` writes a
+MutMap's helpers on demand (`find`, `put`, `at`, `take`, `remove`, ...;
 `slot` and `index` keep c23-gc's hash index), and `walk_of` is how a
-`for` walks any store, a Dict's with its version check. `run_helper`
+`for` walks any store, a MutMap's with its version check. `run_helper`
 writes `slice`, `view` and a view's `at`; `copy_helper` copy_into's
-`memmove`. `is_store` covers Array, Vec, Slice and Dict -- the TCons
+`memmove`. `is_store` covers Array, DynArray, Slice and MutMap -- the TCons
 that are not datatypes.
 
 ## Pointers
@@ -177,7 +177,7 @@ passes it on. Every other printer keeps its one parameter.
 `in_order` pins an operand that may print before a later one that
 prints, and also an operand `stable` says a call could change -- a
 captured or top-level `var` (`var$` in `st.taken`), a var struct's
-field, an element, a Vec's length, a call -- before a later operand
+field, an element, a DynArray's length, a call -- before a later operand
 with a call that can change something (`has_call`, reading
 `ctx.changing`, which `changes` works out per module by a fixed point
 over its defs, as `Analyses.effects` does for printing), and

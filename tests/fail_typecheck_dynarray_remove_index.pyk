@@ -1,0 +1,9 @@
+# `remove` takes an index, an Int: a DynArray is not searched for a value.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+v = dynarray(["a", "b"])
+remove(v, "a")

@@ -71,7 +71,7 @@
     },
     "builtin": {
       "name": "support.function.builtin.pyking",
-      "match": "(?<![.:])\\b(print|debug|range|string|len|int|float|bool|char|same|array|array_init|vec|push|pop|insert|remove|clear|dict|get|has|discard|keys|values|items)\\b(?=\\s*\\()"
+      "match": "(?<![.:])\\b(print|debug|range|string|len|int|float|bool|char|same|array|array_init|dynarray|push|pop|insert|remove|clear|mutmap|get|has|discard|keys|values|items)\\b(?=\\s*\\()"
     },
     "number": {
       "name": "constant.numeric.pyking",

@@ -959,23 +959,23 @@ let builtin_signatures name =
       ]
   | "len" -> [ ("len(items) -> Int", [ "items" ]) ]
   | "same" -> [ ("same(a: t, b: t) -> Bool", [ "a: t"; "b: t" ]) ]
-  | "vec" -> [ ("vec() -> Vec(t)", []); ("vec(xs: [t]) -> Vec(t)", [ "xs: [t]" ]) ]
-  | "push" -> [ ("push(v: Vec(t), x: t) -> ()", [ "v: Vec(t)"; "x: t" ]) ]
-  | "pop" -> [ ("pop(v: Vec(t)) -> t", [ "v: Vec(t)" ]) ]
-  | "insert" -> [ ("insert(v: Vec(t), i: Int, x: t) -> ()", [ "v: Vec(t)"; "i: Int"; "x: t" ]) ]
+  | "dynarray" -> [ ("dynarray() -> DynArray(t)", []); ("dynarray(xs: [t]) -> DynArray(t)", [ "xs: [t]" ]) ]
+  | "push" -> [ ("push(v: DynArray(t), x: t) -> ()", [ "v: DynArray(t)"; "x: t" ]) ]
+  | "pop" -> [ ("pop(v: DynArray(t)) -> t", [ "v: DynArray(t)" ]) ]
+  | "insert" -> [ ("insert(v: DynArray(t), i: Int, x: t) -> ()", [ "v: DynArray(t)"; "i: Int"; "x: t" ]) ]
   | "remove" ->
       [
-        ("remove(v: Vec(t), i: Int) -> t", [ "v: Vec(t)"; "i: Int" ]);
-        ("remove(d: Dict(k, v), key: k) -> v", [ "d: Dict(k, v)"; "key: k" ]);
+        ("remove(v: DynArray(t), i: Int) -> t", [ "v: DynArray(t)"; "i: Int" ]);
+        ("remove(d: MutMap(k, v), key: k) -> v", [ "d: MutMap(k, v)"; "key: k" ]);
       ]
-  | "clear" -> [ ("clear(v: Vec(t)) -> ()", [ "v: Vec(t)" ]); ("clear(d: Dict(k, v)) -> ()", [ "d: Dict(k, v)" ]) ]
-  | "dict" -> [ ("dict() -> Dict(k, v)", []); ("dict(pairs: [(k, v)]) -> Dict(k, v)", [ "pairs: [(k, v)]" ]) ]
-  | "get" -> [ ("get(d: Dict(k, v), key: k, default: v) -> v", [ "d: Dict(k, v)"; "key: k"; "default: v" ]) ]
-  | "has" -> [ ("has(d: Dict(k, v), key: k) -> Bool", [ "d: Dict(k, v)"; "key: k" ]) ]
-  | "discard" -> [ ("discard(d: Dict(k, v), key: k) -> ()", [ "d: Dict(k, v)"; "key: k" ]) ]
-  | "keys" -> [ ("keys(d: Dict(k, v)) -> [k]", [ "d: Dict(k, v)" ]) ]
-  | "values" -> [ ("values(d: Dict(k, v)) -> [v]", [ "d: Dict(k, v)" ]) ]
-  | "items" -> [ ("items(d: Dict(k, v)) -> [(k, v)]", [ "d: Dict(k, v)" ]) ]
+  | "clear" -> [ ("clear(v: DynArray(t)) -> ()", [ "v: DynArray(t)" ]); ("clear(d: MutMap(k, v)) -> ()", [ "d: MutMap(k, v)" ]) ]
+  | "mutmap" -> [ ("mutmap() -> MutMap(k, v)", []); ("mutmap(pairs: [(k, v)]) -> MutMap(k, v)", [ "pairs: [(k, v)]" ]) ]
+  | "get" -> [ ("get(d: MutMap(k, v), key: k, default: v) -> v", [ "d: MutMap(k, v)"; "key: k"; "default: v" ]) ]
+  | "has" -> [ ("has(d: MutMap(k, v), key: k) -> Bool", [ "d: MutMap(k, v)"; "key: k" ]) ]
+  | "discard" -> [ ("discard(d: MutMap(k, v), key: k) -> ()", [ "d: MutMap(k, v)"; "key: k" ]) ]
+  | "keys" -> [ ("keys(d: MutMap(k, v)) -> [k]", [ "d: MutMap(k, v)" ]) ]
+  | "values" -> [ ("values(d: MutMap(k, v)) -> [v]", [ "d: MutMap(k, v)" ]) ]
+  | "items" -> [ ("items(d: MutMap(k, v)) -> [(k, v)]", [ "d: MutMap(k, v)" ]) ]
   | "array" ->
       [
         ("array(xs: [t]) -> Array(t)", [ "xs: [t]" ]);

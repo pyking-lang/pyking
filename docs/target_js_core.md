@@ -169,13 +169,13 @@ concurrently — nothing here needs the "one call, then restore" discipline
 (`uses`), so an ordinary program compiles to ordinary JavaScript. The
 array helpers (`pykArray`, `pykArrayOfList`, `pykArrayFill`,
 `pykArrayInit`, `pykArrayUnfold`, `pykArraySize`, `pykAt`,
-`pykCheckIndex`, `pykIndexError`, `pykFail`) and the Vec ones
-(`pykVec`, `pykVecEmpty`, `pykVecOfList`, `pykPush`, `pykPop`,
+`pykCheckIndex`, `pykIndexError`, `pykFail`) and the DynArray ones
+(`pykDynArray`, `pykDynArrayEmpty`, `pykDynArrayOfList`, `pykPush`, `pykPop`,
 `pykInsert`, `pykRemove`, `pykClear`, `pykSetAt`), `pykEqual`, the
 slice and view ones (`pykSlice`, `pykView`, `pykViewAt`, `pykViewSet`,
 `pykViewItems`, `pykViewWalk`, `pykCopyInto`), the pointer ones
 (`pykVarPlace`, `pykSlotPlace`, `pykElemPlace`, `pykFieldPlace`), and
-the Dict ones (`pykDict`, `pykKey`, `pykDictPut`, `pykDictGet` and the rest)
+the MutMap ones (`pykMutMap`, `pykKey`, `pykMutMapPut`, `pykMutMapGet` and the rest)
 also list the helpers each calls, and `wanted_array_helpers` closes over that list, so a program
 that only reads `a[i]` gets `pykAt` and what it calls and nothing else.
 A helper that builds a list lists `pykList` among what it calls, which

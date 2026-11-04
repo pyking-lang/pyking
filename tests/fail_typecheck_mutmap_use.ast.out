@@ -1,0 +1,2 @@
+'tests/fail_typecheck_mutmap_use.pyk' 7:4-7:10 Parsing error: 'mutmap'
+  makes a MutMap, which needs 'use mutation' at the top of this module

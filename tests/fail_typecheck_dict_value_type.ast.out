@@ -1,2 +1,0 @@
-'tests/fail_typecheck_dict_value_type.pyk' 9:0-9:20 Type error: this
-  Dict's values are Int, but this ':=' gives String

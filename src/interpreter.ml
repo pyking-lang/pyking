@@ -108,12 +108,12 @@ type value =
   | VArray of value array
       (* an array: one store of elements, shared by every name holding
          it and written in place (PYKING.md, "Arrays") *)
-  | VVec of vec
-      (* a Vec: an array that grows, shared by every name holding it
-         (PYKING.md, "Vecs") *)
-  | VDict of dict
-      (* a Dict: a map from keys to values that keeps the order its keys
-         were put in, shared by every name holding it (PYKING.md, "Dicts") *)
+  | VDynArray of dynarray
+      (* a DynArray: an array that grows, shared by every name holding it
+         (PYKING.md, "DynArrays") *)
+  | VMutMap of mutmap
+      (* a MutMap: a map from keys to values that keeps the order its keys
+         were put in, shared by every name holding it (PYKING.md, "MutMaps") *)
   | VView of view
       (* a view of a run of an array's elements, which it shares
          (PYKING.md, "Slices") *)
@@ -125,10 +125,10 @@ type value =
     is what lets a `var` be written to and a closure over the frame
     holding it see what was written -- the only two places anything here
     changes (`define` and `mutate`). *)
-(* A Vec's storage: `items` has room for at least `size` elements, and
+(* A DynArray's storage: `items` has room for at least `size` elements, and
    only the first `size` are its elements; the rest are never read, and a
    removed element's slot is cleared, so it holds nothing alive. *)
-and vec = { mutable items : value array; mutable size : int }
+and dynarray = { mutable items : value array; mutable size : int }
 
 (* A view: elements `offset` up to `offset + length` of `owner`. *)
 and view = { owner : value array; offset : int; length : int }
@@ -138,13 +138,13 @@ and view = { owner : value array; offset : int; length : int }
    equal when they name one place. *)
 and location = LCell of value ref | LElem of value array * int | LField of (string option * value) array * int
 
-(* A Dict's storage: its entries in the order their keys were put in,
+(* A MutMap's storage: its entries in the order their keys were put in,
    `None` where one was removed; `index` finds a key's position, by the
    key's structure (a key is never a Float, a function or anything that
    changes, so OCaml's structural hash and equality are Pyking's);
-   `version` counts insertions and removals, which a `for` over the Dict
+   `version` counts insertions and removals, which a `for` over the MutMap
    watches. *)
-and dict = {
+and mutmap = {
   mutable entries : (value * value) option array;
   mutable used : int;
   mutable live : int;
@@ -194,8 +194,8 @@ let display_value value =
   let store_of item =
     match item with
     | VArray elements -> Some (Obj.repr elements)
-    | VVec v -> Some (Obj.repr v)
-    | VDict d -> Some (Obj.repr d)
+    | VDynArray v -> Some (Obj.repr v)
+    | VMutMap d -> Some (Obj.repr d)
     | VView v -> Some (Obj.repr v.owner)
     (* A pointer is on the path as the store it points into. *)
     | VPtr (LCell r) -> Some (Obj.repr r)
@@ -255,8 +255,8 @@ let display_value value =
             Buffer.add_string out "array([";
             path := Obj.repr elements :: !path;
             go (commas (Array.to_list elements) "])" @ (Leave :: rest))
-        | VVec v ->
-            Buffer.add_string out "vec([";
+        | VDynArray v ->
+            Buffer.add_string out "dynarray([";
             path := Obj.repr v :: !path;
             go (commas (Array.to_list (Array.sub v.items 0 v.size)) "])" @ (Leave :: rest))
         | VPtr location ->
@@ -270,9 +270,9 @@ let display_value value =
             Buffer.add_string out "view([";
             path := Obj.repr v.owner :: !path;
             go (commas (Array.to_list (Array.sub v.owner v.offset v.length)) "])" @ (Leave :: rest))
-        | VDict d ->
+        | VMutMap d ->
             (* Written as what makes one: the list of its entries. *)
-            Buffer.add_string out "dict([";
+            Buffer.add_string out "mutmap([";
             path := Obj.repr d :: !path;
             let entries =
               List.filter_map
@@ -316,8 +316,8 @@ let sequence_items value =
   match value with
   | VString text -> VList (List.map (fun c -> VChar c) (Builtin.code_points text))
   | VArray elements -> VList (Array.to_list elements)
-  | VVec v -> VList (Array.to_list (Array.sub v.items 0 v.size))
-  | VDict d ->
+  | VDynArray v -> VList (Array.to_list (Array.sub v.items 0 v.size))
+  | VMutMap d ->
       VList (List.filter_map (Option.map fst) (Array.to_list (Array.sub d.entries 0 d.used)))
   | VView v -> VList (Array.to_list (Array.sub v.owner v.offset v.length))
   | value -> value
@@ -342,8 +342,8 @@ let describe value =
   | VUnit -> "()"
   | VList _ -> "a list"
   | VArray _ -> "an array"
-  | VVec _ -> "a Vec"
-  | VDict _ -> "a Dict"
+  | VDynArray _ -> "a DynArray"
+  | VMutMap _ -> "a MutMap"
   | VView _ -> "a view"
   | VPtr _ -> "a pointer"
   | VTuple elements -> Printf.sprintf "a tuple of %d" (List.length elements)
@@ -539,12 +539,12 @@ type kont =
       (* its index has arrived: the array, the value *)
   | KSetValue of value * int * info * env * kont option
       (* the value has arrived: the array and the checked index *)
-  | KSetEntry of dict * value * env * kont option
+  | KSetEntry of mutmap * value * env * kont option
   | KDerefTarget of expr * info * env * kont option
       (* a write through a pointer: the pointer has arrived; the value *)
   | KDerefWrite of location * env * kont option
       (* the value has arrived: the place to write it *)
-      (* a Dict write's value has arrived: the Dict and the key *)
+      (* a MutMap write's value has arrived: the MutMap and the key *)
   | KSetOwner of string * expr * info * env * kont option
       (* a field write's struct has arrived: the field, the value, the
          statement *)
@@ -625,13 +625,13 @@ and loop = {
   loop_parent : loop option;
   remaining : value list; (* what a `for` has left to walk *)
   walking : (value * int) option;
-      (* an array or a Vec a `for` walks, and the index of the next
+      (* an array or a DynArray a `for` walks, and the index of the next
          turn's element: read as each turn is reached, so a write to a
-         later element is seen, and a Vec is walked while the index is
-         below its length as it is then (PYKING.md, "Arrays", "Vecs");
-         a Dict's next entry, its keys in order *)
+         later element is seen, and a DynArray is walked while the index is
+         below its length as it is then (PYKING.md, "Arrays", "DynArrays");
+         a MutMap's next entry, its keys in order *)
   walking_version : int;
-      (* the version of the Dict a `for` walks, when it started: an
+      (* the version of the MutMap a `for` walks, when it started: an
          insertion or a removal during the walk is an error *)
 }
 
@@ -780,17 +780,17 @@ let check_array_index elements i =
            Printf.sprintf "the index %d is outside an array of %d element%s" i n
              (if n = 1 then "" else "s") ))
 
-(** Raises the error an index outside a Vec is. vec -> int -> () *)
-let check_vec_index v i =
+(** Raises the error an index outside a DynArray is. dynarray -> int -> () *)
+let check_dynarray_index v i =
   if i < 0 || i >= v.size then
     raise
       (Trap
          ( divide_info,
-           Printf.sprintf "the index %d is outside a Vec of %d element%s" i v.size
+           Printf.sprintf "the index %d is outside a DynArray of %d element%s" i v.size
              (if v.size = 1 then "" else "s") ))
 
-(** A Vec with room for one more element, its storage doubled where it
-    is full. vec -> () *)
+(** A DynArray with room for one more element, its storage doubled where it
+    is full. dynarray -> () *)
 let grow v =
   if v.size = Array.length v.items then (
     let items = Array.make (max 4 (2 * v.size)) VUnit in
@@ -816,7 +816,7 @@ let slice_value seq low high =
     | VList items -> (List.length items, "a list")
     | VString text -> (Builtin.utf8_length text, "a String")
     | VArray a -> (Array.length a, "an array")
-    | VVec v -> (v.size, "a Vec")
+    | VDynArray v -> (v.size, "a DynArray")
     | VView v -> (v.length, "a view")
     | _ -> (0, "a value")
   in
@@ -834,26 +834,26 @@ let slice_value seq low high =
         (String.concat ""
            (List.map Builtin.utf8 (List.filteri (fun i _ -> i >= low && i < high) (Builtin.code_points text))))
   | VArray a -> VArray (Array.sub a low (high - low))
-  | VVec v -> let items = Array.sub v.items low (high - low) in VVec { items; size = high - low }
+  | VDynArray v -> let items = Array.sub v.items low (high - low) in VDynArray { items; size = high - low }
   | VView v -> VArray (Array.sub v.owner (v.offset + low) (high - low))
   | other -> other
 
-(* --- Dicts --- *)
+(* --- MutMaps --- *)
 
-(** A new Dict with no entries. () -> dict *)
-let new_dict () = { entries = [||]; used = 0; live = 0; index = Hashtbl.create 8; version = 0 }
+(** A new MutMap with no entries. () -> mutmap *)
+let new_mutmap () = { entries = [||]; used = 0; live = 0; index = Hashtbl.create 8; version = 0 }
 
-(** The entries of a Dict, in order. dict -> [(value * value)] *)
-let dict_entries d =
+(** The entries of a MutMap, in order. mutmap -> [(value * value)] *)
+let mutmap_entries d =
   let rec go i out =
     if i < 0 then out else go (i - 1) (match d.entries.(i) with Some e -> e :: out | None -> out)
   in
   go (d.used - 1) []
 
 (** d with every entry in a store just big enough, the removed ones
-    gone and every position renumbered. dict -> () *)
+    gone and every position renumbered. mutmap -> () *)
 let compact d =
-  let live = dict_entries d in
+  let live = mutmap_entries d in
   let entries = Array.make (max 8 (2 * List.length live)) None in
   Hashtbl.reset d.index;
   List.iteri
@@ -864,9 +864,9 @@ let compact d =
   d.entries <- entries;
   d.used <- List.length live
 
-(** Puts an entry in a Dict, or replaces the value of the one its key
-    has, which keeps its place. dict -> value -> value -> () *)
-let dict_set d key value =
+(** Puts an entry in a MutMap, or replaces the value of the one its key
+    has, which keeps its place. mutmap -> value -> value -> () *)
+let mutmap_set d key value =
   match Hashtbl.find_opt d.index key with
   | Some i -> d.entries.(i) <- Some (key, value)
   | None ->
@@ -881,16 +881,16 @@ let dict_set d key value =
       d.live <- d.live + 1;
       d.version <- d.version + 1
 
-(** A key's value, or None where the Dict has no entry for it.
-    dict -> value -> value option *)
-let dict_find d key =
+(** A key's value, or None where the MutMap has no entry for it.
+    mutmap -> value -> value option *)
+let mutmap_find d key =
   match Hashtbl.find_opt d.index key with
   | Some i -> Option.map snd d.entries.(i)
   | None -> None
 
-(** Takes a key's entry out of a Dict, answering its value, or None
-    where it had none. dict -> value -> value option *)
-let dict_take d key =
+(** Takes a key's entry out of a MutMap, answering its value, or None
+    where it had none. mutmap -> value -> value option *)
+let mutmap_take d key =
   match Hashtbl.find_opt d.index key with
   | Some i ->
       let value = Option.map snd d.entries.(i) in
@@ -1060,16 +1060,16 @@ let element left right =
                  (if n = 1 then "" else "s") ))
       else Some (List.nth items i)
   | VArray elements, VInt i -> Some (array_element elements i)
-  | VVec v, VInt i ->
-      check_vec_index v i;
+  | VDynArray v, VInt i ->
+      check_dynarray_index v i;
       Some v.items.(i)
   | VView v, VInt i ->
       check_view_index v i;
       Some v.owner.(v.offset + i)
-  | VDict d, key -> (
-      match dict_find d key with
+  | VMutMap d, key -> (
+      match mutmap_find d key with
       | Some value -> Some value
-      | None -> raise (Trap (divide_info, Printf.sprintf "the Dict has no key %s" (display_value key))))
+      | None -> raise (Trap (divide_info, Printf.sprintf "the MutMap has no key %s" (display_value key))))
   | VString text, VInt i ->
       let chars = Builtin.code_points text in
       let n = List.length chars in
@@ -1241,46 +1241,46 @@ let apply_builtin name args info host =
   | "len", [ VArray elements ] -> VInt (Array.length elements)
   | "same", [ VArray a; VArray b ] -> VBool (a == b)
   | "same", [ VData (_, a); VData (_, b) ] -> VBool (a == b)
-  | "same", [ VVec a; VVec b ] -> VBool (a == b)
-  | "len", [ VVec v ] -> VInt v.size
-  | "empty__vec", [] -> VVec { items = [||]; size = 0 }
-  | "list__vec", [ VList items ] ->
+  | "same", [ VDynArray a; VDynArray b ] -> VBool (a == b)
+  | "len", [ VDynArray v ] -> VInt v.size
+  | "empty__dynarray", [] -> VDynArray { items = [||]; size = 0 }
+  | "list__dynarray", [ VList items ] ->
       let items = Array.of_list items in
-      VVec { items; size = Array.length items }
-  | "push", [ VVec v; x ] ->
+      VDynArray { items; size = Array.length items }
+  | "push", [ VDynArray v; x ] ->
       grow v;
       v.items.(v.size) <- x;
       v.size <- v.size + 1;
       VUnit
-  | "pop", [ VVec v ] ->
-      if v.size = 0 then raise (Trap (divide_info, "pop from an empty Vec"));
+  | "pop", [ VDynArray v ] ->
+      if v.size = 0 then raise (Trap (divide_info, "pop from an empty DynArray"));
       v.size <- v.size - 1;
       let last = v.items.(v.size) in
       v.items.(v.size) <- VUnit;
       last
-  | "insert", [ VVec v; VInt i; x ] ->
+  | "insert", [ VDynArray v; VInt i; x ] ->
       if i < 0 || i > v.size then
         raise
           (Trap
              ( divide_info,
-               Printf.sprintf "insert's index %d is outside 0 to %d, the Vec's length" i v.size ));
+               Printf.sprintf "insert's index %d is outside 0 to %d, the DynArray's length" i v.size ));
       grow v;
       Array.blit v.items i v.items (i + 1) (v.size - i);
       v.items.(i) <- x;
       v.size <- v.size + 1;
       VUnit
-  | "remove", [ VVec v; VInt i ] ->
-      check_vec_index v i;
+  | "remove", [ VDynArray v; VInt i ] ->
+      check_dynarray_index v i;
       let taken = v.items.(i) in
       Array.blit v.items (i + 1) v.items i (v.size - i - 1);
       v.size <- v.size - 1;
       v.items.(v.size) <- VUnit;
       taken
-  | "clear", [ VVec v ] ->
+  | "clear", [ VDynArray v ] ->
       Array.fill v.items 0 v.size VUnit;
       v.size <- 0;
       VUnit
-  | "len", [ VDict d ] -> VInt d.live
+  | "len", [ VMutMap d ] -> VInt d.live
   | "len", [ VView v ] -> VInt v.length
   | "same", [ VView a; VView b ] -> VBool (a == b)
   | "view", [ seq; VInt i; VInt j ] -> (
@@ -1315,27 +1315,27 @@ let apply_builtin name args info host =
       (* Array.blit is memmove: right where the two overlap. *)
       Array.blit sa soff da doff slen;
       VUnit
-  | "same", [ VDict a; VDict b ] -> VBool (a == b)
-  | "empty__dict", [] -> VDict (new_dict ())
-  | "list__dict", [ VList pairs ] ->
+  | "same", [ VMutMap a; VMutMap b ] -> VBool (a == b)
+  | "empty__mutmap", [] -> VMutMap (new_mutmap ())
+  | "list__mutmap", [ VList pairs ] ->
       (* A key written twice keeps its first place and its last value. *)
-      let d = new_dict () in
-      List.iter (function VTuple [ k; v ] -> dict_set d k v | _ -> ()) pairs;
-      VDict d
-  | "remove", [ VDict d; key ] -> (
-      match dict_take d key with
+      let d = new_mutmap () in
+      List.iter (function VTuple [ k; v ] -> mutmap_set d k v | _ -> ()) pairs;
+      VMutMap d
+  | "remove", [ VMutMap d; key ] -> (
+      match mutmap_take d key with
       | Some value -> value
-      | None -> raise (Trap (divide_info, Printf.sprintf "the Dict has no key %s to remove" (display_value key))))
-  | "discard", [ VDict d; key ] ->
-      ignore (dict_take d key);
+      | None -> raise (Trap (divide_info, Printf.sprintf "the MutMap has no key %s to remove" (display_value key))))
+  | "discard", [ VMutMap d; key ] ->
+      ignore (mutmap_take d key);
       VUnit
-  | "get", [ VDict d; key; default ] -> (
-      match dict_find d key with Some value -> value | None -> default)
-  | "has", [ VDict d; key ] -> VBool (dict_find d key <> None)
-  | "keys", [ VDict d ] -> VList (List.map fst (dict_entries d))
-  | "values", [ VDict d ] -> VList (List.map snd (dict_entries d))
-  | "items", [ VDict d ] -> VList (List.map (fun (k, v) -> VTuple [ k; v ]) (dict_entries d))
-  | "clear", [ VDict d ] ->
+  | "get", [ VMutMap d; key; default ] -> (
+      match mutmap_find d key with Some value -> value | None -> default)
+  | "has", [ VMutMap d; key ] -> VBool (mutmap_find d key <> None)
+  | "keys", [ VMutMap d ] -> VList (List.map fst (mutmap_entries d))
+  | "values", [ VMutMap d ] -> VList (List.map snd (mutmap_entries d))
+  | "items", [ VMutMap d ] -> VList (List.map (fun (k, v) -> VTuple [ k; v ]) (mutmap_entries d))
+  | "clear", [ VMutMap d ] ->
       d.entries <- [||];
       d.used <- 0;
       d.live <- 0;
@@ -1710,9 +1710,9 @@ let turn state loop =
             let item =
               match elements with
               | VArray a -> a.(i)
-              | VVec v -> v.items.(i)
+              | VDynArray v -> v.items.(i)
               | VView v -> v.owner.(v.offset + i)
-              | VDict d -> (match d.entries.(i) with Some (k, _) -> k | None -> VUnit)
+              | VMutMap d -> (match d.entries.(i) with Some (k, _) -> k | None -> VUnit)
               | other -> other
             in
             (extend env name item, { loop with walking = Some (elements, i + 1) })
@@ -1732,19 +1732,19 @@ let begin_turn state loop =
   match loop_iterate loop with
   | Some (ForIn _) -> (
       match loop.walking with
-      | Some (VDict d, i) ->
+      | Some (VMutMap d, i) ->
           (* Checked at every advance, the last included (FCR-F4). *)
           if d.version <> loop.walking_version then
             failed state
               (match loop_iterate loop with Some it -> loop_iter_info it | None -> divide_info)
-              "the Dict changed while a for loop was reading it"
+              "the MutMap changed while a for loop was reading it"
           else
             let rec next i = if i < d.used && d.entries.(i) = None then next (i + 1) else i in
             let i = next i in
-            if i >= d.used then finish state loop else turn state { loop with walking = Some (VDict d, i) }
+            if i >= d.used then finish state loop else turn state { loop with walking = Some (VMutMap d, i) }
       | Some (elements, i) ->
           let length =
-            match elements with VArray a -> Array.length a | VVec v -> v.size | VView v -> v.length | _ -> 0
+            match elements with VArray a -> Array.length a | VDynArray v -> v.size | VView v -> v.length | _ -> 0
           in
           if i >= length then finish state loop else turn state loop
       | None -> if loop.remaining = [] then finish state loop else turn state loop)
@@ -2389,33 +2389,33 @@ and step_apply state value =
           match check_array_index elements i with
           | () -> { state with control = CEval value_expr; env; kont = Some (KSetValue (owner, i, info, env, rest)) }
           | exception Trap (_, message) -> failed state info message)
-      | VVec v, VInt i -> (
-          match check_vec_index v i with
+      | VDynArray v, VInt i -> (
+          match check_dynarray_index v i with
           | () -> { state with control = CEval value_expr; env; kont = Some (KSetValue (owner, i, info, env, rest)) }
           | exception Trap (_, message) -> failed state info message)
       | VView v, VInt i -> (
           match check_view_index v i with
           | () -> { state with control = CEval value_expr; env; kont = Some (KSetValue (owner, i, info, env, rest)) }
           | exception Trap (_, message) -> failed state info message)
-      | VDict d, key -> { state with control = CEval value_expr; env; kont = Some (KSetEntry (d, key, env, rest)) }
+      | VMutMap d, key -> { state with control = CEval value_expr; env; kont = Some (KSetEntry (d, key, env, rest)) }
       | _ ->
           failed state info
-            (Printf.sprintf "only an array's or a Vec's element is written, not %s's" (describe owner)))
+            (Printf.sprintf "only an array's or a DynArray's element is written, not %s's" (describe owner)))
   | Some (KSetValue (owner, i, info, env, rest)) -> (
-      (* A Vec is checked again: the value's own work may have shrunk it
-         (PYKING.md, "Vecs"). *)
+      (* A DynArray is checked again: the value's own work may have shrunk it
+         (PYKING.md, "DynArrays"). *)
       match owner with
-      | VVec v when i >= v.size -> (
-          match check_vec_index v i with () -> state | exception Trap (_, message) -> failed state info message)
+      | VDynArray v when i >= v.size -> (
+          match check_dynarray_index v i with () -> state | exception Trap (_, message) -> failed state info message)
       | _ ->
       (match owner with
       | VArray elements -> elements.(i) <- value
-      | VVec v -> v.items.(i) <- value
+      | VDynArray v -> v.items.(i) <- value
       | VView v -> v.owner.(v.offset + i) <- value
       | _ -> ());
       { state with control = CApply unit_value; env; kont = rest })
   | Some (KSetEntry (d, key, env, rest)) ->
-      dict_set d key value;
+      mutmap_set d key value;
       { state with control = CApply unit_value; env; kont = rest }
   | Some (KDerefTarget (value_expr, info, env, rest)) -> (
       match value with
@@ -2514,8 +2514,8 @@ and step_apply state value =
       start_loop state { loop with accumulator = value }
   | Some (KSequence loop) -> (
       match sequence_items value with
-      | _ when (match value with VArray _ | VVec _ | VDict _ | VView _ -> true | _ -> false) ->
-          let version = match value with VDict d -> d.version | _ -> 0 in
+      | _ when (match value with VArray _ | VDynArray _ | VMutMap _ | VView _ -> true | _ -> false) ->
+          let version = match value with VMutMap d -> d.version | _ -> 0 in
           begin_turn state { loop with walking = Some (value, 0); walking_version = version }
       | VList items -> begin_turn state { loop with remaining = items }
       | value ->

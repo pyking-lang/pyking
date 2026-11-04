@@ -65,7 +65,7 @@ refused, naming the line that would allow them.
 
 Everything else has no address, and `&` of it is refused with the
 reason: an `=` binding (nothing can write it), a list's element (a list
-never changes), a Vec's element (it moves when the Vec grows), a plain
+never changes), a DynArray's element (it moves when the DynArray grows), a plain
 struct's field, a call's result and a literal (values, not places).
 
 ### Reading and writing through one
@@ -128,7 +128,7 @@ print(nums)          # array([3, 0, 5])
 - `p == q` is true when both name one place: the same variable, or the
   same slot of the same array or struct (FCR-E4). Pointers inside
   tuples, lists and datatypes compare so too.
-- A pointer is never a Dict's key: what it points at changes.
+- A pointer is never a MutMap's key: what it points at changes.
 - A pointer prints as what it points at now, `Ptr(12)`, never as an
   address, so every target prints the same. A pointer that leads back
   into a value being printed prints `...` there, as any cycle does.
@@ -161,7 +161,7 @@ closure keeps a captured `var`.
 - No arithmetic: `p + 1` is refused. A run of an array is a view
   (`view(a, i, j)`, PYKING.md "Slices and views").
 - No `alloc` or `free`: memory is the language's to manage.
-- No pointer to a list's or a Vec's element, a Dict's entry, an `=`
+- No pointer to a list's or a DynArray's element, a MutMap's entry, an `=`
   binding or a temporary value.
 
 ### What each target makes of them
@@ -224,7 +224,7 @@ representation.
 - `EDeref` unifies its operand with `Ptr(T)` and is a `T`; `SSetDeref`
   checks the pointer, then the value against `T`.
 - `==` takes pointers (`equality_problem` finds nothing against them);
-  `key_problem` refuses one as a Dict's key.
+  `key_problem` refuses one as a MutMap's key.
 
 ### The interpreter
 

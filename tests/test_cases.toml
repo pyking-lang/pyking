@@ -2394,57 +2394,57 @@ file = "fail_typecheck_var_datatype.pyk"
 [[cases]]
 file = "fail_typecheck_var_struct_field_eq.pyk"
 
-# Vecs: `vec`, `push`, `pop`, `insert`, `remove`, `clear`, indexing,
-# `for` over a growing Vec, sharing, and lib/vec.
+# DynArrays: `dynarray`, `push`, `pop`, `insert`, `remove`, `clear`, indexing,
+# `for` over a growing DynArray, sharing, and lib/dynarray.
 [[cases]]
-file = "vec_basic.pyk"
-excluded = { c = "a comprehension over a Vec makes a list, which needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+file = "dynarray_basic.pyk"
+excluded = { c = "a comprehension over a DynArray makes a list, which needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
-file = "vec_lib.pyk"
-libs = ["array", "vec"]
-excluded = { c = "vec.extend and vec.to_list take and make lists: a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+file = "dynarray_lib.pyk"
+libs = ["array", "dynarray"]
+excluded = { c = "dynarray.extend and dynarray.to_list take and make lists: a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
-file = "vec_bounds.pyk"
+file = "dynarray_bounds.pyk"
 exit_code = 1
 excluded = { c = "plain C checks no index: c23-gc does" }
 
 [[cases]]
-file = "vec_pop_empty.pyk"
+file = "dynarray_pop_empty.pyk"
 exit_code = 1
 excluded = { c = "plain C checks nothing a pop takes: c23-gc does" }
 
 [[cases]]
-file = "typecheck_vec.pyk"
+file = "typecheck_dynarray.pyk"
 also = ["pyking_rerun"]
 
-# Var structs, Vecs and arrays holding themselves, with no list, so plain
+# Var structs, DynArrays and arrays holding themselves, with no list, so plain
 # C runs it too: printing a cycle, `print`'s arguments all worked out
 # first, and a field write's owner before its value.
 [[cases]]
 file = "mutable_values.pyk"
 
 [[cases]]
-file = "fail_typecheck_vec_use.pyk"
+file = "fail_typecheck_dynarray_use.pyk"
 
 [[cases]]
-file = "fail_typecheck_vec_push_use.pyk"
+file = "fail_typecheck_dynarray_push_use.pyk"
 
 [[cases]]
-file = "fail_typecheck_vec_push_type.pyk"
+file = "fail_typecheck_dynarray_push_type.pyk"
 
 [[cases]]
-file = "fail_typecheck_vec_not_vec.pyk"
+file = "fail_typecheck_dynarray_not_dynarray.pyk"
 
 [[cases]]
-file = "fail_typecheck_vec_open.pyk"
+file = "fail_typecheck_dynarray_open.pyk"
 
 [[cases]]
-file = "fail_typecheck_vec_eq.pyk"
+file = "fail_typecheck_dynarray_eq.pyk"
 
 [[cases]]
-file = "fail_typecheck_vec_remove_index.pyk"
+file = "fail_typecheck_dynarray_remove_index.pyk"
 
 # Slices, views and copy_into.
 [[cases]]
@@ -2467,7 +2467,7 @@ also = ["pyking_rerun"]
 excluded = { c = "it slices a list: a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
-file = "fail_typecheck_slice_dict.pyk"
+file = "fail_typecheck_slice_mutmap.pyk"
 
 [[cases]]
 file = "fail_typecheck_slice_bound.pyk"
@@ -2521,7 +2521,7 @@ file = "fail_typecheck_addr_binding.pyk"
 file = "fail_typecheck_addr_list.pyk"
 
 [[cases]]
-file = "fail_typecheck_addr_vec.pyk"
+file = "fail_typecheck_addr_dynarray.pyk"
 
 [[cases]]
 file = "fail_typecheck_addr_struct.pyk"
@@ -2545,10 +2545,10 @@ file = "fail_typecheck_pointer_arithmetic.pyk"
 [[cases]]
 file = "eval_order_calls.pyk"
 
-# Dicts, structural `==`, slices and views with no list, so plain C runs
+# MutMaps, structural `==`, slices and views with no list, so plain C runs
 # it too.
 [[cases]]
-file = "dict_slice_nolist.pyk"
+file = "mutmap_slice_nolist.pyk"
 
 # A program's own `get` and `keys`, named like builtins, are ordered as
 # any of its functions are.
@@ -2556,7 +2556,7 @@ file = "dict_slice_nolist.pyk"
 file = "eval_order_own_builtin.pyk"
 
 # Printing a cycle that an immutable value closes -- a generic datatype
-# through a var struct, a datatype through a Dict -- stops at the value
+# through a var struct, a datatype through a MutMap -- stops at the value
 # that repeats first.
 [[cases]]
 file = "cycle_immutable.pyk"
@@ -2566,53 +2566,53 @@ file = "cycle_immutable.pyk"
 [[cases]]
 file = "generic_printer_types.pyk"
 
-# Structural `==` on lists, tuples, structs and datatypes, and Dicts.
+# Structural `==` on lists, tuples, structs and datatypes, and MutMaps.
 [[cases]]
 file = "equality.pyk"
 excluded = { c = "it compares lists: a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
-file = "dict_basic.pyk"
+file = "mutmap_basic.pyk"
 excluded = { c = "keys, values and items make lists: a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
-file = "dict_changed.pyk"
+file = "mutmap_changed.pyk"
 exit_code = 1
-excluded = { c = "plain C does not watch a Dict for changes during a walk: c23-gc does" }
+excluded = { c = "plain C does not watch a MutMap for changes during a walk: c23-gc does" }
 
 [[cases]]
-file = "dict_missing.pyk"
+file = "mutmap_missing.pyk"
 exit_code = 1
 excluded = { c = "plain C checks no key: c23-gc does" }
 
 [[cases]]
-file = "typecheck_dict.pyk"
+file = "typecheck_mutmap.pyk"
 also = ["pyking_rerun"]
 excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
-file = "fail_typecheck_dict_use.pyk"
+file = "fail_typecheck_mutmap_use.pyk"
 
 [[cases]]
-file = "fail_typecheck_dict_float_key.pyk"
+file = "fail_typecheck_mutmap_float_key.pyk"
 
 [[cases]]
-file = "fail_typecheck_dict_mutable_key.pyk"
+file = "fail_typecheck_mutmap_mutable_key.pyk"
 
 [[cases]]
-file = "fail_typecheck_dict_key_type.pyk"
+file = "fail_typecheck_mutmap_key_type.pyk"
 
 [[cases]]
-file = "fail_typecheck_dict_value_type.pyk"
+file = "fail_typecheck_mutmap_value_type.pyk"
 
 [[cases]]
-file = "fail_typecheck_dict_open.pyk"
+file = "fail_typecheck_mutmap_open.pyk"
 
 [[cases]]
-file = "fail_typecheck_dict_eq.pyk"
+file = "fail_typecheck_mutmap_eq.pyk"
 
 [[cases]]
-file = "fail_typecheck_dict_get_default.pyk"
+file = "fail_typecheck_mutmap_get_default.pyk"
 
 [[cases]]
 file = "fail_typecheck_eq_function.pyk"
