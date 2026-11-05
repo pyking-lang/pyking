@@ -616,11 +616,18 @@ def examples(compiler, language, directory):
 
 
 def _zip(directory, path):
-    """Writes every file under `directory` into the zip at `path`."""
+    """Writes every file under `directory` into the zip at `path`, each
+    dated 1980-01-01 rather than when it was generated, so the same files
+    make the same zip: the website's build id is a hash of what it serves
+    (site.py, `build_id`), and a rebuild of the same commit must keep it."""
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         for file in sorted(directory.rglob("*")):
             if file.is_file():
-                archive.write(file, file.relative_to(directory.parent))
+                entry = zipfile.ZipInfo(str(file.relative_to(directory.parent)),
+                                        date_time=(1980, 1, 1, 0, 0, 0))
+                entry.external_attr = (file.stat().st_mode & 0xFFFF) << 16
+                entry.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(entry, file.read_bytes())
 
 
 # --- the pages ---

@@ -313,10 +313,21 @@ A ```` ```pyking ```` block on a page is a runnable cell. A remark plugin
 `mountCells` in `tools/notebook/assets/notebook.js` makes runnable, so a
 cell on the site is the notebook's own cell, and the fences mean what
 they mean in a notebook. The playground page mounts `mountPlayground` from
-`tools/playground/assets/`. Both load their scripts from `runtime/` in the
-built site, which `site.py` writes with the same `Site` the playground's
-server uses, so a page finds `webrun/`, `vendor/`, `pyking/` and `lib/`
-where it would under `pyk playground`.
+`tools/playground/assets/`. Both load their scripts from
+`v/<build>/runtime/` in the built site, which `site.py` writes with the
+same `Site` the playground's server uses, so a page finds `webrun/`,
+`vendor/`, `pyking/` and `lib/` where it would under `pyk playground`.
+
+`<build>` is the build's id, a hash of everything the site serves, and
+`version.json` at the root names it. A release thus gives the runtime
+and the site's scripts new URLs, past any cache -- GitHub Pages lets a
+browser keep a file ten minutes -- and an open tab that reads a newer
+build in `version.json` reloads onto it by itself, at a moment that
+loses nothing: when hidden, or when nothing in it runs and the reader
+has left it alone for two minutes. Its sections, the playground's
+program, cursor and keyboard and what was typed into a cell come back;
+the version beside "Pyking Playground" names the build when hovered.
+`tools/site/README.md`, "A new build", has the details.
 
 `make website-dev` serves the staged site with Astro's dev server. It
 stages once on start; restart it to see an edit to `sitesrc/` or `lib/`.
@@ -328,8 +339,9 @@ every example on the site with the interpreter, without Astro.
 (`tools/site/publish.py`): built afresh from a committed, pushed HEAD,
 committed with `gh` to the GitHub Pages repository
 `pyking-lang/pyking-lang.github.io` -- one commit per upload, with
-`.nojekyll` and a `CNAME` naming the domain -- and waited for until Pages
-serves it there over HTTPS. The domain's DNS records are in
+`.nojekyll` and a `CNAME` naming the domain, and the build served before
+kept for tabs still open on it -- and waited for until Pages serves it
+there over HTTPS, `version.json` included. The domain's DNS records are in
 `tools/site/README.md`, "The domain".
 `tools/site/README.md` is the long form.
 

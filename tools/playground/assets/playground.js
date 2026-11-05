@@ -36,6 +36,13 @@ const STORAGE_KEY = "pyking-playground.settings";
  *  afresh. */
 const STATE_KEY = "pyking-playground.state";
 
+/** Left by `saveForReload` for the page that comes next, which reads it
+ *  once and removes it: that the page was reloaded onto a newer build by
+ *  the page embedding it, so what was kept wins over a link's program
+ *  still in the address, and which input had the keyboard,
+ *  {focus: "editor" | "repl" | null}. */
+const RELOAD_KEY = "pyking-playground.reload";
+
 /** How much of the output pane is kept with the state, in characters of
  *  its HTML; more than this is not kept at all. */
 const STATE_OUTPUT_LIMIT = 200000;
@@ -154,6 +161,10 @@ const DEFAULTS = {
   // of the browser tab's life, and found again when the page is opened
   // again in it (STATE_KEY).
   keepState: true,
+  // What the version in the header says when hovered: the build the page
+  // is, where the page that embeds the playground knows it ("built from
+  // 3a4f2c1, 2026-11-03"), or null for none.
+  built: null,
 };
 
 export async function mountPlayground(host, options = {}) {
@@ -212,6 +223,7 @@ class Playground {
     this.replHistory = [];
     this.replAt = 0;            // where Up and Down are in the history
     this.replDraft = "";        // what was being typed before Up
+    this.replNames = 0;         // how many names the session has defined
     this.help = null;           // the Help tab's help, once it is opened
     this.helpStarting = null;
     this.debugger = null;       // the Debug tab (debugger.js)
@@ -336,7 +348,10 @@ class Playground {
 
     // No src/examples.toml beside the tools: nothing to offer.
     if (!this.meta.examples.length) ui.example.classList.add("pyk-hidden");
-    const linked = this.cfg.readLink ? sourceFromHash(location.hash) : null;
+    // Reloaded onto a newer build, the program being edited is the one
+    // kept, even where the address still holds the link it came from.
+    const reloaded = takeReload();
+    const linked = this.cfg.readLink && !reloaded ? sourceFromHash(location.hash) : null;
     // What the playground was in the middle of when this browser tab left
     // it -- for another page of the site, say -- unless a link brings a
     // program of its own.
@@ -361,6 +376,7 @@ class Playground {
     }
     this.onTargetChange();
     if (kept) this.restoreTab(kept);
+    if (kept && reloaded) this.restoreFocus(reloaded.focus);
     if (this.cfg.keepState) this.keepStateUpdated();
     // Hover, definition, outline, completion and diagnostics, from the
     // language server in the compiler's worker -- where the bundle has one.
@@ -440,6 +456,38 @@ class Playground {
   restoreTab(kept) {
     const tab = ["compiled", "repl", "help"].includes(kept.tab) ? kept.tab : "run";
     if (tab !== this.tab) this.showTab(tab);
+  }
+
+  /** Whether reloading the page now would lose something the state does
+   *  not keep: a program running (a page it shows among it), a program
+   *  being debugged, a REPL entry being worked out, or names a REPL
+   *  session has defined. What the page that embeds the playground asks
+   *  before it reloads onto a newer build. () -> Bool */
+  busy() {
+    return this.running !== null || this.replBusy || this.replNames > 0
+      || (this.debugger !== null && this.debugger.state !== "off");
+  }
+
+  /** Keeps the state now, for the page about to be reloaded onto a newer
+   *  build, and says so to the next one (RELOAD_KEY), with which input
+   *  had the keyboard. () -> () */
+  saveForReload() {
+    if (!this.cfg.keepState) return;
+    saveState(this.captureState());
+    const focus = this.left.hasTextFocus() ? "editor"
+      : document.activeElement === this.ui.replInput ? "repl" : null;
+    try {
+      sessionStorage.setItem(RELOAD_KEY, JSON.stringify({ focus }));
+    } catch {
+      /* the page comes back as from a reload of its own */
+    }
+  }
+
+  /** Gives the keyboard back to the input that had it when the page was
+   *  reloaded onto a newer build (`saveForReload`). String? -> () */
+  restoreFocus(focus) {
+    if (focus === "editor") this.left.focus();
+    else if (focus === "repl" && this.tab === "repl") this.ui.replInput.focus();
   }
 
   /** Saves the state whenever it changes, a moment later, and at once when
@@ -1841,6 +1889,7 @@ class Playground {
    *  [{name, value, type, implicit}] -> () */
   showBindings(bindings) {
     const { env } = this.ui;
+    this.replNames = bindings.length;
     env.textContent = "";
     const table = document.createElement("table");
     const head = table.createTHead().insertRow();
@@ -2831,6 +2880,7 @@ function buildDom(host, meta, cfg) {
   ui.dot = host.querySelector(".pyk-dot");
   // The version of the pyk serving the page, from its manifest.
   if (meta.version) ui.version.textContent = `version ${meta.version}`;
+  if (cfg.built) ui.version.title = cfg.built;
   ui.tabs = [...host.querySelectorAll(".pyk-tab")];
   ui.panels = {
     run: ui.panelRun, compiled: ui.panelCompiled, web: ui.panelWeb, repl: ui.panelRepl,
@@ -2940,6 +2990,18 @@ function loadState() {
   try {
     const kept = JSON.parse(sessionStorage.getItem(STATE_KEY));
     return kept && typeof kept === "object" && typeof kept.source === "string" ? kept : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What `saveForReload` left for this page, {focus}, once, or null where
+ *  the page was not reloaded onto a newer build. () -> {focus}? */
+function takeReload() {
+  try {
+    const left = JSON.parse(sessionStorage.getItem(RELOAD_KEY));
+    sessionStorage.removeItem(RELOAD_KEY);
+    return left && typeof left === "object" ? left : null;
   } catch {
     return null;
   }

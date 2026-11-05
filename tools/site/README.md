@@ -66,7 +66,8 @@ tools/site/
                             favicon, public/site/favicon.svg)
   src/pages/playground.astro      the playground page
   src/styles/site.css       the site's own styles
-  public/site/shell.js      keeps each section open as it was left
+  public/site/shell.js      keeps each section open as it was left, and
+                            reloads onto a new build of the site
   public/site/cells.js      makes a page's cells runnable
   build/                    staged by site.py (gitignored)
 ```
@@ -91,14 +92,17 @@ tools/site/
    from the help's `index.json` -- which `src/components/Sidebar.astro`
    shows for the section being read, the current page opened at its
    headings; there is no table of contents on the right. `public/` is
-   `public/` plus `runtime/`, which holds what `pyk playground` serves
+   `public/`, with its `site/` under `v/<build>/`, plus
+   `v/<build>/runtime/`, which holds what `pyk playground` serves
    (the shared web scripts, `vendor/`, the bundle and its manifest,
    `lib/` -- its Pyking sources, its browser scripts, the sounds a page
    plays and each target's implementation, for the playground's
    Download -- the playground's assets and examples, the notebook's
    scripts and the help), each at the URL path the server gives it. `pyking.tmLanguage.json` is the grammar code blocks are
    highlighted with, made from the compiler's own keyword and builtin lists
-   (`pykKeywords`, `pykBuiltins`). Astro's cache is emptied.
+   (`pykKeywords`, `pykBuiltins`). Astro's cache is emptied. Last, the
+   build gets its id, and `version.json` and `build.json` say it (see
+   "A new build" below).
 2. **Installs** with `npm ci` if `node_modules/` is missing or older than
    `package-lock.json`.
 3. **Builds** with Astro, into `website/`.
@@ -146,7 +150,8 @@ section is an entry in the shell's history and a page a frame goes to
 is one in that frame's, so Back goes back the way the reader came,
 between sections and within one. A reload opens the section in the
 address bar afresh; the playground then finds its program and output
-again in sessionStorage (`tools/playground/README.md`).
+again in sessionStorage (`tools/playground/README.md`). A reload onto a
+new build of the site keeps every section ("A new build", below).
 
 A section that is hidden goes on running -- a compile, a REPL entry --
 but is told so: its window gets a `pyking:visibility` event,
@@ -159,6 +164,81 @@ left it rather than playing to no one.
 drives it in Chromium with `tests/site/shell.mjs`, which serves pages of
 its own, one per section, under a base path. The playground's side --
 a tinyweb page held while hidden -- is in `tests/lsp/playground.mjs`.
+
+## A new build
+
+A page left open -- the playground in the middle of a program, say --
+would otherwise go on with the site it was loaded from for as long as
+the tab lives, and GitHub Pages lets a browser keep any file for ten
+minutes (`cache-control: max-age=600`, which a site there cannot
+change). So each build of the site has an id, and an open tab moves to
+a new one by itself.
+
+- **The id** (`site.py`, `build_id`) is a hash of everything staged --
+  the pages, `public/`, the runtime, the menus, the grammar -- and of
+  `src/`, `astro.config.mjs` and `package-lock.json`, which the pages
+  are made with: the same commit builds the same id, and any change to
+  what is served a new one. Nothing in it depends on when it was built
+  (tinyweb's zips are dated 1980), so `make website-release` of an
+  unchanged site commits nothing.
+- **The runtime and the site's scripts are served under `v/<build>/`**:
+  `v/<build>/runtime/` and `v/<build>/site/` (`shell.js`, `cells.js`,
+  the favicon). A release gives every one of those files a new URL, so
+  no cache can serve an older copy, or mix one into a newer page; the
+  modules they import are found relative to them, in the same build.
+  Astro's own `_astro/` files are named by their hash already.
+- **`version.json`**, at the site's root, is
+  `{build, commit, date, pyking}`: the build, the short commit it was
+  built from and that commit's date, and the Pyking version.
+  `v/<build>/build.json` says the same. Every page tells `shell.js` its
+  build (`data-build`).
+- **The shell reads `version.json` again** -- never from a cache --
+  when it starts, when the window is shown or focused, and every five
+  minutes. When it names another build, the window is reloaded onto it,
+  silently, at the first moment that loses nothing: when the window is
+  hidden, or when no section is busy and the reader has not typed,
+  clicked, scrolled or touched it for two minutes; it asks again every
+  fifteen seconds meanwhile. A page that started on an old copy of its
+  HTML -- one a cache still held -- is reloaded at once, before the
+  reader has done anything. A plain page of the site does the same for
+  itself.
+- **A section says it is busy**, and keeps what it can, through
+  `window.pykingUpdate` = `{busy(), save()}`. The playground is busy
+  while a program runs (its page among it), is debugged or a REPL entry
+  is being worked out, or while its REPL session has defined names; it
+  keeps its state at once, and which input had the keyboard, which it
+  gives back after the reload (`saveForReload`). A page's cells are
+  busy while one runs or is queued, or a program's page still takes
+  events; what was typed into a cell is kept and put back.
+- **The shell keeps its sections**: the page each was at and where it
+  was scrolled. The section shown opens there again at once, and every
+  other at its first showing, by its tab.
+- **No loop**: a reload made for a build that comes back as the build
+  before -- a cache not yet past it -- is not made again; the next
+  build is.
+- **The playground's version**, beside "Pyking Playground", is the
+  Pyking version, and says when hovered which build the page is: "built
+  from 3a4f2c1, 2026-11-03". Nothing else tells the reader of a reload.
+
+The compiler in the playground's worker has its own, older check: the
+bundle's manifest carries a stamp that the page re-reads before each
+compile, and a changed stamp boots a new worker without reloading the
+page (`tools/webrun/assets/pyking-runtime.js`, `_checkStamp`). That is
+what keeps `pyk playground` honest across a rebuild, where there is no
+`version.json` and no reload.
+
+`make website-release` keeps the build it served before beside the new
+one -- only that one -- so a tab still open on it goes on fetching from
+it (a library's source, when it compiles) until it is reloaded, and
+waits until `version.json` names the new build.
+
+`tests/test_site.py` (the `build` part) checks the id, `version.json`,
+`v/<build>/` and what the pages load, and `tests/site/shell.mjs` the
+reload in Chromium: noticed, held while busy or the reader is active,
+made when hidden, the sections opened again, no loop, a plain page.
+`tests/lsp/playground.mjs` checks what the playground says is busy and
+the keyboard given back, and `tests/notebook/page.mjs` the same for
+cells.
 
 ## Writing a page
 
@@ -307,14 +387,17 @@ it and change its Pages settings.
   pyking-lang/pyking@<commit>" -- replacing every file but `.git`. Beside
   the site go `.nojekyll`, without which Pages leaves out every path
   starting with `_` (Astro's `_astro/`), `CNAME`, holding `pyking.org`,
-  and a README naming the commit.
+  and a README naming the commit. The build it served before,
+  `v/<build>/`, is kept beside the new one, for tabs still open on it
+  ("A new build").
   A site that has not changed is not committed again.
 - **It configures Pages** to serve `main` at its root under `pyking.org`,
   creating the site the first time, and enforces HTTPS (which redirects
   `http://`) as soon as GitHub has the domain's certificate.
 - **It waits** -- up to ten minutes -- until Pages has built the upload
   and `https://pyking.org/` serves it, with HTTPS enforced: the README
-  with the commit, and the front page as it was built. It ends with one
+  with the commit, the front page as it was built, and `version.json`
+  naming its build. It ends with one
   line, **SUCCEEDED**, or **FAILED** with the reason -- what it is still
   waiting for, what is wrong with the DNS, and Pages' own check of the
   domain. The first time, the certificate can take up to an hour after

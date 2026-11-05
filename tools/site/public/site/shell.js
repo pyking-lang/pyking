@@ -36,14 +36,40 @@
 // path it is served under ("" at a domain's root), and `data-sections`
 // is [{key, label, prefix}], each prefix a path below the base that the
 // pages of that section start with.
+//
+// A new build. `data-build` is the build the page is (site.py), and
+// version.json, at the base, names the one the site serves now. The top
+// window -- the shell, or a plain page of the site -- reads it again when
+// it starts, when it is shown or focused, and every CHECK_EVERY; when it
+// names another build, the window is reloaded onto it, silently, at the
+// first moment that loses nothing: when the window is hidden, or when no
+// page in it is busy and the reader has not typed, clicked or scrolled
+// for IDLE. A page says it is busy, and keeps what it can, through
+// `window.pykingUpdate` = {busy() -> Bool, save() -> ()}: the playground
+// while a program runs, is debugged or a REPL session has defined names,
+// cells while one runs. The shell keeps which page each section was at,
+// and where it was scrolled, and opens them there again. `data-update`,
+// "CHECK IDLE RETRY" in milliseconds, replaces the times, for tests.
 
 (() => {
   "use strict";
   const script = document.currentScript;
   const base = (script?.dataset.base ?? "").replace(/\/$/, "");
   const sections = JSON.parse(script?.dataset.sections || "[]");
+  const build = script?.dataset.build ?? null;
   const root = document.documentElement;
   const EVENT = "pyking:visibility";
+  // How often version.json is read again, how long the reader must have
+  // left the page alone before it is reloaded under them, and how often a
+  // busy page is asked again, in milliseconds.
+  const timing = (script?.dataset.update ?? "").split(/\s+/).map(Number);
+  const [CHECK_EVERY, IDLE, RETRY] = [5 * 60000, 2 * 60000, 15000]
+    .map((otherwise, k) => (timing[k] > 0 ? timing[k] : otherwise));
+  // The build a reload was made for: one that came back as the build
+  // before -- a cache not yet past it -- is not reloaded for again.
+  const TRIED_KEY = "pyking-site.reloaded-for";
+  // Where the shell keeps its sections across a reload onto a new build.
+  const RESTORE_KEY = "pyking-shell.restore";
 
   // The section a URL is a page of: a section's key, "home" for the
   // start page, or null for anything else. String -> String?
@@ -71,9 +97,112 @@
     return;
   }
   if (window.top !== window) return;
-  if (new URLSearchParams(location.search).has("noshell")) return;
-  if (sectionOf(location.href) === null) return;
+  if (new URLSearchParams(location.search).has("noshell") || sectionOf(location.href) === null) {
+    // A plain page is a window of its own, and is reloaded onto a new
+    // build as the shell is.
+    const update = watchBuild(() => [window], () => {});
+    if (update) addEventListener("load", () => update.check());
+    return;
+  }
   window.pykingShell = makeShell();
+
+  // --- a new build ---
+
+  // Watches version.json for a build other than this page's, and reloads
+  // the window onto it when that loses nothing. `pages` answers the
+  // windows whose pages may be busy; `keep` saves what the window itself
+  // wants back. Answers {check, touched, pending}, or null where the page
+  // names no build. (() -> [Window]) -> (() -> ()) -> Object?
+  function watchBuild(pages, keep) {
+    if (!build) return null;
+    let lastInput = null;     // none since the page loaded: idle already
+    let newer = null;         // the build version.json names, when not ours
+    let retry = null;
+    let checked = 0;
+    let reloading = false;    // the page going away fires visibilitychange
+
+    const touched = () => {
+      lastInput = Date.now();
+    };
+    for (const type of ["keydown", "pointerdown", "wheel", "touchstart"]) {
+      addEventListener(type, touched, { capture: true, passive: true });
+    }
+
+    async function check() {
+      checked = Date.now();
+      let named = null;
+      try {
+        const response = await fetch(base + "/version.json", { cache: "no-store" });
+        if (response.ok) named = (await response.json()).build ?? null;
+      } catch {
+        return;     // offline, or the site is being replaced: ask again later
+      }
+      if (!named || named === build) return;
+      try {
+        if (sessionStorage.getItem(TRIED_KEY) === named) return;
+      } catch {
+        // no storage: try it
+      }
+      newer = named;
+      settle();
+    }
+
+    const busy = () => pages().some((page) => {
+      try {
+        return !!page.pykingUpdate?.busy();
+      } catch {
+        return false;
+      }
+    });
+
+    // Reloads now if nothing is lost by it, or asks again in RETRY.
+    function settle() {
+      clearTimeout(retry);
+      retry = null;
+      if (newer === null) return;
+      const idle = lastInput === null || Date.now() - lastInput >= IDLE;
+      if (document.visibilityState === "hidden" || (idle && !busy())) {
+        reload();
+        return;
+      }
+      retry = setTimeout(settle, RETRY);
+    }
+
+    function reload() {
+      if (reloading) return;
+      reloading = true;
+      for (const page of pages()) {
+        try {
+          page.pykingUpdate?.save();
+        } catch {
+          // a page that cannot keep anything starts afresh
+        }
+      }
+      keep();
+      try {
+        sessionStorage.setItem(TRIED_KEY, newer);
+      } catch {
+        // reloaded all the same
+      }
+      location.reload();
+    }
+
+    setInterval(check, CHECK_EVERY);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") settle();
+      else check();
+    });
+    addEventListener("focus", () => {
+      if (Date.now() - checked > 10000) check();
+    });
+    return {
+      check,
+      touched,
+      get pending() {
+        return newer;
+      },
+    };
+  }
 
   // --- the shell ---
 
@@ -94,6 +223,15 @@
     const frames = new Map();    // section -> its iframe
     let current = null;          // the section shown
     let box = null;
+    // Where each section was before a reload onto a new build: key ->
+    // {href, x, y}. A section is opened there again the first time it is.
+    let restoring = {};
+    try {
+      restoring = JSON.parse(sessionStorage.getItem(RESTORE_KEY)) ?? {};
+      sessionStorage.removeItem(RESTORE_KEY);
+    } catch {
+      restoring = {};
+    }
 
     // Where a frame is: where it was last sent, until it gets there,
     // then where it is. Iframe -> String?
@@ -126,7 +264,10 @@
     function frameFor(key, href) {
       let frame = frames.get(key);
       if (frame) return frame;
+      const kept = restoring[key];
+      delete restoring[key];
       frame = document.createElement("iframe");
+      if (kept && kept.href === href) frame.pykingScroll = kept;
       frame.dataset.section = key;
       frame.title = key === "home" ? "Pyking" : sections.find((s) => s.key === key)?.label ?? key;
       frame.pykingGoing = href;
@@ -166,6 +307,10 @@
       }
       const key = sectionOf(page.location.href);
       if (key !== null && key !== frame.dataset.section) rekey(frame, key);
+      if (frame.pykingScroll) {
+        page.scrollTo(frame.pykingScroll.x, frame.pykingScroll.y);
+        frame.pykingScroll = null;
+      }
       if (frame.dataset.hidden !== undefined) tell(frame, true);
       followIt();
     }
@@ -231,6 +376,8 @@
       }
       const frame = frames.get(key);
       if (!frame) {
+        // A section's tab opens it where it was before a reload.
+        if (tab && restoring[key]?.href) href = restoring[key].href;
         if (key !== current) history.pushState({ pykingSection: key }, "", href);
         frameFor(key, href);
         select(key);
@@ -266,7 +413,30 @@
       current = key;
       frameFor(key, location.href);
       addEventListener("popstate", back);
+      update?.check();
     }
+
+    // Each section's page and scroll, for the shell reloaded onto a new
+    // build to open them there again. () -> ()
+    function keep() {
+      const kept = {};
+      for (const [key, frame] of frames) {
+        try {
+          const page = frame.contentWindow;
+          kept[key] = { href: page.location.href, x: page.scrollX, y: page.scrollY };
+        } catch {
+          // not a page of the site: opened afresh
+        }
+      }
+      try {
+        sessionStorage.setItem(RESTORE_KEY, JSON.stringify(kept));
+      } catch {
+        // every section starts afresh
+      }
+    }
+
+    const update = watchBuild(() => [...frames.values()].map((frame) => frame.contentWindow)
+      .filter(Boolean), keep);
 
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
     else start();
@@ -282,6 +452,15 @@
       get sections() {
         return [...frames.keys()];
       },
+      // The reader did something in a section (`framed`). () -> ()
+      touched: () => update?.touched(),
+      // The build this page is, and the newer one waiting for a moment
+      // to reload onto, if any; `checkBuild` reads version.json now.
+      build,
+      get newerBuild() {
+        return update?.pending ?? null;
+      },
+      checkBuild: () => update?.check(),
     };
   }
 
@@ -294,6 +473,12 @@
     // Whether a link is one of the header's: a section's tab, or the
     // logo, which is the start page's. Element -> Bool
     const isTab = (link) => link.closest(".pyking-nav, .site-title") !== null;
+
+    // What the reader does here counts as being in the window, which is
+    // not reloaded onto a new build under them.
+    for (const type of ["keydown", "pointerdown", "wheel", "touchstart"]) {
+      addEventListener(type, () => shell.touched?.(), { capture: true, passive: true });
+    }
 
     // After the page's own listeners, so that one that takes a click
     // keeps it.

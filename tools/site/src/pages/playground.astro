@@ -1,11 +1,17 @@
 ---
 // The playground, as a page of the site: tools/playground's own
-// component (mountPlayground), served from runtime/ (tools/site/README.md).
-// Below the header it fills the window: the splash template has no left
-// menu, and site.css hides the title and the footer.
+// component (mountPlayground), served from v/<build>/runtime/
+// (tools/site/README.md). Below the header it fills the window: the
+// splash template has no left menu, and site.css hides the title and the
+// footer.
+import fs from "node:fs";
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import { STAGE } from "../stage.mjs";
 
-const runtime = import.meta.env.BASE_URL.replace(/\/?$/, "/") + "runtime/";
+const { build, commit, date } = JSON.parse(fs.readFileSync(STAGE + "/build.json", "utf8"));
+const runtime = import.meta.env.BASE_URL.replace(/\/?$/, "/") + `v/${build}/runtime/`;
+// What the version says when hovered.
+const built = `built from ${commit}` + (date ? `, ${date}` : "");
 ---
 <StarlightPage frontmatter={{
   title: "Playground",
@@ -14,7 +20,8 @@ const runtime = import.meta.env.BASE_URL.replace(/\/?$/, "/") + "runtime/";
   template: "splash",
   pagefind: false,
 }}>
-  <div id="playground" class="pyking-playground not-content" data-runtime={runtime}></div>
+  <div id="playground" class="pyking-playground not-content" data-runtime={runtime}
+    data-built={built}></div>
   <script is:inline type="module">
     // The page that is the shell around the site's sections shows the
     // playground in a frame of its own (shell.js), so starts none here.
@@ -36,11 +43,19 @@ const runtime = import.meta.env.BASE_URL.replace(/\/?$/, "/") + "runtime/";
           vendorURL: runtime + "vendor/",
           notebookURL: runtime + "notebook/",
           helpURL: runtime + "help/",
+          built: host.dataset.built,
           // The site's own light/dark switch decides the playground's too.
           theme: theme(),
         });
         new MutationObserver(() => window.pykingPlayground.setTheme(theme()))
           .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+        // What the shell asks before it reloads onto a newer build
+        // (shell.js): whether anything would be lost, and to keep what
+        // can be.
+        window.pykingUpdate = {
+          busy: () => window.pykingPlayground.busy(),
+          save: () => window.pykingPlayground.saveForReload(),
+        };
       } catch (err) {
         host.textContent = "Could not start the playground: " + err.message;
         console.error(err);

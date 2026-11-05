@@ -70,6 +70,11 @@ const WATCH_INTERVAL = 1000;
 
 const SCROLL_KEY = "pyking-notebook.scroll:";
 
+/** Where a page's edited cells are kept while the page that holds them
+ *  reloads onto a newer build of the site (`Cells.saveForReload`): read
+ *  once, by the next page, and removed. */
+const EDITS_KEY = "pyking-cells.edits:";
+
 const THEME_KEY = "pyking-notebook.theme";
 const THEMES = ["auto", "light", "dark"];
 const ACE_THEME = { light: "ace/theme/tomorrow", dark: "ace/theme/tomorrow_night" };
@@ -205,6 +210,7 @@ export async function mountCells(placeholders, options = {}) {
     before.then(() => cells.makePictures(doc, placeholder, cfg.baseURL ?? "")), Promise.resolve());
   await cells.init();
   cells.picturesMade = drawn;
+  cells.restoreEdits();
   return cells;
 }
 
@@ -244,6 +250,47 @@ class Cells {
     this.media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
     this.activities = [];      // the tasks and quizzes, per document
     this.fragments = [];       // mountCells' fragments, cells or none
+  }
+
+  /** Whether reloading the page now would lose something: a cell running
+   *  or queued, or a page a program shows that still takes its events.
+   *  What the site asks before it reloads onto a newer build. () -> Bool */
+  busy() {
+    return this.running !== null
+      || this.cells.some((cell) => cell.state === "queued"
+                         || (cell.host && cell.host.used && !cell.host.frozen));
+  }
+
+  /** Keeps what was typed into a cell, for the page about to be reloaded
+   *  onto a newer build: the next page puts it back (`restoreEdits`).
+   *  Tasks and quizzes keep their own state already. () -> () */
+  saveForReload() {
+    const edits = {};
+    for (const cell of this.cells) {
+      if (cell.source() !== cell.spec.source) edits[cell.spec.id] = cell.source();
+    }
+    try {
+      if (Object.keys(edits).length) {
+        sessionStorage.setItem(EDITS_KEY + location.pathname, JSON.stringify(edits));
+      }
+    } catch {
+      /* the cells come back as the page wrote them */
+    }
+  }
+
+  /** Puts back what `saveForReload` kept, once. () -> () */
+  restoreEdits() {
+    let edits = null;
+    try {
+      edits = JSON.parse(sessionStorage.getItem(EDITS_KEY + location.pathname));
+      sessionStorage.removeItem(EDITS_KEY + location.pathname);
+    } catch {
+      return;
+    }
+    if (!edits || typeof edits !== "object") return;
+    for (const cell of this.cells) {
+      if (typeof edits[cell.spec.id] === "string") cell.setSource(edits[cell.spec.id]);
+    }
   }
 
   /** Every task's and quiz's state, and the totals.
@@ -611,6 +658,9 @@ class Cells {
     const cell = this.running;
     if (cell) cell.stopped = true;
     this.runtime.stop();
+    // The worker that answered the pages' events is gone, and every
+    // program with it: their pages ask for none from now on.
+    for (const other of this.cells) other.host?.freeze();
     this.status("busy", "restarting the compiler");
     this.runtime.ready()
       .then(() => this.status("ready", "ready"))

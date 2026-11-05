@@ -642,6 +642,14 @@ names, and `data-stdin` and `data-args` fill in the cell's input as a
 mounted object are the notebook's, without the page: no header, no
 contents, no `title`.
 
+A page that reloads itself -- the website does, onto a new build of the
+site (`tools/site/README.md`, "A new build") -- asks the cells first:
+`busy()` answers whether a cell is running or queued, or a program's page
+still takes events (a Stop ends those too, since the worker that
+answered them is gone), and `saveForReload()` keeps what was typed into
+each cell, in `sessionStorage`; the next page's `mountCells` puts it
+back, once.
+
 A cell's editor is made when the cell comes near the screen, or when it
 is run, rather than all at once: a page of a hundred cells would hold the
 browser for seconds. Until then the cell shows its code as text.

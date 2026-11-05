@@ -13,6 +13,12 @@ playground` serves, written out under runtime/. Everything is staged in
 build/ beside this file first, and Astro reads it from there. See
 README.md beside this file.
 
+The runtime and the site's own scripts (public/site/) are served under
+v/<build>/, the build's id: a hash of everything staged, so a release
+gives every one of those files a new URL and no cache can mix an older
+one in. version.json, at the root, names the build; shell.js re-reads it
+and reloads an open tab onto a newer one (README.md, "A new build").
+
 Usage: python3 tools/site/site.py [build | dev | stage] [--port N]
 
 Functions:
@@ -22,6 +28,10 @@ Functions:
     export_runtime(directory) -- writes the runtime into directory.
     sidebar_items(directory, path) -- the sidebar entries for staged pages.
     sidebar(index, tinyweb) -- the left menu of every section.
+    commit_info() -- the commit the site is built from, and its date.
+    build_id(paths) -- a hash of the files under paths.
+    version_build(public, paths, commit, date, version) -- moves the
+        staged versioned files under v/<build>/, and writes version.json.
     stage() -- fills build/ with the pages, the static files, the runtime
         and the sidebar.
     astro(command, args) -- runs Astro's own command line.
@@ -29,6 +39,7 @@ Functions:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -59,6 +70,12 @@ ASTRO = MODULES / "astro" / "bin" / "astro.mjs"
 
 # Astro 7 needs this node or a later one.
 MINIMUM_NODE = (22, 12)
+
+# Where the files served under the build's id are, below public/: the
+# runtime and the site's own scripts, staged first under VERSIONED/STAGED
+# and then moved to VERSIONED/<build> (`version_build`).
+VERSIONED = "v"
+STAGED = "_staged"
 
 # What a browser fetches from lib/: a module's Pyking source, its
 # browser implementation, the sounds a page plays (tinyweb's samples,
@@ -252,11 +269,60 @@ def sidebar(index, tinyweb):
     return menus
 
 
+def commit_info():
+    """The commit the site is built from, as its short hash, and that
+    commit's date (YYYY-MM-DD): what the playground's version says when
+    hovered. The commit's date rather than today's, so the same commit
+    builds the same site. ("unknown", "") outside a git checkout.
+    () -> (String, String)"""
+    try:
+        result = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%h %cs"],
+                                capture_output=True, text=True)
+    except FileNotFoundError:
+        return "unknown", ""
+    words = result.stdout.split() if result.returncode == 0 else []
+    return (words[0], words[1]) if len(words) == 2 else ("unknown", "")
+
+
+def build_id(paths):
+    """A hash of every file under paths -- each file's path below its root
+    and its bytes, in order -- as 12 hex digits: the same files make the
+    same id, and any change a new one. A path that is a file is hashed
+    alone. [Path] -> String"""
+    digest = hashlib.sha256()
+    for root in paths:
+        files = [root] if root.is_file() else sorted(p for p in root.rglob("*") if p.is_file())
+        for path in files:
+            digest.update(str(path.relative_to(root.parent)).encode() + b"\0")
+            digest.update(path.read_bytes() + b"\0")
+    return digest.hexdigest()[:12]
+
+
+def version_build(public, paths, commit, date, version):
+    """Moves public/VERSIONED/STAGED to public/VERSIONED/<build>, the
+    build's id from `paths`, and writes what names the build: version.json
+    at public's root, which an open tab re-reads to notice a newer one
+    (shell.js), and build.json in the build's own directory. Answers what
+    they say. Path -> [Path] -> String -> String -> String -> {String: String}"""
+    build = build_id(paths)
+    info = {"build": build, "commit": commit, "date": date, "pyking": version}
+    staged, target = public / VERSIONED / STAGED, public / VERSIONED / build
+    shutil.rmtree(target, ignore_errors=True)
+    staged.rename(target)
+    text = json.dumps(info, indent=2) + "\n"
+    (target / "build.json").write_text(text)
+    (public / "version.json").write_text(text)
+    return info
+
+
 def stage():
     """Fills build/: content/ with the help and tinyweb's pages for other
     languages, pics/ from sitesrc/pics/, public/ from public/, the runtime
     and tinyweb's downloads,
-    the left menus and the grammar; and empties Astro's cache. () -> ()"""
+    the left menus and the grammar; and empties Astro's cache. The
+    runtime and public/site/ go under v/<build>, and build.json says
+    which build that is, for astro.config.mjs and the playground page.
+    () -> ()"""
     server.check_bundle("website")
     server.check_vendor("website")
     # The cache too: Astro keeps the pages it rendered, and would not
@@ -267,7 +333,14 @@ def stage():
         print("website: warning: " + line)
     index = helpdoc.write(STAGE / "content")
     (STAGE / "content" / "index.json").unlink()
-    _copy_tree(HERE / "public", STAGE / "public")
+    versioned = STAGE / "public" / VERSIONED / STAGED
+    for path in sorted((HERE / "public").iterdir()):
+        if path.name == "site":
+            _copy_tree(path, versioned / "site")
+        elif path.is_dir():
+            _copy_tree(path, STAGE / "public" / path.name)
+        elif not path.name.startswith("."):
+            shutil.copyfile(path, STAGE / "public" / path.name)
     # The pictures the site's stylesheet names, which Astro bundles from here.
     _copy_tree(PICTURES, STAGE / "pics", (".jpeg", ".jpg", ".png", ".svg", ".webp"))
     # tinyweb's implementations as libraries of their own, with the code
@@ -276,7 +349,7 @@ def stage():
                      [str(REPO / "pyk")],
                      library=STAGE / "content" / "libraries" / "tinyweb.md",
                      href=f"../../{TINYWEB}/")
-    export_runtime(STAGE / "public" / "runtime")
+    export_runtime(versioned / "runtime")
     # The left menu is the site's own (src/components/Sidebar.astro),
     # read from here; Starlight's `autogenerate` would find nothing, the
     # pages being staged outside src/content/docs/.
@@ -286,6 +359,16 @@ def stage():
         json.dumps(sidebar(index, tinyweb), indent=2) + "\n")
     (STAGE / "pyking.tmLanguage.json").write_text(
         json.dumps(grammar(server.BUNDLE), indent=2) + "\n")
+    # Last, so the id covers everything staged, and the site's own
+    # templates and settings, which the pages are made with.
+    commit, date = commit_info()
+    info = version_build(
+        STAGE / "public",
+        [STAGE / "content", STAGE / "public", STAGE / "sidebar.json",
+         STAGE / "pyking.tmLanguage.json", HERE / "src", HERE / "astro.config.mjs",
+         HERE / "package-lock.json"],
+        commit, date, (REPO / "VERSION").read_text().strip())
+    (STAGE / "build.json").write_text(json.dumps(info, indent=2) + "\n")
 
 
 def astro(command, args=()):

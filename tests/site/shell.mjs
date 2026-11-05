@@ -12,7 +12,12 @@
 // and Back follow; a hidden section is told so; a theme picked in one
 // section is every section's; and a page opened with ?noshell, a page
 // that is no section's and a page in another page's frame are plain
-// pages. Last, a link to another site replaces the whole window.
+// pages. Then a new build: when version.json names another build than the
+// page's, the window is reloaded onto it only when nothing is busy and
+// the reader has left it alone, or when it is hidden; each page keeps
+// what it can first, the sections open again where they were, a reload
+// that came back as the old build is not repeated, and a plain page is
+// reloaded too. Last, a link to another site replaces the whole window.
 //
 // Usage: node shell.mjs <chromium>
 // Writes {checks, failures} as JSON. tests/test_site.py runs it.
@@ -32,6 +37,13 @@ const BASE = "/pk";
 // The site's own sections, keyed as astro.config.mjs keys them.
 const SECTIONS = SITE_SECTIONS.map((s) => ({ ...s, key: s.prefix.replace(/\//g, "") }));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// The build the pages say they are, and the one version.json names: the
+// same until a check of a new build changes them.
+const builds = { page: "b1", named: "b1" };
+// How long a reader must leave a page alone before it is reloaded under
+// them, and how often a busy page is asked again: short, for the test.
+const IDLE = 1500;
+const RETRY = 100;
 
 // A page of the site: the header -- the logo and the tabs -- and `body`.
 // Every page in a frame counts the times it was loaded in sessionStorage,
@@ -41,7 +53,8 @@ function page(title, body) {
   const tabs = SECTIONS.map(({ label, path: to }) => `<a href="${BASE}${to}">${label}</a>`).join("\n");
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title} | Pyking</title>
-<script src="${BASE}/site/shell.js" data-base="${BASE}" data-sections='${sections}'></script>
+<script src="${BASE}/site/shell.js" data-base="${BASE}" data-sections='${sections}'
+  data-build="BUILD" data-update="3600000 ${IDLE} ${RETRY}"></script>
 </head><body>
 <header><a class="site-title" href="${BASE}/">Pyking</a><nav class="pyking-nav">${tabs}</nav></header>
 <main>${body}</main>
@@ -53,6 +66,13 @@ function page(title, body) {
   window.heard = [];
   addEventListener("pyking:visibility", (event) => heard.push(event.detail.hidden));
   window.shellStartedHere = document.documentElement.classList.contains("pyking-shell");
+  // Busy when a test says so; counts the times it was asked to keep
+  // what it could before a reload.
+  window.pykingUpdate = {
+    busy: () => window.busyNow === true,
+    save: () => sessionStorage.setItem("saved:" + location.pathname,
+      String(Number(sessionStorage.getItem("saved:" + location.pathname) || 0) + 1)),
+  };
 </script>
 </body></html>`;
 }
@@ -87,12 +107,16 @@ function serve() {
     } else if (file === "/runtime/plain.html") {
       response.writeHead(200, { "content-type": "text/html" });
       response.end("<!doctype html><title>plain</title><p>plain</p>");
+    } else if (file === "/version.json") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ build: builds.named }));
     } else if (file !== null && PAGES[file] !== undefined) {
       response.writeHead(200, { "content-type": "text/html" });
-      response.end(PAGES[file]);
+      response.end(PAGES[file].replace('data-build="BUILD"', `data-build="${builds.page}"`));
     } else {
       response.writeHead(404, { "content-type": "text/html" });
-      response.end(page("Not found", "<h1>404</h1>"));
+      response.end(page("Not found", "<h1>404</h1>")
+        .replace('data-build="BUILD"', `data-build="${builds.page}"`));
     }
   });
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
@@ -294,6 +318,74 @@ try {
   check("and a page in another page's frame", await until(
     `document.getElementById("inner").contentDocument?.querySelector("main")
      && document.getElementById("inner").contentDocument.documentElement.className === ""`));
+
+  progress("a new build");
+  // A window that has been reloaded has lost `stayed`.
+  const stayed = () => evaluate("window.stayed === true");
+  await open(`${site}/libraries/math/`);
+  await ready("libraries", "/libraries/math/");
+  await evaluate(`${win("libraries")}.scrollTo(0, 700)`);
+  await tab("libraries", "Playground");
+  await ready("playground", "/playground/");
+  await evaluate(`window.stayed = true; ${win("playground")}.busyNow = true`);
+  check("a page is told which build it is", await evaluate("pykingShell.build") === "b1",
+    await evaluate("pykingShell.build"));
+  builds.page = builds.named = "b2";
+  await evaluate("pykingShell.checkBuild()");
+  await sleep(4 * RETRY);
+  check("a newer build is noticed", await evaluate("pykingShell.newerBuild") === "b2",
+    await evaluate("pykingShell.newerBuild"));
+  check("but a busy section is not reloaded", await stayed());
+  await evaluate(`${doc("playground")}.dispatchEvent(new KeyboardEvent("keydown"));
+    ${win("playground")}.busyNow = false`);
+  await sleep(IDLE / 3);
+  check("nor one the reader has just typed in", await stayed());
+  check("once it is left alone and nothing is busy, the window is reloaded onto the new build",
+    await until("window.stayed === undefined && window.pykingShell?.build === 'b2'"),
+    await evaluate("window.pykingShell?.build"));
+  check("each section kept what it could first", await evaluate(
+    `sessionStorage.getItem("saved:${BASE}/playground/") === "1"
+     && sessionStorage.getItem("saved:${BASE}/libraries/math/") === "1"`));
+  check("the section shown is shown again", await ready("playground", "/playground/")
+    && await shown() === "playground" && await where() === `${BASE}/playground/`, await where());
+  await tab("playground", "Libraries");
+  check("another section's tab opens it at the page it was at",
+    await ready("libraries", "/libraries/math/"), await where());
+  check("scrolled where it was", await until(`${win("libraries")}.scrollY === 700`),
+    await evaluate(`${win("libraries")}.scrollY`));
+
+  await evaluate(`window.stayed = true; ${win("libraries")}.busyNow = true`);
+  builds.page = builds.named = "b3";
+  await evaluate("pykingShell.checkBuild()");
+  await sleep(4 * RETRY);
+  check("a busy section waits", await stayed() && await evaluate("pykingShell.newerBuild") === "b3");
+  await evaluate(`Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"))`);
+  check("but a hidden window is reloaded, busy or not",
+    await until("window.stayed === undefined && window.pykingShell?.build === 'b3'"),
+    await evaluate("window.pykingShell?.build"));
+
+  // version.json names a build the page does not come back as: a cache
+  // that is not past it yet.
+  await ready("libraries", "/libraries/math/");
+  await evaluate("window.stayed = true");
+  builds.named = "b4";
+  await evaluate("pykingShell.checkBuild()");
+  await until("window.stayed === undefined && window.pykingShell?.build === 'b3'");
+  await ready("libraries", "/libraries/math/");
+  await evaluate("window.stayed = true");
+  await evaluate("pykingShell.checkBuild()");
+  await sleep(IDLE + 4 * RETRY);
+  check("a reload that came back as the old build is not repeated", await stayed()
+    && await evaluate("pykingShell.newerBuild") === null);
+
+  builds.page = builds.named = "b5";
+  await open(`${site}/install/?noshell`);
+  builds.page = builds.named = "b6";
+  await evaluate("window.stayed = true; document.dispatchEvent(new Event('visibilitychange'))");
+  check("a plain page is reloaded onto a new build too", await until(
+    "window.stayed === undefined "
+    + "&& document.querySelector('script[data-build]')?.dataset.build === 'b6'"));
 
   progress("another site");
   await open(`${site}/getstarted/overview/`);

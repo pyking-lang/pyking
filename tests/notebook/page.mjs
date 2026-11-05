@@ -1,6 +1,7 @@
 // Drives a notebook page in a real, headless Chromium, over the DevTools
 // protocol with node's own WebSocket -- no package needed -- and checks
-// what its tasks and quizzes do: tests/test_notebook.py serves
+// what its tasks and quizzes do, and what a reload onto a new build of the
+// website would lose and keeps: tests/test_notebook.py serves
 // tests/notebook/features.md and runs this against it, once in student
 // mode and once in teacher mode.
 //
@@ -55,6 +56,37 @@ const SILENT = JSON.stringify('import tinyweb as tw\ntw.web_init(0)\ntw.button("
 const COUNTER = JSON.stringify('use mutation\nimport tinyweb as tw\nvar n = 0\ntw.web_init(0)\n'
   + 'shown = tw.label("0")\ndef more():\n    n := n + 1\n    tw.set_text(shown, string(n))\n'
   + '    print(n)\ntw.button("More", on_click = more)\n');
+
+// What the website asks before it reloads a page onto a new build:
+// whether a reload now would lose something -- a cell running, a page its
+// program still shows -- and what was typed into a cell, kept across it.
+const CELLS_KEPT = `(async () => { ${HELPERS}
+  const cell = nb.cells[0];
+  const original = cell.source();
+  check("with nothing running, a reload loses nothing", !nb.busy());
+  cell.setSource(${COUNTER});
+  const ran = cell.run();
+  check("a cell running is something to lose", nb.busy());
+  await ran;
+  check("and so is a page its program still shows", nb.busy() && cell.host?.used
+    && !cell.host.frozen);
+  nb.stop();
+  check("until the program is stopped", !nb.busy() && cell.host.frozen);
+  const key = "pyking-cells.edits:" + location.pathname;
+  cell.setSource(original + "# edited\\n");
+  nb.saveForReload();
+  check("what was typed into a cell is kept for a reload onto a new build",
+    JSON.parse(sessionStorage.getItem(key) ?? "{}")[cell.spec.id] === original + "# edited\\n",
+    sessionStorage.getItem(key));
+  cell.setSource(original);
+  nb.restoreEdits();
+  check("and put back after it, once", cell.source() === original + "# edited\\n"
+    && sessionStorage.getItem(key) === null, cell.source());
+  cell.setSource(original);
+  nb.saveForReload();
+  check("a cell as the page wrote it is not kept", sessionStorage.getItem(key) === null);
+  return checks;
+})()`;
 
 const STUDENT = [`(async () => { ${HELPERS}
   let r = nb.results();
@@ -193,7 +225,7 @@ const STUDENT = [`(async () => { ${HELPERS}
     && nb.cells.filter((c) => c.spec.attrs.task)[0].source() === 'print("Add your code here")',
     JSON.stringify(after));
   return checks;
-})()`];
+})()`, CELLS_KEPT];
 
 // drawing.md, opened beside features.md: the picture its solution saves,
 // a task submitted with git, and -- for a student -- answers that

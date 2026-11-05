@@ -29,6 +29,7 @@ export class PageHost {
     this.send = send;
     this.pages = new Map();
     this.hidden = false;
+    this.frozen = false;     // the program is over: its pages ask for no events
     if (!silent) {
       this.onVisibility = (event) => this.setHidden(!!event.detail?.hidden);
       window.addEventListener(VISIBILITY_EVENT, this.onVisibility);
@@ -74,6 +75,7 @@ export class PageHost {
   /** Stops every page asking for events, and leaves what it shows.
    *  () -> () */
   freeze() {
+    this.frozen = true;
     for (const page of this.pages.values()) page.then((p) => p?.freeze());
   }
 

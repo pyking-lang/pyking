@@ -15,7 +15,8 @@ Data structures:
 Functions:
     preflight() -- checks everything before anything is built or pushed.
     build() -- builds website/ for SITE_URL.
-    fill(clone, commit) -- replaces a clone's files with website/'s.
+    fill(clone, commit) -- replaces a clone's files with website/'s,
+        keeping the build it served before.
     dns_problem() -- what is wrong with DOMAIN's DNS, or None.
     configure_pages() -- has Pages serve SITE_BRANCH's root at DOMAIN.
     enforce_https() -- turns HTTPS on once DOMAIN's certificate is there.
@@ -179,15 +180,31 @@ def fill(clone, commit):
     adds .nojekyll, without which Pages would leave out every path
     starting with `_`, Astro's _astro/ among them, and CNAME, naming
     DOMAIN, which is how a branch tells Pages its domain.
-    Path -> String -> ()"""
-    for path in clone.iterdir():
-        if path.name == ".git":
-            continue
-        if path.is_dir() and not path.is_symlink():
-            shutil.rmtree(path)
-        else:
-            path.unlink()
-    shutil.copytree(website.OUTPUT, clone, dirs_exist_ok=True)
+
+    The build the clone served until now -- v/<build>/, the one its
+    version.json names -- is kept beside the new one: a tab still open on
+    it goes on fetching from it (a library's source, say) until it is
+    reloaded onto the new build (shell.js). Only that one; any older is
+    removed. Path -> String -> ()"""
+    try:
+        previous = json.loads((clone / "version.json").read_text())["build"]
+    except (OSError, ValueError, KeyError, TypeError):
+        previous = None
+    served_before = clone / website.VERSIONED / previous if previous else None
+    with tempfile.TemporaryDirectory(prefix="pyk-website-kept-") as held:
+        kept = Path(held) / "build"
+        if served_before is not None and served_before.is_dir():
+            shutil.move(served_before, kept)
+        for path in clone.iterdir():
+            if path.name == ".git":
+                continue
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        shutil.copytree(website.OUTPUT, clone, dirs_exist_ok=True)
+        if kept.is_dir() and not served_before.exists():
+            shutil.move(kept, served_before)
     (clone / ".nojekyll").write_text("")
     (clone / "CNAME").write_text(DOMAIN + "\n")
     (clone / "README.md").write_text(
@@ -255,10 +272,12 @@ def health():
 
 def wait_served(commit):
     """Waits until Pages has built this upload and serves it at SITE_URL
-    over HTTPS -- its README.md, which names the commit, and the front
-    page as it was built -- with HTTPS enforced; refuses after
+    over HTTPS -- its README.md, which names the commit, the front page
+    as it was built, and version.json naming its build, which is what
+    open tabs reload on -- with HTTPS enforced; refuses after
     SERVE_TIMEOUT, saying what is missing. String -> ()"""
     wanted = (website.OUTPUT / "index.html").read_bytes()
+    named = (website.OUTPUT / "version.json").read_bytes()
     deadline = time.monotonic() + SERVE_TIMEOUT
     status, enforced, missing = "not started", False, "the build"
     print(f"  waiting for {SITE_URL} to serve it (up to {SERVE_TIMEOUT // 60} minutes) ...")
@@ -272,9 +291,11 @@ def wait_served(commit):
         enforced = enforced or enforce_https()
         readme = served("README.md", commit[:12])
         front = served("", commit[:12])
+        version_ = served("version.json", commit[:12])
         if status != "built":
             missing = f"the build (Pages says {status!r})"
-        elif not readme or commit.encode() not in readme or front != wanted:
+        elif (not readme or commit.encode() not in readme or front != wanted
+              or version_ != named):
             missing = f"{SITE_URL} serving it over HTTPS"
         elif not enforced:
             missing = f"HTTPS enforced, which waits for {DOMAIN}'s certificate"

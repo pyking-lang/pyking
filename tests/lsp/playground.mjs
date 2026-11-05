@@ -8,7 +8,9 @@
 // Stop), the Debug tab (breakpoints, stepping, the panes, a tinyweb
 // callback), the light and dark themes, a link holding a program (Copy
 // code as link, then the link opened in the same tab), a tinyweb page
-// held while the website shows another section, the settings'
+// held while the website shows another section, what a reload onto a
+// new build of the website would lose (`busy`) and the keyboard given
+// back after one, the settings'
 // tabs, every setting saved and restored and an earlier version's
 // migrated, Copy for slides (the right-click menu, its key, the editor's
 // button, each option, read back off the clipboard), and every command's
@@ -618,6 +620,73 @@ const HIDDEN = `(async () => { ${HELPERS}
     last + " then " + next);
   app.stopRun();
   await until(() => !app.running);
+  return checks;
+})()`;
+
+// What the website asks before it reloads onto a new build: whether a
+// reload now would lose something the state does not keep.
+const BUSY = `(async () => { ${HELPERS}
+  check("run locally, the version names no build when hovered",
+    $("[data-r=version]").title === "", $("[data-r=version]").title);
+  await app.submitRepl(":reset");
+  check("with nothing running and no names defined, a reload loses nothing", !app.busy(),
+    JSON.stringify({ running: app.running, names: app.replNames, debugger: app.debugger.state }));
+  await source("use mutation\\nimport tinyweb as tw\\ntw.web_init(0)\\nvar frames = 0\\n"
+    + "_c = tw.canvas(100, 100)\\ndef frame(t: Float):\\n    frames := frames + 1\\n"
+    + "tw.on_frame(frame)\\n");
+  $("[data-r=runLeft]").click();
+  check("a program running is something to lose", await until(() => app.running && app.busy(), 30000));
+  app.stopRun();
+  await until(() => !app.running);
+  check("and once it is stopped, nothing is", !app.busy());
+  await app.submitRepl("kept = 1");
+  check("names a REPL session has defined are", app.busy(), app.replNames);
+  await app.submitRepl(":reset");
+  check("until the session is reset", !app.busy(), app.replNames);
+  await source("def next(n: Int) -> Int:\\n    return n + 1\\n\\nprint(next(1))\\n");
+  $("[data-tab=debug]").click();
+  app.debugger.toggleBreakpoint(2);
+  $("[data-d=start]").click();
+  check("a program being debugged is", await until(() => app.debugger.state === "stopped", 20000)
+    && app.busy(), app.debugger.state);
+  app.debugger.stop({ quiet: true });
+  await until(() => app.debugger.state === "off");
+  app.debugger.toggleBreakpoint(2);
+  check("and once debugging ends, nothing is", !app.busy(), app.debugger.state);
+  $("[data-r=tabRun]").click();
+  return checks;
+})()`;
+
+// Before the website reloads the playground onto a new build: the state
+// is kept at once, with which input had the keyboard.
+const RELOAD_KEEP = `(async () => { ${HELPERS}
+  app.left.focus();
+  app.left.setPosition({ lineNumber: 2, column: 3 });
+  await sleep(100);
+  app.saveForReload();
+  check("the input with the keyboard is kept for a reload onto a new build",
+    JSON.parse(sessionStorage.getItem("pyking-playground.reload"))?.focus === "editor",
+    sessionStorage.getItem("pyking-playground.reload"));
+  check("and the cursor with the state",
+    JSON.parse(sessionStorage.getItem("pyking-playground.state"))?.view?.cursorState?.[0]
+      ?.position?.column === 3);
+  return checks;
+})()`;
+
+const RELOAD_FOCUS = `(async () => { ${HELPERS}
+  check("after it, the program being edited wins over a link still in the address",
+    app.left.getValue() === "# kept\\nprint(40 + 2)\\n", app.left.getValue());
+  check("the editor has the keyboard again", await until(() => app.left.hasTextFocus(), 5000));
+  check("at the cursor", app.left.getPosition().lineNumber === 2
+    && app.left.getPosition().column === 3, JSON.stringify(app.left.getPosition()));
+  check("once: what was left for it is gone", sessionStorage.getItem("pyking-playground.reload") === null);
+  return checks;
+})()`;
+
+// A reload of its own, not onto a new build, gives the keyboard to nothing.
+const NO_FOCUS = `(async () => { ${HELPERS}
+  check("a reload of its own gives no input the keyboard", !app.left.hasTextFocus()
+    && document.activeElement !== $("[data-r=replInput]"));
   return checks;
 })()`;
 
@@ -1515,6 +1584,7 @@ try {
   for (const [name, script] of [["the page", PAGE], ["the language server", LSP], ["the warnings", WARNINGS],
                                 ["the tabs", TABS], ["the REPL", REPL], ["the debugger", DEBUG],
                                 ["the themes", THEME], ["a link", LINK], ["the page hidden", HIDDEN],
+                                ["what a reload would lose", BUSY],
                                 ["the settings' tabs", SETTINGS], ["every setting saved", SETTINGS_SET]]) {
     await phase(name, script);
   }
@@ -1523,6 +1593,13 @@ try {
   await phase("the state kept", STATE);
   await reload();
   await phase("the state found again", STATE_RESTORED);
+  await phase("kept for a reload onto a new build", RELOAD_KEEP);
+  // The program was opened from a link, say, which the address still holds.
+  await evaluate("history.replaceState(null, '', location.pathname + location.search"
+    + " + '#code=cHJpbnQoImxpbmtlZCIpCg')");
+  await reload();
+  await evaluate("history.replaceState(null, '', location.pathname + location.search)");
+  await phase("the keyboard given back", RELOAD_FOCUS);
   // print("linked"), as a link holds it.
   await evaluate("history.replaceState(null, '', location.pathname + location.search"
     + " + '#code=cHJpbnQoImxpbmtlZCIpCg')");
@@ -1531,6 +1608,7 @@ try {
   await evaluate("history.replaceState(null, '', location.pathname + location.search)");
   await reload();
   await phase("every setting restored", SETTINGS_RESTORED);
+  await phase("no input given the keyboard", NO_FOCUS);
   await evaluate(`localStorage.setItem(${KEY}, JSON.stringify({ fontSize: 15, `
     + `debugKeys: { next: "F7", start: ["Alt+G"] } }))`);
   await reload();

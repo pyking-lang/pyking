@@ -11,7 +11,7 @@ None of it needs Astro, which `make website` installs on first use and
 FILE`), the reference for what a program means; the page runs the same
 compiler as JavaScript, which tests/test_notebook.py covers.
 
-Ten parts:
+Eleven parts:
 
   docs      lib/ through tools/help/libdoc.py: nothing undocumented or
             documented wrongly -- every parameter in order, a Returns
@@ -39,7 +39,14 @@ Ten parts:
   publish   what `make website-release` commits (tools/site/publish.py,
             `fill`): a built site replaces everything in a clone but
             .git, with .nojekyll and the CNAME naming the domain, and the
-            site's address is https at that domain.
+            site's address is https at that domain; and the build it
+            served before is kept beside the new one, older ones not.
+  build     the build's id (tools/site/site.py, `build_id`): the same
+            files make the same id and any change a new one; the staged
+            scripts and runtime move under v/<build>/, and version.json
+            names the build, its commit and date and the Pyking version;
+            the pages load the scripts and the runtime from there and
+            tell shell.js the build.
   cells     every runnable ```pyking block of the help's pages -- sitesrc/,
             the language reference and the library pages: an `error`
             block must be refused, every other must run, with its
@@ -48,8 +55,9 @@ Ten parts:
             the sections, and the shell's page starts no playground and
             no cells; then tests/site/shell.mjs drives the shell in
             Chromium, on pages of its own: each section kept open as it
-            was left, links, Back, the theme, plain pages. Skipped, and
-            said so, where there is no Chromium.
+            was left, links, Back, the theme, plain pages, and a new
+            build reloaded onto at a moment that loses nothing. Skipped,
+            and said so, where there is no Chromium.
 
 Usage: python3 tests/test_site.py [--compiler CMD]
 
@@ -63,6 +71,7 @@ Functions:
     check_sidebar() -- the sidebar part.
     check_runtime() -- the runtime part.
     check_publish() -- the publish part.
+    check_build() -- the build part.
     blocks(text) -- the runnable Pyking blocks of a Markdown page.
     check_cells(compiler) -- the cells part.
     check_shell() -- the shell part.
@@ -411,6 +420,15 @@ def check_publish():
         (clone / "old").mkdir()
         (clone / "old" / "index.html").write_text("<p>gone</p>\n")
         (clone / "stale.txt").write_text("gone\n")
+        # The build the clone serves now, which open tabs may still be
+        # fetching from, and an older one no tab should be on.
+        (clone / "version.json").write_text('{"build": "aaaa"}\n')
+        for build in ("aaaa", "zzzz"):
+            (clone / "v" / build).mkdir(parents=True)
+            (clone / "v" / build / "lib.pyk").write_text(build + "\n")
+        (built / "v" / "bbbb").mkdir(parents=True)
+        (built / "v" / "bbbb" / "lib.pyk").write_text("bbbb\n")
+        (built / "version.json").write_text('{"build": "bbbb"}\n')
         output = website.OUTPUT
         publish.website.OUTPUT = built
         try:
@@ -420,10 +438,11 @@ def check_publish():
         found = sorted(str(path.relative_to(clone)) for path in clone.rglob("*")
                        if path.is_file())
         wanted = [".git/HEAD", ".nojekyll", "CNAME", "README.md", "_astro/page.js",
-                  "index.html"]
+                  "index.html", "v/aaaa/lib.pyk", "v/bbbb/lib.pyk", "version.json"]
         cname = (clone / "CNAME").read_text() if (clone / "CNAME").exists() else ""
         readme = (clone / "README.md").read_text() if (clone / "README.md").exists() else ""
-    return [("a release replaces the Pages clone's files with the site's, keeping .git",
+    return [("a release replaces the Pages clone's files with the site's, keeping .git "
+             "and the build served before, but no older one",
              None if found == wanted else f"found {found}"),
             ("the Pages README names the commit the site was built from",
              None if "0123456789abcdef" in readme else readme),
@@ -431,6 +450,79 @@ def check_publish():
              None if cname == publish.DOMAIN + "\n" else repr(cname)),
             ("the website is published over https, at the domain's root",
              None if publish.SITE_URL == f"https://{publish.DOMAIN}/" else publish.SITE_URL)]
+
+
+def check_build():
+    """The build's id, version.json, and the pages naming the build.
+    () -> [(String, String?)]"""
+    results = []
+    with tempfile.TemporaryDirectory(prefix="pyk-build-") as directory:
+        root = Path(directory)
+        content, public = root / "content", root / "public"
+        (content / "a").mkdir(parents=True)
+        (content / "a" / "page.md").write_text("one\n")
+        staged = public / website.VERSIONED / website.STAGED
+        (staged / "site").mkdir(parents=True)
+        (staged / "site" / "shell.js").write_text("// shell\n")
+        (staged / "runtime" / "pyking").mkdir(parents=True)
+        (staged / "runtime" / "pyking" / "pyking.js").write_text("// compiler\n")
+        first = website.build_id([content, public])
+        results.append(("the same files make the same build id",
+                        None if website.build_id([content, public]) == first else "it changed"))
+        (content / "a" / "page.md").write_text("two\n")
+        changed = website.build_id([content, public])
+        (content / "a" / "page.md").rename(content / "a" / "other.md")
+        renamed = website.build_id([content, public])
+        results.append(("a page's text, or its name, changing makes a new build id",
+                        None if len({first, changed, renamed}) == 3
+                        else f"{first} {changed} {renamed}"))
+        info = website.version_build(public, [content, public], "3a4f2c1", "2026-11-03",
+                                     "0.1.9")
+        build = info["build"]
+        moved = public / website.VERSIONED / build
+        results.append(("the scripts and the runtime move under v/<build>/",
+                        None if (moved / "site" / "shell.js").is_file()
+                        and (moved / "runtime" / "pyking" / "pyking.js").is_file()
+                        and not staged.exists()
+                        else sorted(str(p.relative_to(public)) for p in public.rglob("*"))))
+        named = json.loads((public / "version.json").read_text())
+        results.append(("version.json names the build, its commit and date, and the version",
+                        None if named == {"build": build, "commit": "3a4f2c1",
+                                          "date": "2026-11-03", "pyking": "0.1.9"}
+                        and len(build) == 12 else repr(named)))
+        results.append(("the build's directory says which build it is",
+                        None if json.loads((moved / "build.json").read_text()) == named
+                        else (moved / "build.json").read_text()))
+        # A download made again from the same files, later, is the same
+        # zip: the build id hashes it.
+        files = root / "made" / "example"
+        files.mkdir(parents=True)
+        (files / "main.py").write_text("print(1)\n")
+        tinywebdoc._zip(files, root / "first.zip")
+        os.utime(files / "main.py", (0, 0))
+        tinywebdoc._zip(files, root / "second.zip")
+        results.append(("tinyweb's downloads are the same zip when made again from the same files",
+                        None if (root / "first.zip").read_bytes() == (root / "second.zip").read_bytes()
+                        else "the zips differ"))
+    commit, date = website.commit_info()
+    results.append(("the site names the commit it is built from, and its date",
+                    None if re.fullmatch(r"[0-9a-f]{7,}", commit)
+                    and re.fullmatch(r"\d{4}-\d\d-\d\d", date) else f"{commit!r} {date!r}"))
+    site = REPO / "tools" / "site"
+    config = (site / "astro.config.mjs").read_text()
+    page = (site / "src" / "pages" / "playground.astro").read_text()
+    results.append(("every page loads its scripts from v/<build>/ and tells shell.js the build",
+                    None if "const scripts = `${prefix}/v/${build}/site`" in config
+                    and '"data-build": build' in config and "/v/${build}/site/favicon.svg" in config
+                    else "astro.config.mjs"))
+    results.append(("the playground page runs the runtime from v/<build>/, says the build "
+                    "when its version is hovered, and answers the shell",
+                    None if "`v/${build}/runtime/`" in page and "built: host.dataset.built" in page
+                    and "window.pykingUpdate" in page else "playground.astro"))
+    results.append(("the site's cells answer the shell",
+                    None if "window.pykingUpdate" in (site / "public" / "site" / "cells.js")
+                    .read_text() else "cells.js"))
+    return results
 
 
 def blocks(text):
@@ -508,10 +600,10 @@ def check_shell():
     () -> [(String, String?)]"""
     site = REPO / "tools" / "site"
     config = (site / "astro.config.mjs").read_text()
-    shell_at = config.find('"/site/shell.js"')
+    shell_at = config.find('src: scripts + "/shell.js"')
     results = [
         ("every page loads shell.js first, with the base and the sections",
-         None if 0 <= shell_at < config.find('"/site/cells.js"')
+         None if 0 <= shell_at < config.find('src: scripts + "/cells.js"')
          and '"data-sections": JSON.stringify(SECTIONS' in config
          and '"data-base": prefix' in config
          else "astro.config.mjs's head does not start with shell.js"),
@@ -551,7 +643,8 @@ def main(argv):
     cells, count = check_cells(compiler)
     results = (check_docs() + check_exports(compiler) + check_copies() + check_plugin()
                + check_notebook() + check_examples(compiler) + check_sidebar()
-               + check_runtime() + check_publish() + cells + check_shell())
+               + check_runtime() + check_publish() + check_build() + cells
+               + check_shell())
     failed = 0
     for name, detail in results:
         if detail is None:

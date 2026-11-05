@@ -12,6 +12,10 @@ import { STAGE } from "./src/stage.mjs";
 const base = process.env.PYKING_SITE_BASE ?? "/";
 const prefix = base.replace(/\/$/, "");
 const grammar = JSON.parse(fs.readFileSync(STAGE + "/pyking.tmLanguage.json", "utf8"));
+// The build site.py staged: its scripts and the runtime are served under
+// v/<build>/, so a release gives them new URLs (README.md, "A new build").
+const { build } = JSON.parse(fs.readFileSync(STAGE + "/build.json", "utf8"));
+const scripts = `${prefix}/v/${build}/site`;
 
 export default defineConfig({
   base,
@@ -25,22 +29,25 @@ export default defineConfig({
     starlight({
       title: "Pyking",
       description: "A small, statically typed, Python-like language that compiles to Python, JavaScript, C, Java and OCaml.",
-      favicon: "/site/favicon.svg",
+      favicon: `/v/${build}/site/favicon.svg`,
       logo: { src: "./src/assets/logo.svg", alt: "Pyking" },
       customCss: ["./src/styles/site.css"],
       head: [
         // Every section kept open as the reader left it: blocking, so it
         // decides what the page is before anything is drawn (shell.js).
+        // `data-build` is the build this page is, which it compares with
+        // the one version.json names.
         {
           tag: "script",
           attrs: {
-            src: prefix + "/site/shell.js",
+            src: scripts + "/shell.js",
             "data-base": prefix,
+            "data-build": build,
             "data-sections": JSON.stringify(SECTIONS.map((s) =>
               ({ key: s.prefix.replace(/\//g, ""), label: s.label, prefix: s.prefix }))),
           },
         },
-        { tag: "script", attrs: { type: "module", src: prefix + "/site/cells.js" } },
+        { tag: "script", attrs: { type: "module", src: scripts + "/cells.js" } },
         // Dark until a visitor picks a theme: Starlight's own script, which
         // runs after this one, reads the choice stored here. Choosing Auto
         // stores "", so only a visitor who never chose gets dark.

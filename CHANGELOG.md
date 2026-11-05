@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Added
+
+- The website moves an open tab onto a new release by itself. Each
+  build has an id, and the runtime and the site's scripts are served
+  under `v/<build>/`, so a release gives them new URLs that no cache can
+  hold back; `version.json` names the build. The page re-reads it when
+  opened, shown or focused and every five minutes, and reloads onto a
+  newer build silently, when nothing would be lost: when the tab is
+  hidden, or when no program runs or is debugged, no REPL session has
+  defined names, and the reader has left it alone for two minutes. Every
+  section comes back where it was, and the playground with its program,
+  cursor and keyboard, and edited cells with their edits. Hovering the
+  playground's version shows the build: "built from 3a4f2c1,
+  2026-11-03". `make website-release` keeps the previous build for tabs
+  still on it, and waits for `version.json` to name the new one.
+
+### Fixed
+
+- Building the website twice from the same commit makes the same site:
+  tinyweb's downloads were zips dated when they were made.
+- Stop in a page's cells now also ends a tinyweb page still showing
+  under another cell, whose program the restarted worker had already
+  ended.
+
+
 ## [0.1.8] - 2026-11-05
 
 ### Added

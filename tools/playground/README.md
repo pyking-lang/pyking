@@ -145,6 +145,18 @@ back as Run output, and a REPL session starts again with its history.
 A link's program is opened in place of what was kept. An embedding page
 that wants none of it passes `keepState: false`.
 
+An embedding page that reloads itself -- the website does, onto a new
+build of the site (`tools/site/README.md`, "A new build") -- asks the
+playground first. `busy()` answers whether a reload would lose what the
+state does not keep: a program running (its page among it), a program
+being debugged, a REPL entry being worked out, or names the REPL session
+has defined. `saveForReload()` keeps the state at once, and leaves the next page a
+word of it, once (`pyking-playground.reload`): that page opens what was
+kept even where the address still holds the link the program came from,
+and gives the keyboard back to the input that had it -- the editor or
+the REPL's prompt. A reload of the page's own gives the keyboard to
+nothing, and a link in the address opens its program, as always.
+
 Run switches to Web output for a program that imports `tinyweb`, and to
 Run output for any other -- unless Web output is showing, where it stays.
 Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
@@ -714,6 +726,7 @@ there so you can take either one.
     readLink: true,               // open a #code=... link's program (the default)
     keepState: true,              // keep the program and the rest for the tab (the default)
     theme: "light",               // omit to let the viewer choose
+    built: "built from 3a4f2c1, 2026-11-03", // the version's tooltip; omit for none
   });
 </script>
 ```
