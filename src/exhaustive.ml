@@ -145,16 +145,33 @@ let parts_or_unknown datatype type_ head count =
 (* --- the shapes of a column --- *)
 
 (** The longest list a column's patterns fix: every length past it is
-    one shape. [pat] -> int *)
+    one shape, `HLonger (longest + 1)`, whose parts are the first
+    `longest + 1` elements.
+
+    That one shape stands for every longer list too, so it is only
+    sound where every pattern of the column constrains the same
+    positions of a list of `longest + 1` elements as of a longer one.
+    A rest pattern's prefix counts from the front and its suffix from
+    the back, so the two must never overlap in the shape: `[.., a, b]`
+    and `[c, d, ..]` together need a shape of at least four parts,
+    where `[_, a, b]` and `[c, d, _]` of three would let `a` and `d`
+    share a slot that only a list of exactly three elements has, and
+    `[x, false, true, y]` would pass as matched by `[.., false, _]`
+    or `[_, true, ..]`, which it is not. Hence the longest prefix of
+    the column plus its longest suffix, less one, is a floor.
+    [pat] -> int *)
 let longest column =
-  let rec go found p =
+  let rec go (found, prefix, suffix) p =
     match p with
-    | Con (HLength n, _) -> max found n
-    | Rest (prefix, suffix) -> max found (List.length prefix + List.length suffix)
-    | Or alternatives -> List.fold_left go found alternatives
-    | _ -> found
+    | Con (HLength n, _) -> (max found n, prefix, suffix)
+    | Rest (before, after) ->
+        let p = List.length before and s = List.length after in
+        (max found (p + s), max prefix p, max suffix s)
+    | Or alternatives -> List.fold_left go (found, prefix, suffix) alternatives
+    | _ -> (found, prefix, suffix)
   in
-  List.fold_left go 0 column
+  let found, prefix, suffix = List.fold_left go (0, 0, 0) column in
+  max found (prefix + suffix - 1)
 
 (** The shapes a pattern takes, with lists cut at `longest`.
     int -> pat -> [head] *)

@@ -1,0 +1,29 @@
+# A list pattern's prefix counts from the front and its suffix from the
+# back, and in a list long enough the two never meet: `[.., false, _]`
+# and `[_, true, ..]` between them take every list of two or three
+# Bools, and a longer list such as [false, false, true, true] matches
+# neither, so the last case is needed -- and reached.
+
+def ends(xs: [Bool]) -> String:
+    match xs:
+        case []: "none"
+        case [_]: "one"
+        case [true, false]: "true then false"
+        case [.., false, _]: "false before last"
+        case [_, true, ..]: "true second"
+        case [_, _, _, _, ..]: "four or more, neither"
+
+
+samples = [
+    [],
+    [true],
+    [false, true],
+    [true, false],
+    [true, true, true],
+    [true, true, false, true],
+    [false, false, true, true],
+    [true, false, true, false],
+]
+
+for xs in samples:
+    print(ends(xs))
