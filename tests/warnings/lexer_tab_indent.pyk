@@ -1,0 +1,7 @@
+# A line indented with a tab is refused, by name: how wide a tab is
+# depends on the editor, so a program cannot be read by one.
+
+def f(n):
+	n + 1
+
+print(f(1))

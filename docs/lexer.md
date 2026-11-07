@@ -84,7 +84,10 @@ writes before each `\n`) is skipped wherever it stands, and a line
 holding only spaces and one of them is blank. A UTF-8 byte order mark
 (the three bytes `EF BB BF` that Windows editors put in front of a
 file) is dropped before the first character is read, and moves no
-column.
+column. A tab is a space between two tokens, and an error -- "a line is
+indented with spaces, not tabs" -- where it indents a line that is not
+blank: `past_leading_tabs` and `line_ends_here` are what tell the two
+apart.
 
 The mechanism is `stack`, a list of indentation *levels*
 (`width / 4`, not raw column counts), starting at `[0]`, plus a
