@@ -146,6 +146,16 @@ val utf8 : int -> string
     string -> int *)
 val utf8_length : string -> int
 
+(** Character `i` of a UTF-8 String as a code point, or None where the
+    String has no character `i`: what `s[i]` reads, found by walking the
+    characters before it rather than by listing them all.
+    string -> int -> int option *)
+val code_point_at : string -> int -> int option
+
+(** Characters `low` up to `high` of a UTF-8 String: `s[low:high]`, the
+    bounds already checked against `utf8_length`. string -> int -> int -> string *)
+val utf8_sub : string -> int -> int -> string
+
 (** `char(n)`: the code point itself, or 0 where it is none. int -> int *)
 val char_of_int : int -> int
 

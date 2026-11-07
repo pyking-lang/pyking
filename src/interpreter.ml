@@ -1037,10 +1037,7 @@ let slice_value seq low high =
              (if length = 1 then "" else "s") ));
   match seq with
   | VList items -> VList (List.filteri (fun i _ -> i >= low && i < high) items)
-  | VString text ->
-      VString
-        (String.concat ""
-           (List.map Builtin.utf8 (List.filteri (fun i _ -> i >= low && i < high) (Builtin.code_points text))))
+  | VString text -> VString (Builtin.utf8_sub text low high)
   | VArray a -> VArray (Array.sub a low (high - low))
   | VDynArray v -> let items = Array.sub v.items low (high - low) in VDynArray { items; size = high - low }
   | VView v -> VArray (Array.sub v.owner (v.offset + low) (high - low))
@@ -1295,16 +1292,18 @@ let element left right =
                  Printf.sprintf "the %s has no key %s"
                    (match left with VMap _ -> "Map" | _ -> "MutMap")
                    (display_value key) )))
-  | VString text, VInt i ->
-      let chars = Builtin.code_points text in
-      let n = List.length chars in
-      if i < 0 || i >= n then
-        raise
-          (Trap
-             ( divide_info,
-               Printf.sprintf "the index %d is outside a String of %d character%s" i n
-                 (if n = 1 then "" else "s") ))
-      else Some (VChar (List.nth chars i))
+  | VString text, VInt i -> (
+      (* The character is found by walking to it, so reading a String
+         by index costs the index rather than the whole String listed. *)
+      match Builtin.code_point_at text i with
+      | Some code -> Some (VChar code)
+      | None ->
+          let n = Builtin.utf8_length text in
+          raise
+            (Trap
+               ( divide_info,
+                 Printf.sprintf "the index %d is outside a String of %d character%s" i n
+                   (if n = 1 then "" else "s") )))
   | _ -> None
 
 (** An operator's spelling and what it computes, or None for an
