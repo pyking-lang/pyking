@@ -148,11 +148,20 @@ bundle's `pykHighlight` and the worker's `highlight` request) and
 resolves to `{html, rtf, text}`: an HTML `<pre>` with every style
 inline, a complete RTF document, and plain text, each with leading
 spaces as non-breaking spaces by default so a slide exported to PDF
-keeps its indentation when the code is copied out. A page puts all
-three on the clipboard (`text/html`, `text/rtf`, `text/plain`) and a
-slide program pastes the one it likes. It waits for the compiler to
+keeps its indentation when the code is copied out. The playground
+puts the HTML alone on the clipboard: given plain text beside it,
+Keynote pastes a table of the plain text wherever lines have as many
+words as each other. It waits for the compiler to
 load, and rejects with the reason where an option is refused. The
-options and their defaults are the command's:
+options and their defaults are the command's.
+`runtime.highlightSpans(lines, options = {})` does the same for code in
+another language that something else has already cut into spans --
+`lines` a list of `[kind, text]` pairs a line, each kind one of
+highlight.ml's (`"keyword"`, `"type"`, `"constant"`, `"number"`,
+`"string"`, `"comment"`, `"function"`, `"builtin"`, `"operator"`,
+`"plain"`) -- through the bundle's `pykHighlightSpans`; the playground
+hands it Monaco's tokens for a target's generated code. Leading spaces
+of each line's first spans become its indentation, as for Pyking:
 
 | Option | Values | Default |
 |---|---|---|

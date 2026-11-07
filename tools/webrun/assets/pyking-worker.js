@@ -268,14 +268,19 @@ function analyze(message) {
   return JSON.parse(self.pykAnalyze(message.name));
 }
 
-/** Pyking source coloured as `pyk highlight` colours it: {html, rtf,
- *  text}. Throws where the options are refused, or where the bundle has
- *  no highlighter. {source, options} -> {html, rtf, text} */
-function highlight({ source = "", options = {} }) {
-  if (typeof self.pykHighlight !== "function") {
+/** Pyking source coloured as `pyk highlight` colours it, or, given
+ *  `lines` instead -- another language's code cut into [kind, text]
+ *  spans a line -- those spans coloured the same way: {html, rtf,
+ *  text}. Throws where the lines or the options are refused, or where
+ *  the bundle has no highlighter.
+ *  {source, lines?, options} -> {html, rtf, text} */
+function highlight({ source = "", lines = null, options = {} }) {
+  const entry = lines ? self.pykHighlightSpans : self.pykHighlight;
+  if (typeof entry !== "function") {
     throw new Error("this compiler bundle has no highlighter: rebuild it with make");
   }
-  const answer = JSON.parse(self.pykHighlight(String(source), JSON.stringify(options ?? {})));
+  const answer = JSON.parse(entry(lines ? JSON.stringify(lines) : String(source),
+    JSON.stringify(options ?? {})));
   if (answer.error) throw new Error(answer.error);
   return answer;
 }

@@ -27,7 +27,11 @@ What it checks:
             so the two cannot drift.
   browser   the compiler bundle and its worker under node, through
             PykingRuntime's `highlight`: the same HTML, RTF and text as
-            the command line, the defaults, and the options it refuses.
+            the command line, the defaults, and the options it refuses;
+            and its `highlightSpans`, for code another tokenizer cut
+            into spans (the playground's generated code): the same as
+            for the Pyking those spans come from, indentation taken out
+            of the first spans, and the spans it refuses.
 
 Usage: python3 tests/test_highlight.py [--compiler CMD] [--bless]
 
@@ -42,7 +46,7 @@ Functions:
     check_errors(compiler) -- every refusal.
     monaco_palettes() -- the themes, as pyking-monaco.js defines them.
     check_palette(compiler) -- the colours, against that file.
-    check_browser(compiler) -- runtime.highlight under node.
+    check_browser(compiler) -- runtime.highlight and highlightSpans under node.
     main(argv) -- the command-line entry point.
 """
 
@@ -543,7 +547,15 @@ for (const request of plan.requests) {
   }
 }
 const direct = JSON.parse(self.pykHighlight(plan.requests[0].source, ""));
-report(JSON.stringify({ answers, direct, ready: runtime.isReady }));
+const spans = [];
+for (const request of plan.spans) {
+  try {
+    spans.push({ ok: true, value: await runtime.highlightSpans(request.lines, request.options ?? {}) });
+  } catch (error) {
+    spans.push({ ok: false, message: error.message });
+  }
+}
+report(JSON.stringify({ answers, direct, spans, ready: runtime.isReady }));
 """
 
 # Options for the browser, and the command line's flags for the same.
@@ -571,9 +583,51 @@ BROWSER_ERRORS = [
 ]
 
 
+# runtime.highlightSpans: another language's code, already cut into
+# spans as Monaco cuts the playground's generated code. Each: the label,
+# the lines, the options, and the Pyking source the same spans come from
+# -- whose highlight it must equal -- or the HTML and text expected.
+SPANS = [
+    ("spans as the lexer cuts Pyking",
+     [[["keyword", "def"], ["plain", " "], ["function", "f"], ["plain", "(n: "], ["type", "Int"], ["plain", "):"]],
+      [["plain", "    "], ["keyword", "return"], ["plain", " n "], ["builtin", "+"], ["plain", " "], ["number", "1"]]],
+     {}, "def f(n: Int):\n    return n + 1"),
+    ("the same, dark, sized and on the theme's background",
+     [[["keyword", "def"], ["plain", " "], ["function", "f"], ["plain", "(n: "], ["type", "Int"], ["plain", "):"]],
+      [["plain", "    "], ["keyword", "return"], ["plain", " n "], ["builtin", "+"], ["plain", " "], ["number", "1"]]],
+     {"theme": "dark", "size": 20, "background": "theme"}, "def f(n: Int):\n    return n + 1"),
+    ("indentation split over spans, a tab, a line of spaces alone",
+     [[["plain", "  "], ["plain", "  "], ["keyword", "if"], ["plain", " x:"]],
+      [["plain", "\t"], ["keyword", "pass"]],
+      [["plain", "   "]],
+      [["comment", "# done"]]],
+     {},
+     ('<pre style="font-family:\'Menlo\',monospace;white-space:pre;color:#4d4d4c">'
+      '&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8959a8">if</span> x:\n'
+      '&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8959a8">pass</span>\n\n'
+      '<span style="color:#8e908c;font-style:italic"># done</span></pre>',
+      "\u00a0" * 4 + "if x:\n" + "\u00a0" * 4 + "pass\n\n# done")),
+    ("a string keeps its spaces where every other space is non-breaking",
+     [[["plain", "print("], ["string", "\"a b\""], ["plain", ") "], ["operator", "&&"], ["plain", " y"]]],
+     {"spaces": "all"},
+     ('<pre style="font-family:\'Menlo\',monospace;white-space:pre;color:#4d4d4c">print('
+      '<span style="color:#718c00">&quot;a b&quot;</span>)&nbsp;<span style="color:#3e999f">&amp;&amp;</span>&nbsp;y</pre>',
+      'print("a b")\u00a0&&\u00a0y')),
+]
+
+SPANS_ERRORS = [
+    ([[["regexp", "/a/"]]], {}, '"regexp" is not a kind of span'),
+    ([[["keyword"]]], {}, "a span is not a [kind, text] pair"),
+    (["def"], {}, "a line is not a list of spans"),
+    ({"lines": []}, {}, "the lines are not a list"),
+    ([[["plain", "x"]]], {"theme": "blue"}, "theme is light or dark, not 'blue'"),
+]
+
+
 def check_browser(compiler, checks):
     """runtime.highlight under node: what the command line writes, the
-    defaults, and the options it refuses."""
+    defaults, and the options it refuses; then runtime.highlightSpans,
+    for code cut into spans elsewhere."""
     bundle = REPO / "share" / "pyking.js"
     if not checks.check(bundle.exists(), "the compiler bundle is built", f"no {bundle}; run make"):
         return
@@ -592,10 +646,16 @@ def check_browser(compiler, checks):
             expected.append((f"{name} {json.dumps(options)}", outputs))
     for options, message in BROWSER_ERRORS:
         requests.append({"source": "x = 1\n", "options": options})
+    spans = [{"lines": lines, "options": options} for _, lines, options, _ in SPANS]
+    spans += [{"lines": lines, "options": options} for lines, options, _ in SPANS_ERRORS]
+    # The Pyking sources the spans are checked against, as runtime.highlight answers.
+    same = [i for i, (_, _, _, want) in enumerate(SPANS) if isinstance(want, str)]
+    for i in same:
+        requests.append({"source": SPANS[i][3], "options": SPANS[i][2]})
     with tempfile.TemporaryDirectory(prefix="pyk-highlight-") as directory:
         plan = Path(directory) / "plan.json"
         plan.write_text(json.dumps({"bundle": str(bundle), "worker": str(WORKER), "runtime": str(RUNTIME),
-                                    "requests": requests}))
+                                    "requests": requests, "spans": spans}))
         script = Path(directory) / "driver.mjs"
         script.write_text(DRIVER)
         try:
@@ -620,6 +680,26 @@ def check_browser(compiler, checks):
     for (options, message), answer in zip(BROWSER_ERRORS, answers[len(expected):]):
         checks.check(not answer["ok"] and answer.get("message") == message,
                      f"runtime.highlight refuses {json.dumps(options)}", str(answer))
+    pyking = dict(zip(same, answers[len(expected) + len(BROWSER_ERRORS):]))
+    for i, ((label, _, _, want), answer) in enumerate(zip(SPANS, result["spans"])):
+        if not checks.check(answer["ok"], f"runtime.highlightSpans, {label}: resolves", answer.get("message", "")):
+            continue
+        got = answer["value"]
+        checks.check(sorted(got) == ["html", "rtf", "text"], f"runtime.highlightSpans, {label}: {{html, rtf, text}}")
+        if i in pyking:
+            for key in ("html", "rtf"):
+                expect = pyking[i].get("value", {}).get(key)
+                checks.check(got.get(key) == expect, f"runtime.highlightSpans, {label}: {key} as for the Pyking",
+                             first_difference(expect or "", got.get(key) or ""))
+        else:
+            html, text = want
+            checks.check(got.get("html") == html, f"runtime.highlightSpans, {label}: its HTML",
+                         first_difference(html, got.get("html") or ""))
+            checks.check(got.get("text") == text, f"runtime.highlightSpans, {label}: its text",
+                         first_difference(text, got.get("text") or ""))
+    for (lines, options, message), answer in zip(SPANS_ERRORS, result["spans"][len(SPANS):]):
+        checks.check(not answer["ok"] and answer.get("message") == message,
+                     f"runtime.highlightSpans refuses {json.dumps(lines)} {json.dumps(options)}", str(answer))
 
 
 def main(argv):

@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The playground's Copy for slides works in the compiled code's editor
+  too: on its key (Alt+Shift+C, Option+Shift+C on a Mac) and in its
+  right-click menu, beside Copy, it copies the selection or all of the
+  generated code, coloured as the editor colours it -- by Monaco's
+  tokenizer for the target's language, or by the compiler's lexer for
+  the `pyking` view. The button copies from the editor last used. The
+  browser's compiler gains `pykHighlightSpans`
+  (`runtime.highlightSpans`), which colours code already cut into
+  spans as `pykHighlight` colours Pyking.
+
 - The website moves an open tab onto a new release by itself. Each
   build has an id, and the runtime and the site's scripts are served
   under `v/<build>/`, so a release gives them new URLs that no cache can

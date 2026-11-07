@@ -198,6 +198,18 @@ export class PykingRuntime {
     return this._send("highlight", { source, options });
   }
 
+  /** Another language's code, already cut into spans -- `lines` a list
+   *  of [kind, text] pairs a line, each kind one of highlight.ml's
+   *  ("keyword", "type", "constant", "number", "string", "comment",
+   *  "function", "builtin", "operator", "plain") -- coloured as
+   *  `highlight` colours Pyking, with the same options and answer: what
+   *  the playground's Copy for slides makes of the generated code, from
+   *  Monaco's tokens. ([[[String, String]]], Object) -> Promise<{html, rtf, text}> */
+  async highlightSpans(lines, options = {}) {
+    await this.ready(this.onStatus);
+    return this._send("highlight", { lines, options });
+  }
+
   /** What the language server sends once the client is idle: the
    *  diagnostics of the documents a change marked as due. Resolves like
    *  `lsp`. () -> Promise<[Object]?> */

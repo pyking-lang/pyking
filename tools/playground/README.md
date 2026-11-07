@@ -283,19 +283,29 @@ Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
 
 ### Copy for slides
 
-**Copy for slides** copies the editor's selection, or the whole program
-where nothing is selected, to the clipboard as HTML -- a `<pre>` with
+**Copy for slides** copies an editor's selection, or all of it where
+nothing is selected -- the program's or the compiled code's -- to the
+clipboard as HTML -- a `<pre>` with
 the colours, the font and the size inline, which Keynote, PowerPoint
 and Google Slides paste as coloured text, still text. It puts no plain
 text beside it: given plain text, Keynote pastes a black-and-white table
 of it instead wherever lines have as many words as each other, as the
 three `case` lines of a `match` do. The plain Copy is there for plain
-text. The HTML comes from `PykingRuntime.highlight` (the compiler's `pyk highlight`, coloured by its
-own lexer), and the status line in the header says what was copied. It
-is always in the editor's right-click menu, beside Copy, and on
-**Alt+Shift+C** (**Option+Shift+C** on a Mac); a button for it above the
-editor, beside Copy code as link, is off by default and switched on in
-the settings.
+text. The program's HTML comes from `PykingRuntime.highlight` (the
+compiler's `pyk highlight`, coloured by its own lexer), and so does the
+compiled code's in the `pyking` view. Any other target's code is cut
+into spans by Monaco's tokenizer for its language, each token type
+taking the kind of highlight.ml its theme rule names (`keyword.python`
+a keyword's, `string.escape` a string's, the rest plain), and coloured
+by `PykingRuntime.highlightSpans`. So both editors' copies have the same
+colours, font, size and indentation as the editors themselves. A
+selection is tokenized on its own, so one starting inside a multi-line
+comment or string is coloured as code. The status line in the header
+says what was copied. It is always in both editors' right-click menus,
+beside Copy, and on **Alt+Shift+C** (**Option+Shift+C** on a Mac) in
+either; a button for it above the program, beside Copy code as link,
+is off by default and switched on in the settings, and copies from the
+editor last given the keyboard.
 
 Alt+Shift+C because the keys a reader would guess are the browser's: Ctrl+Shift+C
 and Cmd+Option+C open the inspector in Chrome, Edge, Firefox and Safari.
@@ -892,7 +902,8 @@ It drives the settings too: the
 six tabs and the arrow keys between them, every setting saved and
 restored after a reload, an earlier version's `debugKeys` migrated; Copy
 for slides from the right-click menu, its key and the editor's button,
-for a selection and the whole program, with each option, read back off
+for a selection and the whole program, from the compiled code's editor
+too (Python, and the `pyking` view), with each option, read back off
 the clipboard as HTML and with no plain text; and every command's keys
 changed in the Keys tab, by pressing them for real over the DevTools
 protocol, then working, then reset -- as this computer and as a Mac.

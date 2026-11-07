@@ -2317,6 +2317,13 @@ comment to the end of the line. The classes, and the colours, are
 `tools/webrun/assets/pyking-monaco.js`'s, which `tests/test_highlight.py`
 reads to hold the two equal.
 
+Code in another language arrives already cut, as spans: `of_spans`
+makes lines of them as `classify` makes lines of Pyking (tabs as four
+spaces, leading spaces taken out as the indentation), and
+`html_of_lines`, `rtf_of_lines` and `text_of_lines` write them. The
+browser's `pykHighlightSpans` is this, for the playground's generated
+code as Monaco tokenizes it.
+
 ### Data structures
 
 - **`kind`** — `Keyword | Type | Constant | Number | String | Comment |
@@ -2535,7 +2542,8 @@ a program's modules are implemented in JavaScript, and whether it reads
 standard input or its arguments), `pykTargets`, `pykFormatHelper`,
 `pykKeywords` and `pykBuiltins`, `pykHighlight` (source and its
 options as JSON in, `{html, rtf, text}` out, as `pyk highlight` writes
-them: `highlight.ml`), `pykCallback` (a Pyking function
+them: `highlight.ml`), `pykHighlightSpans` (the same for lines already
+cut into `[kind, text]` spans), `pykCallback` (a Pyking function
 handed to JavaScript, called back by the id it crossed as), `pykResume`
 (a run or a callback that waits for the page -- an external that
 answered a promise, which crossed as `{"pyk_wait":n}` -- handed what the

@@ -24,8 +24,10 @@
 
     Functions:
       classify source -- the source's lines, as spans.
+      of_spans lines -- lines another tokenizer cut into spans.
       palette theme -- a theme's colours.
-      html / rtf / text options source -- one snippet in one format.
+      html / rtf / text options source -- one snippet in one format;
+        html_of_lines / rtf_of_lines / text_of_lines for lines made.
       rtf_document / text_document options pieces -- several snippets,
         and prose, in one document.
       parse_theme / parse_font / parse_size / parse_background /
@@ -69,6 +71,9 @@ val kind_name : kind -> string
 (** Every kind, in the order the documentation lists them. [kind] *)
 val kinds : kind list
 
+(** The kind a name names, as `kind_name` writes it. string -> kind? *)
+val kind_of_name : string -> kind option
+
 (** Pyking source as lines of spans. Tabs become four spaces and a
     carriage return is dropped first; a non-breaking space counts as a
     space wherever a space may stand. Each line is lexed on its own,
@@ -77,6 +82,14 @@ val kinds : kind list
     longest prefix that lexes and the rest is `Plain`.
     string -> [line] *)
 val classify : string -> line list
+
+(** Lines another tokenizer has already cut into spans -- the
+    playground's Monaco, for a target's generated code -- made lines as
+    `classify` makes them: tabs as four spaces, carriage returns
+    dropped, each line's leading spaces taken out of its first spans as
+    its indentation, and a line of spaces alone empty.
+    [[span]] -> [line] *)
+val of_spans : span list list -> line list
 
 (** Which of the two Monaco themes. *)
 type theme = Light | Dark
@@ -140,6 +153,13 @@ val rtf : options -> string -> string
     after the last line where the source has one: what "Paste and Match
     Style" keeps. options -> string -> string *)
 val text : options -> string -> string
+
+(** `html`, `rtf` and `text` for lines already made, by `classify` or
+    `of_spans`. options -> [line] -> string *)
+val html_of_lines : options -> line list -> string
+
+val rtf_of_lines : options -> line list -> string
+val text_of_lines : options -> line list -> string
 
 (** One Pyking block of a notebook: its number (from 1, in the order
     written), its info string (`pyking norun`, ...) and its source. *)

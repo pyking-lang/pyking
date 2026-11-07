@@ -1157,6 +1157,8 @@ const READ_CLIPBOARD = `(async () => {
     out.preStyle = pre?.getAttribute("style") ?? "";
     out.preText = pre?.textContent ?? "";
     out.coloured = pre ? pre.querySelectorAll("span[style*=color]").length : 0;
+    out.spans = pre ? [...pre.querySelectorAll("span[style*=color]")]
+      .map((span) => [span.textContent, span.getAttribute("style")]) : [];
   }
   return out;
 })()`;
@@ -1164,7 +1166,10 @@ const READ_CLIPBOARD = `(async () => {
 /** Copy for slides: from the right-click menu, by its key, by the
  *  editor's button and without ClipboardItem, for the selection and for
  *  the whole program, read back off the clipboard as HTML, with no plain
- *  text beside it; then each of its options. `full` adds the menu, the button and
+ *  text beside it; the same from the compiled code's editor, Python
+ *  coloured by Monaco's tokens and the `pyking` view by the compiler's
+ *  lexer, the button copying from the editor used last; then each of
+ *  its options. `full` adds the menu, the button and
  *  the options, which are the same on every platform.
  *  (send, String, evaluate, String, Bool, Bool) -> Promise<[[label, ok, detail]]> */
 async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
@@ -1181,6 +1186,24 @@ async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
   // The HTML's text, as a <pre> holds it: no newline at the end.
   const pre = (text) => text.replace(/\n$/, "");
   const htmlOnly = (got) => got.types.length === 1 && got.types[0] === "text/html";
+  // Code as Copy for slides lays it out: indentation non-breaking, a
+  // line of spaces alone empty, tabs four spaces.
+  const laid = (text) => pre(text.replace(/\t/g, "    ")).split("\n").map((line) => {
+    const n = /^ */.exec(line)[0].length;
+    return n === line.length ? "" : "\u00a0".repeat(n) + line.slice(n);
+  }).join("\n");
+  // Whether a span holding `text` has the light theme's colour `hex`.
+  const colouredAs = (got, text, hex) => {
+    const [r, g, b] = [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16));
+    return got.spans.some(([t, style]) => t === text
+      && (style.includes(hex) || style.includes(`rgb(${r}, ${g}, ${b})`)));
+  };
+  const generated = () => evaluate(`${app}.right.getValue()`);
+  const compileTo = async (target) => {
+    await evaluate(`(() => { const t = document.querySelector("[data-r=target]"); t.value = ${JSON.stringify(target)}; `
+      + `t.dispatchEvent(new Event("change")); document.querySelector("[data-r=compile]").click(); })()`);
+    return waitFor(async () => /def f|f\(/.test(await generated()), 30000);
+  };
   const copied = async () => {
     let got = null;
     await waitFor(async () => {
@@ -1259,7 +1282,52 @@ async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
   check("without ClipboardItem it copies the whole program by a copy event",
     fallback.preText === pre(whole) && htmlOnly(fallback),
     JSON.stringify([fallback.preText, fallback.types]));
+
+  // The compiled code's editor: its own key copies what it shows.
+  check("the program compiles to Python", await compileTo("python12"), await generated());
+  await clear();
+  await evaluate(`${app}.right.focus(); ${app}.right.setPosition({ lineNumber: 1, column: 1 })`);
+  await pressKey(send, sessionId, "Alt+Shift+C", mac);
+  const python = await copied();
+  const code = await generated();
+  check("in the compiled code's editor, Alt+Shift+C copies all of it, indentation non-breaking",
+    python.preText === laid(code), JSON.stringify([python.preText, laid(code)]));
+  check("as HTML alone", htmlOnly(python), JSON.stringify(python.types));
+  check("Python coloured as the editor colours it: def a keyword's colour",
+    colouredAs(python, "def", "#8959a8"), JSON.stringify(python.spans.slice(0, 8)));
+  check("the status line says the compiled code was copied",
+    new RegExp(`copied the compiled code \\(${pre(code).split("\n").length} lines\\) for slides`)
+      .test(await status()), await status());
+  check("and the generated code is untouched", (await generated()) === code);
+  await evaluate(`${app}.left.focus()`);
   if (!full) return checks;
+
+  // Its right-click menu, a selection, and the `pyking` view.
+  await clear();
+  await evaluate(`${app}.right.focus(); ${app}.right.setSelection(new monaco.Range(1, 1, 3, 1)); `
+    + `${app}.right.trigger("test", "editor.action.showContextMenu", null)`);
+  const rightItem = await waitFor(async () => (await evaluate(MENU_ITEM)) !== null, 5000)
+    ? (await sleep(400), await evaluate(MENU_ITEM)) : null;
+  check("the compiled code's right-click menu has Copy for Slides, beside Copy",
+    rightItem && rightItem.labels[rightItem.labels.indexOf("Copy for Slides") - 1] === "Copy",
+    JSON.stringify(rightItem?.labels ?? null));
+  if (rightItem) await clickAt(send, sessionId, rightItem.x, rightItem.y);
+  const rightMenu = await copied();
+  const firstLines = code.split("\n").slice(0, 2).join("\n") + "\n";
+  check("choosing it copies the selection", rightMenu.preText === laid(firstLines),
+    JSON.stringify([rightMenu.preText, laid(firstLines)]));
+  check("the status line says the selection was copied",
+    /copied the selection \(2 lines\) for slides/.test(await status()), await status());
+  check("the program compiles to the pyking view", await compileTo("pyking"), await generated());
+  await clear();
+  await evaluate(`${app}.right.focus(); ${app}.right.setPosition({ lineNumber: 1, column: 1 })`);
+  await pressKey(send, sessionId, "Alt+Shift+C", mac);
+  const view = await copied();
+  check("the pyking view is coloured by the compiler's lexer: Int a type's colour",
+    view.preText === laid(await generated()) && colouredAs(view, "Int", "#c99e00"),
+    JSON.stringify([view.preText, view.spans.slice(0, 8)]));
+  await compileTo("python12");
+  await evaluate(`${app}.left.focus()`);
 
   check("the editor has no Copy for slides button by default",
     await evaluate(`document.querySelector("[data-r=copySlides]").classList.contains("pyk-hidden")`));
@@ -1271,11 +1339,25 @@ async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
   check("switched on in the settings, it shows", button, "hidden");
   check("its tooltip names the key", /\((Alt|Option)\+Shift\+C\)/.test(button?.title ?? ""), button?.title);
   await clear();
-  await evaluate(`${app}.left.setSelection(new monaco.Range(4, 1, 4, 13))`);
+  await evaluate(`${app}.left.focus(); ${app}.left.setSelection(new monaco.Range(4, 1, 4, 13))`);
   if (button) await clickAt(send, sessionId, button.x, button.y);
   const pressed = await copied();
   check("pressing it copies the selection", pressed.preText === "print(f(21))",
     JSON.stringify(pressed.preText));
+  await clear();
+  await evaluate(`${app}.right.focus(); ${app}.right.setPosition({ lineNumber: 1, column: 1 })`);
+  if (button) await clickAt(send, sessionId, button.x, button.y);
+  const fromRight = await copied();
+  check("with the compiled code's editor used last, it copies the compiled code",
+    fromRight.preText === laid(await generated()), JSON.stringify(fromRight.preText));
+  await clear();
+  await evaluate(`${app}.left.focus(); ${app}.left.setPosition({ lineNumber: 1, column: 1 })`);
+  if (button) await clickAt(send, sessionId, button.x, button.y);
+  const backLeft = await copied();
+  check("and with the program's used again, the program", backLeft.preText === pre(whole),
+    JSON.stringify(backLeft.preText));
+  check("its tooltip says it copies from the editor used last", /editor last used/.test(button?.title ?? ""),
+    button?.title);
   await evaluate(`(() => { const box = document.querySelector("[data-r=slidesButton]"); `
     + `box.checked = false; box.dispatchEvent(new Event("change")); })()`);
   check("switched off, it goes",

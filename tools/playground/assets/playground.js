@@ -259,6 +259,12 @@ class Playground {
     this.right = monaco.editor.create(ui.rightEditor, {
       ...options, model: model("", "plaintext"),
     });
+    // The editor Copy for slides' button copies from: the one last given
+    // the keyboard, which pressing the button takes from it.
+    this.slidesEditor = this.left;
+    for (const editor of [this.left, this.right]) {
+      editor.onDidFocusEditorText(() => { this.slidesEditor = editor; });
+    }
     this.left.onDidChangeModelContent(() => {
       this.clearError();
       // Only what the *user* typed schedules a run. Monaco fires the same
@@ -525,7 +531,8 @@ class Playground {
    *  action's keys belong to its own editor. Run means the Run button of
    *  whichever editor has the focus -- the source's runs the program, the
    *  generated code's what it shows -- and stops what runs; Copy for
-   *  slides is the source's, in its right-click menu beside Copy.
+   *  slides copies from its own editor, in each one's right-click menu
+   *  beside Copy.
    *  () -> () */
   installEditorKeys() {
     for (const action of this.editorActions) action.dispose();
@@ -541,11 +548,11 @@ class Playground {
         id: "pyk-run", label: "Run the generated code", keybindings: run,
         run: () => { this.running ? this.stopRun() : this.runGenerated(); },
       }),
-      this.left.addAction({
+      ...[this.left, this.right].map((editor) => editor.addAction({
         id: "pyk-copy-slides", label: "Copy for Slides", keybindings: keys("copySlides"),
         contextMenuGroupId: "9_cutcopypaste", contextMenuOrder: 2.5,
-        run: () => { this.copyForSlides(); },
-      }),
+        run: () => { this.copyForSlides(editor); },
+      })),
     ];
     this.showCommandKeys();
   }
@@ -555,7 +562,8 @@ class Playground {
   showCommandKeys() {
     const { ui } = this;
     ui.runLeft.title = `Run the program itself (${showKeys(keysOf(this.settings, "run"))})`;
-    ui.copySlides.title = "Copy the selection, or the whole program, coloured for slides "
+    ui.copySlides.title = "Copy the selection, or all, of the editor last used -- the program "
+      + "or the compiled code -- coloured for slides "
       + `(${showKeys(keysOf(this.settings, "copySlides"))})`;
     this.updateRunButtons();
     this.debugger?.showKeys();
@@ -577,18 +585,23 @@ class Playground {
     };
   }
 
-  /** The source's selection, or the whole program where nothing is
-   *  selected, highlighted: {html, rtf, text, what}. () -> Promise<Object> */
-  async highlightForSlides(source, options) {
+  /** Code highlighted for slides: {html, rtf, text}. Pyking by the
+   *  compiler's own lexer; another language -- a target's generated code
+   *  -- by Monaco's tokenizer for it, coloured as the editor colours it
+   *  (`slidesSpans`). (String, Object, String?) -> Promise<Object> */
+  async highlightForSlides(source, options, language = LANGUAGE) {
     if (!(await this.ensureRuntime())) throw new Error("the compiler did not start");
-    if (typeof this.runtime.highlight !== "function") {
+    const pyking = language === LANGUAGE;
+    if (typeof this.runtime[pyking ? "highlight" : "highlightSpans"] !== "function") {
       throw new Error("this compiler has no highlighter");
     }
-    return this.runtime.highlight(source, options);
+    return pyking ? this.runtime.highlight(source, options)
+      : this.runtime.highlightSpans(slidesSpans(this.monaco, source, language), options);
   }
 
-  /** Copy for slides: the editor's selection, or the whole program where
-   *  nothing is selected, onto the clipboard as HTML with the colours,
+  /** Copy for slides: an editor's selection, or all of it where nothing
+   *  is selected -- the source's or the generated code's, the one last
+   *  used where none is named -- onto the clipboard as HTML with the colours,
    *  the font and the size inline, which Keynote, PowerPoint and Google
    *  Slides paste as coloured text -- with the spaces the settings say
    *  made non-breaking, so the indentation survives a PDF reader's copy.
@@ -598,14 +611,15 @@ class Playground {
    *  The clipboard is written at once, with the highlighting to follow,
    *  as Safari requires within the key press or click.
    *  () -> Promise<Bool> */
-  async copyForSlides() {
-    const model = this.left.getModel();
-    const selection = this.left.getSelection();
+  async copyForSlides(editor = this.slidesEditor ?? this.left) {
+    const model = editor.getModel();
+    const selection = editor.getSelection();
     const marked = Boolean(selection && !selection.isEmpty());
     const source = marked ? model.getValueInRange(selection) : model.getValue();
     const lines = source.replace(/\n$/, "").split("\n").length;
-    const what = `${marked ? "the selection" : "the program"} (${lines} line${lines === 1 ? "" : "s"})`;
-    const made = this.highlightForSlides(source, this.slidesOptions());
+    const whole = editor === this.left ? "the program" : "the compiled code";
+    const what = `${marked ? "the selection" : whole} (${lines} line${lines === 1 ? "" : "s"})`;
+    const made = this.highlightForSlides(source, this.slidesOptions(), model.getLanguageId());
     made.catch(() => {});
     const blob = (type, key) => {
       const promised = made.then((r) => new Blob([r[key]], { type }));
@@ -2911,6 +2925,43 @@ function buildDom(host, meta, cfg) {
 function languageFor(target, mode) {
   if (target === "pyking") return LANGUAGE;
   return MONACO_LANGUAGES[mode] ?? "plaintext";
+}
+
+/** The kinds of highlight.ml that Monaco's token types take, as the
+ *  pyking-light and pyking-dark themes (pyking-monaco.js) colour them. */
+const SLIDES_KINDS = {
+  comment: "comment", string: "string", number: "number", constant: "constant",
+  keyword: "keyword", type: "type", function: "function", predefined: "builtin",
+  operator: "operator", enumMember: "constant", namespace: "type", property: "builtin",
+  "function.defaultLibrary": "builtin",
+};
+
+/** Code in a language Monaco tokenizes, cut into [kind, text] spans a
+ *  line for `PykingRuntime.highlightSpans`. A token type takes the kind
+ *  of the longest of its dotted prefixes a theme rule names, as Monaco
+ *  matches rules -- `string.escape.python` a string's -- and is plain
+ *  where none does. A last empty line, after a final newline, is not a
+ *  line. (Monaco, String, String) -> [[[String, String]]] */
+function slidesSpans(monaco, source, language) {
+  const kindOf = (type) => {
+    const parts = type.split(".");
+    for (let n = parts.length; n > 0; n--) {
+      const kind = SLIDES_KINDS[parts.slice(0, n).join(".")];
+      if (kind) return kind;
+    }
+    return "plain";
+  };
+  const text = source.replace(/\r/g, "");
+  const lines = text.split("\n");
+  const tokens = monaco.editor.tokenize(text, language);
+  const spans = lines.map((line, row) => {
+    const marks = tokens[row] ?? [];
+    if (marks.length === 0) return line === "" ? [] : [["plain", line]];
+    return marks.map((mark, k) => [kindOf(mark.type),
+      line.slice(mark.offset, k + 1 < marks.length ? marks[k + 1].offset : line.length)]);
+  });
+  if (text.endsWith("\n")) spans.pop();
+  return spans;
 }
 
 /** Switches off the features Monaco's JavaScript and HTML support runs on

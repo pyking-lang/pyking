@@ -28,6 +28,8 @@
       pykWarnings()                     every warning, as the settings list it
       pykHighlight(source, options)     source coloured as HTML, RTF
                                         and text (highlight.ml)
+      pykHighlightSpans(lines, options) lines Monaco cut into spans, the
+                                        same three ways
 
     A running program's output goes to `pykOnPrint`, one line at a time
     as it is produced, so output made before a program hangs is still
@@ -1766,15 +1768,23 @@ let format_helper () = Target_js_packaging.format_js
     `pyk highlight` colours it (highlight.ml), as {html, rtf, text}, or
     {error} where the options -- JSON, {theme, font, size, background,
     spaces}, "" for none -- are refused. string -> string -> string *)
+let highlight_options options_json =
+  if String.trim options_json = "" then Ok Highlight.default_options
+  else
+    match Json.parse options_json with
+    | value -> Highlight.options_of_json value
+    | exception Json.Parse_error message -> Error ("the options are not JSON: " ^ message)
+
+let highlighted options lines =
+  json_object
+    [
+      ("html", json_string (Highlight.html_of_lines options lines));
+      ("rtf", json_string (Highlight.rtf_of_lines options lines));
+      ("text", json_string (Highlight.text_of_lines options lines));
+    ]
+
 let highlight source options_json =
-  let options =
-    if String.trim options_json = "" then Ok Highlight.default_options
-    else
-      match Json.parse options_json with
-      | value -> Highlight.options_of_json value
-      | exception Json.Parse_error message -> Error ("the options are not JSON: " ^ message)
-  in
-  match options with
+  match highlight_options options_json with
   | Error message -> json_object [ ("error", json_string message) ]
   | Ok options ->
       json_object
@@ -1783,6 +1793,37 @@ let highlight source options_json =
           ("rtf", json_string (Highlight.rtf options source));
           ("text", json_string (Highlight.text options source));
         ]
+
+(** `pykHighlightSpans(lines, options)`: lines another tokenizer cut
+    into spans -- the playground's Monaco, for a target's generated code
+    -- coloured as `pykHighlight` colours Pyking: JSON
+    `[[[kind, text], ...], ...]`, a list of pairs a line, each kind as
+    highlight.ml names one ("keyword", "string", ..., "plain"). Answers
+    {html, rtf, text}, or {error} where the lines or the options are
+    refused. string -> string -> string *)
+let highlight_spans lines_json options_json =
+  let span = function
+    | Json.List [ Json.String name; Json.String text ] -> (
+        match Highlight.kind_of_name name with
+        | Some kind -> Ok { Highlight.kind; text }
+        | None -> Error (Printf.sprintf "%S is not a kind of span" name))
+    | _ -> Error "a span is not a [kind, text] pair"
+  in
+  let all f items =
+    List.fold_right
+      (fun item acc -> match acc, f item with Ok xs, Ok x -> Ok (x :: xs) | (Error _ as e), _ -> e | _, Error e -> Error e)
+      items (Ok [])
+  in
+  let line = function Json.List spans -> all span spans | _ -> Error "a line is not a list of spans" in
+  let lines =
+    match Json.parse lines_json with
+    | Json.List lines -> all line lines
+    | _ -> Error "the lines are not a list"
+    | exception Json.Parse_error message -> Error ("the lines are not JSON: " ^ message)
+  in
+  match lines, highlight_options options_json with
+  | Error message, _ | _, Error message -> json_object [ ("error", json_string message) ]
+  | Ok lines, Ok options -> highlighted options (Highlight.of_spans lines)
 
 (** Sets the warnings every later check reports -- a run, a compile,
     the REPL's entries and the language server's diagnostics -- from -W
@@ -1865,6 +1906,7 @@ let () =
   register0 "pykKeywords" (fun () ->
       json_array (List.map json_string Lexer.keywords));
   register2 "pykHighlight" highlight;
+  register2 "pykHighlightSpans" highlight_spans;
   register0 "pykWarnings" (fun () ->
       (* Every warning a check can report, as the playground's settings
          list them: its flag's name, whether it is on by default, and

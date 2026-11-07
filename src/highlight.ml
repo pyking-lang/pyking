@@ -51,6 +51,8 @@ let kind_name = function
 
 let kinds = [ Keyword; Type; Constant; Number; String; Comment; Function; Builtin; Operator; Plain ]
 
+let kind_of_name name = List.find_opt (fun k -> kind_name k = name) kinds
+
 (* --- classifying --- *)
 
 (** Whether a word starts with a capital letter. string -> bool *)
@@ -190,6 +192,32 @@ let classify source =
       let rest = String.sub s bytes (String.length s - bytes) in
       if rest = "" then { indent = 0; spans = [] } else { indent = count; spans = line_spans rest })
     (fst (source_lines source))
+
+(** Lines another tokenizer has cut into spans -- the playground's
+    Monaco, for a target's generated code -- as `classify` gives them:
+    tabs as four spaces and carriage returns dropped, each line's
+    leading spaces taken out as its indentation, a line of spaces alone
+    empty. [[span]] -> [line] *)
+let of_spans lines =
+  let tidy text =
+    let b = Buffer.create (String.length text) in
+    String.iter (fun c -> match c with '\t' -> Buffer.add_string b "    " | '\r' -> () | c -> Buffer.add_char b c) text;
+    Buffer.contents b
+  in
+  List.map
+    (fun spans ->
+      let spans = List.filter (fun s -> s.text <> "") (List.map (fun s -> { s with text = tidy s.text }) spans) in
+      let rec strip count = function
+        | [] -> (count, [])
+        | s :: rest ->
+            let n, bytes = leading s.text in
+            if bytes = String.length s.text then strip (count + n) rest
+            else (count + n, { s with text = String.sub s.text bytes (String.length s.text - bytes) } :: rest)
+      in
+      match strip 0 spans with
+      | _, [] -> { indent = 0; spans = [] }
+      | indent, spans -> { indent; spans })
+    lines
 
 (* --- options --- *)
 
@@ -352,6 +380,8 @@ let text_lines options lines =
   String.concat "\n"
     (List.map (fun l -> String.concat "" (List.map (fun s -> s.text) (laid_out options.spaces l))) lines)
 
+let text_of_lines = text_lines
+
 let text options source =
   let lines = classify source in
   let ends = snd (source_lines source) in
@@ -400,6 +430,7 @@ let html_lines options lines =
        (List.map (fun l -> String.concat "" (List.map (html_span p) (laid_out options.spaces l))) lines))
 
 let html options source = html_lines options (classify source)
+let html_of_lines = html_lines
 
 (* --- RTF --- *)
 
@@ -481,9 +512,11 @@ let rtf_lines options colours lines =
   ^ String.concat "\\par\n"
       (List.map (fun l -> String.concat "" (List.map (rtf_span p colours) (laid_out options.spaces l))) lines)
 
-let rtf options source =
+let rtf_of_lines options lines =
   let colours = rtf_colours options in
-  rtf_header options colours ^ rtf_lines options colours (classify source) ^ "}\n"
+  rtf_header options colours ^ rtf_lines options colours lines ^ "}\n"
+
+let rtf options source = rtf_of_lines options (classify source)
 
 (* --- notebooks --- *)
 
