@@ -1,0 +1,12 @@
+﻿# A file as Windows saves it: a byte order mark in front, and a
+# carriage return before every line break. Neither shows in an
+# editor, so neither means anything to the lexer.
+
+def twice(n: Int) -> Int:
+    if n > 0:
+        
+        n * 2
+    else:
+        0
+
+print(twice(21), "a\tb")
