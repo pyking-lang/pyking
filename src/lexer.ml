@@ -456,13 +456,26 @@ let scan_string file r c quote chars =
     | '\\' :: e :: xs when escape_char e <> None ->
         let decoded = match escape_char e with Some d -> d | None -> e in
         scan (decoded :: value) (length + 2) xs
-    | '\\' :: e :: _ ->
+    | '\\' :: e :: _ when e <> '\n' && e <> '\r' ->
         let i =
           { file; row1 = r; col1 = c + 1 + length; row2 = r;
             col2 = c + 3 + length }
         in
         raise
           (Lex_error (i, Printf.sprintf "unknown escape sequence '\\%c'" e))
+    (* A literal ends on the line it starts on. Left to run on, a quote
+       forgotten on one line would take the lines below it as text, up
+       to the next quote in the file, and the rows of everything after
+       would be miscounted. *)
+    | ('\n' | '\r') :: _ ->
+        let i = { file; row1 = r; col1 = c; row2 = r; col2 = c + 1 + length } in
+        raise
+          (Lex_error
+             ( i,
+               Printf.sprintf
+                 "this %s literal is not closed before the end of the line: \
+                  a line break inside one is written \\n"
+                 (if quote = '"' then "String" else "Char") ))
     | c2 :: xs when c2 = quote ->
         (string_of_chars (List.rev value), length + 1, xs)
     | c2 :: xs -> scan (c2 :: value) (length + 1) xs

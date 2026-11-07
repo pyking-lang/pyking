@@ -202,6 +202,12 @@ two-character escape has to be consumed as a pair, and the closing
 quote is matched last, which needs its own small recursion rather than
 one arm.
 
+A string or Char literal ends on its own line: `scan_string` refuses a
+raw line break inside one, since a literal left open would otherwise
+run on to the next quote in the file, swallowing the lines between and
+leaving every later row miscounted. That error is positioned at the
+opening quote, the one place the reader can fix it.
+
 ## Errors
 
 Every failure raises `Lex_error (info, message)`, an ordinary exception

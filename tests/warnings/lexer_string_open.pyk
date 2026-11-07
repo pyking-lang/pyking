@@ -1,0 +1,5 @@
+# A string literal that is not closed is refused where it stands,
+# rather than running on to the next quote in the file.
+
+name = "Pyking
+print("hello", name)

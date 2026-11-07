@@ -1,0 +1,4 @@
+'lexer_string_open.pyk' 4:7-4:14 Lexing error: this String literal is
+  not closed before the end of the line: a line break inside one is
+  written \n
+exit 1
