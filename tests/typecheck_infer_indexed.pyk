@@ -1,0 +1,87 @@
+# Type inference: a parameter a body indexes, slices, walks or writes by
+# index is some store of elements -- a list, an array, a DynArray, a
+# view or a String -- and its first call says which.
+#
+# Nothing below is annotated. Each body only says "xs[i]" or "for x in
+# xs", which every one of those kinds allows, so the body leaves the
+# kind open and the first call settles it. The element type is
+# generalised as any other type is: `first_of` is used at [Int] and at
+# [String], since only its kind -- a list -- is fixed by its first call.
+# See docs/type_inference.md, "The kind of an indexed parameter".
+
+use mutation
+
+# Read by index: the call passes arrays, so `v1` and `v2` are arrays.
+def vec_add(v1, v2):
+    res = array(len(v1), 0)
+    for i in range(len(v1)):
+        res[i] := v1[i] + v2[i]
+    return res
+
+vec1 = array([2, 5, 7])
+vec2 = array([3, 4, 2])
+print(vec_add(vec1, vec2))
+
+# A list, at two element types: the kind is fixed, the element is not.
+def first_of(xs):
+    xs[0]
+
+print(first_of([1, 2]), first_of(["a", "b"]))
+
+# A String: its elements are Chars, at every call.
+def initial(s):
+    s[0]
+
+print(initial("hello"), initial("world") == 'w')
+
+# A DynArray, walked by `for`.
+def total(xs):
+    var sum = 0
+    for x in xs:
+        sum := sum + x
+    sum
+
+print(total(dynarray([1, 2, 3])))
+
+# A view, written by index: an array, a DynArray or a view may be.
+def zero_first(xs):
+    xs[0] := 0
+
+a = array([5, 6, 7])
+zero_first(view(a, 1, 3))
+print(a)
+
+# A slice of an array is an array.
+def rest(xs):
+    xs[1:]
+
+print(rest(array([1, 2, 3])))
+
+# A comprehension over an array.
+def doubled(xs):
+    [x * 2 for x in xs]
+
+print(doubled(array([4, 5])))
+
+# Read and written in one body, called with a DynArray.
+def shift(xs):
+    for i in range(len(xs) - 1):
+        xs[i] := xs[i + 1]
+
+d = dynarray([1, 2, 3])
+shift(d)
+print(d)
+
+# Handed on as a value before any call: still decided by the first call
+# made through it.
+def second(xs):
+    xs[1]
+
+take = second
+print(take(array([8, 9])))
+
+# Nothing ever calls it: what nothing decides is a list.
+def last_of(xs):
+    xs[len(xs) - 1]
+
+print(len([last_of]))

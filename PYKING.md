@@ -4815,7 +4815,7 @@ under Pyking's ordinary lexical scoping.
 | `&&`, `!` and or-or | `Bool`s | `Bool` |
 | `&`, `<<`, `>>`, bitwise or | two `Int`s | `Int` |
 | `~` | an `Int` | `Int` |
-| `xs[i]` | a list `[a]` and an `Int` | `a` |
+| `xs[i]` | a list `[a]`, an array, a DynArray, a view or a `String`, and an `Int` | the element (a `Char` for a `String`) |
 
 (Bitwise or is `|` and the Bool or is `||`; a `|` cannot be written
 inside a Markdown table cell.)
@@ -4823,8 +4823,10 @@ inside a Markdown table cell.)
 So `1 + 'a'` is an error -- `+` converts nothing -- and so is
 `1 == 'a'`: a comparison of two different types is refused rather than
 answered `false`. Where nothing has decided its operands, `and`, `or`
-and `not` are Bool logic, and `+` waits for a use to decide it and adds
-two Ints if nothing does.
+and `not` are Bool logic, `+` waits for a use to decide it and adds
+two Ints if nothing does, and `xs[i]` leaves the kind of `xs` to the
+first call and indexes a list if nothing decides it ("Functions without
+annotations").
 
 **Bindings and expression statements.** An `=` binding takes the type of
 its right-hand side, and that is what its name means to the statements
@@ -5537,6 +5539,42 @@ print(announce(1))           # announce : (Int) -> String
 
 That is a real limit rather than an oversight, and a written annotation
 would not help either, because there is none to write.
+
+**A parameter that is indexed takes its kind from the first call.**
+`xs[i]`, `xs[i] := v`, `xs[i:j]`, `for x in xs` and a comprehension over
+`xs` work on several kinds of store -- a list, an array, a DynArray, a
+view and a String -- so a body that only does those leaves the *kind*
+open, and the first call settles it. The *element* type is not fixed:
+it is generalised as any other type is, so one definition serves lists
+of Ints and lists of Strings once its first call has said "a list":
+
+```pyking
+use mutation
+
+def vec_add(v1, v2):
+    res = array(len(v1), 0)
+    for i in range(len(v1)):
+        res[i] := v1[i] + v2[i]
+    return res
+
+
+def first(xs):
+    xs[0]
+
+
+print(vec_add(array([2, 5]), array([3, 4])))    # array([5, 9])
+print(first([1, 2]), first(["a", "b"]))         # 1 a
+# print(first(array([1])))   # error: argument 1 has type Array(Int), but
+                             #   [a] was expected: first's parameter xs was
+                             #   fixed to a list by its first call, at line 15
+```
+
+A body narrows what its first call may pass: one that writes `xs[i]`
+allows an array, a DynArray or a view, and one that slices `xs` allows
+anything but a view (whose slice is an array). Until a call decides
+it, such a parameter shows as `Indexed(a)`; one nothing ever decides --
+a definition never called, or only handed on -- is a list, or an array
+where the body writes it.
 
 **A parameter is not generalised.** A parameter used at *two* types
 inside one body would have to be polymorphic itself, and inference does

@@ -288,9 +288,14 @@ try {
   await until(`pykingShell.current === "getstarted"`);
   await click("getstarted", "#newTab");
   await sleep(500);
+  const opened = (await send("Target.getTargets")).targetInfos.filter((t) => t.url === `${site}/libraries/`);
   check("a link opening a new window is left to do that",
-    await evaluate("pykingShell.current") === "getstarted"
-    && (await send("Target.getTargets")).targetInfos.some((t) => t.url === `${site}/libraries/`));
+    await evaluate("pykingShell.current") === "getstarted" && opened.length > 0);
+  // The new window comes to the front -- on macOS even headless -- and
+  // leaves this one hidden, which a new build reloads at once: closed,
+  // and this one brought back.
+  for (const t of opened) await send("Target.closeTarget", { targetId: t.targetId });
+  await send("Page.bringToFront", {}, sessionId);
   await click("getstarted", "#toRuntime");
   check("a link to a page that is no section's is followed in the frame",
     await until(`${win("getstarted")}.location.pathname === "${BASE}/runtime/plain.html"`)
@@ -328,6 +333,8 @@ try {
   await tab("libraries", "Playground");
   await ready("playground", "/playground/");
   await evaluate(`window.stayed = true; ${win("playground")}.busyNow = true`);
+  check("the window is shown, as the checks below need",
+    await until("document.visibilityState === 'visible'"), await evaluate("document.visibilityState"));
   check("a page is told which build it is", await evaluate("pykingShell.build") === "b1",
     await evaluate("pykingShell.build"));
   builds.page = builds.named = "b2";

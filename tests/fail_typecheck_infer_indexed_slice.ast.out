@@ -1,0 +1,4 @@
+'tests/fail_typecheck_infer_indexed_slice.pyk' 14:11-14:24 Type error:
+  argument 1 has type Slice(Int), but Indexed(a) was expected: the
+  body uses tail's parameter xs as a list, an array, a DynArray or a
+  String, not as a view

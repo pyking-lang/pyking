@@ -1,0 +1,20 @@
+# A parameter's kind, once its first call has said it, is that kind at
+# every later call.
+#
+# `first` only indexes `xs`, which a list, an array, a DynArray, a view
+# and a String all allow, so the body leaves the kind open and the first
+# call settles it: an array. The element type stays generic -- an array
+# of Strings is fine -- but a list is another kind, and the message says
+# which call fixed it.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+use mutation
+
+def first(xs):
+    xs[0]
+
+print(first(array([1, 2])))
+print(first(array(["a"])))
+print(first([1, 2]))

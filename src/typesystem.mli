@@ -128,6 +128,8 @@ type store = {
   constructors : string SMap.t;
   field_defaults : (typ * string) SMap.t;
   pending_plus : (typ * info) list;
+  open_kinds : string list;
+  kind_origins : (info * string) SMap.t;
   mutation : bool;
       (* whether the module has `use mutation`, without which making a
          `var struct` is refused *)

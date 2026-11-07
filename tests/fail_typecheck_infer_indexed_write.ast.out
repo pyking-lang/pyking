@@ -1,0 +1,4 @@
+'tests/fail_typecheck_infer_indexed_write.pyk' 16:5-16:11 Type error:
+  argument 1 has type [Int], but Indexed(Int) was expected: the body
+  uses zero's parameter xs as an array, a DynArray or a view, not as a
+  list

@@ -170,6 +170,94 @@ let store_element type_ =
   | Some element -> Some element
   | None -> ( match dynarray_element type_ with Some element -> Some element | None -> slice_element type_)
 
+(* --- kind variables ---
+
+   An unannotated parameter a body indexes, slices, walks or writes by
+   index is *some* store of elements, and which store -- a list, an
+   array, a DynArray, a view or a String -- is left to its first call
+   (docs/type_inference.md, "The kind of an indexed parameter"). Its
+   type is `TCon (?kN:LADVS, [element])`: a kind variable applied to the
+   element type. The name says which kinds are still allowed, one letter
+   each, so `kind_matches` can answer without the store; narrowing it
+   makes a new variable and links the old one to it. Its solution lives
+   in `store.solutions` beside the metavariables': another kind
+   variable, a link, as `TCon (_, name, [], _)`, or the container it
+   became, as that type with its element left `TUnknown`. `prune` reads
+   a decided one back as the type it stands for. Only the kind is
+   shared; the element is an ordinary metavariable, generalised as any
+   other is, so one definition serves `[Int]` and `[String]` once its
+   first call has said "a list". *)
+
+(** A kind a kind variable may become. *)
+type container = CList | CArray | CDynArray | CSlice | CString
+
+(** Every kind, in the order a kind variable nothing decided picks the
+    first of. *)
+let all_containers = [ CList; CArray; CDynArray; CSlice; CString ]
+
+(** The kinds whose elements are written by index. *)
+let writable_containers = [ CArray; CDynArray; CSlice ]
+
+let container_letter = function CList -> 'L' | CArray -> 'A' | CDynArray -> 'D' | CSlice -> 'V' | CString -> 'S'
+
+(** A kind as a message names it. container -> string *)
+let container_words = function
+  | CList -> "a list"
+  | CArray -> "an array"
+  | CDynArray -> "a DynArray"
+  | CSlice -> "a view"
+  | CString -> "a String"
+
+(** A kind variable's name: `?k`, a number, and the kinds it allows.
+    int -> [container] -> string *)
+let kind_var_name number allowed =
+  Printf.sprintf "?k%d:%s" number (String.of_seq (List.to_seq (List.map container_letter allowed)))
+
+(** Whether a TCon's name is a kind variable's. string -> bool *)
+let is_kind_name name = String.length name > 2 && name.[0] = '?' && name.[1] = 'k'
+
+(** The kinds a kind variable's name allows. string -> [container] *)
+let kind_allowed name =
+  match String.index_opt name ':' with
+  | None -> all_containers
+  | Some at ->
+      let letters = String.sub name (at + 1) (String.length name - at - 1) in
+      List.filter (fun c -> String.contains letters (container_letter c)) all_containers
+
+(** A kind variable's name and element, or None for anything else.
+    typ -> (string * typ) option *)
+let kind_var_parts type_ =
+  match type_ with TCon (_, name, [ element ], _) when is_kind_name name -> Some (name, element) | _ -> None
+
+(** The type a kind stands for, over an element (a String's is Char,
+    so its element is not kept). container -> info -> typ -> typ *)
+let container_type kind info element =
+  match kind with
+  | CList -> t_list info element
+  | CArray -> t_array info element
+  | CDynArray -> t_dynarray info element
+  | CSlice -> t_slice info element
+  | CString -> t_string info
+
+(** The kind a settled type is, or None for one that is none of them.
+    typ -> container option *)
+let container_of type_ =
+  match type_ with
+  | TList _ -> Some CList
+  | TString _ -> Some CString
+  | settled when array_element settled <> None -> Some CArray
+  | settled when dynarray_element settled <> None -> Some CDynArray
+  | settled when slice_element settled <> None -> Some CSlice
+  | _ -> None
+
+(** Several kinds as a message names them: "a list, an array or a
+    view". [container] -> string *)
+let containers_words kinds =
+  match List.rev (List.map container_words kinds) with
+  | [] -> "nothing"
+  | [ one ] -> one
+  | last :: rest -> String.concat ", " (List.rev rest) ^ " or " ^ last
+
 (** The type a definition has once its implicit parameters are ordinary
     ones: what every stage after `elaborate.ml` sees of it. typ -> typ *)
 let rec without_implicits type_ =
@@ -295,6 +383,13 @@ type store = {
   constructors : string SMap.t;
   field_defaults : (typ * string) SMap.t;
   pending_plus : (typ * info) list;
+  open_kinds : string list;
+      (* every kind variable handed out, decided at the end if nothing
+         else did (`settle_kinds`) *)
+  kind_origins : (info * string) SMap.t;
+      (* a decided kind variable: the call that decided it, and what it
+         decided -- "vec_add1's parameter v1" and so on -- for the
+         message a later call that disagrees gets *)
   mutation : bool; (* whether the module has `use mutation` *)
 }
 
@@ -320,6 +415,8 @@ let empty_store sigmaps =
     constructors = SMap.empty;
     field_defaults = SMap.empty;
     pending_plus = [];
+    open_kinds = [];
+    kind_origins = SMap.empty;
     mutation = true;
   }
 
@@ -402,9 +499,51 @@ let prune type_ store =
           match SMap.find_opt name store.solutions with
           | None -> type_
           | Some answer -> go answer (StringSet.add name seen))
+    | TCon (info, name, [ element ], sym) when is_kind_name name -> (
+        (* A kind variable linked on is read as the one it links to, and
+           a decided one as the type it became. *)
+        match SMap.find_opt name store.solutions with
+        | Some (TCon (_, next, [], _)) when is_kind_name next -> go (TCon (info, next, [ element ], sym)) seen
+        | Some decided -> (
+            match container_of decided with
+            | Some kind -> container_type kind info element
+            | None -> type_)
+        | None -> type_)
     | type_ -> type_
   in
   go type_ StringSet.empty
+
+(** The variables of `vars` that stand, somewhere in type_, for the
+    elements of a kind variable that became a String.
+    typ -> [string] -> store -> [string] *)
+let char_elements type_ vars store =
+  let rec walk found t =
+    match t with
+    | TCon (_, name, [ TVar (_, v, _, true) ], _) when is_kind_name name && List.mem v vars -> (
+        match prune t store with TString _ when not (List.mem v found) -> v :: found | _ -> found)
+    | TCon (_, _, args, _) | TTuple (_, args, _) -> List.fold_left walk found args
+    | TList (_, element, _) -> walk found element
+    | TFunction (_, params, result, _, _, _, implicits) ->
+        walk (List.fold_left walk found (params @ implicit_types implicits)) result
+    | TForall (_, _, body, _) -> walk found body
+    | TVar (_, name, _, false) -> (
+        match SMap.find_opt name store.solutions with Some answer -> walk found answer | None -> found)
+    | _ -> found
+  in
+  walk [] type_
+
+(** type_ with each rigid variable of `vars` a Char. typ -> [string] -> typ *)
+let rec as_chars type_ vars =
+  match type_ with
+  | TVar (info, name, _, true) when List.mem name vars -> t_char info
+  | TList (i, e, s) -> TList (i, as_chars e vars, s)
+  | TTuple (i, es, s) -> TTuple (i, List.map (fun e -> as_chars e vars) es, s)
+  | TCon (i, c, es, s) -> TCon (i, c, List.map (fun e -> as_chars e vars) es, s)
+  | TFunction (i, ps, r, a, b, c, d) ->
+      TFunction (i, List.map (fun e -> as_chars e vars) ps, as_chars r vars, a, b, c,
+                 map_implicits (fun t -> as_chars t vars) d)
+  | TForall (i, vs, b, s) -> TForall (i, vs, as_chars b (List.filter (fun v -> not (List.mem v vs)) vars), s)
+  | type_ -> type_
 
 (** type_ with every metavariable in it replaced by what it was solved
     to, as deep as the solutions go. This is what turns a type the
@@ -449,7 +588,14 @@ let rec zonk type_ store =
         if List.for_all (fun (v, w) -> v = w) renamed then body
         else rename_rigid body renamed
       in
-      TForall (info, List.map snd renamed, zonk body store, sym)
+      (* A variable standing for the elements of a kind variable that
+         became a String is a Char: the String carries no element to say
+         so once it is read back. *)
+      let chars = char_elements body (List.map snd renamed) store in
+      let body = if chars = [] then body else as_chars body chars in
+      (match List.filter (fun v -> not (List.mem v chars)) (List.map snd renamed) with
+      | [] -> zonk body store
+      | vars -> TForall (info, vars, zonk body store, sym))
   | TCon (info, name, args, sym) ->
       TCon (info, name, List.map (fun a -> zonk a store) args, sym)
   | TData (info, Datatype (name, params, constructors, writable), sym) ->
@@ -666,20 +812,44 @@ let generalize type_ =
     arrives here as its instances rather than as the `all` itself, so no
     `all` can be carried into a parameter type the checker is working
     out. typ -> store -> (typ, store) *)
-let instantiate type_ store =
+let rec instantiate type_ store =
   match type_ with
   | TForall (info, vars, body, _) ->
       let metas, store = fresh_metas (List.length vars) info store in
-      (substitute body (List.combine vars metas), store)
+      let body = substitute body (List.combine vars metas) in
+      (body, strings_of_chars body store)
   | type_ -> (type_, store)
+
+(** store with the element of every kind variable in type_ that became
+    a String solved to Char. A decided kind variable reads back as its
+    type, and a String's has no element to carry, so each fresh instance
+    of a scheme holding one is told here what its element is.
+    typ -> store -> store *)
+and strings_of_chars type_ store =
+  let rec walk store t =
+    match t with
+    | TCon (_, name, [ element ], _) when is_kind_name name -> (
+        let store = walk store element in
+        match (prune t store, prune element store) with
+        | TString _, TVar (info, meta, _, false) -> solving store meta (t_char info)
+        | _ -> store)
+    | TList (_, element, _) -> walk store element
+    | TTuple (_, elements, _) | TCon (_, _, elements, _) -> List.fold_left walk store elements
+    | TFunction (_, params, result, _, _, _, implicits) ->
+        walk (List.fold_left walk store (params @ implicit_types implicits)) result
+    | TVar (_, name, _, false) -> (
+        match SMap.find_opt name store.solutions with Some answer -> walk store answer | None -> store)
+    | _ -> store
+  in
+  walk store type_
 
 (** type_ with the metavariables nothing solved named `a`, `b`, ... A
     metavariable is not a type anyone can write, but one left open
     stands for a type nothing decided -- which is what a variable says,
     and which is what `[]` on its own is worth. typ -> store -> typ *)
-let displayed type_ store =
+let rec displayed type_ store =
   match metas_in type_ store with
-  | [] -> type_
+  | [] -> indexed_named type_
   | open_metas ->
       let taken = names_in type_ in
       let _, chosen =
@@ -701,7 +871,29 @@ let displayed type_ store =
                 chosen @ [ (meta, t_meta (type_info type_) name) ] ))
           ([], []) open_metas
       in
-      substitute type_ chosen
+      indexed_named (substitute type_ chosen)
+
+(** type_ with every kind variable still open named `Indexed`: a store
+    of elements whose kind its first call will say, as a message or a
+    hover shows it. A kind variable's own name is bookkeeping.
+    typ -> typ *)
+and indexed_named type_ =
+  match type_ with
+  | TCon (info, name, args, sym) ->
+      TCon (info, (if is_kind_name name then "Indexed" else name), List.map indexed_named args, sym)
+  | TList (info, element, sym) -> TList (info, indexed_named element, sym)
+  | TTuple (info, elements, sym) -> TTuple (info, List.map indexed_named elements, sym)
+  | TFunction (info, params, result, sym, tmsym, definition, implicits) ->
+      TFunction
+        ( info,
+          List.map indexed_named params,
+          indexed_named result,
+          sym,
+          tmsym,
+          definition,
+          map_implicits indexed_named implicits )
+  | TForall (info, vars, body, sym) -> TForall (info, vars, indexed_named body, sym)
+  | type_ -> type_
 
 (** type_ as an error message should name it: solved as far as the store
     goes, with anything still open named `a`, `b`, ... A metavariable's
@@ -887,6 +1079,22 @@ let rec unify one other store =
   | TTuple (_, mine, _), TTuple (_, theirs, _)
     when List.length mine = List.length theirs ->
       unify_each mine theirs store
+  | TCon (info, x, [ mine ], _), TCon (_, y, [ theirs ], _) when is_kind_name x && is_kind_name y ->
+      (* Two kind variables are one: both link to a new one allowing
+         what both allowed. None allowed by both, no solution. *)
+      if x = y then unify mine theirs store
+      else (
+        match List.filter (fun k -> List.mem k (kind_allowed y)) (kind_allowed x) with
+        | [] -> None
+        | common ->
+            let name = kind_var_name store.fresh common in
+            let link = TCon (info, name, [], 0) in
+            let store =
+              { store with fresh = store.fresh + 1; open_kinds = name :: store.open_kinds }
+            in
+            unify mine theirs (solving (solving store x link) y link))
+  | TCon (_, name, [ element ], _), other when is_kind_name name -> decide_kind name element other store
+  | other, TCon (_, name, [ element ], _) when is_kind_name name -> decide_kind name element other store
   | TCon (_, x, mine, _), TCon (_, y, theirs, _)
     when x = y && List.length mine = List.length theirs ->
       unify_each mine theirs store
@@ -912,6 +1120,22 @@ let rec unify one other store =
      decided by `same_type`: there is nothing to solve, so either they
      already are one type or no solution makes them one. *)
   | _ -> if same_type one other then Some store else None
+
+(** The store in which the open kind variable `name`, over `element`, is
+    the settled type `other`: the kind it is, where the variable allows
+    it, and the element its element -- a String's a Char. None where
+    `other` is no kind it allows. string -> typ -> typ -> store -> store option *)
+and decide_kind name element other store =
+  match container_of other with
+  | Some kind when List.mem kind (kind_allowed name) -> (
+      let info = type_info other in
+      let store = solving store name (container_type kind info (t_unknown info)) in
+      match other with
+      | TString _ -> unify element (t_char info) store
+      | TList (_, theirs, _) -> unify element theirs store
+      | TCon (_, _, [ theirs ], _) -> unify element theirs store
+      | _ -> None)
+  | _ -> None
 
 (** The store in which each of these types is the one beside it, or None
     where no solution makes them so.
@@ -986,6 +1210,51 @@ let demand actual wanted info what store =
              Printf.sprintf "%s must be %s, not %s" what (shown wanted store)
                (shown actual store) ))
 
+(** A fresh store of elements whose kind is left to its first call: a
+    kind variable allowing `allowed`, over a fresh element. Answers the
+    type, the element and the store. info -> [container] -> store -> (typ, typ, store) *)
+let fresh_indexed info allowed store =
+  let element, store = fresh_meta info store in
+  let name = kind_var_name store.fresh allowed in
+  ( TCon (info, name, [ element ], 0),
+    element,
+    { store with fresh = store.fresh + 1; open_kinds = name :: store.open_kinds } )
+
+(** The store in which the open kind variable `name` allows no more than
+    `allowed`: unchanged where it already does, linked to a new variable
+    allowing what both do otherwise. None where nothing is left.
+    info -> string -> [container] -> store -> store option *)
+let narrow_kind info name allowed store =
+  let mine = kind_allowed name in
+  match List.filter (fun k -> List.mem k allowed) mine with
+  | [] -> None
+  | common when List.length common = List.length mine -> Some store
+  | common ->
+      let fresh = kind_var_name store.fresh common in
+      Some
+        (solving
+           { store with fresh = store.fresh + 1; open_kinds = fresh :: store.open_kinds }
+           name (TCon (info, fresh, [], 0)))
+
+(** The type a use that indexes, slices or walks `actual` gives it, and
+    its element: what it already is where that is settled; a store of
+    elements left to the first call where nothing has decided it --
+    allowing `allowed` -- or, for one already left so, the same one
+    narrowed to `allowed`. None where it is a kind variable allowing
+    none of `allowed`, or for a settled type (the caller says what then).
+    typ -> info -> [container] -> store -> (typ * typ * store) option *)
+let indexed_kind actual info allowed store =
+  match prune actual store with
+  | settled when is_meta settled ->
+      let made, element, store = fresh_indexed info allowed store in
+      Option.map (fun store -> (made, element, store)) (unify settled made store)
+  | settled when kind_var_parts settled <> None -> (
+      let name, element = Option.get (kind_var_parts settled) in
+      match narrow_kind info name allowed store with
+      | Some store -> Some (prune settled store, element, store)
+      | None -> None)
+  | _ -> None
+
 (** The store in which `actual` is a list, and the type of its elements.
     typ -> info -> string -> store -> (typ, store) *)
 let demand_list actual info what store =
@@ -999,6 +1268,11 @@ let demand_sequence actual info what store =
   | TString _ -> (TChar (info, 0), store)
   | settled when store_element settled <> None -> (Option.get (store_element settled), store)
   | settled when mutmap_parts settled <> None -> (fst (Option.get (mutmap_parts settled)), store)
+  | settled when is_meta settled || kind_var_parts settled <> None -> (
+      (* Nothing has said what is walked: its first call will. *)
+      match indexed_kind settled info all_containers store with
+      | Some (_, element, store) -> (element, store)
+      | None -> demand_list actual info what store)
   | _ -> demand_list actual info what store
 
 (* --- what the store records --- *)
@@ -1063,6 +1337,8 @@ let learned store inner =
     (* A `+` whose operands the inner check left open is still to be
        decided, here or further out. *)
     pending_plus = inner.pending_plus;
+    open_kinds = inner.open_kinds;
+    kind_origins = inner.kind_origins;
   }
 
 (** store with what this call denotes recorded under its symbol. Like
@@ -1098,9 +1374,18 @@ let kind_matches kind type_ =
   | KChar, TChar _
   | KBool, TBool _
   | KList, TList _
-  | KTuple, TTuple _
-  | KData, TCon _ ->
+  | KTuple, TTuple _ ->
       true
+  | (KList | KString | KArray | KDynArray | KSlice), TCon (_, name, _, _) when is_kind_name name ->
+      (* A store of elements its first call will settle: of this kind
+         where it may still become one. *)
+      List.exists
+        (fun c ->
+          match (c, kind) with
+          | CList, KList | CString, KString | CArray, KArray | CDynArray, KDynArray | CSlice, KSlice -> true
+          | _ -> false)
+        (kind_allowed name)
+  | KData, TCon (_, name, _, _) -> not (is_kind_name name)
   | KArray, TCon (_, name, _, _) -> name = array_name
   | KDynArray, TCon (_, name, _, _) -> name = dynarray_name
   | KMutMap, TCon (_, name, _, _) -> name = mutmap_name
@@ -1128,7 +1413,20 @@ let kind_type kind info =
 (** Whether type_ is one of kinds. A flexible variable counts as any of
     them, since no value of it arrives. typ -> [kind] -> bool *)
 let every type_ kinds =
-  List.exists (fun kind -> kind_matches kind type_) kinds || is_meta type_
+  match type_ with
+  | TCon (_, name, _, _) when is_kind_name name ->
+      (* Every kind it may still become has to be accepted, since the
+         first call may choose any of them. *)
+      let accepted c =
+        List.exists
+          (fun kind ->
+            match (c, kind) with
+            | CList, KList | CString, KString | CArray, KArray | CDynArray, KDynArray | CSlice, KSlice -> true
+            | _ -> false)
+          kinds
+      in
+      List.for_all accepted (kind_allowed name)
+  | _ -> List.exists (fun kind -> kind_matches kind type_) kinds || is_meta type_
 
 (* One row per operand type an operator accepts, paired with what it is
    then worth. PYKING.md, "Operators", is the table this implements. *)
@@ -2237,11 +2535,73 @@ let builtin_argument_error name argument actual accepted =
       Printf.sprintf "'%s' cannot be applied to %s; it accepts %s" name
         (printed actual) accepted )
 
+(** Every kind variable in type_, through the metavariables' solutions,
+    and every one each links on to. typ -> store -> [string] *)
+let kind_names_in type_ store =
+  let rec chain found name =
+    let found = if List.mem name found then found else name :: found in
+    match SMap.find_opt name store.solutions with
+    | Some (TCon (_, next, [], _)) when is_kind_name next && not (List.mem next found) -> chain found next
+    | _ -> found
+  in
+  let rec walk found t =
+    match t with
+    | TVar (_, name, _, false) -> (
+        match SMap.find_opt name store.solutions with Some answer -> walk found answer | None -> found)
+    | TCon (_, name, args, _) when is_kind_name name -> List.fold_left walk (chain found name) args
+    | TList (_, element, _) -> walk found element
+    | TTuple (_, elements, _) | TCon (_, _, elements, _) -> List.fold_left walk found elements
+    | TFunction (_, params, result, _, _, _, implicits) ->
+        walk (List.fold_left walk found (params @ implicit_types implicits)) result
+    | _ -> found
+  in
+  List.rev (walk [] type_)
+
+(** Whether the kind variable `name` has been decided, rather than left
+    open or linked on to one that is open. string -> store -> bool *)
+let kind_decided name store =
+  let rec last name =
+    match SMap.find_opt name store.solutions with
+    | Some (TCon (_, next, [], _)) when is_kind_name next -> last next
+    | Some _ -> true
+    | None -> false
+  in
+  last name
+
+(** store with the call at `info` remembered as the one that decided
+    the kind of `subject` -- "vec_add1's parameter v1" -- where one of
+    `kinds`, the parameter's kind variables, is decided now. Keyed by
+    the function's name and the argument's position, since the scheme
+    reads a decided kind back as its type from then on, and a later call
+    may no longer carry the definition that names its parameters.
+    [string] -> info -> string -> string -> store -> store *)
+let remember_kinds kinds info key subject store =
+  if SMap.mem key store.kind_origins || not (List.exists (fun k -> kind_decided k store) kinds) then store
+  else { store with kind_origins = SMap.add key (info, subject) store.kind_origins }
+
+(** What a refused argument's message adds where its parameter's kind
+    was decided by an earlier call and this argument is of another kind:
+    who decided it, to what, and where -- `key` as `remember_kinds`
+    keys it; or, where nothing has, which kinds the body allows.
+    string -> string -> typ -> typ -> store -> string *)
+let kind_note key subject actual expected store =
+  match (SMap.find_opt key store.kind_origins, container_of (prune expected store)) with
+  | Some (info, subject), Some kind when container_of (prune actual store) <> Some kind ->
+      Printf.sprintf ": %s was fixed to %s by its first call, at line %d" subject (container_words kind) info.row1
+  | _ -> (
+      (* Still open, but the body allows fewer kinds than this one --
+         it writes by index, or slices. *)
+      match (kind_var_parts (prune expected store), container_of (prune actual store)) with
+      | Some (name, _), Some kind when not (List.mem kind (kind_allowed name)) ->
+          Printf.sprintf ": the body uses %s as %s, not as %s" subject (containers_words (kind_allowed name))
+            (container_words kind)
+      | _ -> "")
+
 (** The Type_error for an argument that does not match the declared
     parameter type. The two are named together, so a variable standing in
     both reads as the same letter in both.
     int -> typ -> typ -> expr -> store -> exn *)
-let argument_error position actual expected arg store =
+let argument_error ?(note = "") position actual expected arg store =
   let info = expr_info arg in
   let together =
     displayed (t_tuple info [ zonk actual store; zonk expected store ]) store
@@ -2253,8 +2613,8 @@ let argument_error position actual expected arg store =
   in
   Type_error
     ( info,
-      Printf.sprintf "argument %d has type %s, but %s was expected" position
-        (printed_nested mine) (printed_nested theirs) )
+      Printf.sprintf "argument %d has type %s, but %s was expected%s" position
+        (printed_nested mine) (printed_nested theirs) note )
 
 (** The single type every way out of a body gives, and the store that
     makes them one. Each is unified with the ones before it, so a base
@@ -2329,6 +2689,30 @@ let settle_plus store =
                    shown_ shown_ )))
     { store with pending_plus = [] }
     (List.rev store.pending_plus)
+
+(** The store with every kind variable nothing decided decided: a list
+    where it may be one, as an index with nothing else to go on always
+    meant, and otherwise the first kind it allows -- an array, for a
+    store only ever written. Run when the module is done. store -> store *)
+let settle_kinds store =
+  List.fold_left
+    (fun store name ->
+      let rec last name =
+        match SMap.find_opt name store.solutions with
+        | Some (TCon (_, next, [], _)) when is_kind_name next -> last next
+        | Some _ -> None
+        | None -> Some name
+      in
+      match last name with
+      | None -> store
+      | Some open_ -> (
+          match kind_allowed open_ with
+          | [] -> store
+          | first :: _ as allowed ->
+              let kind = if List.mem CList allowed then CList else first in
+              let info = builtin_info in
+              solving store open_ (container_type kind info (t_unknown info))))
+    store (List.rev store.open_kinds)
 
 (** The scheme a definition has: its worked-out type, with every
     metavariable the body left unsolved bound by one `all` at the top.
@@ -2942,11 +3326,20 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
                      "a String is never changed, so its characters cannot be \
                       written with '%s'"
                      (assignment_word statement) ))
-        | settled when is_meta settled -> (
-            let element, store = fresh_meta info store in
-            match unify (t_array info element) settled store with
-            | Some store -> (element, store)
-            | None -> (element, store))
+        | settled when is_meta settled || kind_var_parts settled <> None -> (
+            (* Nothing has said what is written: an array, a DynArray or
+               a view, whichever its first call passes. *)
+            match indexed_kind settled info writable_containers store with
+            | Some (_, element, store) -> (element, store)
+            | None ->
+                raise
+                  (Type_error
+                     ( owner_info,
+                       Printf.sprintf
+                         "only an array's, a DynArray's or a view's element is written with '%s', \
+                          and this value is read as %s elsewhere"
+                         (assignment_word statement)
+                         (containers_words (kind_allowed (fst (Option.get (kind_var_parts settled))))) )))
         | settled ->
             raise
               (Type_error
@@ -3789,11 +4182,13 @@ and expr_type e env store =
         | TList _ as t -> (zonk t store, store)
         | settled when array_element settled <> None || dynarray_element settled <> None -> (zonk settled store, store)
         | settled when slice_element settled <> None -> (t_array info (zonk (Option.get (slice_element settled)) store), store)
-        | settled when is_meta settled -> (
-            let element, store = fresh_meta info store in
-            match unify (t_list info element) settled store with
-            | Some store -> (zonk settled store, store)
-            | None -> (settled, store))
+        | settled when (is_meta settled || kind_var_parts settled <> None)
+                       && indexed_kind settled info [ CList; CArray; CDynArray; CString ] store <> None ->
+            (* Nothing has said what is sliced: its first call will, and
+               the slice is of the same kind. A view is not one of them,
+               since its slice is an array rather than a view. *)
+            let made, _, store = Option.get (indexed_kind settled info [ CList; CArray; CDynArray; CString ] store) in
+            (made, store)
         | settled ->
             raise
               (Type_error
@@ -3843,7 +4238,8 @@ and expr_type e env store =
           (zonk value store, store)
       | _ ->
       let indexed =
-        if kind_matches KString (prune list_type store) then "a String"
+        if kind_var_parts (prune list_type store) <> None || is_meta (prune list_type store) then "a list's, an array's or a String"
+        else if kind_matches KString (prune list_type store) then "a String"
         else if kind_matches KArray (prune list_type store) then "an array"
         else if kind_matches KDynArray (prune list_type store) then "a DynArray"
         else if kind_matches KSlice (prune list_type store) then "a view"
@@ -3853,6 +4249,12 @@ and expr_type e env store =
         match prune list_type store with
         | TString _ -> (t_char info, store)
         | settled when store_element settled <> None -> (Option.get (store_element settled), store)
+        | settled when (is_meta settled || kind_var_parts settled <> None)
+                       && indexed_kind settled info all_containers store <> None ->
+            (* Nothing has said what is indexed: its first call will, and
+               until then it is any store of elements. *)
+            let _, element, store = Option.get (indexed_kind settled info all_containers store) in
+            (element, store)
         | _ -> (
             let element, store = fresh_meta info store in
             match unify (t_list info element) list_type store with
@@ -4044,7 +4446,7 @@ and check_call call env store =
                  is what makes it happen. Its body decides its type, and
                  this call is then checked against that like any other. *)
               infer_call deferred call env store
-          | settled -> called_at settled call args env store))
+          | settled -> called_at ?about:(definition_named env func) settled call args env store))
 
 (** The overload set a callee names, where it names one: the spelling
     the source wrote, and every `::` definition in scope whose base name
@@ -4553,7 +4955,7 @@ and check_builtin_call name call env store =
     then unified with its parameter, left to right, so the first mistake
     is the one reported.
     typ -> expr -> [expr] -> env -> store -> (typ, store) *)
-and called_at scheme call args env store =
+and called_at ?about scheme call args env store =
   let info = expr_info call in
   let used, store = instantiate scheme store in
   let used = prune used store in
@@ -4586,7 +4988,7 @@ and called_at scheme call args env store =
       (* Every implicit argument written out at the call: nothing is
          resolved and nothing is inserted, since they are already where
          they belong (PYKING.md, "Implicits"). *)
-      (result, check_arguments args (params @ implicit_types implicits) env store 1)
+      (result, check_arguments ?about args (params @ implicit_types implicits) env store 1)
   | TFunction (_, params, result, _, _, _, implicits) ->
       if List.length args <> List.length params then
         raise
@@ -4598,7 +5000,7 @@ and called_at scheme call args env store =
                  (if List.length params = 1 then "" else "s")
                  (List.length args)
                  (if List.length args = 1 then "was" else "were") ));
-      let store = check_arguments args params env store 1 in
+      let store = check_arguments ?about args params env store 1 in
       (* Whatever was called -- a definition, a parameter holding one,
          a binding -- its implicit parameters are resolved here, where
          the call is written. That is what lets a function carrying one
@@ -4621,13 +5023,13 @@ and called_at scheme call args env store =
 (** Checks each argument against its parameter, left to right (so the
     first mistake is the one reported), and answers the store in which
     they fit. [expr] -> [typ] -> env -> store -> int -> store *)
-and check_arguments args declared env store position =
+and check_arguments ?about args declared env store position =
   match (args, declared) with
   | [], _ -> store
   | arg :: rest, expected :: rest_declared ->
       let actual, store = check_expr arg env store in
-      let store = fitted expected actual arg position env store in
-      check_arguments rest rest_declared env store (position + 1)
+      let store = fitted ?about expected actual arg position env store in
+      check_arguments ?about rest rest_declared env store (position + 1)
   | _ :: _, [] -> store
 
 (** The store in which one argument fits one parameter, or a Type_error
@@ -4640,19 +5042,35 @@ and check_arguments args declared env store position =
     argument has to be that scheme whole, which is first-class
     polymorphism and the one place the two are compared as schemes.
     typ -> typ -> expr -> int -> store -> store *)
-and fitted expected actual arg position env store =
+and fitted ?about expected actual arg position env store =
+  (* The kind variables the parameter holds, read before `prune` turns a
+     decided one into its type: a call deciding one is remembered, and a
+     call disagreeing with one is told which call decided it. *)
+  let kinds = kind_names_in expected store in
   let settled = prune expected store in
   let store = work_out actual store in
   let actual = settled_type actual store in
   let actual, store =
     if is_forall settled then (actual, store) else instantiate actual store
   in
+  let key, subject =
+    match about with
+    | Some (name, Some params) when position <= List.length params ->
+        (Printf.sprintf "%s#%d" name position, Printf.sprintf "%s's parameter %s" name (List.nth params (position - 1)))
+    | Some (name, _) -> (Printf.sprintf "%s#%d" name position, Printf.sprintf "%s's argument %d" name position)
+    | None -> ("", "")
+  in
   match unify settled actual store with
-  | Some answer -> answer
+  | Some answer ->
+      if kinds = [] || key = "" then answer else remember_kinds kinds (expr_info arg) key subject answer
   | None -> (
       match adapted arg actual settled env store with
       | Some answer -> answer
-      | None -> raise (argument_error position actual settled arg store))
+      | None ->
+          raise
+            (argument_error
+               ~note:(if key = "" then "" else kind_note key subject actual settled store)
+               position actual settled arg store))
 
 (** The store in which an argument carrying implicit parameters fits a
     parameter that has none, by supplying them *here*.
@@ -4742,6 +5160,19 @@ and work_out func_type store =
       store
   | _ -> store
 
+(** The name a call reaches a function by, and its parameters' names
+    where the name is bound to a definition. None for a callee that is
+    not a name. env -> expr -> (string * [string] option) option *)
+and definition_named env func =
+  match func with
+  | EVar (_, name, _) -> (
+      match type_of env name with
+      | Some
+        (TFunction (_, _, _, _, _, Some (SFunctionDef (_, _, params, _, _, _, _, _, _)), _)) ->
+          Some (name, Some (List.map (fun (Param (_, p, _, _, _)) -> p) params))
+      | _ -> Some (name, None))
+  | _ -> None
+
 (** The type this call is worth, working the definition out first.
     typ -> expr -> env -> store -> (typ, store) *)
 and infer_call func_type call env store =
@@ -4749,7 +5180,9 @@ and infer_call func_type call env store =
     match call with ECall (_, _, args, _) -> arg_exprs args | _ -> []
   in
   let _, store = infer_definition func_type store in
-  called_at (settled_type func_type store) call args env store
+  let func = match call with ECall (_, func, _, _) -> Some func | _ -> None in
+  let about = Option.bind func (definition_named env) in
+  called_at ?about (settled_type func_type store) call args env store
 
 (** The scheme an unannotated function has, worked out from its body the
     first time something calls it and remembered afterward.
@@ -5425,6 +5858,7 @@ let type_check ?(declared = []) ?(mutation = true) stmts sigmaps =
       No_function None store
   in
   let store = settle_plus store in
+  let store = settle_kinds store in
   check_open_arrays stmts store;
   check_exports stmts store;
   check_exported_datatypes stmts store;

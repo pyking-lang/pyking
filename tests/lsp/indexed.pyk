@@ -1,0 +1,6 @@
+use mutation
+
+def first(xs):
+    xs[0]
+
+print(first(array([1, 2])), first(array(["a"])))

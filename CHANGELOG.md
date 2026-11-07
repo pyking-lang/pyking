@@ -36,6 +36,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A parameter with no annotation that a body indexes (`xs[i]`), writes
+  by index, slices or walks with `for` takes its kind -- a list, an
+  array, a DynArray, a view or a String -- from the function's first
+  call, rather than being decided a list (or, written, an array) by the
+  body. `vec_add(array(...), array(...))` now checks. The element type
+  stays generic, so one definition still serves `[Int]` and `[String]`;
+  a later call of another kind is refused with the call that fixed it:
+  "first's parameter xs was fixed to an array by its first call, at line
+  18". Until a call decides it, such a parameter shows as `Indexed(a)`.
+- Java: a generic function handed on as a value and called with an
+  array (`take = second; take(array([8, 9]))`), and a generic function
+  in a list literal (`[ident]`), compile; javac refused both.
 - Building the website twice from the same commit makes the same site:
   tinyweb's downloads were zips dated when they were made.
 - Stop in a page's cells now also ends a tinyweb page still showing

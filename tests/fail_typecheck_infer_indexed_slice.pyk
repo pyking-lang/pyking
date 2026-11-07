@@ -1,0 +1,14 @@
+# A parameter sliced may be a list, an array, a DynArray or a String,
+# but not a view: a view's slice is an array, not a view, so one body
+# cannot serve both.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+use mutation
+
+def tail(xs):
+    xs[1:]
+
+a = array([1, 2, 3])
+print(tail(view(a, 0, 2)))

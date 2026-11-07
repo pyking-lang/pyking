@@ -402,6 +402,62 @@ classes or implicit arguments; `tests/fail_typecheck_infer_pinned.pyk`
 pins the current refusal so whatever fills the gap has something to
 change.
 
+## 9b. The kind of an indexed parameter
+
+`xs[i]` is overloaded as `string` is, but over a *family* of types: a
+list, an array, a DynArray, a view and a String are all indexed, walked
+and sliced, each of them a store of elements. Deciding "a list" in the
+body, as the checker once did, refused `vec_add(array(...), array(...))`
+for no reason the program could see. Pinning the whole parameter to
+the first call, as §9 does for `string`, would lose what lists already
+had: `first([1])` and `first(["a"])` from one definition.
+
+So only the **kind** is left to the first call. A body that indexes,
+slices, walks or writes an undecided parameter gives it the type
+`TCon (?kN:LADVS, [element])` -- a *kind variable* applied to an
+ordinary element metavariable:
+
+```
+   xs[i]          xs : ?k:LADVS(?e)       read: any of the five
+   xs[i] := v     xs : ?k:ADV(?e)         written: array, DynArray, view
+   xs[i:j]        xs : ?k:LADS(?e)        sliced: not a view
+   for x in xs    xs : ?k:LADVS(?e)
+```
+
+- The letters are the kinds still allowed, so `kind_matches` and
+  `every` (`len(xs)`) answer without the store. Narrowing makes a new
+  variable and links the old one to it; two kind variables unified
+  link to one allowing what both did.
+- The solution lives in `store.solutions`: a link, `TCon (_, next, [],
+  _)`, or the kind decided, as that type with a `TUnknown` element.
+  `prune` reads a decided one back as the type it stands for, so the
+  rest of the checker -- and every stage after it -- sees `[Int]` or
+  `Array(Int)`, never a kind variable.
+- `unify` decides one against a list, an array, a DynArray, a view or
+  a String it allows (`decide_kind`); a String's element is a Char.
+- `generalise` quantifies the element, never the kind: the kind is a
+  `TCon` name, not a metavariable, so every instance of the scheme
+  shares it, and the first call to reach it is the one that decides
+  it. A String-decided scheme carries no element to its next instance,
+  so `instantiate` solves each fresh element under one to Char
+  (`strings_of_chars`), and `zonk` reads such a scheme's element
+  variable back as Char (`char_elements`): `initial(s) = s[0]` called
+  with Strings is `(String) -> Char`, not `(String) -> a`.
+- `settle_kinds` decides what nothing did when the module is done: a
+  list where allowed, as an index always meant, otherwise an array.
+- The call that decides a kind is remembered by the callee's name and
+  the argument's position (`kind_origins`), so a later call of another
+  kind is told which call fixed it: "first's parameter xs was fixed to
+  an array by its first call, at line 18". A call of a kind the body
+  does not allow is told which it does.
+
+Every function still has one kind per parameter, so the backends see
+nothing new. What it costs is §9's: the kind depends on which call
+comes first, and a library's undecided kind is settled when *that*
+module is checked, so a call from another module cannot choose it.
+`tests/typecheck_infer_indexed.pyk` and the three
+`tests/fail_typecheck_infer_indexed_*.pyk` hold the behaviour.
+
 ## 9aa. Overloading, and why it is not deferred
 
 Section 9 says what is left of ad-hoc polymorphism. Since then there is
@@ -481,6 +537,8 @@ pins them.
 - **An uncalled definition gets no type.** Nothing triggers it. It
   prints exactly as written.
 - **Overloaded builtins fix a parameter to its first call's type** (§9).
+- **An indexed parameter's kind is fixed by its first call**, its
+  element left generic (§9b).
 - **`?` in printed output does not round-trip.** `-t pyking` output is
   otherwise re-parsable Pyking; `?` is printed where a type has no
   spelling — an uncalled function, or a nested definition holding an

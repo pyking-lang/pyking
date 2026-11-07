@@ -1116,6 +1116,21 @@ let rec expr ctx st scope e =
                 es values
           | _ -> values
         in
+        (* A function among the elements is a lambda, which Java cannot
+           infer a list's element type from: it is cast to its interface. *)
+        let values =
+          match t with
+          | TList (_, el, _) ->
+              List.map
+                (fun (v : jexpr) ->
+                  if v.prec <> p_lambda then v
+                  else if settled ctx el then typed_value ctx el v
+                  else
+                    let el = match el with TForall (_, _, body, _) -> body | el -> el in
+                    atom (Printf.sprintf "((%s) %s)" (jt { ctx with erase = true } el) (at p_unary v)))
+                values
+          | _ -> values
+        in
         ( atom
             (Printf.sprintf "java.util.Arrays.asList(%s)"
                (String.concat ", " (List.map (fun (v : jexpr) -> v.text) values))),
@@ -1406,6 +1421,24 @@ and call ctx st scope e func args =
         List.fold_left2
           (fun (out, st) a p ->
             let v, st = poly_argument ctx st scope a p in
+            (* The value's interface writes its variables Object, so an
+               argument it takes as a PykArray<Object> -- an array
+               of Ints, here -- is cast through Object to that. *)
+            let erased =
+              match func with
+              | EVar (_, name, _) -> (
+                  match SMap.find_opt name scope.names with Some { kind = BErased; _ } -> true | _ -> false)
+              | _ -> false
+            in
+            let v =
+              match (ft, p) with
+              | TForall _, (TFunction _ | TList _ | TCon _ | TTuple _) when erased && v.prec <> p_lambda ->
+                  let want = jt { ctx with erase = true } ~boxed:true p in
+                  if String.contains want '<' && want <> jt ctx ~boxed:true (type_of ctx scope a) then
+                    atom ~boxed:true (Printf.sprintf "((%s) (Object) %s)" want (at p_unary v))
+                  else v
+              | _ -> v
+            in
             (out @ [ v ], st))
           ([], st) args
           (if List.length ps = List.length args then ps else List.map (fun _ -> TUnknown (info, 0)) args)

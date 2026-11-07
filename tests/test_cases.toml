@@ -556,6 +556,24 @@ excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-
 [[cases]]
 file = "fail_typecheck_infer_pinned.pyk"
 
+# An indexed parameter's kind comes from the first call; its element
+# stays generic (docs/type_inference.md, "The kind of an indexed
+# parameter"). The printed program is run again, so its types are ones
+# the checker accepts.
+[[cases]]
+file = "typecheck_infer_indexed.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "lists, Strings and a comprehension need a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "fail_typecheck_infer_indexed_kind.pyk"
+
+[[cases]]
+file = "fail_typecheck_infer_indexed_write.pyk"
+
+[[cases]]
+file = "fail_typecheck_infer_indexed_slice.pyk"
+
 [[cases]]
 file = "fail_typecheck_infer_returns.pyk"
 
@@ -1987,6 +2005,10 @@ file = "fail_typecheck_adt_wrong_datatype.pyk"
 # with no lists yet, compiles as well as every other target.
 [[cases]]
 file = "adt_values.pyk"
+
+[[cases]]
+file = "generic_function_values.pyk"
+excluded = { c = "lists and Strings need a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "named_args_any_order.pyk"

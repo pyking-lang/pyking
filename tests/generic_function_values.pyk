@@ -1,0 +1,25 @@
+# A generic function handed on as a value, then called, or kept in a
+# list. The Java backend writes such a value's type variables as
+# Object, so its arguments -- an array of Ints, a list of Strings -- are
+# cast to what it takes, and a list of functions gives each its
+# interface.
+
+use mutation
+
+def second(xs: Array(a)) -> a:
+    xs[1]
+
+def head(xs: [a]) -> a:
+    xs[0]
+
+def ident(x):
+    x
+
+take = second
+print(take(array([8, 9])), take(array(["p", "q"])))
+
+first = head
+names = ["ada", "bo"]
+print(first(names), first([1.5, 2.5]))
+
+print(len([ident, ident]), len([second]))
