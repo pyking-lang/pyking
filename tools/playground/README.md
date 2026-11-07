@@ -284,11 +284,13 @@ Compile, and `Ctrl`/`Cmd`+`Enter`, switch to Compiled code.
 ### Copy for slides
 
 **Copy for slides** copies the editor's selection, or the whole program
-where nothing is selected, to the clipboard twice over: as HTML -- a
-`<pre>` with the colours, the font and the size inline, which Keynote,
-PowerPoint and Google Slides paste as coloured text, still text -- and
-as plain text, for Paste and Match Style. Both come from
-`PykingRuntime.highlight` (the compiler's `pyk highlight`, coloured by its
+where nothing is selected, to the clipboard as HTML -- a `<pre>` with
+the colours, the font and the size inline, which Keynote, PowerPoint
+and Google Slides paste as coloured text, still text. It puts no plain
+text beside it: given plain text, Keynote pastes a black-and-white table
+of it instead wherever lines have as many words as each other, as the
+three `case` lines of a `match` do. The plain Copy is there for plain
+text. The HTML comes from `PykingRuntime.highlight` (the compiler's `pyk highlight`, coloured by its
 own lexer), and the status line in the header says what was copied. It
 is always in the editor's right-click menu, beside Copy, and on
 **Alt+Shift+C** (**Option+Shift+C** on a Mac); a button for it above the
@@ -891,7 +893,7 @@ six tabs and the arrow keys between them, every setting saved and
 restored after a reload, an earlier version's `debugKeys` migrated; Copy
 for slides from the right-click menu, its key and the editor's button,
 for a selection and the whole program, with each option, read back off
-the clipboard as HTML and as plain text; and every command's keys
+the clipboard as HTML and with no plain text; and every command's keys
 changed in the Keys tab, by pressing them for real over the DevTools
 protocol, then working, then reset -- as this computer and as a Mac.
 `tests/test_playground.py` runs `tests/playground/keys.mjs`, which checks

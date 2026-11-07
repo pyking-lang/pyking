@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stop in a page's cells now also ends a tinyweb page still showing
   under another cell, whose program the restarted worker had already
   ended.
+- The playground's Copy for slides pasted into Keynote as a
+  black-and-white table for some code, such as a `match` whose `case`
+  lines have as many words as each other: Keynote made the table from
+  the plain text copied beside the coloured HTML. Copy for slides now
+  copies the HTML alone; the plain Copy is there for plain text.
 
 
 ## [0.1.8] - 2026-11-05

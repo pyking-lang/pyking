@@ -588,11 +588,13 @@ class Playground {
   }
 
   /** Copy for slides: the editor's selection, or the whole program where
-   *  nothing is selected, onto the clipboard twice over -- as HTML with
-   *  the colours, the font and the size inline, which Keynote, PowerPoint
-   *  and Google Slides paste as coloured text, and as plain text -- with
-   *  the spaces the settings say made non-breaking, so the indentation
-   *  survives a PDF reader's copy. The status line says what was copied.
+   *  nothing is selected, onto the clipboard as HTML with the colours,
+   *  the font and the size inline, which Keynote, PowerPoint and Google
+   *  Slides paste as coloured text -- with the spaces the settings say
+   *  made non-breaking, so the indentation survives a PDF reader's copy.
+   *  HTML alone: given plain text too, Keynote makes a black-and-white
+   *  table of it wherever lines have as many words as each other, as
+   *  three `case` lines do. The status line says what was copied.
    *  The clipboard is written at once, with the highlighting to follow,
    *  as Safari requires within the key press or click.
    *  () -> Promise<Bool> */
@@ -614,7 +616,7 @@ class Playground {
     if (globalThis.ClipboardItem && navigator.clipboard?.write) {
       try {
         await navigator.clipboard.write([new ClipboardItem({
-          "text/html": blob("text/html", "html"), "text/plain": blob("text/plain", "text"),
+          "text/html": blob("text/html", "html"),
         })]);
         copied = true;
       } catch { /* a browser taking no promises, or refusing: below */ }
@@ -631,14 +633,13 @@ class Playground {
       try {
         await navigator.clipboard.write([new ClipboardItem({
           "text/html": new Blob([result.html], { type: "text/html" }),
-          "text/plain": new Blob([result.text], { type: "text/plain" }),
         })]);
         copied = true;
       } catch { /* below */ }
     }
     // Where there is no ClipboardItem: the copy a key press makes, with
-    // both kinds of text put on it.
-    if (!copied) copied = copyByEvent({ "text/html": result.html, "text/plain": result.text });
+    // the HTML put on it.
+    if (!copied) copied = copyByEvent({ "text/html": result.html });
     if (!copied) {
       this.status("error", "the browser refused the clipboard");
       this.error("Copy for slides: the browser refused clipboard access.");

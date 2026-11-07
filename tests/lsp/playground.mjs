@@ -1163,8 +1163,8 @@ const READ_CLIPBOARD = `(async () => {
 
 /** Copy for slides: from the right-click menu, by its key, by the
  *  editor's button and without ClipboardItem, for the selection and for
- *  the whole program, read back off the clipboard as HTML and as plain
- *  text; then each of its options. `full` adds the menu, the button and
+ *  the whole program, read back off the clipboard as HTML, with no plain
+ *  text beside it; then each of its options. `full` adds the menu, the button and
  *  the options, which are the same on every platform.
  *  (send, String, evaluate, String, Bool, Bool) -> Promise<[[label, ok, detail]]> */
 async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
@@ -1178,6 +1178,9 @@ async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
   const selected = "def f(n: Int) -> Int:\n" + nb + "return n * 2\n";
   const clear = () => evaluate(`navigator.clipboard.writeText("-")`);
   const clipboard = () => evaluate(READ_CLIPBOARD);
+  // The HTML's text, as a <pre> holds it: no newline at the end.
+  const pre = (text) => text.replace(/\n$/, "");
+  const htmlOnly = (got) => got.types.length === 1 && got.types[0] === "text/html";
   const copied = async () => {
     let got = null;
     await waitFor(async () => {
@@ -1206,8 +1209,10 @@ async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
     check("naming its key", /Alt|⌥/.test(item?.keys ?? "") && /C/.test(item?.keys ?? ""), item?.keys);
     if (item) await clickAt(send, sessionId, item.x, item.y);
     const menu = await copied();
-    check("choosing it copies the whole program, as plain text with the indentation non-breaking",
-      menu["text/plain"] === whole, JSON.stringify(menu["text/plain"]));
+    check("choosing it copies the whole program, with the indentation non-breaking",
+      menu.preText === pre(whole), JSON.stringify(menu.preText));
+    check("as HTML alone: no plain text for Keynote to make a table of", htmlOnly(menu),
+      JSON.stringify(menu.types));
     check("and as HTML: a <pre> with its colours inline", menu.types.includes("text/html")
       && menu.coloured >= 3 && /color/.test(menu.preStyle) && menu.preText === whole.replace(/\n$/, ""),
       JSON.stringify([menu.preStyle, menu.preText, menu.coloured]));
@@ -1222,10 +1227,9 @@ async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
   await evaluate(`${app}.left.focus(); ${app}.left.setSelection(new monaco.Range(1, 1, 3, 1))`);
   await pressKey(send, sessionId, "Alt+Shift+C", mac);
   const key = await copied();
-  check("Alt+Shift+C copies the selection", key["text/plain"] === selected,
-    JSON.stringify(key["text/plain"]));
-  check("as HTML too", key.preText === selected.replace(/\n$/, "") && key.coloured >= 2,
+  check("Alt+Shift+C copies the selection", key.preText === pre(selected) && key.coloured >= 2,
     JSON.stringify(key.preText));
+  check("as HTML alone", htmlOnly(key), JSON.stringify(key.types));
   check("and types nothing", (await editor()) === program, JSON.stringify(await editor()));
   check("the status line says the selection was copied",
     /copied the selection \(2 lines\) for slides/.test(await status()), await status());
@@ -1245,7 +1249,7 @@ async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
     }
   }
 
-  // Without ClipboardItem, the copy a key press makes carries both.
+  // Without ClipboardItem, the copy a key press makes carries the HTML.
   await clear();
   await evaluate(`window.savedClipboardItem = window.ClipboardItem; window.ClipboardItem = undefined; `
     + `${app}.left.focus(); ${app}.left.setPosition({ lineNumber: 1, column: 1 })`);
@@ -1253,8 +1257,8 @@ async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
   const fallback = await copied();
   await evaluate(`window.ClipboardItem = window.savedClipboardItem`);
   check("without ClipboardItem it copies the whole program by a copy event",
-    fallback["text/plain"] === whole && fallback.preText === whole.replace(/\n$/, ""),
-    JSON.stringify([fallback["text/plain"], fallback.types]));
+    fallback.preText === pre(whole) && htmlOnly(fallback),
+    JSON.stringify([fallback.preText, fallback.types]));
   if (!full) return checks;
 
   check("the editor has no Copy for slides button by default",
@@ -1270,8 +1274,8 @@ async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
   await evaluate(`${app}.left.setSelection(new monaco.Range(4, 1, 4, 13))`);
   if (button) await clickAt(send, sessionId, button.x, button.y);
   const pressed = await copied();
-  check("pressing it copies the selection", pressed["text/plain"] === "print(f(21))",
-    JSON.stringify(pressed["text/plain"]));
+  check("pressing it copies the selection", pressed.preText === "print(f(21))",
+    JSON.stringify(pressed.preText));
   await evaluate(`(() => { const box = document.querySelector("[data-r=slidesButton]"); `
     + `box.checked = false; box.dispatchEvent(new Event("change")); })()`);
   check("switched off, it goes",
@@ -1320,15 +1324,14 @@ async function copyChecks(send, sessionId, evaluate, platform, mac, full) {
   check("no background", !/background/.test((await copy()).preStyle));
   await set("slidesSpaces", "all");
   const all = await copy();
-  check("every space non-breaking", all["text/plain"] === program.replace(/ /g, " ")
-    && all.preText === program.replace(/ /g, " ").replace(/\n$/, ""), JSON.stringify(all["text/plain"]));
+  check("every space non-breaking", all.preText === pre(program.replace(/ /g, " ")),
+    JSON.stringify(all.preText));
   await set("slidesSpaces", "none");
   const plain = await copy();
-  check("plain spaces", plain["text/plain"] === program && plain.preText === program.replace(/\n$/, ""),
-    JSON.stringify(plain["text/plain"]));
+  check("plain spaces", plain.preText === pre(program), JSON.stringify(plain.preText));
   await set("slidesSpaces", "indent");
   const indent = await copy();
-  check("non-breaking indentation again", indent["text/plain"] === whole, JSON.stringify(indent["text/plain"]));
+  check("non-breaking indentation again", indent.preText === pre(whole), JSON.stringify(indent.preText));
   const preview = await evaluate(`(async () => { document.querySelector("[data-r=settingsButton]").click(); `
     + `document.querySelector("[data-settings-tab=slides]").click(); `
     + `const box = document.querySelector("[data-r=slidesPreview]"); `
@@ -1427,7 +1430,7 @@ async function keyChecks(send, sessionId, evaluate, mac) {
   await evaluate(`navigator.clipboard.writeText("-")`);
   await press("Alt+K");
   check("Copy for slides' new key copies", await waitFor(async () =>
-    (await evaluate(`navigator.clipboard.readText()`)).startsWith("a = 1\nb")), await evaluate(`navigator.clipboard.readText()`));
+    ((await evaluate(READ_CLIPBOARD)).preText ?? "").startsWith("a = 1\nb")), (await evaluate(READ_CLIPBOARD)).preText);
   check("and types nothing", (await editor()) === program, JSON.stringify(await editor()));
 
   // The debugger's seven.
