@@ -327,10 +327,10 @@ class TaskWidget {
         <span class="pkn-badges" data-r="badges"></span>
       </div>
       <div data-r="body"></div>
-      <div class="pkn-git pkn-hidden" data-r="git">Please submit via your git account.</div>
       <div class="pkn-tests" data-r="tests"></div>
       <div class="pkn-activity-actions" data-r="actions">
         <button class="pkn-button pkn-primary" data-r="submit">Submit</button>
+        <div class="pkn-git pkn-hidden" data-r="git">Please submit via your git account.</div>
         <button class="pkn-button pkn-hidden" data-r="show">Show a solution</button>
       </div>
       <div class="pkn-feedback pkn-hidden" data-r="feedback"></div>
@@ -344,12 +344,10 @@ class TaskWidget {
     anchor?.before(box);
     if (this.cell) this.ui.body.append(this.cell.element);
     else anchor?.remove();
-    // An answer submitted with git is written elsewhere: no box for it.
+    // An answer submitted with git is written elsewhere, but its code
+    // still shows and runs here: only Submit gives way to a note.
     this.git = item.method === "git";
-    if (this.git) {
-      this.ui.body.classList.add("pkn-hidden");
-      this.ui.git.classList.remove("pkn-hidden");
-    }
+    this.ui.git.classList.toggle("pkn-hidden", !this.git);
     if (this.solutionCell) this.ui.solution.append(this.solutionCell.element);
     let shownTests = 0;
     for (const test of item.tests) {
@@ -767,7 +765,8 @@ function failureHTML(failed) {
 
 function io(label, text) {
   return `<div class="pkn-io"><span class="pkn-input-label">${label}</span>`
-    + `<pre class="pkn-io-text">${escapeHTML(text.replace(/\n$/, "")) || " "}</pre></div>`;
+    + `<div class="pkn-copyable"><pre class="pkn-io-text">${escapeHTML(text.replace(/\n$/, "")) || " "}</pre>`
+    + `${COPY_BUTTON}</div></div>`;
 }
 
 // -------------------------------------------------------------------- quiz
@@ -991,8 +990,84 @@ function ioBox(block) {
   const args = block.kind === "stdin" && typeof block.attrs.args === "string"
     ? ` <span class="pkn-io-args">args: ${escapeHTML(block.attrs.args)}</span>` : "";
   box.innerHTML = `<span class="pkn-input-label">${block.kind}${args}</span>`
-    + `<pre class="pkn-io-text">${escapeHTML(block.text) || " "}</pre>`;
+    + `<div class="pkn-copyable"><pre class="pkn-io-text">${escapeHTML(block.text) || " "}</pre>`
+    + `${COPY_BUTTON}</div>`;
   return box;
+}
+
+// -------------------------------------------------------------------- copy
+
+const COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+  + '<rect x="5.5" y="5.5" width="8" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+  + '<path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H4A1.5 1.5 0 0 0 2.5 3v6A1.5 1.5 0 0 0 4 10.5h.5" fill="none" '
+  + 'stroke="currentColor" stroke-width="1.4"/></svg>';
+const COPIED_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+  + '<path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" '
+  + 'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+/** The copy-to-clipboard button every code, stdin and stdout field has,
+ *  in the top right of the `.pkn-copyable` around it. What it copies is
+ *  its `copyText()` where it has one -- a cell's code, from its editor --
+ *  else the field's text. One listener on the document serves them all,
+ *  so a button written as HTML, as the result diff's are, works too. */
+export const COPY_BUTTON = `<button type="button" class="pkn-copy" title="Copy to clipboard"
+  aria-label="Copy to clipboard">${COPY_ICON}</button>`;
+
+/** The text a copy button copies. Element -> String */
+function copiedText(button) {
+  if (typeof button.copyText === "function") return button.copyText();
+  const field = button.closest(".pkn-copyable")?.querySelector("textarea, input, pre");
+  if (!field) return "";
+  return "value" in field && field.tagName !== "PRE" ? field.value : field.textContent;
+}
+
+/** Puts `text` on the clipboard: the Clipboard API where the page may
+ *  use it, else a selected textarea and the old copy command.
+ *  String -> Promise<Bool> */
+async function toClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+    document.body.append(area);
+    area.select();
+    let done = false;
+    try {
+      done = document.execCommand("copy");
+    } catch {
+      done = false;
+    }
+    area.remove();
+    return done;
+  }
+}
+
+let copyInstalled = false;
+
+/** Makes every copy button on the page work, once. () -> () */
+export function installCopy() {
+  if (copyInstalled || typeof document === "undefined") return;
+  copyInstalled = true;
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest?.(".pkn-copy");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const ok = await toClipboard(copiedText(button));
+    button.classList.toggle("pkn-copied", ok);
+    button.title = ok ? "Copied" : "Could not copy";
+    button.innerHTML = ok ? COPIED_ICON : COPY_ICON;
+    clearTimeout(button.copyTimer);
+    button.copyTimer = setTimeout(() => {
+      button.classList.remove("pkn-copied");
+      button.title = "Copy to clipboard";
+      button.innerHTML = COPY_ICON;
+    }, 1500);
+  }, true);
 }
 
 function element(tag, className, text = null) {

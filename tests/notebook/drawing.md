@@ -66,13 +66,21 @@ print(a * 2, b * 2)
 
 ## Submitted elsewhere
 
-Write the same program in any language you like.
+Write the same program in any language you like. The code here still
+runs, on the input below, before it is pushed with git.
 
 ```pyking task points = 5 method = git
+import io
+print("you wrote", io.read_line())
 ```
 
 ```pyking solution
-print("graded by hand")
+import io
+print("graded by hand:", io.read_line())
+```
+
+```stdin visible = true
+pushed
 ```
 
 ## Drums

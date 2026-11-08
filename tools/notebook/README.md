@@ -387,8 +387,10 @@ sdelay*
 ````
 
 A task with **`method = git`** is answered somewhere else and
-pushed with git: the page shows "Please submit via your git account"
-in place of the code box and Submit, and grades nothing. Its points are
+pushed with git: its code, its visible stdin and its other visible
+tests show as any task's do, and the code runs with ▶, but where Submit
+would be the page says "Please submit via your git account", and it
+grades nothing. Its points are
 left out of the page's running totals, but count towards `max`.
 
 A solution may save what it draws as a picture, which the text can

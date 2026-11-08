@@ -265,6 +265,45 @@ const DRAWING = `(async () => { ${HELPERS}
     !hidden($("[data-r=git]", git)) && /Please submit via your git account/.test($("[data-r=git]", git).innerText)
     && hidden($("[data-r=submit]", git)) && /submitted with git/.test($("[data-r=badges]", git).innerText),
     git.innerText);
+  check("its note stands where Submit would",
+    $("[data-r=git]", git).parentElement === $("[data-r=actions]", git), git.innerHTML.slice(0, 300));
+  const gitCell = nb.cells.find((c) => c.spec.source.includes('print("you wrote"'));
+  check("its code and its visible stdin are still shown",
+    gitCell && !hidden(gitCell.element) && git.contains(gitCell.element) && !hidden($("[data-r=run]", gitCell.element))
+    && $$(".pkn-io-stdin", git).some((b) => b.innerText.includes("pushed")), git.innerText);
+  if (gitCell) {
+    gitCell.ui.stdin.value = "pushed\\n";
+    await gitCell.run();
+    for (let i = 0; i < 300 && gitCell.state !== "idle"; i++) await new Promise((r) => setTimeout(r, 100));
+  }
+  check("and its code runs", gitCell?.ui.stdout.textContent === "you wrote pushed\\n",
+    JSON.stringify(gitCell?.ui.stdout.textContent));
+  // Copy to clipboard: a cell's code, a stdin box, and what a cell printed.
+  const copied = [];
+  const realWrite = navigator.clipboard?.writeText;
+  try {
+    Object.defineProperty(navigator, "clipboard", { configurable: true,
+      value: { writeText: async (text) => { copied.push(text); } } });
+    for (const button of [$(".pkn-cell-tags .pkn-copy", gitCell.element),
+                          $(".pkn-io-stdin .pkn-copy", git),
+                          $(".pkn-output .pkn-copy", gitCell.element)]) {
+      button?.click();
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  } finally {
+    if (realWrite) Object.defineProperty(navigator, "clipboard", { configurable: true,
+      value: { writeText: realWrite } });
+  }
+  check("copy buttons copy a cell's code, a stdin box and a cell's output",
+    JSON.stringify(copied) === JSON.stringify([gitCell.source(), "pushed", "you wrote pushed\\n"])
+    && $(".pkn-io-stdin .pkn-copy", git).classList.contains("pkn-copied"),
+    JSON.stringify(copied));
+  check("every code, stdin and stdout field has a copy button",
+    $$(".pkn-cell").every((c) => $(".pkn-cell-tags .pkn-copy", c))
+    && $$(".pkn-io").every((b) => $(".pkn-copy", b))
+    && $$("textarea.pkn-stdin").every((t) => $(".pkn-copy", t.parentElement))
+    && $$(".pkn-static, .pkn-prose pre.pkn-code").every((c) => $(".pkn-copy", c.parentElement)),
+    $$(".pkn-cell").length + " cells");
   check("the rules count it in the total, and say nothing of git",
     /9\\s*points in total/.test($(".pkn-rules").innerText) && !/git/.test($(".pkn-rules-limits").innerText),
     $(".pkn-rules").innerText);

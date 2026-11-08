@@ -37,7 +37,7 @@
 //   cellSpec(placeholder, index) -- what a placeholder's data attributes say.
 
 import { renderMarkdown, escapeHTML } from "./markdown.js";
-import { Activities } from "./activities.js";
+import { Activities, COPY_BUTTON, installCopy } from "./activities.js";
 import { checkNotebook } from "./checks.js";
 import { pictures } from "./tasks.js";
 
@@ -719,7 +719,10 @@ class Notebook extends Cells {
     // First in the run queue: the text may show what they make.
     this.picturesMade = this.makePictures(this.doc, this.host, this.baseURL);
     await super.init();
-    for (const pre of this.host.querySelectorAll("pre.pkn-code")) this.highlight(pre);
+    for (const pre of this.host.querySelectorAll("pre.pkn-code")) {
+      if (MODES[pre.dataset.lang]) this.highlight(pre);
+      else copyable(pre, pre.textContent);
+    }
     if (this.activities[0]?.checks) this.check();
   }
 
@@ -831,6 +834,7 @@ class Notebook extends Cells {
     const holder = document.createElement("div");
     holder.className = "pkn-static";
     pre.replaceWith(holder);
+    copyable(holder, text);
     const editor = ace.edit(holder, {
       ...this.editorOptions(),
       mode: "ace/mode/" + mode,
@@ -898,8 +902,11 @@ class Cell {
         <div class="pkn-cell-inputs pkn-hidden" data-r="inputs">
           <label class="pkn-input pkn-hidden" data-r="stdinField">
             <span class="pkn-input-label">stdin</span>
-            <textarea class="pkn-stdin" rows="1" spellcheck="false"
-                      data-r="stdin" aria-label="Standard input for cell ${spec.index + 1}"></textarea>
+            <span class="pkn-copyable">
+              <textarea class="pkn-stdin" rows="1" spellcheck="false"
+                        data-r="stdin" aria-label="Standard input for cell ${spec.index + 1}"></textarea>
+              ${COPY_BUTTON}
+            </span>
           </label>
           <label class="pkn-input pkn-hidden" data-r="argsField">
             <span class="pkn-input-label">args</span>
@@ -914,13 +921,17 @@ class Cell {
             ${readonly ? '<span class="pkn-tag" title="This cell cannot be edited">read-only</span>' : ""}
             <button class="pkn-tag pkn-reset pkn-hidden" data-r="reset"
                     title="Put back the code the document has">${ICON.reset} reset</button>
+            ${COPY_BUTTON.replace('class="pkn-copy"', 'class="pkn-copy" data-r="copy"')}
           </div>
         </div>
         <div class="pkn-output pkn-hidden" data-r="output">
           <div class="pkn-page pkn-hidden" data-r="page"></div>
           <div class="pkn-stdout-box" data-r="stdoutBox">
             <span class="pkn-input-label">stdout</span>
-            <pre class="pkn-stdout" data-r="stdout"></pre>
+            <div class="pkn-copyable">
+              <pre class="pkn-stdout" data-r="stdout"></pre>
+              ${COPY_BUTTON}
+            </div>
           </div>
           <div class="pkn-result pkn-hidden" data-r="result"></div>
         </div>
@@ -932,6 +943,8 @@ class Cell {
     this.ui.editorHost.appendChild(placeholder.querySelector("pre"));
     placeholder.replaceWith(element);
     this.element = element;
+    this.ui.copy.copyText = () => this.source();
+    installCopy();
 
     this.ui.stdin.value = spec.stdin ?? "";
     // The stdin field is as tall as its text, up to STDIN_ROWS lines,
@@ -1277,6 +1290,18 @@ function saveTheme(choice) {
   } catch {
     /* not remembered; the choice still applies to this page */
   }
+}
+
+/** Puts a copy button on a static code block: `text` is what it copies.
+ *  Element -> String -> () */
+function copyable(block, text) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "pkn-copyable pkn-copyable-code";
+  block.replaceWith(wrapper);
+  wrapper.append(block);
+  wrapper.insertAdjacentHTML("beforeend", COPY_BUTTON);
+  wrapper.lastElementChild.copyText = () => text;
+  installCopy();
 }
 
 const svg = (body, extra = "") =>

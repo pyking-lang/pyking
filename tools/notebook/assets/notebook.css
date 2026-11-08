@@ -545,7 +545,7 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
 
 /* --- a task submitted with git, and the pictures solutions save --- */
 .pkn-git {
-  margin: 0 0 .6rem; padding: .6rem .8rem; border-radius: 6px;
+  margin: 0; padding: .45rem .8rem; border-radius: 6px;
   background: var(--pkn-accent-soft); border-left: 3px solid var(--pkn-accent);
   color: var(--pkn-text);
 }
@@ -596,3 +596,26 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
 .pkn-diff-add { background: #ccffd8; color: #055d20; }
 .pkn-diff-allowed { background: #fff3c4; color: #5c4400; }
 @media (max-width: 40rem) { .pkn-diff-pair { grid-template-columns: minmax(0, 1fr); } }
+
+/* --- copy to clipboard: in the top right of every code, stdin and stdout
+   field, shown while the pointer is over it or it has the focus, and
+   always where there is no pointer to hover with --- */
+.pkn-copyable { position: relative; display: block; }
+.pkn-notebook .pkn-copy, .pkn-copy {
+  position: absolute; top: .3rem; right: .3rem; z-index: 6;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.7rem; height: 1.7rem; padding: 0; cursor: pointer;
+  color: var(--pkn-dim); background: var(--pkn-surface);
+  border: 1px solid var(--pkn-edge); border-radius: .35rem;
+  opacity: 0; transition: opacity .12s ease;
+}
+.pkn-copyable:hover > .pkn-copy, .pkn-copy:focus-visible, .pkn-copy.pkn-copied,
+.pkn-cell-frame:hover .pkn-copy, .pkn-cell-frame:focus-within .pkn-copy { opacity: 1; }
+.pkn-copy:hover { color: var(--pkn-text); border-color: var(--pkn-edge-strong); }
+.pkn-copy.pkn-copied { color: var(--pkn-good); }
+.pkn-copy:focus-visible { outline: 2px solid var(--pkn-accent); outline-offset: 1px; }
+@media (hover: none) { .pkn-copy { opacity: 1; } }
+/* A cell's sits with its tags, where its code's top right is. */
+.pkn-cell-tags .pkn-copy { position: static; pointer-events: auto; width: 1.45rem; height: 1.45rem; }
+/* Room for it beside a field's text. */
+.pkn-copyable > .pkn-stdin { padding-right: 2.2rem; }

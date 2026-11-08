@@ -458,8 +458,14 @@ Otherwise there is no diff, and the box says why itself:
 
 Running a cell with **▶** is free.
 
-**A task with `method = git`** shows "Please submit via your git
-account" instead of a code box. Its tests and solution are still the
+Every code cell, static code block, stdin and stdout box has a **copy
+to clipboard** button in its top right corner, shown while the pointer
+is over it (always on a touch screen). A cell's button copies its code
+as it is now, edits included.
+
+**A task with `method = git`** still shows its code and its visible
+stdin, and the code runs with ▶, but in place of the Submit button it
+says "Please submit via your git account". Its tests and solution are still the
 notebook's, and `nbverify` grades the answer from them.
 
 ### Quizzes

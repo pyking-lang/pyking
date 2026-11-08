@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Notebooks: a copy to clipboard button on every code cell, static code
+  block, stdin field and stdin/stdout box, in its top right corner
+  (docs/notebook.md).
+
 - One way to make and convert every collection, `fmap` and the folds,
   an immutable `Map`, and `Result` (PYKING.md, "Making and converting
   collections", "fmap and the folds", "Maps", "Result";
@@ -88,6 +92,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still on it, and waits for `version.json` to name the new one.
 
 ### Changed
+
+- Notebooks: a task with `method = git` shows its code and visible stdin
+  and runs with ▶ as any task does; only its Submit button gives way to
+  "Please submit via your git account".
 
 - `option.or_else(o, f)` takes a function answering an Option, as Rust's
   does; the default value itself is `option.unwrap_or(o, value)`, and an
