@@ -2009,8 +2009,6 @@ let start_loop state loop =
       }
   | _ -> begin_turn state loop
 
-(** Applies callee (a builtin or closure) to args.
-    state -> expr -> value -> [value] -> env -> kont option -> state *)
 (** Whether these are values no object with `show` can be inside: then
     printing needs nothing worked out first. [value] -> bool *)
 let no_show args =
@@ -2032,6 +2030,8 @@ let no_show args =
     in
     not (List.exists has args)
 
+(** Applies callee (a builtin or closure) to args.
+    state -> expr -> value -> [value] -> env -> kont option -> state *)
 let rec call state call_node callee args env rest =
   let info = expr_info call_node in
   (* A builtin's own failure has no node of its own: it is the call's. *)

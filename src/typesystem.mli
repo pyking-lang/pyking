@@ -107,19 +107,6 @@ type frame = { returns : given list }
     nothing to return from. *)
 type expected = No_function | Inferring | Declared of typ
 
-(** Everything inference has worked out, threaded through the pass as a
-    value: where each definition was written and what it was worked out
-    to be, which metavariables are solved and to what, the definitions
-    being checked right now, the `def name : type` lines and the block
-    each definition was written in, what could not be generalised, the
-    signature of every module this one imports, and `tmap` -- symbol ->
-    the type worked out for that node, which is the pass's result.
-
-    None of it is written to: a function given a store answers with one,
-    because what it worked out is knowledge its caller needs. The fields
-    are visible because src/repl.ml carries a session's store from one
-    entry to the next and starts each entry's table empty; nothing else
-    reads them. docs/type_inference.md describes each. *)
 (** What the checker knows of one class or interface (PYKING.md, "Classes
     and interfaces"): every type in it written in terms of the class's own
     parameters, which are rigid. *)
@@ -147,6 +134,19 @@ and method_info = {
   md_info : info;
 }
 
+(** Everything inference has worked out, threaded through the pass as a
+    value: where each definition was written and what it was worked out
+    to be, which metavariables are solved and to what, the definitions
+    being checked right now, the `def name : type` lines and the block
+    each definition was written in, what could not be generalised, the
+    signature of every module this one imports, and `tmap` -- symbol ->
+    the type worked out for that node, which is the pass's result.
+
+    None of it is written to: a function given a store answers with one,
+    because what it worked out is knowledge its caller needs. The fields
+    are visible because src/repl.ml carries a session's store from one
+    entry to the next and starts each entry's table empty; nothing else
+    reads them. docs/type_inference.md describes each. *)
 type store = {
   environments : env IntMap.t;
   instances : typ IntMap.t;

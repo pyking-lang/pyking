@@ -2297,7 +2297,7 @@ and stmt ctx st scope s =
   | SFunctionDef _ ->
       let st = lift ctx st scope s in
       ([], scope, st)
-  | SFunctionSig _ | SImport _ | SDatatype _ -> ([], scope, st)
+  | SFunctionSig _ | SImport _ | SDatatype _ | SClass _ -> ([], scope, st)
 
 (** Whether the method being translated answers nothing.
     ctx -> state -> bool *)
@@ -2838,9 +2838,6 @@ let rec static_bindings ctx st scope statics target v t public =
         ([ JLine (Printf.sprintf "final %s %s = %s;" (jt ctx t) held v.text) ], statics, scope, st)
         (List.mapi (fun i x -> (i, x)) (List.combine targets types))
 
-(** One module of a program as a jprogram. `context` says what is true of
-    it only as part of a program. [stmt] -> typ IntMap.t -> Module.context
-    -> string -> jprogram *)
 (** The labels a break names in stmts. [jstmt] -> [string] *)
 let rec labels_used stmts =
   List.concat_map
@@ -3044,6 +3041,9 @@ let render_class ctx st scope info c =
   in
   (String.concat "\n" ([ head ] @ fields @ constructor @ methods @ data @ [ "    }" ]), st)
 
+(** One module of a program as a jprogram. `context` says what is true of
+    it only as part of a program. [stmt] -> typ IntMap.t -> Module.context
+    -> string -> jprogram *)
 let translate_program stmts tmap (context : Module.context) version =
   let class_texts = ref [] in
   let own_class = default_class_name context.context_name in

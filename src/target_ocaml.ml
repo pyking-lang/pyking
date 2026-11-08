@@ -2456,6 +2456,9 @@ let rec expr ctx acc e =
   | EUpcast (_, inner, t, _) ->
       let o, acc = expr ctx acc inner in
       (OCoerce (o, type_text t "" true), acc)
+  | ESuper (info, _, _, _, _) ->
+      (* lower_classes has made every `super` call a call of the method's function *)
+      unsupported info "a `super` call outside a method"
   | EField (_, record, field, _) when (match type_of ctx record with TCon (_, n, _, _) -> Classes.find ctx.classes n <> None | _ -> false) ->
       let o, acc = expr ctx acc record in
       (OSend (o, field), acc)
@@ -2842,9 +2845,6 @@ let rec expr ctx acc e =
           | None -> unsupported (expr_info e) "a field of a datatype this module cannot see")
       | _ -> unsupported (expr_info e) "a field of a value whose type is not settled")
 
-(** A function writing a MutMap's key as an error message names it: as
-    it is written inside a value, a String quoted.
-    ctx -> acc -> typ -> (oexpr, acc) *)
 (** An object of class `cls`: its fields, the values the constructor
     worked out, then each method handing the object, seen as the class
     whose body it is, to the function holding that body; what it prints
@@ -2932,6 +2932,9 @@ and object_value ctx acc info cls args =
         @ [ ("pyk_up", [], OList ups); ("pyk_show", [], shown) ] ),
     acc )
 
+(** A function writing a MutMap's key as an error message names it: as
+    it is written inside a value, a String quoted.
+    ctx -> acc -> typ -> (oexpr, acc) *)
 and key_printer ctx acc key_type =
   let name, acc = fresh_name ctx acc in
   let shown, acc = string_of { ctx with path = OList [] } acc key_type (OVar name) no_info false in

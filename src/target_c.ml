@@ -540,7 +540,6 @@ let lookup scope info name =
   | Some b -> b
   | None -> unsupported info (Printf.sprintf "'%s' is not a value this backend can compile" name)
 
-(** A helper added to the file once. state -> string -> string -> state *)
 (** The structs every object and class descriptor is, and the test a
     class pattern makes, ahead of their first use. state -> state *)
 let rec need_objects st =
@@ -589,6 +588,7 @@ let rec need_objects st =
     in
     need_helper st "pyk_obj_show" "static const char *pyk_obj_show(pyk_obj *o)\n{\n    return o->cls->show(o);\n}"
 
+(** A helper added to the file once. state -> string -> string -> state *)
 and need_helper st name text =
   if List.mem_assoc name st.helpers then st else { st with helpers = st.helpers @ [ (name, text) ] }
 
@@ -2921,9 +2921,6 @@ let marker kind name more = Printf.sprintf "\001%s:%s:%s\001" kind name more
 
 (* --- patterns --- *)
 
-(** The tests a pattern makes of the subject s, of type t, and the names
-    it binds, each to a place in s. ctx -> state -> pattern -> cexpr ->
-    typ -> ([cexpr], [(string, cexpr, typ)], state) *)
 (** What a class's struct, descriptor, constructor and the rest are
     called in C: `pyk_<kind>_<module>_<Class>`. ctx -> string -> string ->
     string *)
@@ -2954,6 +2951,9 @@ let method_signature ctx cls name =
       | None -> ([], TTuple (no_info, [], 0)))
   | None -> ([], TTuple (no_info, [], 0))
 
+(** The tests a pattern makes of the subject s, of type t, and the names
+    it binds, each to a place in s. ctx -> state -> pattern -> cexpr ->
+    typ -> ([cexpr], [(string, cexpr, typ)], state) *)
 let rec pattern ctx st p (s : cexpr) (t : typ) =
   let info = pattern_info p in
   match p with
@@ -4837,7 +4837,7 @@ and stmt ctx st scope s =
   | SFunctionDef _ ->
       let st = lift ctx st scope s in
       ([], scope, st)
-  | SFunctionSig _ | SImport _ | SDatatype _ -> ([], scope, st)
+  | SFunctionSig _ | SImport _ | SDatatype _ | SClass _ -> ([], scope, st)
 
 (** Whether e calls something that can change a value while it is worked
     out (`changes`): a builtin that only reads (`len`, `same`, ...) and a
@@ -5409,8 +5409,6 @@ let rec static_bindings ctx st scope statics target (v : cexpr) t public =
         ([ CDecl (ct, held, Some v.text) ], statics, scope, st)
         (List.mapi (fun i x -> (i, x)) (List.combine targets types))
 
-(** One module of a program as a cprogram. [stmt] -> typ IntMap.t ->
-    Module.context -> string -> cprogram *)
 (** A class or interface in C: the struct of its objects -- the class
     descriptor's pointer, then every field, its parents' first -- each
     method body a function taking the object first, and for a class the
@@ -5611,6 +5609,8 @@ let class_functions ctx st scope info c =
     let wrappers = if List.mem_assoc "pyk_classes_ahead" st.wrappers then st.wrappers else ("pyk_classes_ahead", ahead) :: st.wrappers in
     (methods @ (init :: made), { st with wrappers = wrappers @ [ (sym "class", text) ] })
 
+(** One module of a program as a cprogram. [stmt] -> typ IntMap.t ->
+    Module.context -> string -> cprogram *)
 let translate_program ?(requested = []) stmts tmap (context : Module.context) target =
   Hashtbl.reset object_types;
   List.iter (function SClass (_, c, _) -> Hashtbl.replace object_types c.c_name () | _ -> ()) stmts;

@@ -337,6 +337,33 @@ type frame = { returns : given list }
     nothing to return from. *)
 type expected = No_function | Inferring | Declared of typ
 
+(** What the checker knows of one class or interface (PYKING.md, "Classes
+    and interfaces"): every type in it written in terms of the class's own
+    parameters, which are rigid. *)
+type class_info = {
+  cl_name : string;
+  cl_kind : class_kind;
+  cl_params : string list;
+  cl_parent : (string * typ list) option; (* the parent class, at its arguments *)
+  cl_interfaces : (string * typ list) list; (* the interfaces named in the header *)
+  cl_header : (string * typ) list; (* what the constructor takes *)
+  cl_fields : field_info list; (* the fields it declares itself *)
+  cl_methods : method_info list; (* the methods it declares itself *)
+  cl_info : info;
+}
+
+and field_info = { fd_name : string; fd_type : typ; fd_var : bool; fd_private : bool; fd_info : info }
+
+and method_info = {
+  md_name : string;
+  md_params : (string * typ * expr option) list; (* each with its default, where it has one *)
+  md_return : typ;
+  md_abstract : bool; (* no body: an abstract method, or an interface's signature *)
+  md_private : bool;
+  md_override : bool;
+  md_info : info;
+}
+
 (** Everything inference has worked out, threaded through the pass as a
     value.
 
@@ -379,33 +406,6 @@ type expected = No_function | Inferring | Declared of typ
     field_defaults -- each field written with no type, by the name of the
       def holding its default: the metavariable standing for its type
       until that def is reached, and the field's name. *)
-(** What the checker knows of one class or interface (PYKING.md, "Classes
-    and interfaces"): every type in it written in terms of the class's own
-    parameters, which are rigid. *)
-type class_info = {
-  cl_name : string;
-  cl_kind : class_kind;
-  cl_params : string list;
-  cl_parent : (string * typ list) option; (* the parent class, at its arguments *)
-  cl_interfaces : (string * typ list) list; (* the interfaces named in the header *)
-  cl_header : (string * typ) list; (* what the constructor takes *)
-  cl_fields : field_info list; (* the fields it declares itself *)
-  cl_methods : method_info list; (* the methods it declares itself *)
-  cl_info : info;
-}
-
-and field_info = { fd_name : string; fd_type : typ; fd_var : bool; fd_private : bool; fd_info : info }
-
-and method_info = {
-  md_name : string;
-  md_params : (string * typ * expr option) list; (* each with its default, where it has one *)
-  md_return : typ;
-  md_abstract : bool; (* no body: an abstract method, or an interface's signature *)
-  md_private : bool;
-  md_override : bool;
-  md_info : info;
-}
-
 type store = {
   environments : env IntMap.t;
   instances : typ IntMap.t;
@@ -2088,10 +2088,6 @@ let class_mapping c args =
     in its methods. info -> class_info -> typ *)
 let self_type info c = TCon (info, c.cl_name, List.map (t_var info) c.cl_params, 0)
 
-(** How a class or an interface is called in a message. class_info -> string *)
-let kind_word c =
-  match c.cl_kind with ClassPlain -> "class" | ClassAbstract -> "abstract class" | ClassInterface -> "interface"
-
 (** The supertypes a class names in its header, at the arguments `args`
     gives its parameters: the parent first. store -> (string * [typ]) ->
     [(string * [typ])] *)
@@ -2352,7 +2348,7 @@ let declare_classes stmts store =
      own; a parent's arguments are what its constructor's arguments say. *)
   let store =
     List.fold_left
-      (fun store (i, c) ->
+      (fun store (_, c) ->
         let header = List.map (fun (MemberField (_, n, t, _, _, _, _)) -> (n, resolve c (Option.get t))) c.c_header in
         let interfaces =
           (* an interface's `extends` names interfaces, as a class's
@@ -2601,7 +2597,7 @@ let declare_classes stmts store =
          of one name from two interfaces are settled by an override. *)
       if c.c_kind = ClassPlain then
         List.iter
-          (fun (name, (owner, m)) ->
+          (fun (_, (owner, m)) ->
             if m.md_abstract then
               raise
                 (Type_error
@@ -6899,11 +6895,6 @@ and check_pattern pattern type_ env store =
 
 (* --- the program --- *)
 
-(** Refuses a `match` in these statements that does not match every
-    value, or that has a case no value can reach, in the words
-    exhaustive.ml puts it. Run once the types are worked out, since what
-    a pattern could match is a question about its type.
-    [stmt] -> store -> () *)
 (** What exhaustiveness knows of a type's shapes: a datatype's
     constructors, or for a class its own name -- a pattern on it takes its
     header's fields -- and for an interface its own, each open to the
@@ -6918,6 +6909,11 @@ let exhaustive_datatype store canonical =
           Some (Datatype (canonical, c.cl_params, [ (canonical, own); (Exhaustive.open_marker, []) ], false))
       | None -> None)
 
+(** Refuses a `match` in these statements that does not match every
+    value, or that has a case no value can reach, in the words
+    exhaustive.ml puts it. Run once the types are worked out, since what
+    a pattern could match is a question about its type.
+    [stmt] -> store -> () *)
 let check_matches stmts store =
   let tmap = IntMap.map (fun type_ -> zonk type_ store) store.tmap in
   try

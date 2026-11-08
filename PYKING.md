@@ -4378,6 +4378,19 @@ interface or a class others extend needs a `case _` (or a case for the
 type itself), since there may be other classes:
 
 ```pyking
+use objects
+
+interface Pet:
+    def name(self) -> String
+
+class Dog(called: String, age: Int) implements Pet:
+    override def name(self) -> String:
+        self.called
+
+class Cat(called: String) implements Pet:
+    override def name(self) -> String:
+        self.called
+
 def describe(p: Pet) -> String:
     match p:
         case Dog(n, age) if age > 10:
@@ -4386,6 +4399,10 @@ def describe(p: Pet) -> String:
             "a cat called " + c.name()
         case _:
             p.name()
+
+print(describe(Dog("Rex", 12)))   # an old dog, Rex
+print(describe(Dog("Fido", 3)))   # Fido
+print(describe(Cat("Tom")))       # a cat called Tom
 ```
 
 **Targets.** Every target compiles them, each in its own idiom:

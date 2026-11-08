@@ -149,8 +149,6 @@ and pystmt =
   | PyClassDef of info * string * string list * string list * pystmt list
       (* class Name[params](bases...): body -- a Pyking class or
          interface (docs/target_python.md, "Classes") *)
-  | PyDecorated of info * string list * pystmt
-      (* @decorator ... in front of a def *)
 
 (** A translated program: the host boilerplate (e.g. the Bool-printing
     helper; usually empty) and the translated program itself. *)
@@ -488,8 +486,6 @@ and pprint_py_stmt ?(level = 0) s =
              (if bases = [] then "" else "(" ^ String.concat ", " bases ^ ")");
          ]
         @ if body = [] then [ pad ^ "    pass" ] else render_block body (level + 1))
-  | PyDecorated (_, decorators, inner) ->
-      String.concat "\n" (List.map (fun d -> pad ^ "@" ^ d) decorators @ [ pprint_py_stmt ~level inner ])
   | PyMatch (_, subject, cases) ->
       String.concat "\n"
         ([ Printf.sprintf "%smatch %s:" pad (pprint_py_expr subject) ]
@@ -3666,8 +3662,6 @@ let rec translate_expr e scope gen =
       let py_body, gen = translate_expr body body_scope gen in
       (PyLambda (info, py_params @ pinned, py_body), gen)
 
-(** Every expression of a list, left to right.
-    [expr] -> scope -> gen -> ([pyexpr], gen) *)
 (** The class an expression's object is, where it is one: its type's,
     or the class whose members are being written. expr -> gen -> string? *)
 and owner_class gen e =
@@ -3699,6 +3693,8 @@ and member_name gen cls name =
       | Some owner -> "_" ^ owner ^ "__" ^ name
       | None -> public_py_name name)
 
+(** Every expression of a list, left to right.
+    [expr] -> scope -> gen -> ([pyexpr], gen) *)
 and translate_each exprs scope gen =
   List.fold_left
     (fun (out, gen) e ->

@@ -955,11 +955,6 @@ and printed_argument argument scope =
           [ translated; JsStr (expr_info argument, float_shape type_) ] )
   | _ -> translated
 
-(** A class's own name, where an expression's object is one: its type's.
-    expr -> scope -> string? *)
-and object_class e scope =
-  match type_of e scope with Some (TCon (_, name, _, _)) -> Some name | _ -> None
-
 (** `[e for p in seq if c ...]` as a chain of `flatMap`s: each `for`
     maps its sequence and flattens, each `if` and each pattern that does
     not match contributes nothing.

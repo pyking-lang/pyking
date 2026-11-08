@@ -37,4 +37,4 @@ description = "A small piano: one octave, from one sample at many rates."
 [[examples]]
 source = "tests/objects_shapes.pyk"
 name = "shapes.pyk"
-description = "Classes and interfaces: shapes with an area, one extending another."
+description = "Classes and interfaces: shapes that have an area."
