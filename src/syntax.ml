@@ -90,6 +90,21 @@ type expr =
          through. Desugar_args puts every field in its position, named
          by the field's own name where it has one. *)
   | EField of info * expr * string * int (* expr.name -- a named field *)
+  | EMethod of info * expr * string * (string option * expr) list * int
+      (* obj.name(args) -- a method called on an object (PYKING.md,
+         "Classes and interfaces"). The parser and the checker see an
+         ECall of an EField; elaborate.ml makes this node once the
+         checker has found the method, with every argument in its
+         position. *)
+  | ESuper of info * string * string * (string option * expr) list * int
+      (* super.name(args) -- the implementation the class inherited,
+         called on self. The first string is the class or interface
+         whose body runs: "" as parsed, filled in by elaborate.ml. *)
+  | EUpcast of info * expr * typ * int
+      (* expr's object seen as one of its supertypes: a class its class
+         extends or an interface it implements. Never written: made by
+         elaborate.ml where the checker found one, and printed as expr
+         alone. *)
 
 (* The binary operators beside the arithmetic and comparison ones above.
    `and`, `or` and `not` keep how they were written, so `-t pyking`
@@ -160,6 +175,44 @@ and datatype = Datatype of string * string list * (string * (string option * typ
    fields are written in place. *)
 
 and implicit_param = IParam of string * typ
+
+(* A class, an abstract class or an interface (PYKING.md, "Classes and
+   interfaces"). *)
+and class_kind = ClassPlain | ClassAbstract | ClassInterface
+
+(* `[public] [abstract] class Name(header) [extends P(args)] [implements
+   I, J]:` and its members, or `[public] interface Name(params) [extends
+   I, J]:`. An interface's `extends` is its `implements` here. *)
+and class_decl = {
+  c_name : string;
+  c_kind : class_kind;
+  c_params : string list; (* its type parameters *)
+  c_header : member_field list; (* the constructor's parameters, each a field *)
+  c_extends : class_ref option; (* the one parent class, with its constructor's arguments *)
+  c_implements : class_ref list; (* the interfaces, with no arguments *)
+  c_fields : member_field list; (* the fields declared in the body *)
+  c_methods : method_decl list;
+  c_public : bool;
+}
+
+(* [module.]Name(T1, ...)(args) -- a supertype named in a class header:
+   its type arguments and, for the parent class, its constructor's
+   arguments. Desugar_args puts each argument in its position. *)
+and class_ref = ClassRef of info * string option * string * typ list * (string option * expr) list * int
+
+(* [private] [var] name: Type [= default] -- a field. A header field's
+   default is a constructor default, removed by desugar_args; a body
+   field's is its initial value, which every body field has. *)
+and member_field = MemberField of info * string * typ option * expr option * bool * bool * int
+(* info, name, type, default or initial value, `var`, `private`, sym *)
+
+(* [private] [override] [abstract] def name(self, params) [-> T]: body.
+   The parameters leave out `self`. The body is None for an abstract
+   method and an interface's signature. A parameter's default is kept
+   (as the call to the def desugar_args made of it, or the literal):
+   elaborate.ml fills it in where a call leaves it out. *)
+and method_decl = MethodDecl of info * string * param list * typ option * stmt list option * bool * bool * int
+(* info, name, params, return type, body, `override`, `private`, sym *)
 (* `implicit name: type`, in a function type. It carries no info and no
    sym: it is part of a type, and a type is synthesized. *)
 
@@ -185,6 +238,9 @@ and pattern =
          one. *)
   | POr of info * pattern list * int (* case p1 | p2 | ...: *)
   | PAs of info * pattern * string * int (* case p as name: *)
+  | PTyped of info * string * typ * int
+      (* case name: Class: -- an object of that class or interface (or
+         of a class below it), bound to the name at that type *)
 
 and list_rest = ListRest of info * string option * int
 (* the `..` / `..name` rest marker inside a PList *)
@@ -288,6 +344,8 @@ and stmt =
   | SDatatype of info * string * string list * constructor list * int * bool * bool
       (* [public] datatype Name(a, b): one constructor per line. The
          flags are `public`, and whether it is a `var struct`. *)
+  | SClass of info * class_decl * int
+      (* a class, an abstract class or an interface *)
   | SImport of info * string * string * bool * (string * string) list * int
       (* import module [as name] / from module import field [as name].
          The fields are the module's own name for each thing taken and
@@ -336,6 +394,9 @@ let expr_info e =
   | EQualified (i, _, _, _) -> i
   | EConstruct (i, _, _, _, _) -> i
   | EField (i, _, _, _) -> i
+  | EMethod (i, _, _, _, _) -> i
+  | ESuper (i, _, _, _, _) -> i
+  | EUpcast (i, _, _, _) -> i
 
 (** The symbol of one expression. expr -> int *)
 let expr_sym e =
@@ -372,6 +433,9 @@ let expr_sym e =
   | EQualified (_, _, _, s) -> s
   | EConstruct (_, _, _, _, s) -> s
   | EField (_, _, _, s) -> s
+  | EMethod (_, _, _, _, s) -> s
+  | ESuper (_, _, _, _, s) -> s
+  | EUpcast (_, _, _, s) -> s
 
 (** The source span of one type. typ -> info *)
 let type_info t =
@@ -424,6 +488,7 @@ let pattern_info p =
   | PConstructor (i, _, _, _, _, _) -> i
   | POr (i, _, _) -> i
   | PAs (i, _, _, _) -> i
+  | PTyped (i, _, _, _) -> i
 
 (** The symbol of one pattern. pattern -> int *)
 let pattern_sym p =
@@ -440,6 +505,7 @@ let pattern_sym p =
   | PConstructor (_, _, _, _, _, s) -> s
   | POr (_, _, s) -> s
   | PAs (_, _, _, s) -> s
+  | PTyped (_, _, _, s) -> s
 
 (** The source span of one list-pattern rest marker. list_rest -> info *)
 let rest_info (ListRest (i, _, _)) = i
@@ -515,6 +581,7 @@ let stmt_info s =
   | SMatch (i, _, _, _) -> i
   | SImport (i, _, _, _, _, _) -> i
   | SDatatype (i, _, _, _, _, _, _) -> i
+  | SClass (i, _, _) -> i
 
 (** The symbol of one statement. stmt -> int *)
 let stmt_sym s =
@@ -539,6 +606,30 @@ let stmt_sym s =
   | SMatch (_, _, _, s) -> s
   | SImport (_, _, _, _, _, s) -> s
   | SDatatype (_, _, _, _, s, _, _) -> s
+  | SClass (_, _, s) -> s
+
+(** A class with every expression in it -- its fields' values, the
+    parent's arguments, its methods' defaults -- rewritten by `expr`, and
+    every method body by `body`. (expr -> expr) -> (stmt list -> stmt
+    list) -> class_decl -> class_decl *)
+let map_class expr body c =
+  let field (MemberField (i, n, t, v, var, private_, s)) = MemberField (i, n, t, Option.map expr v, var, private_, s) in
+  let ref_ (ClassRef (i, m, n, ts, args, s)) = ClassRef (i, m, n, ts, List.map (fun (l, a) -> (l, expr a)) args, s) in
+  let method_ (MethodDecl (i, n, params, ret, b, override, private_, s)) =
+    let params = List.map (fun (Param (pi, pn, pt, d, ps)) -> Param (pi, pn, pt, Option.map expr d, ps)) params in
+    MethodDecl (i, n, params, ret, Option.map body b, override, private_, s)
+  in
+  {
+    c with
+    c_header = List.map field c.c_header;
+    c_extends = Option.map ref_ c.c_extends;
+    c_fields = List.map field c.c_fields;
+    c_methods = List.map method_ c.c_methods;
+  }
+
+(** Every method body of a class. class_decl -> stmt list list *)
+let method_bodies c =
+  List.filter_map (fun (MethodDecl (_, _, _, _, b, _, _, _)) -> b) c.c_methods
 
 (* --- compound assignment ---
    `x += e` is parsed as the `x := x + e` it means, so nothing after the
@@ -686,6 +777,9 @@ let set_expr_info i e =
   | EQualified (_, m, n, s) -> EQualified (i, m, n, s)
   | EConstruct (_, m, n, a, s) -> EConstruct (i, m, n, a, s)
   | EField (_, e2, n, s) -> EField (i, e2, n, s)
+  | EMethod (_, o, n, a, s) -> EMethod (i, o, n, a, s)
+  | ESuper (_, c, n, a, s) -> ESuper (i, c, n, a, s)
+  | EUpcast (_, e2, t, s) -> EUpcast (i, e2, t, s)
 
 (** One type with its span replaced. info -> typ -> typ *)
 let set_type_info i t =
@@ -720,6 +814,7 @@ let set_pattern_info i p =
   | PConstructor (_, m, n, ps, named, s) -> PConstructor (i, m, n, ps, named, s)
   | POr (_, ps, s) -> POr (i, ps, s)
   | PAs (_, p2, n, s) -> PAs (i, p2, n, s)
+  | PTyped (_, n, t, s) -> PTyped (i, n, t, s)
 
 (** One assignment target with its span replaced.
     info -> assign_target -> assign_target *)
@@ -1025,6 +1120,10 @@ and pprint_expr_body cfg e min_prec =
       if args = [] then reached
       else Printf.sprintf "%s(%s)" reached (pprint_args cfg args)
   | EField (_, record, name, _) -> pprint_expr cfg record prec_atom ^ "." ^ name
+  | EMethod (_, obj, name, args, _) ->
+      Printf.sprintf "%s.%s(%s)" (pprint_expr cfg obj prec_atom) name (pprint_args cfg args)
+  | ESuper (_, _, name, args, _) -> Printf.sprintf "super.%s(%s)" name (pprint_args cfg args)
+  | EUpcast (_, e, _, _) -> pprint_expr_body cfg e min_prec
   | EIndex (_, list, index, _) ->
       pprint_expr cfg list prec_atom ^ "[" ^ pprint_expr cfg index prec_low ^ "]"
   | EAddr (_, e, _) ->
@@ -1219,6 +1318,7 @@ and pprint_pattern_body cfg p =
   | POr (_, alternatives, _) ->
       String.concat " | " (List.map (pprint_alternative cfg) alternatives)
   | PAs (_, inner, name, _) -> pprint_alternative cfg inner ^ " as " ^ name
+  | PTyped (_, name, t, _) -> name ^ ": " ^ pprint_type cfg t
 
 (** Formats a pattern where `|` or `as` follows or surrounds it, which
     parenthesizes one that is itself an `|` or an `as`.
@@ -1449,6 +1549,7 @@ and pprint_stmt_body cfg s level =
         :: List.map
              (fun c -> pad ^ "    " ^ pprint_constructor cfg c)
              constructors)
+  | SClass (_, c, _) -> pprint_class cfg pad c
   | SImport (_, module_name, name, selected, fields, _) ->
       if selected then
         let taken =
@@ -1461,6 +1562,85 @@ and pprint_stmt_body cfg s level =
         Printf.sprintf "%sfrom %s import %s" pad module_name taken
       else if name = module_name then Printf.sprintf "%simport %s" pad module_name
       else Printf.sprintf "%simport %s as %s" pad module_name name
+
+(** Formats a class, an abstract class or an interface, its header and
+    then its members. config -> string -> class_decl -> string *)
+and pprint_class cfg pad c =
+  (* A parent class is written with its constructor's arguments, its
+     type arguments being the checker's to work out; an interface with
+     its type arguments. *)
+  let ref_text parent (ClassRef (_, module_, name, args, ctor, _)) =
+    let reached = match module_ with Some m -> m ^ "." ^ name | None -> name in
+    if parent then reached ^ "(" ^ pprint_args cfg ctor ^ ")"
+    else if args = [] then reached
+    else reached ^ "(" ^ String.concat ", " (List.map (pprint_type cfg) args) ^ ")"
+  in
+  let field (MemberField (_, name, type_, default, var, private_, _)) =
+    let text =
+      (if private_ then "private " else "") ^ (if var then "var " else "") ^ name
+      ^ (match type_ with Some t -> ": " ^ pprint_type cfg t | None -> "")
+    in
+    match default with None -> text | Some e -> text ^ " = " ^ pprint_expr cfg e 0
+  in
+  let keyword =
+    match c.c_kind with
+    | ClassPlain -> "class"
+    | ClassAbstract -> "abstract class"
+    | ClassInterface -> "interface"
+  in
+  let header =
+    match c.c_kind with
+    | ClassInterface ->
+        if c.c_params = [] then "" else "(" ^ String.concat ", " c.c_params ^ ")"
+    | _ ->
+        (* A type parameter no header field names is written in the
+           header bare, ahead of the fields: `class Stack(a):`. *)
+        let rec vars t =
+          match t with
+          | TVar (_, n, _, _) -> [ n ]
+          | TList (_, t, _) -> vars t
+          | TTuple (_, ts, _) | TCon (_, _, ts, _) -> List.concat_map vars ts
+          | TFunction (_, ps, r, _, _, _, _) -> List.concat_map vars ps @ vars r
+          | _ -> []
+        in
+        let named = List.concat_map (fun (MemberField (_, _, t, _, _, _, _)) -> match t with Some t -> vars t | None -> []) c.c_header in
+        let bare = List.filter (fun p -> not (List.mem p named)) c.c_params in
+        "(" ^ String.concat ", " (bare @ List.map field c.c_header) ^ ")"
+  in
+  let extends =
+    match c.c_kind, c.c_extends, c.c_implements with
+    | ClassInterface, _, [] -> ""
+    | ClassInterface, _, is -> " extends " ^ String.concat ", " (List.map (ref_text false) is)
+    | _, parent, is ->
+        (match parent with Some p -> " extends " ^ ref_text true p | None -> "")
+        ^ (if is = [] then "" else " implements " ^ String.concat ", " (List.map (ref_text false) is))
+  in
+  let inner = pad ^ "    " in
+  let method_ (MethodDecl (_, name, params, return_type, body, override, private_, sym)) =
+    let cfg' = { cfg with tmap = None } in
+    let params = "self" :: List.map (pprint_param cfg') params in
+    let ret = match return_type with Some t -> " -> " ^ pprint_annotation_type cfg' t | None -> "" in
+    let abstract_ = body = None && c.c_kind = ClassAbstract in
+    let head =
+      Printf.sprintf "%s%s%s%sdef %s(%s)%s" inner
+        (if private_ then "private " else "")
+        (if override then "override " else "")
+        (if abstract_ then "abstract " else "")
+        name (String.concat ", " params) ret
+    in
+    ignore sym;
+    match body with
+    | None -> head
+    | Some body ->
+        String.concat "\n" ((head ^ ":") :: List.map (fun st -> pprint_stmt cfg st (String.length inner / 4 + 1)) body)
+  in
+  let members =
+    List.map (fun f -> inner ^ field f) c.c_fields @ List.map method_ c.c_methods
+  in
+  String.concat "\n"
+    (Printf.sprintf "%s%s%s %s%s%s%s" pad (public_prefix c.c_public) keyword c.c_name header extends
+       (if members = [] then "" else ":")
+    :: members)
 
 (** Formats one constructor of a datatype. config -> constructor -> string *)
 and pprint_constructor cfg (Constructor (_, name, fields, _)) =

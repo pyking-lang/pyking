@@ -1312,3 +1312,32 @@ A `let target = value in body` (PYKING.md, "Let expressions") is compiled as OCa
 A call whose named arguments are not in parameter order, with more
 than one that has an effect, reaches this backend as nested `let`s
 (`docs/desugar_args.md`).
+
+## Classes
+
+A Pyking class (PYKING.md, "Classes and interfaces") cannot be an OCaml
+`class`: a top-level class is not recursive with the functions its
+methods call and that build its objects, which Pyking's are. So:
+
+- **Each class and interface is a class type**, named as a datatype
+  would be, listing every field (a getter, and `set_f` for a `var` one)
+  and every method with its type, plus `pyk_up` and `pyk_show`. The
+  class types go with the type declarations, before the datatypes unless
+  a datatype names a class.
+- **Each method with a body** is a function of the module, in its
+  recursion groups like any other, taking `self` at the type of the
+  class declaring it: `rect__area self`.
+- **An object is an immediate object** built by `rect__new`, which works
+  out every field's value (`rect__init`, its parent's first) and gives
+  each method as a call of the function holding the body that runs,
+  `self` coerced to that class's type. A generic class's constructor
+  takes one printer per type parameter, which its object keeps for
+  `pyk_show`; it and its methods' functions are written with polymorphic
+  annotations, since a method may build the class at other arguments.
+- **`pyk_up`** lists the object seen as every class it is, through the
+  extensible variant `pyk_obj`; a class pattern finds its class there.
+- An upcast is OCaml's `(e :> t)`; `super.m(...)` a call of the body's
+  function.
+- OCaml's class types are regular, so a generic class whose method gives
+  the class at other type arguments (`swap` answering `Pair(b, a)`) is
+  refused.

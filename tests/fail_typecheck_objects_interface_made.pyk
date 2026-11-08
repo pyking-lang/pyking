@@ -1,0 +1,11 @@
+# An interface is never made: a class implementing it is.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+interface Shape:
+    def area(self) -> Float
+
+s = Shape()

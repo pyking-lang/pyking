@@ -1,0 +1,17 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open objects.pyk
+> idle
+diagnostics $CASES/objects.pyk v1 []
+> symbols objects.pyk
+[{"children": [{"detail": "() -> Float", "kind": 6, "name": "area", "range": {"end": {"character": 27, "line": 3}, "start": {"character": 4, "line": 3}}, "selectionRange": {"end": {"character": 12, "line": 3}, "start": {"character": 8, "line": 3}}}], "kind": 11, "name": "Shape", "range": {"end": {"character": 27, "line": 3}, "start": {"character": 0, "line": 2}}, "selectionRange": {"end": {"character": 15, "line": 2}, "start": {"character": 10, "line": 2}}}, {"children": [{"detail": "Float", "kind": 8, "name": "width", "range": {"end": {"character": 23, "line": 5}, "start": {"character": 11, "line": 5}}, "selectionRange": {"end": {"character": 16, "line": 5}, "start": {"character": 11, "line": 5}}}, {"detail": "Float", "kind": 8, "name": "height", "range": {"end": {"character": 38, "line": 5}, "start": {"character": 25, "line": 5}}, "selectionRange": {"end": {"character": 31, "line": 5}, "start": {"character": 25, "line": 5}}}, {"detail": "Float", "kind": 8, "name": "scale", "range": {"end": {"character": 26, "line": 6}, "start": {"character": 8, "line": 6}}, "selectionRange": {"end": {"character": 13, "line": 6}, "start": {"character": 8, "line": 6}}}, {"detail": "() -> Float", "kind": 6, "name": "area", "range": {"end": {"character": 45, "line": 8}, "start": {"character": 4, "line": 7}}, "selectionRange": {"end": {"character": 21, "line": 7}, "start": {"character": 17, "line": 7}}}], "kind": 5, "name": "Rect", "range": {"end": {"character": 45, "line": 8}, "start": {"character": 0, "line": 5}}, "selectionRange": {"end": {"character": 10, "line": 5}, "start": {"character": 6, "line": 5}}}, {"detail": "Rect", "kind": 14, "name": "r", "range": {"end": {"character": 18, "line": 10}, "start": {"character": 0, "line": 10}}, "selectionRange": {"end": {"character": 1, "line": 10}, "start": {"character": 0, "line": 10}}}]
+> hover objects.pyk 9:14
+{"contents": {"kind": "markdown", "value": "```pyking\nFloat\n```"}, "range": {"end": {"character": 18, "line": 8}, "start": {"character": 8, "line": 8}}}
+> hover objects.pyk 11:0
+{"contents": {"kind": "markdown", "value": "```pyking\nr: Rect\n```"}, "range": {"end": {"character": 1, "line": 10}, "start": {"character": 0, "line": 10}}}
+> complete objects.pyk 12:9
+{"isIncomplete": false, "items": [{"detail": "Float", "kind": 5, "label": "width"}, {"detail": "Float", "kind": 5, "label": "height"}, {"detail": "Float", "kind": 5, "label": "scale"}, {"detail": "() -> Float", "kind": 2, "label": "area"}]}
+> shutdown
+null
+> exit
+> exit status 0

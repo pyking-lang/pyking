@@ -45,6 +45,7 @@ and which module calls which.
 | [`desugar_args.ml`](#desugar_argsml) | ~620 | Default parameters and named arguments, rewritten away before anything else reads the program, so no later stage knows they exist. |
 | [`analyses.ml`](#analysesml) | ~1030 | Static analyses over the AST: mutability (`analyze_mutability`), `symbolize`, which numbers every node, and `effects`, which says what can print. |
 | [`walk.ml`](#walkml) | ~190 | One `children` function over every AST node, for the passes that ask a question of a whole subtree. |
+| [`classes.ml`](#classesml) | ~250 | What the backends need of a module's classes and interfaces: each class's fields with their owners, its methods, which body a method runs, and the order to declare them in. |
 | [`typesystem.ml`](#typesystemml) | ~3010 | The type checker: one function per AST datatype, producing `tmap` (symbol → type). Also the type *inference*, which is the same machinery run at a call site rather than at a definition. Its fragment is the interpreter's, and nearly all of the OCaml backend's. |
 | [`exhaustive.ml`](#exhaustiveml) | ~420 | Every `match` matches every value and every case is reachable: Maranget's usefulness, over the checker's types. |
 | [`warnings.ml`](#warningsml) | ~660 | Warnings: names bound and never used, and an `=` that shadows a name from outside its block, after the checker; the -W flags that say which are reported and which are errors. |
@@ -691,8 +692,37 @@ C and Java backends).
   counts as an identifier for `opt_tailcall.ml`'s "does this program
   write this name" tests.
 
+- **`map_expr f e`** / **`map_stmt`** / **`map_stmts`** — every
+  expression in a subtree rewritten by `f`, innermost first, class
+  members and method bodies included.
+
 A node kind added to `syntax.ml` needs a case in `children`, and nothing
 but a pass that would have looked inside it will notice if it is missed.
+
+---
+
+## `classes.ml`
+
+**What a backend needs to know of a module's classes and interfaces**
+(PYKING.md, "Classes and interfaces"), read from their declarations once
+the checker has accepted them, so the five backends agree on what a class
+has.
+
+- **`table stmts`** — every class and interface the statements declare:
+  each one's parent, interfaces, header (what its constructor takes),
+  its own fields (a header parameter that only passes an inherited field
+  on is not one), and its methods, with the symbols the checker recorded
+  their types under.
+- **`supers`**, **`all_fields`**, **`field_owner`**, **`own_method`**,
+  **`method_names`** — a class's supertypes, its fields with their
+  parents' first, which class declares a field, and its methods.
+- **`resolve t c m`** — the class whose body runs for `m` on an object of
+  class `c`: the class chain first, then an interface's default.
+  **`declaring`** — where `m` is first declared, whose signature and
+  defaults it has.
+- **`extended`**, **`interfaces`**, **`ordered`** — whether anything
+  builds on a class, every interface an object is, and the order a
+  language that declares a parent first needs.
 
 ---
 

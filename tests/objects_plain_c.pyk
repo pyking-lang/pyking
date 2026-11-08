@@ -1,0 +1,37 @@
+# Objects with no list or String in them: what every C target compiles,
+# plain C included, which allocates an object and never frees it.
+
+use objects, mutation
+
+interface Scorer:
+    def score(self) -> Int
+    def doubled(self) -> Int:
+        self.score() * 2
+
+class Counter(var count: Int = 0) implements Scorer:
+    def add(self, n: Int):
+        self.count += n
+
+    override def score(self) -> Int:
+        self.count
+
+class Bonus(base: Int, extra: Int) extends Counter(base):
+    override def score(self) -> Int:
+        super.score() + self.extra
+
+def best(a: Scorer, b: Scorer) -> Int:
+    if a.score() > b.score() then a.doubled() else b.doubled()
+
+c = Counter()
+c.add(3)
+c.add(4)
+b = Bonus(10, 5)
+b.add(1)
+print(c.count, c.score(), c.doubled())
+print(b.count, b.score(), b.doubled(), best(c, b))
+s: Scorer = b
+match s:
+    case Bonus(base, extra):
+        print(base, extra)
+    case _:
+        print(0)

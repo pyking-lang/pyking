@@ -90,7 +90,11 @@ type oexpr =
   | OBuild of string * (string * oexpr) list
       (* C { f = e; ... } -- a var struct made, its fields named *)
   | OSetField of oexpr * string * oexpr (* e.field <- v -- one written *)
-  | OSend of oexpr * string (* e#method -- a pointer's *)
+  | OSend of oexpr * string (* e#method -- a pointer's, or an object's *)
+  | OObject of (string * bool * oexpr) list * (string * string list * oexpr) list
+      (* object (self) val [mutable] f = e ... method m p = e ... end --
+         an object of a Pyking class (docs/target_ocaml.md, "Classes") *)
+  | OCoerce of oexpr * string (* (e :> t) -- an object seen as a supertype *)
   | OEscape of string * string * string * oexpr
       (* a function body a `return` leaves early: the exception it is
          left by, the cell the value is put in, the name the value comes
@@ -454,7 +458,11 @@ let rec free e =
   | OIgnore e | ORef e | OField (e, _) | ORecord (_, e) | OTyped (e, _) -> free e
   | OBuild (_, fields) -> union_all (List.map (fun (_, e) -> free e) fields)
   | OSetField (owner, _, value) -> StringSet.union (free owner) (free value)
-  | OSend (e, _) -> free e
+  | OSend (e, _) | OCoerce (e, _) -> free e
+  | OObject (fields, methods) ->
+      union_all
+        (List.map (fun (_, _, e) -> free e) fields
+        @ List.map (fun (_, params, e) -> StringSet.diff (free e) (StringSet.of_list ("self" :: params))) methods)
   | ODeref name -> StringSet.singleton name
   | OAssign (name, value) -> StringSet.add name (free value)
   | OApp (func, args) -> union_all (free func :: List.map free args)
@@ -678,6 +686,8 @@ type ctx = {
   path : oexpr;
   (* Whether the Stdlib has `List.take` and `List.drop` (OCaml 5.3 on). *)
   slices : bool;
+  (* The program's classes and interfaces. *)
+  classes : Classes.table;
 }
 
 (** What a translation accumulates. *)
@@ -936,6 +946,7 @@ let stmt_kind_name s =
   | SMatch _ -> "SMatch"
   | SImport _ -> "SImport"
   | SDatatype _ -> "SDatatype"
+  | SClass _ -> "SClass"
 
 let escape_char c =
   match c with
@@ -2288,6 +2299,8 @@ let writes ctx e =
          | Walk.NExpr (ECall (_, EVar (_, name, _), _, _))
            when List.mem name Builtin.member_names ->
              true
+         (* A method may change its object, or anything else. *)
+         | Walk.NExpr (EMethod _) -> true
          | Walk.NExpr e -> call_changes ctx.defined ctx.changing ctx.unknown_changes ctx.tmap e
          | _ -> false)
        e
@@ -2303,6 +2316,10 @@ let observes ctx e =
          match node with
          | Walk.NExpr (EVar (_, name, _)) -> StringSet.mem name ctx.refs
          | Walk.NExpr (EDeref _) -> true
+         (* An object's field may be one a method writes. *)
+         | Walk.NExpr (EField (_, owner, _, _))
+           when typed ctx (function TCon (_, c, _, _) -> Classes.find ctx.classes c <> None | _ -> false) owner ->
+             true
          | Walk.NExpr (EField (_, owner, _, _)) ->
              typed ctx
                (function TCon (_, c, _, _) -> var_struct_labels ctx c <> None | _ -> false)
@@ -2323,9 +2340,125 @@ let observes ctx e =
          | _ -> false)
        e
 
+(* Where a refusal that belongs to no node in the source points. *)
+let builtin_info = { file = "<ocaml>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
+
+(** One type as OCaml source text. `name` is what a refusal names. A
+    function type is curried, which is how this backend compiles a Pyking
+    function of several parameters. typ -> string -> bool -> string *)
+let rec type_text type_ name top =
+  match type_ with
+  | TInt _ -> "int"
+  | TFloat _ -> "float"
+  | TString _ -> "string"
+  | TChar _ -> "int"
+  | TBool _ -> "bool"
+  | TList (_, element, _) -> Printf.sprintf "%s list" (type_text element name false)
+  | TTuple (_, [], _) -> "unit"
+  | TTuple (_, elements, _) ->
+      let inner =
+        String.concat " * " (List.map (fun e -> type_text e name false) elements)
+      in
+      if top then inner else Printf.sprintf "(%s)" inner
+  | TFunction (_, params, result, _, _, _, _) ->
+      let params = if params = [] then [ TTuple (builtin_info, [], 0) ] else params in
+      let arrow =
+        String.concat " -> "
+          (List.map (fun p -> type_text p name false) params
+          @ [ type_text result name true ])
+      in
+      if top then arrow else Printf.sprintf "(%s)" arrow
+  (* OCaml generalises a `val` of its own accord, so the quantifier is
+     left off and the variables written as they are. *)
+  | TForall (_, _, inner, _) -> type_text inner name top
+  | TVar (_, variable, _, _) -> Printf.sprintf "'%s" variable
+  | TCon (_, _, [ element ], _) when Typesystem.array_element type_ <> None ->
+      Printf.sprintf "%s array" (type_text element name false)
+  (* A DynArray: its cell, which an importer names the same way, since it is
+     built from Stdlib's types alone. *)
+  | TCon (_, _, [ element ], _) when dynarray_element type_ <> None ->
+      Printf.sprintf "(%s option array * int) ref" (type_text element name false)
+  (* A pointer: the object naming its place. *)
+  | TCon (_, _, [ target ], _) when ptr_target type_ <> None ->
+      let shown = type_text target name false in
+      Printf.sprintf "< get : %s; place : Obj.t * int; set : %s -> unit >" shown shown
+  (* A view: its array, where it starts, and its length. *)
+  | TCon (_, _, [ element ], _) when slice_element type_ <> None ->
+      Printf.sprintf "(%s array * int * int)" (type_text element name false)
+  (* A MutMap: its table and its counter, Stdlib's types again. *)
+  | TCon (_, _, [ key; value ], _) when mutmap_parts type_ <> None ->
+      let pair =
+        Printf.sprintf "(%s, int * %s) Stdlib.Hashtbl.t * int ref" (type_text key name true)
+          (type_text value name false)
+      in
+      (* A pair, so parenthesised where it is one part of something. *)
+      if top then pair else "(" ^ pair ^ ")"
+  | TCon (_, canonical, [], _) -> datatype_name canonical
+  | TCon (_, canonical, [ one ], _) ->
+      Printf.sprintf "%s %s" (type_text one name false) (datatype_name canonical)
+  | TCon (_, canonical, args, _) ->
+      Printf.sprintf "(%s) %s"
+        (String.concat ", " (List.map (fun a -> type_text a name true) args))
+        (datatype_name canonical)
+  | type_ ->
+      unsupported builtin_info
+        (Printf.sprintf
+           "'%s' is exported at a type this backend cannot write in an OCaml \
+            interface: %s"
+           name (name_of type_))
+
+
+(** The function holding a class's method body. string -> string -> string *)
+let method_function cls m = String.uncapitalize_ascii cls ^ "__" ^ m
+
+(** The function computing an object's fields, its parents' first, from
+    what its constructor is given. string -> string *)
+let init_function cls = String.uncapitalize_ascii cls ^ "__init"
+
+(** The function building an object of a class. string -> string *)
+let new_function cls = String.uncapitalize_ascii cls ^ "__new"
+
+(** The name of the special call standing for an object being built: its
+    arguments are the fields' values, then the methods' functions.
+    string -> string *)
+let object_marker = "__pyk_object__"
+
+(** The special call standing for a value written as it is inside
+    another, a String quoted: what a generic object prints its fields of
+    a type parameter with. string *)
+let inner_marker = "__pyk_inner__"
+
+(** The constructor of the variant an object is seen as each class it
+    is through. string -> string *)
+let up_constructor cls = "Pyk_obj_" ^ cls
+
+(** A class's own type, at its own parameters. Classes.cls -> typ *)
+let class_type_of c = TCon (no_info, c.Classes.name, List.map (fun p -> TVar (no_info, p, 0, true)) c.Classes.params, 0)
+
+
 (** Translates one expression. ctx -> acc -> expr -> (oexpr, acc) *)
 let rec expr ctx acc e =
   match e with
+  | ECall (info, EVar (_, marker, _), args, _)
+    when String.length marker > String.length object_marker
+         && String.sub marker 0 (String.length object_marker) = object_marker ->
+      object_value ctx acc info (String.sub marker (String.length object_marker) (String.length marker - String.length object_marker)) (arg_exprs args)
+  | ECall (info, EVar (_, marker, _), [ (_, arg) ], _) when marker = inner_marker ->
+      let o, acc = expr ctx acc arg in
+      string_of ctx acc (type_of ctx arg) o info false
+  | EMethod (_, obj, name, args, _) -> (
+      let o_obj, acc = expr ctx acc obj in
+      match args with
+      | [] -> (OSend (o_obj, name), acc)
+      | _ ->
+          let pieces, pin, acc = in_order ctx acc (arg_exprs args) in
+          (pin (OApp (OSend (o_obj, name), pieces)), acc))
+  | EUpcast (_, inner, t, _) ->
+      let o, acc = expr ctx acc inner in
+      (OCoerce (o, type_text t "" true), acc)
+  | EField (_, record, field, _) when (match type_of ctx record with TCon (_, n, _, _) -> Classes.find ctx.classes n <> None | _ -> false) ->
+      let o, acc = expr ctx acc record in
+      (OSend (o, field), acc)
   | EInt (_, value, _) -> (OInt value, acc)
   | EFloat (_, value, _) -> (OFloat value, acc)
   | EString (_, value, _) -> (OStr value, acc)
@@ -2712,6 +2845,93 @@ let rec expr ctx acc e =
 (** A function writing a MutMap's key as an error message names it: as
     it is written inside a value, a String quoted.
     ctx -> acc -> typ -> (oexpr, acc) *)
+(** An object of class `cls`: its fields, the values the constructor
+    worked out, then each method handing the object, seen as the class
+    whose body it is, to the function holding that body; what it prints
+    as; and every class it is. ctx -> acc -> info -> string -> [expr] ->
+    (oexpr, acc) *)
+and object_value ctx acc info cls args =
+  let table = ctx.classes in
+  let fields = Classes.all_fields table cls in
+  let c = Option.get (Classes.find table cls) in
+  let values = List.filteri (fun i _ -> i < List.length fields) args in
+  let impls = List.filteri (fun i _ -> i >= List.length fields && i < List.length args - List.length c.Classes.params) args in
+  let ctx = { ctx with shows = List.map (fun p -> (p, OVar ("pyk_show_" ^ p))) c.Classes.params; shows_path = false } in
+  let o_values, acc =
+    List.fold_left
+      (fun (out, acc) e ->
+        let o, acc = expr ctx acc e in
+        (out @ [ o ], acc))
+      ([], acc) values
+  in
+  let o_fields = List.map2 (fun f o -> ("pyk_v_" ^ f.Classes.f_name, f.Classes.f_var, o)) fields o_values in
+  let getters =
+    List.concat_map
+      (fun f ->
+        [ (f.Classes.f_name, [], OVar ("pyk_v_" ^ f.Classes.f_name)) ]
+        @ if f.Classes.f_var then [ ("set_" ^ f.Classes.f_name, [ "v" ], OBin ("<-", OVar ("pyk_v_" ^ f.Classes.f_name), OVar "v")) ] else [])
+      fields
+  in
+  let names = List.filter (fun m -> Classes.resolve table cls m <> None) (Classes.method_names table cls) in
+  (* `_` for each parameter: a variable named here would be the one a
+     polymorphic constructor's annotation quantifies. *)
+  let type_named name =
+    let c = Option.get (Classes.find table name) in
+    match c.Classes.params with
+    | [] -> datatype_name name
+    | [ _ ] -> "_ " ^ datatype_name name
+    | ps -> "(" ^ String.concat ", " (List.map (fun _ -> "_") ps) ^ ") " ^ datatype_name name
+  in
+  let methods, acc =
+    List.fold_left2
+      (fun (out, acc) m impl ->
+        let owner = Option.get (Classes.resolve table cls m) in
+        let declaring = Option.get (Classes.declaring table cls m) in
+        let arity =
+          match Classes.own_method table declaring m with Some x -> List.length x.Classes.m_params | None -> 0
+        in
+        let params = List.init arity (fun i -> Printf.sprintf "p%d" (i + 1)) in
+        let o_impl, acc = expr ctx acc impl in
+        let self = OCoerce (OVar "self", type_named owner) in
+        (out @ [ (m, params, OApp (o_impl, self :: List.map (fun p -> OVar p) params)) ], acc))
+      ([], acc) names impls
+  in
+  let shown, acc =
+    if Classes.resolve table cls "show" <> None && Classes.has_method table cls "show" then (OSend (OVar "self", "show"), acc)
+    else
+      match c.Classes.header with
+      | [] -> (OStr cls, acc)
+      | header ->
+          let parts, acc =
+            List.fold_left
+              (fun (out, acc) (h, hs) ->
+                let t = Option.value (IntMap.find_opt hs ctx.tmap) ~default:(TUnknown (info, 0)) in
+                let text, acc = string_of ctx acc t (OSend (OVar "self", h)) info false in
+                (out @ [ text ], acc))
+              ([], acc) header
+          in
+          let joined =
+            List.fold_left
+              (fun so_far part -> match so_far with None -> Some part | Some so_far -> Some (OBin ("^", OBin ("^", so_far, OStr ", "), part)))
+              None parts
+          in
+          (OBin ("^", OBin ("^", OStr (cls ^ "("), Option.get joined), OStr ")"), acc)
+  in
+  let ups =
+    List.map
+      (fun name ->
+        let k = Option.get (Classes.find table name) in
+        let seen = OCoerce (OVar "self", type_named name) in
+        OApp (OVar (up_constructor name), [ (if k.Classes.params = [] then seen else OApp (OVar "Obj.repr", [ OVar "self" ])) ]))
+      (Classes.supers table cls)
+  in
+  ( OObject
+      ( o_fields,
+        getters @ methods
+        @ List.map (fun p -> ("pyk_show_" ^ p, [], OVar ("pyk_show_" ^ p))) c.Classes.params
+        @ [ ("pyk_up", [], OList ups); ("pyk_show", [], shown) ] ),
+    acc )
+
 and key_printer ctx acc key_type =
   let name, acc = fresh_name ctx acc in
   let shown, acc = string_of { ctx with path = OList [] } acc key_type (OVar name) no_info false in
@@ -3004,6 +3224,7 @@ and string_of ctx acc type_ translated info top =
             | Some held ->
                 OLet ([ { bound = OPatName held; params = []; value = translated } ], guarded, false)),
             need acc guard_helper )
+    | TCon (_, canonical, _, _) when Classes.find ctx.classes canonical <> None -> (OSend (translated, "pyk_show"), acc)
     | TCon (_, canonical, args, _) ->
         (* A datatype's values print through the printer written beside
            its declaration, handed one printer per type it is applied to
@@ -3225,7 +3446,47 @@ and builtin_call ctx acc call name args =
     -> ((string, [oexpr], [(string, oexpr)]), acc) *)
 and matcher ctx acc p used =
   let plain text = ((text, [], []), acc) in
+  (* An object is matched by the class it is (`pyk_up`): the subject is
+     bound, the class tested in the guard, and its header's fields read
+     through the class it was found to be. *)
+  let object_view subject cls =
+    let k = Option.get (Classes.find ctx.classes cls) in
+    let found =
+      OApp
+        ( OVar "List.find_map",
+          [ OFun [ (up_constructor cls ^ " x", OApp (OVar "Some", [ OVar "x" ])); ("_", OVar "None") ]; OSend (subject, "pyk_up") ] )
+    in
+    let test =
+      OApp (OVar "List.exists", [ OFun [ (up_constructor cls ^ " _", OBool true); ("_", OBool false) ]; OSend (subject, "pyk_up") ])
+    in
+    let viewed = OApp (OVar "Option.get", [ found ]) in
+    let viewed = if k.Classes.params = [] then viewed else OApp (OVar "Obj.obj", [ viewed ]) in
+    (test, viewed)
+  in
   match p with
+  | PConstructor (_, None, name, fields, _, _) when Classes.find ctx.classes name <> None ->
+      let k = Option.get (Classes.find ctx.classes name) in
+      let bound, acc = fresh_name ctx acc in
+      let test, viewed = object_view (OVar bound) name in
+      let guards, extracts =
+        List.fold_left2
+          (fun (guards, extracts) sub (h, _) ->
+            let read = OSend (viewed, h) in
+            match sub with
+            | PWildcard _ -> (guards, extracts)
+            | PCapture (_, n, _) -> (guards, extracts @ [ (unread (mangle ctx n) used, read) ])
+            | PInt (_, v, _) | PChar (_, v, _) -> (guards @ [ OBin ("=", read, OInt v) ], extracts)
+            | PString (_, v, _) -> (guards @ [ OBin ("=", read, OStr v) ], extracts)
+            | PBool (_, v, _) -> (guards @ [ OBin ("=", read, OBool v) ], extracts)
+            | other -> unsupported (pattern_info other) "a pattern other than a name or a literal inside a class pattern")
+          ([], []) fields k.Classes.header
+      in
+      ((bound, test :: guards, extracts), acc)
+  | PTyped (_, n, t, _) ->
+      let cls = match t with TCon (_, c, _, _) -> c | _ -> "" in
+      let bound, acc = fresh_name ctx acc in
+      let test, viewed = object_view (OVar bound) cls in
+      ((bound, [ test ], [ (unread (mangle ctx n) used, viewed) ]), acc)
   | PWildcard _ -> plain "_"
   | PCapture (_, name, _) -> plain (unread (mangle ctx name) used)
   | PInt (_, value, _) ->
@@ -4189,6 +4450,13 @@ and discard ctx acc statement =
          name it came from. `let Point tmp1 = p in tmp1.x <- v` says that
          order, since OCaml runs a `let`'s value before its body. *)
       match type_of ctx owner with
+      | TCon (_, canonical, _, _) when Classes.find ctx.classes canonical <> None ->
+          (* An object's field, through its setter: the owner first, then
+             the value. *)
+          let o_owner, acc = expr ctx acc owner in
+          let o_value, acc = expr ctx acc value in
+          let name, acc = fresh_name ctx acc in
+          (OLet ([ { bound = OPatName name; params = []; value = o_owner } ], OApp (OSend (OVar name, "set_" ^ field), [ o_value ]), false), acc)
       | TCon (_, canonical, _, _) -> (
           match datatype_of ctx canonical with
           | Some (Datatype (_, _, [ (cname, fields) ], true)) ->
@@ -4474,6 +4742,9 @@ let rec polish e =
   | OBuild (ctor, fields) -> OBuild (ctor, List.map (fun (f, e) -> (f, polish e)) fields)
   | OSetField (owner, field, value) -> OSetField (polish owner, field, polish value)
   | OSend (e, name) -> OSend (polish e, name)
+  | OCoerce (e, t) -> OCoerce (polish e, t)
+  | OObject (fields, methods) ->
+      OObject (List.map (fun (n, m, e) -> (n, m, polish e)) fields, List.map (fun (n, ps, e) -> (n, ps, polish e)) methods)
   | ORef value -> ORef (polish value)
   | OAssign (name, value) -> OAssign (name, polish value)
   | OApp (func, args) -> OApp (polish func, List.map polish args)
@@ -4652,73 +4923,6 @@ let op_level op =
     left operand at its own level needs parentheses. string -> bool *)
 let right_associative op = op = "**" || op = "lsl" || op = "asr"
 
-(* Where a refusal that belongs to no node in the source points. *)
-let builtin_info = { file = "<ocaml>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
-
-(** One type as OCaml source text. `name` is what a refusal names. A
-    function type is curried, which is how this backend compiles a Pyking
-    function of several parameters. typ -> string -> bool -> string *)
-let rec type_text type_ name top =
-  match type_ with
-  | TInt _ -> "int"
-  | TFloat _ -> "float"
-  | TString _ -> "string"
-  | TChar _ -> "int"
-  | TBool _ -> "bool"
-  | TList (_, element, _) -> Printf.sprintf "%s list" (type_text element name false)
-  | TTuple (_, [], _) -> "unit"
-  | TTuple (_, elements, _) ->
-      let inner =
-        String.concat " * " (List.map (fun e -> type_text e name false) elements)
-      in
-      if top then inner else Printf.sprintf "(%s)" inner
-  | TFunction (_, params, result, _, _, _, _) ->
-      let params = if params = [] then [ TTuple (builtin_info, [], 0) ] else params in
-      let arrow =
-        String.concat " -> "
-          (List.map (fun p -> type_text p name false) params
-          @ [ type_text result name true ])
-      in
-      if top then arrow else Printf.sprintf "(%s)" arrow
-  (* OCaml generalises a `val` of its own accord, so the quantifier is
-     left off and the variables written as they are. *)
-  | TForall (_, _, inner, _) -> type_text inner name top
-  | TVar (_, variable, _, _) -> Printf.sprintf "'%s" variable
-  | TCon (_, _, [ element ], _) when Typesystem.array_element type_ <> None ->
-      Printf.sprintf "%s array" (type_text element name false)
-  (* A DynArray: its cell, which an importer names the same way, since it is
-     built from Stdlib's types alone. *)
-  | TCon (_, _, [ element ], _) when dynarray_element type_ <> None ->
-      Printf.sprintf "(%s option array * int) ref" (type_text element name false)
-  (* A pointer: the object naming its place. *)
-  | TCon (_, _, [ target ], _) when ptr_target type_ <> None ->
-      let shown = type_text target name false in
-      Printf.sprintf "< get : %s; place : Obj.t * int; set : %s -> unit >" shown shown
-  (* A view: its array, where it starts, and its length. *)
-  | TCon (_, _, [ element ], _) when slice_element type_ <> None ->
-      Printf.sprintf "(%s array * int * int)" (type_text element name false)
-  (* A MutMap: its table and its counter, Stdlib's types again. *)
-  | TCon (_, _, [ key; value ], _) when mutmap_parts type_ <> None ->
-      let pair =
-        Printf.sprintf "(%s, int * %s) Stdlib.Hashtbl.t * int ref" (type_text key name true)
-          (type_text value name false)
-      in
-      (* A pair, so parenthesised where it is one part of something. *)
-      if top then pair else "(" ^ pair ^ ")"
-  | TCon (_, canonical, [], _) -> datatype_name canonical
-  | TCon (_, canonical, [ one ], _) ->
-      Printf.sprintf "%s %s" (type_text one name false) (datatype_name canonical)
-  | TCon (_, canonical, args, _) ->
-      Printf.sprintf "(%s) %s"
-        (String.concat ", " (List.map (fun a -> type_text a name true) args))
-        (datatype_name canonical)
-  | type_ ->
-      unsupported builtin_info
-        (Printf.sprintf
-           "'%s' is exported at a type this backend cannot write in an OCaml \
-            interface: %s"
-           name (name_of type_))
-
 (** The record a polymorphic parameter type is passed as: one field, by
     the record's own name, polymorphic in the parameter's variables.
     string -> typ -> string *)
@@ -4884,6 +5088,20 @@ and pprint_bare e level =
         p_app )
   (* `#` binds tighter than application. *)
   | OSend (e, name) -> (Printf.sprintf "%s#%s" (pprint e p_atom level) name, p_atom)
+  | OCoerce (e, t) -> (Printf.sprintf "(%s :> %s)" (pprint e p_app level) t, p_atom)
+  | OObject (fields, methods) ->
+      let pad = String.make (2 * (level + 1)) ' ' in
+      let field (n, mutable_, e) =
+        Printf.sprintf "%sval %s%s = %s" pad (if mutable_ then "mutable " else "") n (pprint e p_app (level + 1))
+      in
+      let method_ (n, params, e) =
+        Printf.sprintf "%smethod %s%s =\n%s  %s" pad n
+          (String.concat "" (List.map (fun p -> " " ^ p) params))
+          pad (pprint e p_seq (level + 2))
+      in
+      ( "(object (self)\n" ^ String.concat "\n" (List.map field fields @ List.map method_ methods) ^ "\n"
+        ^ String.make (2 * level) ' ' ^ "end)",
+        p_atom )
   | OSetField (owner, field, value) ->
       ( Printf.sprintf "%s.%s <- %s" (pprint owner p_atom level) field
           (pprint value (p_let + 1) level),
@@ -5328,7 +5546,312 @@ let datatype_printers ctx acc datatypes =
     has been refused before this is called. `context` says what is true
     of the module only as part of a program.
     [stmt] -> typ IntMap.t -> Module.context -> oprogram *)
+
+(* --- classes ---
+   A Pyking class is an OCaml class type, and its objects immediate
+   objects built by a function -- not an OCaml `class`, which could not
+   be recursive with the functions its methods call and that build its
+   objects. Each method with a body is a function taking `self` at the
+   type of the class declaring it, and the object's methods hand
+   themselves to those, so dispatch is OCaml's own. Every object also
+   says what it prints as (`pyk_show`) and every class it is
+   (`pyk_up`, through an extensible variant), which is what a class
+   pattern tests (docs/target_ocaml.md, "Classes"). *)
+
+(** The program with each class made the defs it stands for, and the
+    expressions only a class has made calls: making an object a call of
+    its class's constructor function, and `super.m(...)` a call of the
+    function holding the body the checker chose. The types of what is
+    built here are added to tmap. [stmt] -> typ IntMap.t -> ([stmt], typ IntMap.t) *)
+let lower_classes stmts tmap =
+  let table = Classes.table stmts in
+  if Classes.SMap.is_empty table then (stmts, tmap)
+  else
+    let tmap = ref tmap in
+    let next = ref (Analyses.highest_sym stmts + 1) in
+    let sym t =
+      let s = !next in
+      incr next;
+      tmap := IntMap.add s t !tmap;
+      s
+    in
+    let type_at s = Option.value (IntMap.find_opt s !tmap) ~default:(TUnknown (no_info, 0)) in
+    let var i n t = EVar (i, n, sym t) in
+    let call i name ft args rt = ECall (i, var i name ft, List.map (fun a -> (None, a)) args, sym rt) in
+    let rewrite e =
+      match e with
+      | EConstruct (i, None, name, args, s) when Classes.find table name <> None ->
+          let c = Option.get (Classes.find table name) in
+          (* A generic class's object prints its fields of a type
+             parameter with what it was handed: one printer per
+             parameter, from the types this construction makes it at. *)
+          let printers =
+            match type_at s with
+            | TCon (_, _, targs, _) when c.Classes.params <> [] && List.length targs = List.length c.Classes.params ->
+                List.map
+                  (fun t ->
+                    let x = Param (i, "pyk_x", Some t, None, sym t) in
+                    let shown =
+                      match t with
+                      | TVar (_, v, _, _) ->
+                          (* a parameter of the class whose method this is:
+                             the printer its own object was handed *)
+                          EMethod (i, var i "self" (TUnknown (i, 0)), "pyk_show_" ^ v, [ (None, var i "pyk_x" t) ], sym (TString (i, 0)))
+                      | _ -> ECall (i, var i inner_marker (TFunction (i, [ t ], TString (i, 0), 0, 0, None, [])), [ (None, var i "pyk_x" t) ], sym (TString (i, 0)))
+                    in
+                    (None, ELambda (i, [ x ], shown, sym (TFunction (i, [ t ], TString (i, 0), 0, 0, None, [])))))
+                  targs
+            | _ -> []
+          in
+          let ft = TFunction (i, List.map (fun (_, hs) -> type_at hs) c.Classes.header, type_at s, 0, 0, None, []) in
+          ECall (i, var i (new_function name) ft, printers @ args, s)
+      | ESuper (i, owner, m, args, s) ->
+          let owner_c = Option.get (Classes.find table owner) in
+          let self_t = class_type_of owner_c in
+          let self = EUpcast (i, var i "self" self_t, self_t, sym self_t) in
+          let ft = TFunction (i, self_t :: List.map (fun (_, a) -> type_at (expr_sym a)) args, type_at s, 0, 0, None, []) in
+          ECall (i, var i (method_function owner m) ft, (None, self) :: args, s)
+      | e -> e
+    in
+    let stmts = Walk.map_stmts rewrite stmts in
+    let defs info c =
+      let k = Option.get (Classes.find table c.c_name) in
+      let self_t = class_type_of k in
+      let param i n t = Param (i, n, None, None, sym t) in
+      let impls =
+        List.filter_map
+          (fun (MethodDecl (mi, m, params, _, body, _, _, ms)) ->
+            match body with
+            | None -> None
+            | Some body ->
+                let ps, r = match type_at ms with TFunction (_, ps, r, _, _, _, _) -> (ps, r) | _ -> ([], TTuple (mi, [], 0)) in
+                let ft = TFunction (mi, self_t :: ps, r, 0, 0, None, []) in
+                Some
+                  (SFunctionDef
+                     ( mi,
+                       method_function c.c_name m,
+                       param mi "self" self_t :: List.map (fun (Param (pi, pn, pt, _, psym)) -> Param (pi, pn, pt, None, psym)) params,
+                       body,
+                       None,
+                       sym ft,
+                       false,
+                       [],
+                       false )))
+          c.c_methods
+      in
+      if c.c_kind = ClassInterface then impls
+      else
+        let fields = Classes.all_fields table c.c_name in
+        let field_types = List.map (fun f -> type_at f.Classes.f_sym) fields in
+        let header_types = List.map (fun (_, hs) -> type_at hs) k.Classes.header in
+        let tuple_t = TTuple (info, field_types, 0) in
+        let names = List.map (fun f -> "pyk_f_" ^ f.Classes.f_name) fields in
+        let header = List.map2 (fun (n, _) t -> param info n t) k.Classes.header header_types in
+        (* the fields' values: the parent's, from its own init function,
+           then this class's header fields, then its body's *)
+        let parent_part, parent_names =
+          match k.Classes.parent with
+          | None -> ([], [])
+          | Some p ->
+              let pfields = Classes.all_fields table p in
+              let pnames = List.map (fun f -> "pyk_p_" ^ f.Classes.f_name) pfields in
+              let ptypes = List.map (fun f -> type_at f.Classes.f_sym) pfields in
+              let pt = TTuple (info, ptypes, 0) in
+              let pk = Option.get (Classes.find table p) in
+              let pft = TFunction (info, List.map (fun (_, hs) -> type_at hs) pk.Classes.header, pt, 0, 0, None, []) in
+              ( [
+                  SLet
+                    ( info,
+                      TargetTuple (info, List.map2 (fun n t -> TargetName (info, n, sym t)) pnames ptypes, sym pt),
+                      ECall (info, var info (init_function p) pft, k.Classes.parent_args, sym pt),
+                      None,
+                      sym pt,
+                      false,
+                      false );
+                ],
+                List.map2 (fun n t -> var info n t) pnames ptypes )
+        in
+        let own =
+          List.map
+            (fun f ->
+              match f.Classes.f_init with
+              | Some e -> e
+              | None -> var info f.Classes.f_name (type_at f.Classes.f_sym))
+            k.Classes.fields
+        in
+        let init =
+          SFunctionDef
+            ( info,
+              init_function c.c_name,
+              header,
+              parent_part @ [ SExprStmt (info, ETuple (info, parent_names @ own, sym tuple_t), sym tuple_t) ],
+              None,
+              sym (TFunction (info, header_types, tuple_t, 0, 0, None, [])),
+              false,
+              [],
+              false )
+        in
+        let impl_refs =
+          List.filter_map
+            (fun m ->
+              match Classes.resolve table c.c_name m with
+              | Some owner ->
+                  let oc = Option.get (Classes.find table owner) in
+                  let ot = class_type_of oc in
+                  let mt =
+                    match Classes.own_method table owner m with
+                    | Some x -> (match type_at x.Classes.m_sym with TFunction (_, ps, r, _, _, _, _) -> TFunction (info, ot :: ps, r, 0, 0, None, []) | t -> t)
+                    | None -> TUnknown (info, 0)
+                  in
+                  Some (var info (method_function owner m) mt)
+              | None -> None)
+            (Classes.method_names table c.c_name)
+        in
+        let new_ =
+          if c.c_kind = ClassAbstract then []
+          else
+            [
+              SFunctionDef
+                ( info,
+                  new_function c.c_name,
+                  List.map (fun p -> param info ("pyk_show_" ^ p) (TFunction (info, [ TVar (info, p, 0, true) ], TString (info, 0), 0, 0, None, []))) k.Classes.params
+                  @ List.map2 (fun (n, _) t -> param info n t) k.Classes.header header_types,
+                  [
+                    SLet
+                      ( info,
+                        TargetTuple (info, List.map2 (fun n t -> TargetName (info, n, sym t)) names field_types, sym tuple_t),
+                        call info (init_function c.c_name) (TFunction (info, header_types, tuple_t, 0, 0, None, []))
+                          (List.map2 (fun (n, _) t -> var info n t) k.Classes.header header_types)
+                          tuple_t,
+                        None,
+                        sym tuple_t,
+                        false,
+                        false );
+                    SExprStmt
+                      ( info,
+                        call info (object_marker ^ c.c_name) (TUnknown (info, 0))
+                          (List.map2 (fun n t -> var info n t) names field_types @ impl_refs
+                          @ List.map (fun p -> var info ("pyk_show_" ^ p) (TFunction (info, [ TVar (info, p, 0, true) ], TString (info, 0), 0, 0, None, []))) k.Classes.params)
+                          self_t,
+                        sym self_t );
+                  ],
+                  None,
+                  sym (TFunction (info, header_types, self_t, 0, 0, None, [])),
+                  false,
+                  [],
+                  false );
+            ]
+        in
+        (init :: new_) @ impls
+    in
+    let stmts = List.concat_map (function SClass (i, c, _) -> defs i c | st -> [ st ]) stmts in
+    (stmts, !tmap)
+
+(** The class types of a program's classes and interfaces, the variant
+    their objects are seen through, and its constructors: what goes with
+    the type declarations. Classes.table -> typ IntMap.t -> [stmt] -> [string] *)
+let class_declarations table tmap stmts =
+  if Classes.SMap.is_empty table then []
+  else
+    let type_at s = Option.value (IntMap.find_opt s tmap) ~default:(TUnknown (no_info, 0)) in
+    let order = Classes.ordered table stmts in
+    let params c =
+      match c.Classes.params with
+      | [] -> ""
+      | ps -> "[" ^ String.concat ", " (List.map (fun p -> "'" ^ p) ps) ^ "] "
+    in
+    let method_type ps r =
+      if ps = [] then type_text r "" true
+      else String.concat " -> " (List.map (fun p -> type_text p "" false) ps @ [ type_text r "" true ])
+    in
+    (* What a supertype's parameters are, seen from `name`: the
+       arguments the checker recorded where the header names it, through
+       each class or interface between. *)
+    let rec seen_as name target =
+      let c = Option.get (Classes.find table name) in
+      if name = target then Some (List.map (fun p -> TVar (no_info, p, 0, true)) c.Classes.params)
+      else
+        let direct =
+          (match c.Classes.parent with Some p -> [ (p, c.Classes.parent_sym) ] | None -> []) @ c.Classes.interfaces
+        in
+        List.find_map
+          (fun (n, s) ->
+            match (type_at s, Classes.find table n) with
+            | TCon (_, _, args, _), Some k when List.length args = List.length k.Classes.params -> (
+                match seen_as n target with
+                | Some inner -> Some (List.map (fun t -> substituted (List.combine k.Classes.params args) t) inner)
+                | None -> None)
+            | _ -> None)
+          direct
+    in
+    let at_owner name owner t =
+      match (Classes.find table owner, seen_as name owner) with
+      | Some k, Some args when k.Classes.params <> [] && List.length args = List.length k.Classes.params ->
+          substituted (List.combine k.Classes.params args) t
+      | _ -> t
+    in
+    let one name =
+      let c = Option.get (Classes.find table name) in
+      (* OCaml's class types are regular: one naming its own class at
+         other arguments than its parameters cannot be written. *)
+      let own_args = List.map (fun p -> TVar (no_info, p, 0, true)) c.Classes.params in
+      List.iter
+        (fun m ->
+          match IntMap.find_opt m.Classes.m_sym tmap with
+          | Some t when
+              Walk.exists
+                (function
+                  | Walk.NType (TCon (_, n, args, _)) -> n = name && List.map name_of args <> List.map name_of own_args
+                  | _ -> false)
+                (Walk.NType t) ->
+              unsupported m.Classes.m_info
+                (Printf.sprintf
+                   "the method '%s' gives '%s' at other type arguments than its own, which an OCaml class type cannot say"
+                   m.Classes.m_name name)
+          | _ -> ())
+        c.Classes.methods;
+      let fields = Classes.all_fields table name in
+      let methods = Classes.method_names table name in
+      let lines =
+        List.concat_map
+          (fun f ->
+            let t = type_text (at_owner name f.Classes.f_owner (type_at f.Classes.f_sym)) "" true in
+            [ Printf.sprintf "  method %s : %s" f.Classes.f_name t ]
+            @ if f.Classes.f_var then [ Printf.sprintf "  method set_%s : %s -> unit" f.Classes.f_name t ] else [])
+          fields
+        @ List.map
+            (fun m ->
+              let declaring = Option.get (Classes.declaring table name m) in
+              let x = Option.get (Classes.own_method table declaring m) in
+              match at_owner name declaring (type_at x.Classes.m_sym) with
+              | TFunction (_, ps, r, _, _, _, _) -> Printf.sprintf "  method %s : %s" m (method_type ps r)
+              | _ -> Printf.sprintf "  method %s : unit" m)
+            methods
+        @ (if c.Classes.kind = ClassInterface then []
+           else List.map (fun p -> Printf.sprintf "  method pyk_show_%s : '%s -> string" p p) c.Classes.params)
+        @ [ "  method pyk_up : pyk_obj list"; "  method pyk_show : string" ]
+      in
+      Printf.sprintf "%s%s = object\n%s\nend" (params c) (datatype_name name) (String.concat "\n" lines)
+    in
+    let decls = List.map one order in
+    let ups =
+      List.map
+        (fun name ->
+          let c = Option.get (Classes.find table name) in
+          if c.Classes.params = [] then Printf.sprintf "%s of %s" (up_constructor name) (datatype_name name)
+          else Printf.sprintf "%s of Obj.t" (up_constructor name))
+        order
+    in
+    [
+      "type pyk_obj = ..";
+      "class type " ^ String.concat "\nand " decls;
+      "type pyk_obj += " ^ String.concat " | " ups;
+    ]
+
 let translate_program stmts tmap (context : Module.context) target =
+  let classes = Classes.table stmts in
+  let class_types = class_declarations classes tmap stmts in
+  let stmts, tmap = lower_classes stmts tmap in
   let own_sigmap =
     match List.assoc_opt context.context_name context.sigmaps with
     | Some sigmap -> sigmap
@@ -5442,6 +5965,7 @@ let translate_program stmts tmap (context : Module.context) target =
       shows_path = false;
       path = OList [];
       slices = Targets.version target <> "4.14";
+      classes;
     }
   in
   let acc =
@@ -5455,6 +5979,49 @@ let translate_program stmts tmap (context : Module.context) target =
     }
   in
   let built, acc = items ctx acc stmts in
+  (* A generic class's constructor is used at other type arguments in the
+     group it is in -- a method making a `Pair(b, a)` -- which OCaml takes
+     only from a binding whose type is written polymorphic. *)
+  let built =
+    (* the type each such function is written at: a constructor takes a
+       printer per parameter, then its header; a method's function its
+       object at the class's own type, then the method's parameters *)
+    let poly name =
+      Classes.SMap.fold
+        (fun cname c found ->
+          if c.Classes.params = [] then found
+          else if c.Classes.kind = ClassPlain && mangle ctx (new_function cname) = name then
+            let printers = List.map (fun p -> Printf.sprintf "('%s -> string)" p) c.Classes.params in
+            let header = List.map (fun (_, hs) -> type_text (Option.value (IntMap.find_opt hs tmap) ~default:(TUnknown (no_info, 0))) "" false) c.Classes.header in
+            Some (c, printers @ header @ [ type_text (class_type_of c) "" false ])
+          else
+            match List.find_opt (fun m -> m.Classes.m_body <> None && mangle ctx (method_function cname m.Classes.m_name) = name) c.Classes.methods with
+            | Some m -> (
+                match IntMap.find_opt m.Classes.m_sym tmap with
+                | Some (TFunction (_, ps, r, _, _, _, _)) ->
+                    Some (c, (type_text (class_type_of c) "" false :: List.map (fun p -> type_text p "" false) ps) @ [ type_text r "" false ])
+                | _ -> found)
+            | None -> found)
+        classes None
+    in
+    List.map
+      (function
+        | OItemLet (bindings, recursive) ->
+            OItemLet
+              ( List.map
+                  (fun b ->
+                    match b.bound with
+                    | OPatName name when poly name <> None && b.params <> [] ->
+                        let c, parts = Option.get (poly name) in
+                        let quantified = String.concat " " (List.map (fun p -> "'" ^ p) c.Classes.params) in
+                        let annotation = Printf.sprintf "%s : %s. %s" name quantified (String.concat " -> " parts) in
+                        { bound = OPatName annotation; params = []; value = OLambda (b.params, b.value) }
+                    | _ -> b)
+                  bindings,
+                recursive )
+        | item -> item)
+      built
+  in
   let printers, printer_interface, acc = datatype_printers ctx acc own_datatypes in
   let keep =
     List.fold_left
@@ -5471,7 +6038,24 @@ let translate_program stmts tmap (context : Module.context) target =
     program_name = context.context_name;
     main = context.main;
     types =
-      datatype_declarations own_datatypes
+      (* Classes first where a datatype names one, and after the
+         datatypes otherwise, which is where a class naming a datatype
+         needs them. *)
+      (let datatypes = datatype_declarations own_datatypes in
+       let names_class =
+         Walk.exists_stmts
+           (function
+             | Walk.NConstructor (Constructor (_, _, fields, _)) ->
+                 List.exists
+                   (fun (Field (_, _, t, _, _)) ->
+                     match t with
+                     | Some t -> Walk.exists (function Walk.NType (TCon (_, n, _, _)) -> Classes.find classes n <> None | _ -> false) (Walk.NType t)
+                     | None -> false)
+                   fields
+             | _ -> false)
+           stmts
+       in
+       if names_class then class_types @ datatypes else datatypes @ class_types)
       @ List.map (fun (_, (field, p)) -> poly_declaration field p) polys;
     printers;
     printer_interface;

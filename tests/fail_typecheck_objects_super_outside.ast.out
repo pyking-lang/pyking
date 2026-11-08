@@ -1,0 +1,3 @@
+'tests/fail_typecheck_objects_super_outside.pyk' 9:4-9:16 Type error:
+  'super' calls a method the class inherited, so it is written only
+  inside a method

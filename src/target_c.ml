@@ -308,6 +308,11 @@ let ident_of canonical = String.map (fun c -> if c = '.' then '_' else c) canoni
 (** A type's code: what names the C type a compound type is declared as,
     and every instance of a polymorphic function. Raises Unsupported for
     a type C cannot be given. info -> typ -> string *)
+(* The classes and interfaces of the module being written, by name: what
+   `code` asks, which is given nothing else. Every object, whatever its
+   class, is a `pyk_obj *` (docs/target_c.md, "Classes"). *)
+let object_types : (string, unit) Hashtbl.t = Hashtbl.create 8
+
 let rec code own info t =
   (* With no better place to point at, a refusal points at where the
      checker made the type. *)
@@ -325,6 +330,7 @@ let rec code own info t =
   | TCon (_, c, [ e ], _) when c = slice_name -> "W" ^ code own info e ^ "_"
   | TCon (_, c, [ e ], _) when c = ptr_name -> "P" ^ code own info e ^ "_"
   | TCon (_, c, [ k; v ], _) when c = mutmap_name -> "M" ^ code own info k ^ code own info v ^ "_"
+  | TCon (_, c, _, _) when Hashtbl.mem object_types c -> "O_"
   | TCon (_, c, args, _) ->
       (* A datatype is named by its module wherever it is used, so every
          file of the program spells its struct the same. *)
@@ -427,6 +433,8 @@ type ctx = {
       (* this module's defs, those whose call can change a value, and
          whether a call nobody can see into can *)
   sigma : (string * typ) list; (* the type variables of the instance being written *)
+  classes : Classes.table; (* the module's classes and interfaces *)
+  slots : string list; (* every method name of them: an object's table has a slot for each *)
 }
 
 (** The C spelling of a Bool's type. ctx -> string *)
@@ -533,7 +541,55 @@ let lookup scope info name =
   | None -> unsupported info (Printf.sprintf "'%s' is not a value this backend can compile" name)
 
 (** A helper added to the file once. state -> string -> string -> state *)
-let need_helper st name text =
+(** The structs every object and class descriptor is, and the test a
+    class pattern makes, ahead of their first use. state -> state *)
+let rec need_objects st =
+  if List.mem_assoc "pyk_obj" st.types then st
+  else
+    let st =
+      {
+        st with
+        types =
+          st.types
+          @ [
+              ( "pyk_obj",
+                String.concat "\n"
+                  [
+                    "typedef struct pyk_class pyk_class;";
+                    "typedef struct pyk_obj {";
+                    "    const pyk_class *cls;";
+                    "} pyk_obj;";
+                    "struct pyk_class {";
+                    "    const char *name;";
+                    "    const pyk_class *parent;";
+                    "    const pyk_class *const *ifaces;";
+                    "    void (*const *vt)(void);";
+                    "    const char *(*show)(pyk_obj *);";
+                    "};";
+                  ] );
+            ];
+      }
+    in
+    let st =
+      need_helper st "pyk_is_a"
+        (String.concat "\n"
+           [
+             "static int pyk_is_a(const pyk_class *c, const pyk_class *target)";
+             "{";
+             "    for (; c != NULL; c = c->parent) {";
+             "        const pyk_class *const *i;";
+             "        if (c == target) return 1;";
+             "        for (i = c->ifaces; i != NULL && *i != NULL; i++) {";
+             "            if (pyk_is_a(*i, target)) return 1;";
+             "        }";
+             "    }";
+             "    return 0;";
+             "}";
+           ])
+    in
+    need_helper st "pyk_obj_show" "static const char *pyk_obj_show(pyk_obj *o)\n{\n    return o->cls->show(o);\n}"
+
+and need_helper st name text =
   if List.mem_assoc name st.helpers then st else { st with helpers = st.helpers @ [ (name, text) ] }
 
 (* --- the shared helpers --- *)
@@ -937,6 +993,7 @@ let ctor_tag ctx info t name =
     a struct written in place, on every C target. ctx -> typ -> bool *)
 let var_struct ctx t =
   match t with
+  | TCon (_, c, _, _) when Classes.find ctx.classes c <> None -> true
   | TCon (_, c, _, _) when not (is_store c) -> (
       match SMap.find_opt c ctx.datatypes with Some (Datatype (_, _, _, writable)) -> writable | None -> false)
   | _ -> false
@@ -1096,6 +1153,11 @@ let rec ctype ctx st info t =
   let t = substitute ctx.sigma t in
   let info = if info.file = "<c>" then type_info t else info in
   match t with
+  | TCon (_, c, args, _) when Classes.find ctx.classes c <> None ->
+      if args <> [] then
+        unsupported info
+          (Printf.sprintf "the generic class '%s', which C would need one struct and table of per type it is made at" c);
+      ("pyk_obj *", need_objects st)
   | TInt _ | TChar _ -> ("int", st)
   | TFloat _ -> ("double", st)
   | TBool _ -> (bool_type ctx, { st with uses_bool = true })
@@ -1597,6 +1659,9 @@ let rec shower_at ctx st info t =
     else ([], [], "up")
   in
   match t with
+  | TCon (_, c, _, _) when Classes.find ctx.classes c <> None ->
+      (* An object prints as its class says: `show`, or its header. *)
+      ((fun v _ -> Printf.sprintf "pyk_obj_show(%s)" v), need_objects st)
   | TInt _ -> ((fun v _ -> Printf.sprintf "pyk_int_str(%s)" v), need_helper st "pyk_int_str" int_str_helper)
   | TFloat _ -> ((fun v _ -> Printf.sprintf "pyk_float_str(%s)" v), need_float st)
   | TBool _ -> ((fun v _ -> Printf.sprintf "(%s ? \"true\" : \"false\")" v), st)
@@ -1874,6 +1939,9 @@ let rec structural ctx st info kind t =
   | TInt _ | TChar _ | TBool _ | TFloat _ ->
       ((fun a b -> if eq then Printf.sprintf "%s == %s" a b else Printf.sprintf "(unsigned)%s" a), st)
   | TCon (_, c, _, _) when c = ptr_name && eq -> ((fun a b -> Printf.sprintf "%s == %s" a b), st)
+  | TCon (_, c, _, _) when Classes.find ctx.classes c <> None ->
+      (* an object is equal only to itself *)
+      ((fun a b -> if eq then Printf.sprintf "%s == %s" a b else Printf.sprintf "(unsigned)(size_t)%s" a), st)
   | TString _ ->
       if eq then ((fun a b -> Printf.sprintf "strcmp(%s, %s) == 0" a b), st)
       else ((fun a _ -> Printf.sprintf "pyk_hash_string(%s)" a), need_helper st "pyk_hash_string" hash_string_helper)
@@ -2856,6 +2924,36 @@ let marker kind name more = Printf.sprintf "\001%s:%s:%s\001" kind name more
 (** The tests a pattern makes of the subject s, of type t, and the names
     it binds, each to a place in s. ctx -> state -> pattern -> cexpr ->
     typ -> ([cexpr], [(string, cexpr, typ)], state) *)
+(** What a class's struct, descriptor, constructor and the rest are
+    called in C: `pyk_<kind>_<module>_<Class>`. ctx -> string -> string ->
+    string *)
+let class_symbol ctx kind cls = Printf.sprintf "pyk_%s_%s_%s" kind (ident_of ctx.own) cls
+
+(** A field of an object, read through the struct of the class declaring
+    it: a parent's fields come first in every struct below it.
+    ctx -> string -> string -> string -> string *)
+let object_field ctx cls name v =
+  let owner = Option.value (Classes.field_owner ctx.classes cls name) ~default:cls in
+  Printf.sprintf "((%s *) %s)->%s" (class_symbol ctx "o" owner) v (c_ident name)
+
+(** The slot a method name has in every object's table. ctx -> string -> int *)
+let method_slot ctx name =
+  let rec find k = function [] -> 0 | x :: more -> if x = name then k else find (k + 1) more in
+  find 0 ctx.slots
+
+(** A method's parameters and result, as the class or interface first
+    declaring it says. ctx -> string -> string -> ([typ], typ) *)
+let method_signature ctx cls name =
+  match Classes.declaring ctx.classes cls name with
+  | Some owner -> (
+      match Classes.own_method ctx.classes owner name with
+      | Some m -> (
+          match IntMap.find_opt m.Classes.m_sym ctx.tmap with
+          | Some (TFunction (_, ps, r, _, _, _, _)) -> (ps, r)
+          | _ -> ([], TTuple (no_info, [], 0)))
+      | None -> ([], TTuple (no_info, [], 0)))
+  | None -> ([], TTuple (no_info, [], 0))
+
 let rec pattern ctx st p (s : cexpr) (t : typ) =
   let info = pattern_info p in
   match p with
@@ -2922,6 +3020,19 @@ let rec pattern ctx st p (s : cexpr) (t : typ) =
               need_helper st "pyk_slice" slice_helper )
       in
       (conds, binds, st)
+  | PConstructor (_, None, name, fields, _, _) when Classes.find ctx.classes name <> None ->
+      (* An object of that class or one below it, its header's fields
+         read through the struct of the class declaring each. *)
+      let k = Option.get (Classes.find ctx.classes name) in
+      let test = atom (Printf.sprintf "pyk_is_a(%s->cls, &%s)" (at p_atom s) (class_symbol ctx "class" name)) in
+      let places = List.map (fun (h, _) -> atom (object_field ctx name h s.text)) k.Classes.header in
+      let types = List.map (fun (_, hs) -> Option.value (IntMap.find_opt hs ctx.tmap) ~default:(TUnknown (info, 0))) k.Classes.header in
+      let conds, binds, st = parts ctx st fields places types in
+      (test :: conds, binds, st)
+  | PTyped (_, bound, target, _) ->
+      let cls = match target with TCon (_, c, _, _) -> c | _ -> "" in
+      let test = atom (Printf.sprintf "pyk_is_a(%s->cls, &%s)" (at p_atom s) (class_symbol ctx "class" cls)) in
+      ([ test ], [ (bound, s, target) ], st)
   | PConstructor (_, _, name, fields, _, _) ->
       let tag = ctor_tag ctx info t name in
       let declared = ctor_fields ctx info t name in
@@ -3360,6 +3471,44 @@ and expr ctx st scope e =
   | ECall (_, EVar (_, name, _), args, _) when List.mem name Builtin.pure_names && not (SMap.mem name scope.names) ->
       builtin ctx st scope e name (arg_exprs args)
   | ECall (_, func, args, _) -> call ctx st scope e func (arg_exprs args)
+  | EConstruct (_, None, name, args, _) when Classes.find ctx.classes name <> None ->
+      (* An object, by its class's constructor. *)
+      let t = type_of ctx scope e in
+      let _, st = ctype ctx st info t in
+      let values, steps, st = in_order ctx st scope (arg_exprs args) in
+      if List.exists (fun v -> v.local_env) values then unsupported info (escaping "an object");
+      (sequenced steps (atom (Printf.sprintf "%s(%s)" (class_symbol ctx "new" name) (String.concat ", " (List.map (fun v -> v.text) values)))), st)
+  | EMethod (_, obj, name, args, _) -> (
+      (* Through the object's own class's table: the object held once,
+         handed to the slot's function cast to the method's signature. *)
+      let cls = match type_of ctx scope obj with TCon (_, c, _, _) -> c | _ -> "" in
+      let pieces, steps, st = in_order ctx st scope (obj :: arg_exprs args) in
+      let o = List.hd pieces in
+      let ps, r = method_signature ctx cls name in
+      let rt, st = if is_unit r then ("void", st) else ctype ctx st info r in
+      let cps, st =
+        List.fold_left (fun (out, st) p -> let ct, st = ctype ctx st info p in (out @ [ ct ], st)) ([], st) ps
+      in
+      let held, st = fresh_temp st "pyk_obj *" in
+      let slot = method_slot ctx name in
+      let fn = Printf.sprintf "((%s (*)(%s)) %s->cls->vt[%d])" rt (String.concat ", " ("pyk_obj *" :: cps)) held slot in
+      let text =
+        Printf.sprintf "(%s = %s, %s(%s))" held (at p_assign o) fn (String.concat ", " (held :: List.map (fun v -> v.text) (List.tl pieces)))
+      in
+      let text = if is_unit r then Printf.sprintf "(%s, 0)" text else text in
+      match steps with _ -> (sequenced steps (atom text), st))
+  | ESuper (_, owner, name, args, _) ->
+      (* The body the checker chose, called directly on self. *)
+      let values, steps, st = in_order ctx st scope (arg_exprs args) in
+      let self = match SMap.find_opt "self" scope.names with Some b -> b.value.text | None -> "self" in
+      let _, r = method_signature ctx owner name in
+      let text = Printf.sprintf "%s(%s)" (class_symbol ctx ("m_" ^ name) owner) (String.concat ", " (self :: List.map (fun v -> v.text) values)) in
+      (sequenced steps (atom (if is_unit r then Printf.sprintf "(%s, 0)" text else text)), st)
+  | EUpcast (_, inner, _, _) -> expr ctx st scope inner
+  | EField (_, record, name, _) when (match type_of ctx scope record with TCon (_, c, _, _) -> Classes.find ctx.classes c <> None | _ -> false) ->
+      let cls = match type_of ctx scope record with TCon (_, c, _, _) -> c | _ -> "" in
+      let v, st = expr ctx st scope record in
+      (atom (object_field ctx cls name v.text), st)
   | EConstruct (_, _, name, args, _) ->
       let t = type_of ctx scope e in
       let _, st = ctype ctx st info t in
@@ -4485,6 +4634,18 @@ and stmt ctx st scope s =
          in the value, and an owner that is not a local of its own -- it
          is put in a temporary first. *)
       let owner_t = type_of ctx scope owner in
+      (match owner_t with
+      | TCon (_, cls, _, _) when Classes.find ctx.classes cls <> None ->
+          (* An object's field: the owner held first, then the value. *)
+          let ov, st = expr ctx st scope owner in
+          let opre, st = flush st in
+          let held, st = temp st "owner" in
+          let vv, st = expr ctx st scope value in
+          let vpre, st = flush st in
+          ( opre @ [ CDecl ("pyk_obj *", held, Some ov.text) ] @ vpre @ [ CLine (Printf.sprintf "%s = %s;" (object_field ctx cls field held) vv.text) ],
+            scope,
+            st )
+      | _ ->
       let path =
         match List.assoc_opt field (sole_fields ctx info owner_t) with
         | Some path -> path
@@ -4510,7 +4671,7 @@ and stmt ctx st scope s =
       let vv, st = expr ctx st scope value in
       if vv.local_env then unsupported info (escaping "a var struct");
       let vpre, st = flush st in
-      (opre @ decls @ vpre @ [ CLine (Printf.sprintf "%s->%s = %s;" (at p_atom held) path (at p_assign vv)) ], scope, st)
+      (opre @ decls @ vpre @ [ CLine (Printf.sprintf "%s->%s = %s;" (at p_atom held) path (at p_assign vv)) ], scope, st))
   | SSetIndex (info, owner, key, value, _) when mutmap_parts (type_of ctx scope owner) <> None ->
       (* d[k] := v: the MutMap, the key and the value in order, then the
          entry put -- at the end, or over the key's own value. *)
@@ -5250,7 +5411,209 @@ let rec static_bindings ctx st scope statics target (v : cexpr) t public =
 
 (** One module of a program as a cprogram. [stmt] -> typ IntMap.t ->
     Module.context -> string -> cprogram *)
+(** A class or interface in C: the struct of its objects -- the class
+    descriptor's pointer, then every field, its parents' first -- each
+    method body a function taking the object first, and for a class the
+    function setting up its fields (the parent's part first) and the one
+    building an object; then, as a wrapper written after every function
+    is declared, its table of methods (one slot per method name the
+    module has), the interfaces it is, what it prints as and its
+    descriptor (docs/target_c.md, "Classes").
+    ctx -> state -> scope -> info -> class_decl -> ([cfunc], state) *)
+let class_functions ctx st scope info c =
+  let table = ctx.classes in
+  let k = Option.get (Classes.find table c.c_name) in
+  if c.c_params <> [] then
+    unsupported info
+      (Printf.sprintf "the generic class '%s', which C would need one struct and table of per type it is made at" c.c_name);
+  let st = need_objects st in
+  let type_at sym = Option.value (IntMap.find_opt sym ctx.tmap) ~default:(TUnknown (info, 0)) in
+  let self_t = TCon (info, c.c_name, [], 0) in
+  let sym name = class_symbol ctx name c.c_name in
+  let interface = c.c_kind = ClassInterface in
+  (* the struct *)
+  let fields = Classes.all_fields table c.c_name in
+  let st =
+    if interface then st
+    else
+      let members, st =
+        List.fold_left
+          (fun (out, st) f ->
+            let ct, st = ctype ctx st info (type_at f.Classes.f_sym) in
+            (out @ [ "    " ^ declaration ct (c_ident f.Classes.f_name) ^ ";" ], st))
+          ([], st) fields
+      in
+      let name = sym "o" in
+      {
+        st with
+        types =
+          st.types
+          @ [ (name, Printf.sprintf "typedef struct %s {\n    const pyk_class *cls;\n%s\n} %s;" name (String.concat "\n" members) name) ];
+      }
+  in
+  (* each method body *)
+  let methods, st =
+    List.fold_left
+      (fun (out, st) (MethodDecl (mi, name, params, _, body, _, _, ms)) ->
+        match body with
+        | None -> (out, st)
+        | Some body ->
+            let ps, r = match type_at ms with TFunction (_, ps, r, _, _, _, _) -> (ps, r) | _ -> ([], TTuple (mi, [], 0)) in
+            let t = TFunction (mi, self_t :: ps, r, 0, 0, None, []) in
+            let fn, st =
+              function_of ctx st { scope with family = sym ("m_" ^ name) } (sym ("m_" ^ name))
+                (Param (mi, "self", None, None, 0) :: List.map (fun (Param (pi, pn, pt, _, psym)) -> Param (pi, pn, pt, None, psym)) params)
+                body t false false
+            in
+            (out @ [ fn ], st))
+      ([], st) c.c_methods
+  in
+  if interface then
+    let ifaces = List.map (fun (n, _) -> "&" ^ class_symbol ctx "class" n) k.Classes.interfaces in
+    let text =
+      String.concat "\n"
+        [
+          Printf.sprintf "static const pyk_class *const %s[] = { %s };" (sym "if") (String.concat ", " (ifaces @ [ "NULL" ]));
+          Printf.sprintf "const pyk_class %s = { %s, NULL, %s, NULL, NULL };" (sym "class") (quote c.c_name) (sym "if");
+        ]
+    in
+    let ahead =
+      String.concat "\n"
+        (List.map (fun n -> Printf.sprintf "extern const pyk_class %s;" (class_symbol ctx "class" n)) (List.map fst (Classes.SMap.bindings table)))
+    in
+    let wrappers = if List.mem_assoc "pyk_classes_ahead" st.wrappers then st.wrappers else ("pyk_classes_ahead", ahead) :: st.wrappers in
+    (methods, { st with wrappers = wrappers @ [ (sym "class", text) ] })
+  else
+    (* setting up the fields, the parent's first *)
+    let header_ct, st =
+      List.fold_left
+        (fun (out, st) (n, hs) ->
+          let ct, st = ctype ctx st info (type_at hs) in
+          (out @ [ (n, ct, type_at hs) ], st))
+        ([], st) k.Classes.header
+    in
+    let saved_temps = st.temps and saved_pre = st.pre in
+    let st = { st with temps = []; pre = [] } in
+    let cparams, iscope, st =
+      List.fold_left
+        (fun (out, iscope, st) (n, ct, t) ->
+          let cn, st = fresh st n in
+          (out @ [ (ct, cn) ], bind_value iscope n { value = atom cn; kind = BLocal; btype = t; cname_ = cn }, st))
+        ([], scope, st) header_ct
+    in
+    let self_name = "self" in
+    let parent_lines, st =
+      match k.Classes.parent with
+      | None -> ([], st)
+      | Some p ->
+          let values, steps, st = in_order ctx st iscope (arg_exprs k.Classes.parent_args) in
+          let pre, st = flush st in
+          let call = sequenced steps (atom (Printf.sprintf "%s(%s)" (class_symbol ctx "init" p) (String.concat ", " (self_name :: List.map (fun v -> v.text) values)))) in
+          (pre @ [ CLine (call.text ^ ";") ], st)
+    in
+    let own_lines =
+      List.map
+        (fun n ->
+          let cn = (SMap.find n iscope.names).value.text in
+          CLine (Printf.sprintf "%s = %s;" (object_field ctx c.c_name n self_name) cn))
+        k.Classes.own_header
+    in
+    let body_lines, st =
+      List.fold_left
+        (fun (out, st) (MemberField (_, n, _, v, _, _, _)) ->
+          match v with
+          | None -> (out, st)
+          | Some e ->
+              let vv, st = expr ctx st iscope e in
+              let pre, st = flush st in
+              (out @ pre @ [ CLine (Printf.sprintf "%s = %s;" (object_field ctx c.c_name n self_name) vv.text) ], st))
+        ([], st) c.c_fields
+    in
+    let temps = List.map (fun (ct, n) -> CDecl (ct, n, None)) st.temps in
+    let st = { st with temps = saved_temps; pre = saved_pre } in
+    let init =
+      {
+        f_name = sym "init";
+        f_public = false;
+        f_result = "void";
+        f_params = ("pyk_obj *", self_name) :: cparams;
+        f_captures = false;
+        f_body = temps @ parent_lines @ own_lines @ body_lines;
+      }
+    in
+    let made =
+      if c.c_kind = ClassAbstract then []
+      else
+        [
+          {
+            f_name = sym "new";
+            f_public = false;
+            f_result = "pyk_obj *";
+            f_params = cparams;
+            f_captures = false;
+            f_body =
+              [
+                CDecl (sym "o" ^ " *", "made", Some (Printf.sprintf "%s(sizeof *made)" (marker "M" "scanned" "")));
+                CLine (Printf.sprintf "made->cls = &%s;" (sym "class"));
+                CLine (Printf.sprintf "%s(%s);" (sym "init") (String.concat ", " ("(pyk_obj *) made" :: List.map snd cparams)));
+                CReturn (Some "(pyk_obj *) made");
+              ];
+          };
+        ]
+    in
+    (* the table, what it prints as, and the descriptor *)
+    let slot_fn m =
+      match Classes.resolve table c.c_name m with
+      | Some owner when Classes.has_method table c.c_name m -> Printf.sprintf "(void (*)(void)) %s" (class_symbol ctx ("m_" ^ m) owner)
+      | _ -> "NULL"
+    in
+    let slots = if ctx.slots = [] then [ "NULL" ] else List.map slot_fn ctx.slots in
+    let ifaces = List.map (fun (n, _) -> "&" ^ class_symbol ctx "class" n) k.Classes.interfaces in
+    let show_body, st =
+      if Classes.resolve table c.c_name "show" <> None && Classes.has_method table c.c_name "show" then
+        (Printf.sprintf "    return %s(o);" (class_symbol ctx "m_show" (Option.get (Classes.resolve table c.c_name "show"))), st)
+      else
+        match k.Classes.header with
+        | [] -> (Printf.sprintf "    return %s;" (quote c.c_name), st)
+        | header ->
+            let st = need_concat st in
+            let parts, st =
+              List.fold_left
+                (fun (out, st) (h, hs) ->
+                  let show, st = shower ctx st info (type_at hs) in
+                  (out @ [ show (object_field ctx c.c_name h "o") ], st))
+                ([], st) header
+            in
+            let joined =
+              List.fold_left
+                (fun so_far part -> Printf.sprintf "pyk_concat(pyk_concat(%s, \", \"), %s)" so_far part)
+                (List.hd parts) (List.tl parts)
+            in
+            (Printf.sprintf "    return pyk_concat(pyk_concat(%s, %s), \")\");" (quote (c.c_name ^ "(")) joined, st)
+    in
+    let text =
+      String.concat "\n"
+        [
+          Printf.sprintf "static const char *%s(pyk_obj *o);" (sym "show");
+          Printf.sprintf "static void (*const %s[])(void) = { %s };" (sym "vt") (String.concat ", " slots);
+          Printf.sprintf "static const pyk_class *const %s[] = { %s };" (sym "if") (String.concat ", " (ifaces @ [ "NULL" ]));
+          Printf.sprintf "const pyk_class %s = { %s, %s, %s, %s, %s };" (sym "class") (quote c.c_name)
+            (match k.Classes.parent with Some p -> "&" ^ class_symbol ctx "class" p | None -> "NULL")
+            (sym "if") (sym "vt") (sym "show");
+          Printf.sprintf "static const char *%s(pyk_obj *o)\n{\n%s\n}" (sym "show") show_body;
+        ]
+    in
+    (* every descriptor is declared ahead, so one may name another *)
+    let ahead =
+      String.concat "\n"
+        (List.map (fun n -> Printf.sprintf "extern const pyk_class %s;" (class_symbol ctx "class" n)) (List.map fst (Classes.SMap.bindings table)))
+    in
+    let wrappers = if List.mem_assoc "pyk_classes_ahead" st.wrappers then st.wrappers else ("pyk_classes_ahead", ahead) :: st.wrappers in
+    (methods @ (init :: made), { st with wrappers = wrappers @ [ (sym "class", text) ] })
+
 let translate_program ?(requested = []) stmts tmap (context : Module.context) target =
+  Hashtbl.reset object_types;
+  List.iter (function SClass (_, c, _) -> Hashtbl.replace object_types c.c_name () | _ -> ()) stmts;
   let standard, gc = standard_of target in
   let own = context.context_name in
   let own_datatypes =
@@ -5271,7 +5634,24 @@ let translate_program ?(requested = []) stmts tmap (context : Module.context) ta
   let datatypes = List.fold_left (fun map (Datatype (c, _, _, _) as d) -> SMap.add c d map) datatypes own_datatypes in
   let modules = List.filter_map (function SImport (_, m, alias, false, _, _) -> Some (alias, m) | _ -> None) stmts in
   let ctx =
-    { tmap; standard; gc; context; own; datatypes; modules; printing = Analyses.effects stmts; changing = changes stmts; sigma = [] }
+    {
+      tmap;
+      standard;
+      gc;
+      context;
+      own;
+      datatypes;
+      modules;
+      printing = Analyses.effects stmts;
+      changing = changes stmts;
+      sigma = [];
+      classes = Classes.table stmts;
+      slots =
+        (let table = Classes.table stmts in
+         List.fold_left
+           (fun names c -> List.fold_left (fun names m -> if List.mem m names then names else names @ [ m ]) names (Classes.method_names table c))
+           [] (Classes.ordered table stmts));
+    }
   in
   let st =
     {
@@ -5445,6 +5825,11 @@ let translate_program ?(requested = []) stmts tmap (context : Module.context) ta
                 (funcs @ [ fn ], body, statics, scope, { st with taken = StringSet.union saved made })
             | _ -> (funcs, body, statics, scope, st))
         | SImport _ | SFunctionSig _ | SDatatype _ -> (funcs, body, statics, scope, st)
+        | SClass (info, c, _) ->
+            let saved = st.taken in
+            let made, st = class_functions ctx st scope info c in
+            let made_names = List.fold_left (fun set f -> StringSet.add f.f_name set) StringSet.empty (st.funcs @ made) in
+            (funcs @ made, body, statics, scope, { st with taken = StringSet.union saved made_names })
         | SLet (_, TargetName (_, name, _), (EVar (_, other, _) as e), _, _, false, _)
           when (match SMap.find_opt other scope.names with
                | Some { kind = BFn f; _ } -> f.generic && type_vars (type_of ctx scope e) <> []

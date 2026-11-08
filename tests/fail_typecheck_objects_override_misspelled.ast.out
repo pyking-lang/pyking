@@ -1,0 +1,2 @@
+'tests/fail_typecheck_objects_override_misspelled.pyk' 13:4-14:14 Type
+  error: 'Dog' has no method 'sond' to override; did you mean 'sound'?

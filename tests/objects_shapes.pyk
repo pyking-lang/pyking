@@ -1,0 +1,37 @@
+# The shapes of design/plan-objects.md: an interface with a default, a
+# class implementing it, a class extending that one, and a list of them
+# seen as the interface.
+
+use objects
+
+interface Shape:
+    def area(self) -> Float
+    def name(self) -> String
+    def describe(self) -> String:
+        self.name() + " of area " + string(self.area())
+
+class Rect(width: Float, height: Float) implements Shape:
+    override def area(self) -> Float:
+        self.width * self.height
+    override def name(self) -> String:
+        "rectangle"
+
+class Square(side: Float) extends Rect(side, side):
+    override def name(self) -> String:
+        "square"
+
+class Circle(radius: Float) implements Shape:
+    override def area(self) -> Float:
+        3.14159 * self.radius * self.radius
+    override def name(self) -> String:
+        "circle"
+
+def total_area(shapes: [Shape]) -> Float:
+    loop sum = 0.0 for s in shapes:
+        sum + s.area()
+
+shapes: [Shape] = [Rect(2.0, 3.0), Square(2.0), Circle(1.0)]
+for s in shapes:
+    print(s.describe())
+print(total_area(shapes))
+print(Square(2.0))

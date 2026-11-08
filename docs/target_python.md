@@ -1484,3 +1484,34 @@ A `let target = value in body` (PYKING.md, "Let expressions") is compiled as the
 A call whose named arguments are not in parameter order, with more
 than one that has an effect, reaches this backend as nested `let`s
 (`docs/desugar_args.md`).
+
+## Classes
+
+A Pyking class (PYKING.md, "Classes and interfaces") is a Python class,
+`src/classes.ml` saying what it has:
+
+- **The class** names its parent and its interfaces as bases (an
+  interface, or an abstract class with no parent, is an `abc.ABC`). Its
+  body holds `__slots__` -- its own fields -- `_pyk_header`, the header's
+  fields, which the Bool walker prints an object by, `__match_args__`
+  (the same), which a class pattern matches by, and `_pyk_show = True`
+  where the class has a `show`, which the walker then calls.
+- **Each method** is a def at the module's top level named for its class,
+  `Rect__area(self)`, and the class body names it: `area = Rect__area`,
+  `name = override(Rect__name)` for an override, `area =
+  abstractmethod(Shape__area)` where there is no body. Inside a class body
+  Python would mangle the runtime's `__pyk_` helpers' names, which is why
+  no method is written there. User defs never start with an uppercase
+  letter, so these names meet none of the program's.
+- **`__init__`** runs the parent's first, as an explicit
+  `Parent.__init__(self, ...)`, then sets the class's own header fields
+  and body fields; it answers nothing.
+- **A private member** is written by the name Python's own mangling would
+  give it inside its class, `_Account__balance`, everywhere, so it reads
+  the same from a method and from the printer.
+- **`super.m(...)`** is the static call `Owner.m(self, ...)` to the body
+  the checker chose; Python's MRO plays no part. An upcast is nothing.
+- **A class pattern** `case Dog(n, a)` is Python's own, by
+  `__match_args__`; `case c: Cat` is `case Cat() as c`.
+- `override` comes from `typing` (3.12+), `ABC` and `abstractmethod` from
+  `abc`, imported only where used.

@@ -73,6 +73,15 @@ let rec of_pattern p =
   | PText (_, prefix, _, suffix, _) -> Con (HText (prefix, suffix), [])
   | PConstructor (_, _, name, fields, _, _) ->
       Con (HData name, List.map of_pattern fields)
+  | PTyped (_, _, t, _) -> (
+      (* `case c: Circle` takes what `Circle(_, ...)` does: the parts it
+         leaves out are `_` (`specialize`). *)
+      match t with TCon (_, name, _, _) -> Con (HData name, []) | _ -> Any)
+
+(** The name a datatype's constructors end with where its values are
+    objects: a class or an interface, which classes the cases name may
+    extend or implement, so its shapes are its own and those written. *)
+let open_marker = "<more>"
 
 (* --- types --- *)
 
@@ -116,9 +125,11 @@ let arity datatype type_ head column =
       match head with
       | HTuple n | HLength n | HLonger n -> n
       | _ ->
+          (* The most parts any pattern of the column gives it: a typed
+             pattern (`case d: Dog`) gives none, and takes `_` for each. *)
           let rec find = function
             | [] -> 0
-            | Con (h, ps) :: _ when h = head -> List.length ps
+            | Con (h, ps) :: rest when h = head -> max (List.length ps) (find rest)
             | Or alternatives :: rest -> find (alternatives @ rest)
             | _ :: rest -> find rest
           in
@@ -168,6 +179,9 @@ let signature datatype type_ longest written =
   | Some (TList _) -> Some lists
   | Some (TCon (_, canonical, _, _)) -> (
       match datatype canonical with
+      | Some (Datatype (_, _, constructors, _)) when List.mem_assoc open_marker constructors ->
+          let own = List.filter_map (fun (name, _) -> if name = open_marker then None else Some (HData name)) constructors in
+          Some (own @ List.filter (fun h -> (match h with HData _ -> true | _ -> false) && not (List.mem h own)) written)
       | Some (Datatype (_, _, constructors, _)) ->
           Some (List.map (fun (name, _) -> HData name) constructors)
       | None -> None)
@@ -192,7 +206,10 @@ let rec specialize head count row =
       | Any -> [ List.init count (fun _ -> Any) @ rest ]
       | Or alternatives ->
           List.concat_map (fun one -> specialize head count (one :: rest)) alternatives
-      | Con (h, parts) -> if h = head then [ parts @ rest ] else []
+      | Con (h, parts) ->
+          if h <> head then []
+          else if List.length parts = count then [ parts @ rest ]
+          else [ List.init count (fun _ -> Any) @ rest ]
       | Rest (prefix, suffix) -> (
           let fixed = List.length prefix + List.length suffix in
           match head with
@@ -284,7 +301,10 @@ let rec useful datatype rows q types =
       | Or alternatives ->
           first_some (fun one -> useful datatype rows (one :: rest) types) alternatives
       | Con (head, parts) -> (
-          let count = List.length parts in
+          (* A typed pattern gives no parts: as many as the column's
+             patterns of its head have, each `_`. *)
+          let count = max (List.length parts) (arity datatype type_ head (first :: column)) in
+          let parts = if List.length parts = count then parts else List.init count (fun _ -> Any) in
           let types = parts_or_unknown datatype type_ head count @ rest_types in
           match
             useful datatype

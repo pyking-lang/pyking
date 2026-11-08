@@ -570,3 +570,28 @@ A `let target = value in body` (PYKING.md, "Let expressions") is compiled as `Py
 A call whose named arguments are not in parameter order, with more
 than one that has an effect, reaches this backend as nested `let`s
 (`docs/desugar_args.md`).
+
+## Classes
+
+A Pyking class (PYKING.md, "Classes and interfaces") is a nested class
+of the module's own, an interface a nested Java interface:
+
+- **The class** extends its parent at the type arguments the checker
+  worked out, implements its interfaces, and -- at the top of a
+  hierarchy -- `PykRuntime.Obj`, a `Data` the runtime prints by
+  `pykTag()` and `pykFields()` (its header's fields), or by `pykShow()`
+  where the class has a `show`. A class nothing in the program extends
+  is `final`; an abstract one is `abstract`.
+- **Fields** are `public final` (`private` where Pyking says so, not
+  final where it says `var`); the constructor calls `super(...)` first,
+  then sets its own header fields and its body fields.
+- **Each method** is an instance method translated as a static one is,
+  with `final C self = this;` first; every method is `public` (an
+  interface's are), `@Override` where it overrides, a body in an
+  interface a `default` method. A method's name Java or `Object` has
+  taken gets a `$`.
+- `super.m(...)` is `super.m(...)`, or `I.super.m(...)` for an
+  interface's default. An upcast is a cast, which tells Java what a list
+  literal or a call has to infer.
+- **A `match` on an object** is an `instanceof` chain on every version
+  (java21 included), its header's fields read through a cast.

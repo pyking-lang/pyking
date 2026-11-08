@@ -157,6 +157,185 @@ and env = { bindings : value ref SMap.t; parent : env option }
 let unit_value = VUnit
 let boolean b = VBool b
 
+(* --- objects ---
+   An object is a VData of its class's name holding every field it has,
+   its parents' first, each by name, written in place: so a field is read,
+   written, pointed at and printed as a var struct's is. What makes it an
+   object is its class being in `classes`, which the program's own
+   declarations fill before anything runs (`register_classes`). A method
+   is a def named `Class.method`, taking `self` first; constructing one is
+   a def `Class.__new__`, and setting up its fields `Class.__init__`, the
+   parent's first. The closures are kept in `methods` once the class
+   statement has run, so an object reaches its methods wherever it is,
+   another module included (PYKING.md, "Classes and interfaces"). *)
+
+(** What running a program needs to know of one class or interface. *)
+type class_rt = {
+  k_kind : class_kind;
+  k_parent : string option;
+  k_supers : string list; (* the parent, then the interfaces it names *)
+  k_fields : string list; (* every field, its parents' first *)
+  k_header : string list; (* what its constructor takes and a pattern matches *)
+  k_own_header : string list; (* the header's fields that are its own *)
+  k_bodies : string list; (* the methods it gives a body *)
+}
+
+(** Every class and interface the program declares, by name. *)
+let classes : (string, class_rt) Hashtbl.t = Hashtbl.create 16
+
+(** Every method body, constructor and field set-up, by its def's name. *)
+let methods : (string, value) Hashtbl.t = Hashtbl.create 32
+
+(** The text `show` gave each object printing is about to write, by its
+    fields: worked out (it runs a method) before the printing starts. *)
+let shown_texts : ((string option * value) array * string) list ref = ref []
+
+(** Whether a VData of this name is an object. string -> bool *)
+let is_object name = Hashtbl.mem classes name
+
+(** Whether objects of class `name` are `target`s: the class itself, or a
+    class or interface above it. string -> string -> bool *)
+let rec is_a name target =
+  name = target
+  || match Hashtbl.find_opt classes name with
+     | Some k -> List.exists (fun super -> is_a super target) k.k_supers
+     | None -> false
+
+(** The class whose body runs for `m` on an object of class `name`: a body
+    in the class chain first, then a default of an interface, nearest
+    first -- the order the checker found it in. string -> string -> string? *)
+let resolve_method name m =
+  let rec chain n =
+    match Hashtbl.find_opt classes n with
+    | Some k when List.mem m k.k_bodies -> Some n
+    | Some { k_parent = Some p; _ } -> chain p
+    | _ -> None
+  in
+  match chain name with
+  | Some found -> Some found
+  | None ->
+      let rec breadth seen queue =
+        match queue with
+        | [] -> None
+        | n :: rest when List.mem n seen -> breadth seen rest
+        | n :: rest -> (
+            match Hashtbl.find_opt classes n with
+            | Some k when List.mem m k.k_bodies -> Some n
+            | Some k -> breadth (n :: seen) (rest @ k.k_supers)
+            | None -> breadth (n :: seen) rest)
+      in
+      breadth [] [ name ]
+
+(** The operations objects are run by, which no program can name: making
+    an object's fields, calling a method by the object's class, and
+    calling a def of a class by its name. *)
+let object_operations = [ "__object"; "__send"; "__invoke" ]
+
+(** A symbol for a node built here, which no symbolized node has: one the
+    call-free table never holds. () -> int *)
+let next_built = ref (-1)
+
+let built_sym () =
+  let s = !next_built in
+  decr next_built;
+  s
+
+(** Records every class and interface these statements declare. A
+    parent declared further down is recorded first, so each class knows
+    all of its fields. [stmt] -> () *)
+let register_classes stmts =
+  let decls = List.filter_map (function SClass (_, c, _) -> Some c | _ -> None) stmts in
+  let rec add c =
+    (
+      let parent = Option.map (fun (ClassRef (_, _, n, _, _, _)) -> n) c.c_extends in
+      (match parent with
+      | Some p -> (match List.find_opt (fun d -> d.c_name = p) decls with Some d when d != c -> add d | _ -> ())
+      | None -> ());
+      let inherited = match parent with Some p -> (match Hashtbl.find_opt classes p with Some k -> k.k_fields | None -> []) | None -> [] in
+      let header = List.map (fun (MemberField (_, n, _, _, _, _, _)) -> n) c.c_header in
+      let own_header = List.filter (fun n -> not (List.mem n inherited)) header in
+      let body = List.map (fun (MemberField (_, n, _, _, _, _, _)) -> n) c.c_fields in
+      Hashtbl.replace classes c.c_name
+        {
+          k_kind = c.c_kind;
+          k_parent = parent;
+          k_supers = Option.to_list parent @ List.map (fun (ClassRef (_, _, n, _, _, _)) -> n) c.c_implements;
+          k_fields = inherited @ own_header @ body;
+          k_header = header;
+          k_own_header = own_header;
+          k_bodies =
+            List.filter_map (fun (MethodDecl (_, n, _, _, b, _, _, _)) -> if b = None then None else Some n) c.c_methods;
+        })
+  in
+  List.iter add decls
+
+(** The defs a class stands for: each method with a body as
+    `Class.method(self, ...)`, and for a class its constructor and the
+    def setting up its fields. info -> class_decl -> [stmt] *)
+let class_defs info c =
+  let var i n = EVar (i, n, built_sym ()) in
+  let str i t = EString (i, t, built_sym ()) in
+  let call i name args = ECall (i, var i name, List.map (fun a -> (None, a)) args, built_sym ()) in
+  let param i n = Param (i, n, None, None, built_sym ()) in
+  let def i name params body = SFunctionDef (i, name, List.map (param i) params, body, None, built_sym (), false, [], false) in
+  let methods_ =
+    List.filter_map
+      (fun (MethodDecl (mi, n, params, _, body, _, _, _)) ->
+        match body with
+        | None -> None
+        | Some body ->
+            Some
+              (SFunctionDef
+                 ( mi,
+                   c.c_name ^ "." ^ n,
+                   param mi "self" :: List.map (fun (Param (pi, pn, pt, _, ps)) -> Param (pi, pn, pt, None, ps)) params,
+                   body,
+                   None,
+                   built_sym (),
+                   false,
+                   [],
+                   false )))
+      c.c_methods
+  in
+  if c.c_kind = ClassInterface then methods_
+  else
+    let k = Hashtbl.find classes c.c_name in
+    let header = k.k_header in
+    let parent_init =
+      match c.c_extends with
+      | Some (ClassRef (ri, _, p, _, args, _)) ->
+          [ SExprStmt (ri, call ri "__invoke" (str ri (p ^ ".__init__") :: var ri "self" :: arg_exprs args), built_sym ()) ]
+      | None -> []
+    in
+    let set i n value = SSetField (i, var i "self", n, value, built_sym ()) in
+    let own =
+      List.map (fun n -> set info n (var info n)) k.k_own_header
+      @ List.filter_map
+          (fun (MemberField (fi, n, _, v, _, _, _)) -> Option.map (fun v -> set fi n v) v)
+          c.c_fields
+    in
+    let init = def info (c.c_name ^ ".__init__") ("self" :: header) (parent_init @ own @ [ SExprStmt (info, ETuple (info, [], built_sym ()), built_sym ()) ]) in
+    let made = "__self__" in
+    let new_ =
+      def info (c.c_name ^ ".__new__") header
+        [
+          SLet (info, TargetName (info, made, built_sym ()), call info "__object" [ str info c.c_name ], None, built_sym (), false, false);
+          SExprStmt (info, call info "__invoke" (str info (c.c_name ^ ".__init__") :: var info made :: List.map (var info) header), built_sym ());
+          SExprStmt (info, var info made, built_sym ());
+        ]
+    in
+    (init :: new_ :: methods_)
+
+(** The names of the defs a block's classes stand for. [stmt] -> [string] *)
+let class_def_names stmts =
+  List.concat_map
+    (function
+      | SClass (_, c, _) ->
+          List.filter_map (fun (MethodDecl (_, n, _, _, b, _, _, _)) -> if b = None then None else Some (c.c_name ^ "." ^ n)) c.c_methods
+          @ (if c.c_kind = ClassInterface then [] else [ c.c_name ^ ".__init__"; c.c_name ^ ".__new__" ])
+      | _ -> [])
+    stmts
+
 (* --- formatting --- *)
 
 let quote text = Builtin.quote_string text
@@ -297,6 +476,27 @@ let display_value value =
         | VHostFun (module_, field) ->
             Buffer.add_string out (Printf.sprintf "<%s.%s>" module_ field);
             go rest
+        | VData (name, fields) when is_object name -> (
+            (* An object prints what its `show` says, or else as a struct
+               does with its header's fields. *)
+            match List.assq_opt fields !shown_texts with
+            | Some text ->
+                Buffer.add_string out text;
+                go rest
+            | None ->
+                let k = Hashtbl.find classes name in
+                let values =
+                  List.filter_map
+                    (fun h -> Option.map snd (Array.find_opt (fun (label, _) -> label = Some h) fields))
+                    k.k_header
+                in
+                if values = [] then (
+                  Buffer.add_string out name;
+                  go rest)
+                else (
+                  Buffer.add_string out (name ^ "(");
+                  path := Obj.repr fields :: !path;
+                  go (commas values ")" @ (Leave :: rest))))
         | VData (name, [||]) ->
             Buffer.add_string out name;
             go rest
@@ -456,13 +656,14 @@ let top_level_env () =
     (VUndefined, not yet a function; see PYKING.md, "Names and
     scoping"). [stmt] -> env -> env *)
 let declare stmts env =
-  match Analyses.block_functions stmts with
+  register_classes stmts;
+  match List.map fst (Analyses.block_functions stmts) @ class_def_names stmts with
   | [] -> env
   | functions ->
       {
         bindings =
           List.fold_left
-            (fun map (name, _) -> SMap.add name (ref (VUndefined name)) map)
+            (fun map name -> SMap.add name (ref (VUndefined name)) map)
             SMap.empty functions;
         parent = Some env;
       }
@@ -688,11 +889,13 @@ let failed state info message = { state with control = CFailed (info, message) }
     expression in it that is. Walk.node -> IntSet.t -> (bool, IntSet.t) *)
 let rec call_free_walk n found =
   match n with
-  | Walk.NExpr (ECall _) ->
+  | Walk.NExpr (ECall _ | EMethod _ | ESuper _) ->
       ( false,
         List.fold_left
           (fun found child -> snd (call_free_walk child found))
           found (Walk.children n) )
+  | Walk.NExpr (EConstruct (_, _, name, _, _)) when is_object name ->
+      (false, List.fold_left (fun found child -> snd (call_free_walk child found)) found (Walk.children n))
   | Walk.NExpr (ELambda (_, _, body, _) as lambda) ->
       (* Building a closure calls nothing, whatever its body holds -- the
          body runs when the lambda is applied, not here. Its symbols are
@@ -717,6 +920,7 @@ let rec call_free_walk n found =
 (** The symbols of every expression in a program that contains no call.
     [stmt] -> IntSet.t *)
 let call_free_symbols stmts =
+  register_classes stmts;
   List.fold_left
     (fun found s -> snd (call_free_walk (Walk.NStmt s) found))
     IntSet.empty stmts
@@ -1239,6 +1443,10 @@ let apply_builtin name args info host =
   | "len", [ VString text ] -> VInt (Builtin.utf8_length text)
   | "len", [ VList elements ] -> VInt (List.length elements)
   | "len", [ VArray elements ] -> VInt (Array.length elements)
+  | "__object", [ VString name ] ->
+      (* An object of this class, every field still to be set up. *)
+      let k = Hashtbl.find classes name in
+      VData (name, Array.of_list (List.map (fun f -> (Some f, VUnit)) k.k_fields))
   | "same", [ VArray a; VArray b ] -> VBool (a == b)
   | "same", [ VData (_, a); VData (_, b) ] -> VBool (a == b)
   | "same", [ VDynArray a; VDynArray b ] -> VBool (a == b)
@@ -1452,6 +1660,21 @@ and match_pattern env pattern value =
         | Some name -> Some (extend env name (VString middle)))
   | PList (_, prefix, rest, suffix, _), VList items ->
       match_list env prefix rest suffix items
+  | PConstructor (_, _, name, patterns, _, _), VData (built, fields) when is_object name ->
+      (* An object of that class or one below it, its header's fields
+         read as they are now. *)
+      if not (is_a built name) then None
+      else
+        let k = Hashtbl.find classes name in
+        let read h = match Array.find_opt (fun (label, _) -> label = Some h) fields with Some (_, v) -> v | None -> VUnit in
+        if List.length patterns <> List.length k.k_header then None
+        else
+          List.fold_left2
+            (fun env one h -> match env with None -> None | Some env -> match_pattern env one (read h))
+            (Some env) patterns k.k_header
+  | PTyped (_, bound, t, _), VData (built, _) when is_object built ->
+      let target = match t with TCon (_, n, _, _) -> n | _ -> "" in
+      if is_a built target then Some (extend env bound value) else None
   | PConstructor (_, _, name, patterns, _, _), VData (built, fields)
     when name = built && List.length patterns = Array.length fields ->
       (* A `var struct`'s fields are read as they are now. *)
@@ -1568,6 +1791,7 @@ let rec evaluate e env =
       let low = Option.value (bound low) ~default:0 in
       slice_value seq low (bound high))
   | EField (info, record, name, _) -> field_of info (evaluate record env) name
+  | EUpcast (_, inner, _, _) -> evaluate inner env
   | EListComp (_, element, clauses, _) ->
       VList
         (List.map
@@ -1787,6 +2011,27 @@ let start_loop state loop =
 
 (** Applies callee (a builtin or closure) to args.
     state -> expr -> value -> [value] -> env -> kont option -> state *)
+(** Whether these are values no object with `show` can be inside: then
+    printing needs nothing worked out first. [value] -> bool *)
+let no_show args =
+  if Hashtbl.length classes = 0 then true
+  else
+    (* A var struct or an array may hold itself: each is looked into once. *)
+    let seen = ref [] in
+    let rec has = function
+      | VData (_, fields) when List.memq (Obj.repr fields) !seen -> false
+      | VData (name, fields) ->
+          seen := Obj.repr fields :: !seen;
+          (is_object name && resolve_method name "show" <> None) || Array.exists (fun (_, v) -> has v) fields
+      | VList vs | VTuple vs -> List.exists has vs
+      | VArray a when List.memq (Obj.repr a) !seen -> false
+      | VArray a ->
+          seen := Obj.repr a :: !seen;
+          Array.exists has a
+      | _ -> false
+    in
+    not (List.exists has args)
+
 let rec call state call_node callee args env rest =
   let info = expr_info call_node in
   (* A builtin's own failure has no node of its own: it is the call's. *)
@@ -1822,6 +2067,39 @@ let rec call state call_node callee args env rest =
                                      (describe other) )))))
           | _ -> Error (info, Printf.sprintf "'%s' cannot be applied to (%s)" name
                               (String.concat ", " (List.map describe args)))
+        with
+        | Trap (where, message) -> Error (at where, message)
+        | Runtime_error (where, message) -> Error (where, message)
+      with
+      | Error (info, message) -> failed state info message
+      | Ok value -> { state with control = CApply value; env; kont = rest })
+  | VBuiltin "__send" -> (
+      (* A method, found by the class of the object it is called on. *)
+      match args with
+      | VString m :: (VData (cls, _) as obj) :: more -> (
+          match Option.bind (resolve_method cls m) (fun owner -> Hashtbl.find_opt methods (owner ^ "." ^ m)) with
+          | Some closure -> call state call_node closure (obj :: more) env rest
+          | None -> failed state info (Printf.sprintf "%s has no method '%s'" cls m))
+      | _ -> failed state info "a method is called on an object")
+  | VBuiltin "__invoke" -> (
+      match args with
+      | VString key :: more -> (
+          match Hashtbl.find_opt methods key with
+          | Some closure -> call state call_node closure more env rest
+          | None -> failed state info (Printf.sprintf "'%s' has not run yet" key))
+      | _ -> failed state info "a class's def is called by its name")
+  | VBuiltin (("print" | "string" | "debug") as name) when not (no_show args) -> (
+      (* An object whose class has `show` prints what it says, which is a
+         method to run: each is worked out first, then printing starts. *)
+      match
+        try
+          let texts = shown_for state info args in
+          Ok
+            (Fun.protect
+               ~finally:(fun () -> shown_texts := [])
+               (fun () ->
+                 shown_texts := texts;
+                 apply_builtin name args info state.runtime.host))
         with
         | Trap (where, message) -> Error (at where, message)
         | Runtime_error (where, message) -> Error (where, message)
@@ -1921,6 +2199,31 @@ let rec call state call_node callee args env rest =
       failed state info
         (Printf.sprintf "this call applies %s, which is not a function"
            (describe callee))
+
+(** The text `show` gives each object inside these values whose class has
+    it, each run in a machine of its own as a callback is.
+    state -> info -> [value] -> [((string option * value) array * string)] *)
+and shown_for state info args =
+  let found = ref [] in
+  let rec walk seen v =
+    match v with
+    | VData (name, fields) when List.memq (Obj.repr fields) seen -> ignore name
+    | VData (name, fields) ->
+        (if is_object name && not (List.mem_assq fields !found) then
+           match Option.bind (resolve_method name "show") (fun owner -> Hashtbl.find_opt methods (owner ^ ".show")) with
+           | Some closure -> (
+               match callback state info closure [ v ] with
+               | VString text -> found := (fields, text) :: !found
+               | _ -> ())
+           | None -> ());
+        Array.iter (fun (_, x) -> walk (Obj.repr fields :: seen) x) fields
+    | VList vs | VTuple vs -> List.iter (walk seen) vs
+    | VArray a when List.memq (Obj.repr a) seen -> ()
+    | VArray a -> Array.iter (walk (Obj.repr a :: seen)) a
+    | _ -> ()
+  in
+  List.iter (walk []) args;
+  !found
 
 (** Applies callee to args in a machine of its own, sharing state's
     runtime, and answers the value -- how a host calls back a Pyking
@@ -2151,6 +2454,32 @@ and step_eval state e =
         }
     | ETuple (_, elements, _) | EList (_, elements, _) ->
         start_elements state e [] elements state.env state.kont
+    | EConstruct (i, _, name, args, s) when is_object name ->
+        step_eval state
+          (ECall (i, EVar (i, "__invoke", built_sym ()), (None, EString (i, name ^ ".__new__", built_sym ())) :: args, s))
+    | EMethod (i, obj, name, args, s) ->
+        step_eval state
+          (ECall
+             ( i,
+               EVar (i, "__send", built_sym ()),
+               (None, EString (i, name, built_sym ())) :: (None, obj) :: args,
+               s ))
+    | ESuper (i, owner, name, args, s) ->
+        step_eval state
+          (ECall
+             ( i,
+               EVar (i, "__invoke", built_sym ()),
+               (None, EString (i, owner ^ "." ^ name, built_sym ())) :: (None, EVar (i, "self", built_sym ())) :: args,
+               s ))
+    | EUpcast (_, inner, _, _) -> step_eval state inner
+    | EVar (_, name, _) when List.mem name object_operations ->
+        (* No program can name one, and no environment holds them: the
+           machine's own, which the listing of what is bound leaves out. *)
+        { state with control = CApply (VBuiltin name) }
+    | EVar _ | EQualified _ -> (
+        match evaluate e state.env with
+        | value -> { state with control = CApply value }
+        | exception Trap (info, message) -> failed state info message)
     | EConstruct (_, _, _, args, _) ->
         start_elements state e [] (arg_exprs args) state.env state.kont
     | EAddr (_, place, _) -> (
@@ -2352,6 +2681,21 @@ and step_stmt state stmt =
          it becomes a function, capturing what is bound here. The
          statement itself supplies unit. *)
       { state with control = CApply unit_value; env = define state.env stmt }
+  | SClass (info, c, _) ->
+      (* Each def the class stands for becomes a function here, as a
+         `def` does, and is kept where its objects find it. *)
+      let env =
+        List.fold_left
+          (fun env node ->
+            let env = define env node in
+            (match node with
+            | SFunctionDef (_, name, _, _, _, _, _, _, _) ->
+                Option.iter (fun v -> Hashtbl.replace methods name v) (lookup env name)
+            | _ -> ());
+            env)
+          state.env (class_defs info c)
+      in
+      { state with control = CApply unit_value; env }
 
 (** Hands value to whatever was waiting for it (state.kont).
     state -> value -> state *)

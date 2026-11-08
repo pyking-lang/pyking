@@ -321,10 +321,11 @@ let is_digit_letter x = is_digit x || is_letter x
    refuses, and PYKING.md says so. *)
 let max_int_literal = 2147483647
 
-(* Words no program may bind, though nothing in the language uses them
-   yet: they are kept for objects (design/steps.md, step 12), so that
-   adding them breaks no program. *)
-let reserved_words = [ "class"; "interface"; "extends"; "self"; "super" ]
+(* The words of objects (PYKING.md, "Classes and interfaces"), which no
+   program may bind. They come out as TokReserved, and the parser reads
+   them where a class, a method or `self` may stand. *)
+let reserved_words =
+  [ "class"; "interface"; "extends"; "self"; "super"; "implements"; "override"; "abstract"; "private" ]
 
 let keywords =
   [

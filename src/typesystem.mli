@@ -76,6 +76,16 @@ type resolution =
       (** an argument whose implicit parameters are not the ones wanted:
           a lambda of that type stands in its place, passing the first
           `int` of its own parameters to what was written *)
+  | Upcast of typ
+      (** recorded under the expression's symbol negated: its object seen
+          as this supertype *)
+  | Method_call of string * (string * expr option) list
+      (** a method call: the class or interface whose declaration it
+          reaches, and each parameter with its default *)
+  | Method_value of int  (** a method used as a value, taking this many *)
+  | Super_owner of string * (string * expr option) list
+      (** `super.m(args)`: the class whose body runs, and the parameters *)
+  | Object_eq of bool  (** `==` (true) or `!=` on objects: a call of `eq` *)
 
 and argument =
   | Direct of string * typ  (** a name in scope, used at this type *)
@@ -110,6 +120,33 @@ type expected = No_function | Inferring | Declared of typ
     are visible because src/repl.ml carries a session's store from one
     entry to the next and starts each entry's table empty; nothing else
     reads them. docs/type_inference.md describes each. *)
+(** What the checker knows of one class or interface (PYKING.md, "Classes
+    and interfaces"): every type in it written in terms of the class's own
+    parameters, which are rigid. *)
+type class_info = {
+  cl_name : string;
+  cl_kind : class_kind;
+  cl_params : string list;
+  cl_parent : (string * typ list) option; (* the parent class, at its arguments *)
+  cl_interfaces : (string * typ list) list; (* the interfaces named in the header *)
+  cl_header : (string * typ) list; (* what the constructor takes *)
+  cl_fields : field_info list; (* the fields it declares itself *)
+  cl_methods : method_info list; (* the methods it declares itself *)
+  cl_info : info;
+}
+
+and field_info = { fd_name : string; fd_type : typ; fd_var : bool; fd_private : bool; fd_info : info }
+
+and method_info = {
+  md_name : string;
+  md_params : (string * typ * expr option) list; (* each with its default, where it has one *)
+  md_return : typ;
+  md_abstract : bool; (* no body: an abstract method, or an interface's signature *)
+  md_private : bool;
+  md_override : bool;
+  md_info : info;
+}
+
 type store = {
   environments : env IntMap.t;
   instances : typ IntMap.t;
@@ -133,6 +170,11 @@ type store = {
   mutation : bool;
       (* whether the module has `use mutation`, without which making a
          `var struct` is refused *)
+  classes : class_info SMap.t; (* every class and interface in scope, by canonical name *)
+  current_class : string option; (* the class whose method is being checked *)
+  upcasts : typ IntMap.t;
+      (* each expression whose object is seen as a supertype where it
+         stands, and that supertype: elaborate.ml wraps it in an EUpcast *)
 }
 
 (** Type-checks one module -- or a whole one-file program, which is the
@@ -201,6 +243,12 @@ val declare_functions : stmt list -> env -> store -> env * store
     it, every constructor, and each field's type. What an entry at the
     prompt does before it is checked. [stmt] -> store -> store *)
 val declare_datatypes : stmt list -> store -> store
+
+(** store knowing every class and interface these statements declare,
+    each checked against the rules a declaration keeps (PYKING.md,
+    "Classes and interfaces"). A class already known by its name -- one a
+    REPL entry declared before -- is replaced. *)
+val declare_classes : stmt list -> store -> store
 
 (** Refuses a `match` in these statements that does not match every
     value, or that has a case no value can reach (exhaustive.ml). Run

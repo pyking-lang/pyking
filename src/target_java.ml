@@ -217,7 +217,7 @@ let type_class module_class (Datatype (canonical, _, ctors, _)) =
 
 (** The Java name of a constructor's field: its own, or `f$k` for the k-th
     field where it has none. string option -> int -> string *)
-let field_name label index =
+let rec field_name label index =
   match label with
   | Some l when String.length l > 0 && l.[0] <> '#' ->
       if
@@ -226,6 +226,10 @@ let field_name label index =
       then l ^ "$"
       else l
   | _ -> Printf.sprintf "f$%d" index
+
+(** A method's Java name: its own, unless Java or Object has taken it.
+    string -> string *)
+and method_ident name = field_name (Some name) 0
 
 (** A canonical datatype name split into its module, where it is
     another's, and its own name. string -> (string?, string) *)
@@ -321,6 +325,9 @@ type ctx = {
   (* The `var`s whose address `&` takes anywhere in the module: held in a
      cell of the boxed type, which a pointer is to. *)
   addressed : StringSet.t;
+  (* The module's classes and interfaces (PYKING.md, "Classes and
+     interfaces"), each a nested class of the module's own. *)
+  classes : Classes.table;
 }
 
 (** A type variable's Java name. ctx -> string -> string *)
@@ -391,6 +398,8 @@ let rec jt ctx ?(boxed = false) ?(erase = false) t =
   | TCon _ when Typesystem.mutmap_parts t <> None ->
       let k, v = Option.get (Typesystem.mutmap_parts t) in
       runtime_class ^ ".PykMutMap<" ^ jt ctx ~boxed:true k ^ ", " ^ jt ctx ~boxed:true v ^ ">"
+  | TCon (_, canonical, args, _) when Classes.find ctx.classes canonical <> None ->
+      ctor_class ctx.own_class canonical ^ if args = [] then "" else "<" ^ targs ctx args ^ ">"
   | TCon (_, canonical, args, _) ->
       datatype_ref ctx canonical ^ if args = [] then "" else "<" ^ targs ctx args ^ ">"
   | TForall _ as p ->
@@ -967,6 +976,30 @@ let rec pattern ctx st p (s : jexpr) (t : typ) binding =
                 t ) ]
       in
       (conds, binds, st)
+  | PConstructor (_, None, name, fields, _, _) when Classes.find ctx.classes name <> None ->
+      (* An object of that class or one below it: an `instanceof`, and
+         its header's fields read through a cast. *)
+      let c = Option.get (Classes.find ctx.classes name) in
+      let cls = ctor_class ctx.own_class name in
+      let same = match t with TCon (_, n, args, _) when n = name -> Some args | _ -> None in
+      let typed = match same with Some (_ :: _ as args) -> cls ^ "<" ^ targs ctx args ^ ">" | _ -> cls in
+      let mapping = match same with Some args when List.length args = List.length c.Classes.params -> List.combine c.Classes.params args | _ -> [] in
+      let types =
+        List.map
+          (fun (_, sym) ->
+            let declared = Option.value (IntMap.find_opt sym ctx.tmap) ~default:(TUnknown (info, 0)) in
+            if mapping = [] && c.Classes.params <> [] then TUnknown (info, 0) else substitute mapping declared)
+          c.Classes.header
+      in
+      let cast = atom (Printf.sprintf "((%s) %s)" typed (at p_unary s)) in
+      let places = List.map (fun (h, _) -> struct_field cast (field_name (Some h) 0)) c.Classes.header in
+      let test = mk p_rel (Printf.sprintf "%s instanceof %s" (at p_rel s) cls) in
+      let conds, binds, st = parts ctx st fields places types binding in
+      (test :: conds, binds, st)
+  | PTyped (_, name, target, _) ->
+      let cls = match target with TCon (_, n, _, _) -> ctor_class ctx.own_class n | _ -> "Object" in
+      let test = mk p_rel (Printf.sprintf "%s instanceof %s" (at p_rel s) cls) in
+      ([ test ], [ (name, atom (Printf.sprintf "((%s) %s)" cls (at p_unary s)), target) ], st)
   | PConstructor (_, _, name, fields, _, _) -> (
       let canonical = match t with TCon (_, c, _, _) -> c | _ -> "" in
       let args = match t with TCon (_, _, a, _) -> a | _ -> [] in
@@ -1227,6 +1260,50 @@ let rec expr ctx st scope e =
     when List.mem name Builtin.member_names && not (SMap.mem name scope.names) ->
       make_array ctx st scope e name (arg_exprs args)
   | ECall (_, func, args, _) -> call ctx st scope e func (arg_exprs args)
+  | EConstruct (_, None, name, args, _) when Classes.find ctx.classes name <> None ->
+      (* An object, by its class's constructor. *)
+      let c = Option.get (Classes.find ctx.classes name) in
+      let t = type_of ctx scope e in
+      let st = need_type st t in
+      let values, st = exprs ctx st scope (arg_exprs args) in
+      let values = List.map2 (fun a v -> typed_value ctx (type_of ctx scope a) v) (arg_exprs args) values in
+      ( atom
+          (Printf.sprintf "new %s%s(%s)" (ctor_class ctx.own_class name)
+             (if c.Classes.params = [] then "" else "<>")
+             (String.concat ", " (List.map (fun v -> v.text) values))),
+        st )
+  | EMethod (_, obj, name, args, _) ->
+      let recv, st = expr ctx st scope obj in
+      let values, st = exprs ctx st scope (arg_exprs args) in
+      let values = List.map2 (fun a v -> typed_value ctx (type_of ctx scope a) v) (arg_exprs args) values in
+      let text = Printf.sprintf "%s.%s(%s)" (at p_atom recv) (method_ident name) (String.concat ", " (List.map (fun v -> v.text) values)) in
+      object_result ctx scope e (class_of ctx scope obj) name text st
+  | ESuper (_, owner, name, args, _) ->
+      (* The body the checker chose: the parent's, through `super`, or an
+         interface's default, through `Interface.super`. *)
+      let values, st = exprs ctx st scope (arg_exprs args) in
+      let values = List.map2 (fun a v -> typed_value ctx (type_of ctx scope a) v) (arg_exprs args) values in
+      let target =
+        match Classes.find ctx.classes owner with
+        | Some { Classes.kind = ClassInterface; _ } -> ctor_class ctx.own_class owner ^ ".super"
+        | _ -> "super"
+      in
+      let text = Printf.sprintf "%s.%s(%s)" target (method_ident name) (String.concat ", " (List.map (fun v -> v.text) values)) in
+      object_result ctx scope e (Some owner) name text st
+  | EUpcast (_, inner, t, _) ->
+      (* Java has the same subtyping; the cast says which type a list or
+         a call has to infer. *)
+      let v, st = expr ctx st scope inner in
+      (atom (Printf.sprintf "((%s) %s)" (jt ctx ~boxed:true t) (at p_unary v)), st)
+  | EField (_, record, name, _) when class_of ctx scope record <> None ->
+      let v, st = expr ctx st scope record in
+      let cls = Option.get (class_of ctx scope record) in
+      let boxed =
+        match Option.map (fun f -> IntMap.find_opt f.Classes.f_sym ctx.tmap) (Classes.field_of ctx.classes cls name) with
+        | Some (Some (TVar _)) -> true
+        | _ -> false
+      in
+      (atom ~boxed (Printf.sprintf "%s.%s" (at p_atom v) (field_name (Some name) 0)), st)
   | EConstruct (_, _, name, args, _) ->
       let t = type_of ctx scope e in
       let canonical, targs_ = match t with TCon (_, c, a, _) -> (c, a) | _ -> ("", []) in
@@ -1671,6 +1748,35 @@ and address ctx st scope e info place =
       (atom (Printf.sprintf "%s.%spointer(%s, %d)" runtime_class explicit o.text slot), st)
   | _ -> unsupported info "the address of this expression"
 
+(** The class an expression's object is, where it is one: its type's.
+    ctx -> scope -> expr -> string? *)
+and class_of ctx scope e =
+  match type_of ctx scope e with
+  | TCon (_, name, _, _) when Classes.find ctx.classes name <> None -> Some name
+  | _ -> None
+
+(** A method call's value: boxed where the method answers a type
+    variable, and a unit where it answers nothing, as a static method's
+    is. ctx -> scope -> expr -> string? -> string -> string -> state ->
+    (jexpr, state) *)
+and object_result ctx scope e cls name text st =
+  let t = type_of ctx scope e in
+  if is_unit t then (atom (Printf.sprintf "%s(() -> %s)" (rt "unit") text), st)
+  else
+    let declared =
+      match cls with
+      | Some c -> (
+          match Classes.declaring ctx.classes c name with
+          | Some owner -> (
+              match Classes.own_method ctx.classes owner name with
+              | Some m -> IntMap.find_opt m.Classes.m_sym ctx.tmap
+              | None -> None)
+          | None -> None)
+      | None -> None
+    in
+    let boxed = match declared with Some (TFunction (_, _, TVar _, _, _, _, _)) -> true | _ -> false in
+    (atom ~boxed text, st)
+
 (** `receiver.name(args)`, its result boxed as a generic method's is.
     jexpr -> string -> [jexpr] -> jexpr *)
 and method_call receiver name args =
@@ -1813,7 +1919,7 @@ and effect_of ctx st scope e =
          statement. *)
       let v, st = expr ctx st scope e in
       ([ JLine (v.text ^ ";") ], st)
-  | ECall (_, func, _, _) when not (match func with EVar (_, n, _) -> List.mem n Builtin.pure_names && not (SMap.mem n scope.names) | _ -> false) -> (
+  | EMethod _ | ESuper _ | ECall (_, _, _, _) when (match e with ECall (_, EVar (_, n, _), _, _) -> not (List.mem n Builtin.pure_names && not (SMap.mem n scope.names)) | _ -> true) -> (
       let v, st = expr ctx st scope e in
       (* A call to a method answering nothing is the statement itself. *)
       let prefix = rt "unit" ^ "(() -> " in
@@ -2097,6 +2203,9 @@ and stmt ctx st scope s =
       let t = type_of ctx scope owner in
       let name = field_name (Some field) 0 in
       let v =
+        match t with
+        | TCon (_, c, _, _) when Classes.find ctx.classes c <> None -> typed_value ctx (type_of ctx scope value) v
+        | _ ->
         match datatype_of ctx info t with
         | Datatype (_, _, [ (ctor, _) ], _), _ -> (
             match List.assoc_opt name (ctor_fields ctx info t ctor) with Some ft -> typed_value ctx ft v | None -> v)
@@ -2236,8 +2345,9 @@ and match_stmt ctx st scope subject cases fin =
   let boxed_type = if ctx.shape = Java21 then jt ctx ~boxed:true t else jt ctx t in
   let hold = JLine (Printf.sprintf "final %s %s = %s;" boxed_type held v.text) in
   let s = atom ~boxed:(ctx.shape = Java21) held in
+  let objects = match t with TCon (_, n, _, _) -> Classes.find ctx.classes n <> None | _ -> false in
   match ctx.shape with
-  | Java21 -> switch_stmt ctx st scope s t cases fin hold
+  | Java21 when not objects -> switch_stmt ctx st scope s t cases fin hold
   | _ ->
       let count = List.length cases in
       let guarded = List.exists (fun c -> case_guard c <> None) cases in
@@ -2655,6 +2765,7 @@ type jdatatype = {
 }
 
 type jprogram = {
+  classes_ : string list; (* each class and interface, as written *)
   class_name_ : string;
   program_name : string;
   main : bool;
@@ -2730,7 +2841,211 @@ let rec static_bindings ctx st scope statics target v t public =
 (** One module of a program as a jprogram. `context` says what is true of
     it only as part of a program. [stmt] -> typ IntMap.t -> Module.context
     -> string -> jprogram *)
+(** The labels a break names in stmts. [jstmt] -> [string] *)
+let rec labels_used stmts =
+  List.concat_map
+    (fun s ->
+      match s with
+      | JBreak (Some l) -> [ l ]
+      | JIf (_, t, e) -> labels_used t @ (match e with Some e -> labels_used e | None -> [])
+      | JBlock (_, b) | JWhile (_, _, b) | JFor (_, _, b) -> labels_used b
+      | JSwitch (_, arms) -> List.concat_map (fun (_, b) -> labels_used b) arms
+      | _ -> [])
+    stmts
+
+(** s as Java source, indented to level. [string] -> int -> jstmt -> string *)
+let rec pprint_stmt used level s =
+  let pad = String.make (4 * level) ' ' in
+  let block body = String.concat "\n" (List.map (pprint_stmt used (level + 1)) body) in
+  let labelled l = if List.mem l used then l ^ ": " else "" in
+  match s with
+  | JLine l -> pad ^ l
+  | JIf (c, t, e) ->
+      let rec ladder text e =
+        match e with
+        | None -> text ^ "\n" ^ pad ^ "}"
+        | Some [ JIf (c2, t2, e2) ] -> ladder (text ^ "\n" ^ pad ^ "} else if (" ^ c2 ^ ") {\n" ^ block t2) e2
+        | Some body -> text ^ "\n" ^ pad ^ "} else {\n" ^ block body ^ "\n" ^ pad ^ "}"
+      in
+      ladder (pad ^ "if (" ^ c ^ ") {\n" ^ block t) e
+  | JWhile (l, c, body) ->
+      Printf.sprintf "%s%swhile (%s) {\n%s\n%s}" pad (labelled l) (Option.value c ~default:"true") (block body) pad
+  | JFor (l, h, body) -> Printf.sprintf "%s%sfor (%s) {\n%s\n%s}" pad (labelled l) h (block body) pad
+  | JBlock (None, body) -> Printf.sprintf "%s{\n%s\n%s}" pad (block body) pad
+  | JBlock (Some l, body) -> Printf.sprintf "%s%s: {\n%s\n%s}" pad l (block body) pad
+  | JSwitch (sel, arms) ->
+      let arm (label, body) =
+        Printf.sprintf "%s    %s -> {\n%s\n%s    }" pad label
+          (String.concat "\n" (List.map (pprint_stmt used (level + 2)) body))
+          pad
+      in
+      Printf.sprintf "%sswitch (%s) {\n%s\n%s}" pad sel (String.concat "\n" (List.map arm arms)) pad
+  | JReturn None -> pad ^ "return;"
+  | JReturn (Some v) -> pad ^ "return " ^ v ^ ";"
+  | JThrow -> pad ^ "throw new IllegalStateException();"
+  | JBreak None -> pad ^ "break;"
+  | JBreak (Some l) -> pad ^ "break " ^ l ^ ";"
+  | JContinue -> pad ^ "continue;"
+
+(** Where a class comes in the order written, parents first.
+    [string] -> string -> int *)
+let rank order name =
+  let rec find k = function [] -> k | x :: more -> if x = name then k else find (k + 1) more in
+  find 0 order
+
+(** A class or interface as a nested class of the module's: its fields,
+    a constructor setting up the parent's part first, each method an
+    instance method taking its object as `self`, and what printing reads
+    of it (`PykRuntime.Obj`). An interface is a Java interface, a body it
+    gives a `default` method (docs/target_java.md, "Classes").
+    ctx -> state -> scope -> info -> class_decl -> (string, state) *)
+let render_class ctx st scope info c =
+  let table = ctx.classes in
+  let k = Option.get (Classes.find table c.c_name) in
+  let cls = ctor_class ctx.own_class c.c_name in
+  let tparams = List.map (tvar ctx) c.c_params in
+  let generic = if tparams = [] then "" else "<" ^ String.concat ", " tparams ^ ">" in
+  let rigid p = TVar (no_info, p, 0, true) in
+  let self_t = TCon (info, c.c_name, List.map rigid c.c_params, 0) in
+  let scope = { scope with tvars = c.c_params; cells = StringSet.empty } in
+  let type_at sym = Option.value (IntMap.find_opt sym ctx.tmap) ~default:(TUnknown (no_info, 0)) in
+  let fname n = field_name (Some n) 0 in
+  let interface = c.c_kind = ClassInterface in
+  let st = List.fold_left (fun st f -> need_type st (type_at f.Classes.f_sym)) st k.Classes.fields in
+  let parent = match k.Classes.parent with Some _ -> " extends " ^ jt ctx ~boxed:true (type_at k.Classes.parent_sym) | None -> "" in
+  let ifaces = List.map (fun (_, s) -> jt ctx ~boxed:true (type_at s)) k.Classes.interfaces in
+  let ifaces = if k.Classes.parent = None then ifaces @ [ runtime_class ^ ".Obj" ] else ifaces in
+  let head =
+    if interface then Printf.sprintf "    interface %s%s extends %s {" cls generic (String.concat ", " ifaces)
+    else
+      Printf.sprintf "    static %sclass %s%s%s%s {"
+        (if c.c_kind = ClassAbstract then "abstract " else if Classes.extended table c.c_name then "" else "final ")
+        cls generic parent
+        (if ifaces = [] then "" else " implements " ^ String.concat ", " ifaces)
+  in
+  let fields =
+    List.map
+      (fun f ->
+        Printf.sprintf "        %s %s%s %s;" (if f.Classes.f_private then "private" else "public")
+          (if f.Classes.f_var then "" else "final ")
+          (jt ctx (type_at f.Classes.f_sym)) (fname f.Classes.f_name))
+      k.Classes.fields
+  in
+  let constructor, st =
+    if interface then ([], st)
+    else
+      let params, cscope, st =
+        List.fold_left
+          (fun (out, cscope, st) (n, sym) ->
+            let t = type_at sym in
+            let jn, st = fresh st n in
+            (out @ [ (jt ctx t, jn) ], bind_value cscope n { value = atom jn; kind = BLocal; btype = t; jname_ = jn }, st))
+          ([], scope, st) k.Classes.header
+      in
+      let super_line, st =
+        match k.Classes.parent with
+        | None -> ([], st)
+        | Some _ ->
+            let values, st = exprs ctx st cscope (arg_exprs k.Classes.parent_args) in
+            let values = List.map2 (fun a v -> typed_value ctx (type_of ctx cscope a) v) (arg_exprs k.Classes.parent_args) values in
+            ([ Printf.sprintf "            super(%s);" (String.concat ", " (List.map (fun v -> v.text) values)) ], st)
+      in
+      let own =
+        List.map
+          (fun n ->
+            let jn = match SMap.find_opt n cscope.names with Some b -> b.jname_ | None -> n in
+            Printf.sprintf "            this.%s = %s;" (fname n) jn)
+          k.Classes.own_header
+      in
+      let body, st =
+        List.fold_left
+          (fun (out, st) (MemberField (_, n, _, v, _, _, fs)) ->
+            match v with
+            | None -> (out, st)
+            | Some e ->
+                let jv, st = expr ctx st cscope e in
+                let jv = typed_value ctx (type_at fs) jv in
+                (out @ [ Printf.sprintf "            this.%s = %s;" (fname n) jv.text ], st))
+          ([], st) c.c_fields
+      in
+      ( [ Printf.sprintf "        %s(%s) {" cls (String.concat ", " (List.map (fun (t, n) -> "final " ^ t ^ " " ^ n) params)) ]
+        @ super_line @ own @ body @ [ "        }" ],
+        st )
+  in
+  let methods, st =
+    List.fold_left
+      (fun (out, st) (MethodDecl (mi, name, params, _, body, override, private_, ms)) ->
+        let ps, r =
+          match type_at ms with TFunction (_, ps, r, _, _, _, _) -> (ps, r) | _ -> (List.map (fun _ -> TUnknown (mi, 0)) params, TTuple (mi, [], 0))
+        in
+        let st = List.fold_left need_type st (r :: ps) in
+        let jname = method_ident name in
+        match body with
+        | None ->
+            let typed = List.map2 (fun (Param (_, n, _, _, _)) t -> jt ctx t ^ " " ^ java_ident n) params ps in
+            let result = if is_unit r then "void" else jt ctx r in
+            ( out @ [ Printf.sprintf "        %s%s %s(%s);" (if interface then "" else "public abstract ") result jname (String.concat ", " typed) ],
+              st )
+        | Some body ->
+            let t = TFunction (mi, self_t :: ps, r, 0, 0, None, []) in
+            let saved = st.current in
+            let st = { st with current = (if is_unit r then "!" else "") ^ jname } in
+            let m, st =
+              method_of ctx st scope jname (Param (mi, "self", None, None, 0) :: params) body t false false
+            in
+            let st = { st with current = saved } in
+            let self_type, self_name = List.hd m.m_params in
+            (* An override of a method a generic class or interface
+               declares takes and gives what that declaration does, which
+               Java writes boxed (`Integer next()` for `A next()`). *)
+            let generic_above =
+              override
+              && List.exists
+                   (fun n -> n <> c.c_name && (match Classes.find table n with Some k -> k.Classes.params <> [] && Classes.own_method table n name <> None | None -> false))
+                   (Classes.supers table c.c_name)
+            in
+            let box t = match t with "int" -> "Integer" | "double" -> "Double" | "boolean" -> "Boolean" | t -> t in
+            let m =
+              if generic_above then
+                { m with m_result = (if m.m_result = "void" then "void" else box m.m_result); m_params = List.map (fun (t, n) -> (box t, n)) m.m_params }
+              else m
+            in
+            let used = labels_used m.m_body in
+            let own_tparams = List.filter (fun v -> not (List.mem v tparams)) m.m_tparams in
+            let modifiers =
+              (if override then "@Override " else "")
+              ^ if interface then "default " else if private_ then "private " else "public "
+            in
+            ( out
+              @ [
+                  Printf.sprintf "        %s%s%s %s(%s) {" modifiers
+                    (if own_tparams = [] then "" else "<" ^ String.concat ", " own_tparams ^ "> ")
+                    m.m_result jname
+                    (String.concat ", " (List.map (fun (t, n) -> "final " ^ t ^ " " ^ n) (List.tl m.m_params)));
+                  Printf.sprintf "            final %s %s = this;" self_type self_name;
+                ]
+              @ List.map (pprint_stmt used 3) m.m_body
+              @ [ "        }" ],
+              st ))
+      ([], st) c.c_methods
+  in
+  let data =
+    if interface then []
+    else
+      [
+        Printf.sprintf "        public String pykTag() { return %s; }" (quote c.c_name);
+        Printf.sprintf "        public Object[] pykFields() { return new Object[] { %s }; }"
+          (String.concat ", " (List.map (fun (h, _) -> "this." ^ fname h) k.Classes.header));
+      ]
+      @
+      if Classes.own_method table c.c_name "show" <> None then
+        [ Printf.sprintf "        public String pykShow() { return %s(); }" (method_ident "show") ]
+      else []
+  in
+  (String.concat "\n" ([ head ] @ fields @ constructor @ methods @ data @ [ "    }" ]), st)
+
 let translate_program stmts tmap (context : Module.context) version =
+  let class_texts = ref [] in
   let own_class = default_class_name context.context_name in
   if own_class = runtime_class then
     unsupported no_info (Printf.sprintf "a module whose Java class would be %s, which the runtime is" runtime_class);
@@ -2765,7 +3080,18 @@ let translate_program stmts tmap (context : Module.context) version =
     List.filter_map (function SImport (_, m, alias, false, _, _) -> Some (alias, m) | _ -> None) stmts
   in
   let ctx =
-    { tmap; shape = shape_of version; context; own_class; datatypes; modules; class_names; erase = false; addressed = addressed_vars stmts }
+    {
+      tmap;
+      shape = shape_of version;
+      context;
+      own_class;
+      datatypes;
+      modules;
+      class_names = List.fold_left (fun set c -> StringSet.add (ctor_class own_class c) set) class_names (List.filter_map (function SClass (_, c, _) -> Some c.c_name | _ -> None) stmts);
+      erase = false;
+      addressed = addressed_vars stmts;
+      classes = Classes.table stmts;
+    }
   in
   let top = { ctx with erase = true } in
   let st =
@@ -2883,6 +3209,11 @@ let translate_program stmts tmap (context : Module.context) version =
             in
             (methods @ [ m ], body, statics, scope, { st with current = ""; taken = saved_taken })
         | SImport _ | SFunctionSig _ | SDatatype _ -> (methods, body, statics, scope, st)
+        | SClass (info, c, _) ->
+            let saved_taken = st.taken in
+            let text, st = render_class ctx { st with taken = StringSet.union saved_taken (StringSet.of_list (List.map (fun (_, _, n) -> n) statics)) } scope info c in
+            class_texts := !class_texts @ [ (c.c_name, text) ];
+            (methods, body, statics, scope, { st with taken = saved_taken })
         | SLet (_, target, e, _, _, public, _) ->
             let v, st = expr top st scope e in
             let t = type_of ctx scope e in
@@ -2945,6 +3276,8 @@ let translate_program stmts tmap (context : Module.context) version =
        || List.exists (fun (m, _) -> m = "sys" || m = "sys_external") context.sigmaps)
   in
   {
+    classes_ = (let order = Classes.ordered ctx.classes stmts in
+                List.map snd (List.stable_sort (fun (a, _) (b, _) -> compare (rank order a) (rank order b)) !class_texts));
     class_name_ = own_class;
     program_name = context.context_name;
     main = context.main;
@@ -3011,52 +3344,6 @@ let expand_captures program text =
   in
   go 0;
   Buffer.contents b
-
-(** The labels a break names in stmts. [jstmt] -> [string] *)
-let rec labels_used stmts =
-  List.concat_map
-    (fun s ->
-      match s with
-      | JBreak (Some l) -> [ l ]
-      | JIf (_, t, e) -> labels_used t @ (match e with Some e -> labels_used e | None -> [])
-      | JBlock (_, b) | JWhile (_, _, b) | JFor (_, _, b) -> labels_used b
-      | JSwitch (_, arms) -> List.concat_map (fun (_, b) -> labels_used b) arms
-      | _ -> [])
-    stmts
-
-(** s as Java source, indented to level. [string] -> int -> jstmt -> string *)
-let rec pprint_stmt used level s =
-  let pad = String.make (4 * level) ' ' in
-  let block body = String.concat "\n" (List.map (pprint_stmt used (level + 1)) body) in
-  let labelled l = if List.mem l used then l ^ ": " else "" in
-  match s with
-  | JLine l -> pad ^ l
-  | JIf (c, t, e) ->
-      let rec ladder text e =
-        match e with
-        | None -> text ^ "\n" ^ pad ^ "}"
-        | Some [ JIf (c2, t2, e2) ] -> ladder (text ^ "\n" ^ pad ^ "} else if (" ^ c2 ^ ") {\n" ^ block t2) e2
-        | Some body -> text ^ "\n" ^ pad ^ "} else {\n" ^ block body ^ "\n" ^ pad ^ "}"
-      in
-      ladder (pad ^ "if (" ^ c ^ ") {\n" ^ block t) e
-  | JWhile (l, c, body) ->
-      Printf.sprintf "%s%swhile (%s) {\n%s\n%s}" pad (labelled l) (Option.value c ~default:"true") (block body) pad
-  | JFor (l, h, body) -> Printf.sprintf "%s%sfor (%s) {\n%s\n%s}" pad (labelled l) h (block body) pad
-  | JBlock (None, body) -> Printf.sprintf "%s{\n%s\n%s}" pad (block body) pad
-  | JBlock (Some l, body) -> Printf.sprintf "%s%s: {\n%s\n%s}" pad l (block body) pad
-  | JSwitch (sel, arms) ->
-      let arm (label, body) =
-        Printf.sprintf "%s    %s -> {\n%s\n%s    }" pad label
-          (String.concat "\n" (List.map (pprint_stmt used (level + 2)) body))
-          pad
-      in
-      Printf.sprintf "%sswitch (%s) {\n%s\n%s}" pad sel (String.concat "\n" (List.map arm arms)) pad
-  | JReturn None -> pad ^ "return;"
-  | JReturn (Some v) -> pad ^ "return " ^ v ^ ";"
-  | JThrow -> pad ^ "throw new IllegalStateException();"
-  | JBreak None -> pad ^ "break;"
-  | JBreak (Some l) -> pad ^ "break " ^ l ^ ";"
-  | JContinue -> pad ^ "continue;"
 
 (** A method as Java source. jmethod -> string *)
 let pprint_method m =
@@ -3188,7 +3475,7 @@ let pprint_java_program (program : jprogram) version class_name source =
       ]
     else [ Printf.sprintf "// Target: %s. The module '%s' of the program; compile it with the others." version program.program_name ]
   in
-  let datatypes = List.map (pprint_datatype program.shape_) program.datatypes_ in
+  let datatypes = List.map (pprint_datatype program.shape_) program.datatypes_ @ program.classes_ in
   let statics =
     List.map
       (fun (public, t, n) -> Printf.sprintf "    %s static %s %s;" (if public then "public" else "private") t n)
@@ -3275,6 +3562,12 @@ let runtime_source programs version =
        "    public interface Data {";
        "        String pykTag();";
        "        Object[] pykFields();";
+       "    }";
+       "";
+       "    // An object of a class: printed as its `show` says, where it has one,";
+       "    // and otherwise as a datatype's value with its header's fields.";
+       "    public interface Obj extends Data {";
+       "        default String pykShow() { return null; }";
        "    }";
        "";
        "    // A var struct, whose field i a pointer reads and writes.";
@@ -4070,6 +4363,8 @@ let runtime_source programs version =
         "            }";
         "            out.append(\"])\");";
         "            path.remove(value);";
+        "        } else if (value instanceof Obj && ((Obj) value).pykShow() != null) {";
+        "            out.append(((Obj) value).pykShow());";
         "        } else if (value instanceof Data) {";
         "            Data data = (Data) value;";
         "            Object[] fields = data.pykFields();";

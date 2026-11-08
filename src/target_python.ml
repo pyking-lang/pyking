@@ -146,6 +146,11 @@ and pystmt =
          place and two values equal only when they are one object *)
   | PyTypeAlias of info * string * string list * string
       (* type Name[params] = annotation *)
+  | PyClassDef of info * string * string list * string list * pystmt list
+      (* class Name[params](bases...): body -- a Pyking class or
+         interface (docs/target_python.md, "Classes") *)
+  | PyDecorated of info * string list * pystmt
+      (* @decorator ... in front of a def *)
 
 (** A translated program: the host boilerplate (e.g. the Bool-printing
     helper; usually empty) and the translated program itself. *)
@@ -476,6 +481,15 @@ and pprint_py_stmt ?(level = 0) s =
         @ if body = [] then [ pad ^ "    pass" ] else body)
   | PyTypeAlias (_, name, params, annotation) ->
       Printf.sprintf "%stype %s%s = %s" pad name (type_params params) annotation
+  | PyClassDef (_, name, params, bases, body) ->
+      String.concat "\n"
+        ([
+           Printf.sprintf "%sclass %s%s%s:" pad name (type_params params)
+             (if bases = [] then "" else "(" ^ String.concat ", " bases ^ ")");
+         ]
+        @ if body = [] then [ pad ^ "    pass" ] else render_block body (level + 1))
+  | PyDecorated (_, decorators, inner) ->
+      String.concat "\n" (List.map (fun d -> pad ^ "@" ^ d) decorators @ [ pprint_py_stmt ~level inner ])
   | PyMatch (_, subject, cases) ->
       String.concat "\n"
         ([ Printf.sprintf "%smatch %s:" pad (pprint_py_expr subject) ]
@@ -1268,6 +1282,13 @@ type gen = {
   (* The `var`s whose address the module takes somewhere, by name: each
      lives in a box (docs/target_python.md, "Pointers"). *)
   boxed : StringSet.t;
+  (* The program's classes, the one whose members are being written, and
+     whether an abstract base or `override` was written, which is what
+     their imports follow. *)
+  classes : Classes.table;
+  class_ctx : string option;
+  abstracts : bool;
+  overrides : bool;
 }
 
 (** Every identifier used anywhere in a program: what a generated name
@@ -1665,6 +1686,10 @@ let rec free_in_expr e bound free =
   | EConstruct (_, _, _, args, _) ->
       List.fold_left (fun free arg -> free_in_expr arg bound free) free (arg_exprs args)
   | EField (_, record, _, _) -> free_in_expr record bound free
+  | EMethod (_, obj, _, args, _) ->
+      List.fold_left (fun free arg -> free_in_expr arg bound free) (free_in_expr obj bound free) (arg_exprs args)
+  | ESuper (_, _, _, args, _) -> List.fold_left (fun free arg -> free_in_expr arg bound free) free (arg_exprs args)
+  | EUpcast (_, inner, _, _) -> free_in_expr inner bound free
   | ESlice (_, seq, low, high, _) ->
       List.fold_left
         (fun free e -> free_in_expr e bound free)
@@ -1794,6 +1819,26 @@ and free_in_stmt s bound free =
       in
       (bound, free)
   | SImport _ | SFunctionSig _ | SDatatype _ -> (bound, free)
+  | SClass (_, c, _) ->
+      (* Each method is a def, with `self` and its parameters bound. *)
+      let free =
+        List.fold_left
+          (fun free (MethodDecl (_, _, params, _, body, _, _, _)) ->
+            match body with
+            | None -> free
+            | Some body ->
+                free_in_nested body
+                  (StringSet.union bound (set_of ("self" :: List.map (fun (Param (_, n, _, _, _)) -> n) params)))
+                  free)
+          free c.c_methods
+      in
+      let with_header = StringSet.union bound (set_of (List.map (fun (MemberField (_, n, _, _, _, _, _)) -> n) c.c_header)) in
+      let free =
+        List.fold_left
+          (fun free (MemberField (_, _, _, v, _, _, _)) -> match v with Some e -> free_in_expr e with_header free | None -> free)
+          free c.c_fields
+      in
+      (bound, free)
 
 (** The names stmts read from outside themselves: every name used before
     stmts (or bound) has bound it. [stmt] -> StringSet.t -> StringSet.t *)
@@ -2237,6 +2282,32 @@ let build_format_helper info name floats =
                 [ PyReturn (info, joined [ text "("; out; text ",)" ]) ],
                 None );
             PyReturn (info, joined [ text "("; out; text ")" ]);
+          ],
+          None );
+      (* An object prints what its `show` says, or else its class's name
+         and its header's fields, as a struct prints. *)
+      PyIf
+        ( info,
+          call "hasattr" [ v; text "_pyk_header" ],
+          [ PyIf (info, call "getattr" [ v; text "_pyk_show"; PyBool (info, false) ], [ PyReturn (info, PyCall (info, PyAttr (info, v, "show"), [])) ], None) ]
+          @ enter
+          @ [
+            PyAssign (info, PyTargetName (info, "out"), text "");
+            PyFor
+              ( info,
+                "f",
+                PyAttr (info, v, "_pyk_header"),
+                [
+                  PyAssign (info, PyTargetName (info, "e"), call "getattr" [ v; var "f" ]);
+                  step;
+                ],
+                None );
+            PyReturn
+              ( info,
+                PyAdd
+                  ( info,
+                    PyAttr (info, call "type" [ v ], "__name__"),
+                    PyIfExp (info, PyAttr (info, v, "_pyk_header"), joined [ text "("; out; text ")" ], text "") ) );
           ],
           None );
       (* A datatype's value prints as its constructor applied to its
@@ -2734,6 +2805,11 @@ let rec translate_pattern p scope =
       let py_inner, scope = translate_pattern inner scope in
       let py_name, scope = bind name scope in
       (PyPAs (info, py_inner, py_name), scope)
+  | PTyped (info, name, t, _) ->
+      (* `case c: Circle` is Python's `case Circle() as c`. *)
+      let cls = match t with TCon (_, n, _, _) -> lookup n scope | _ -> "object" in
+      let py_name, scope = bind name scope in
+      (PyPAs (info, PyPClass (info, cls, []), py_name), scope)
 
 (** A pattern with the capture names `mapping` gives renamed.
     [(string, string)] -> pypattern -> pypattern *)
@@ -3232,7 +3308,18 @@ let rec translate_expr e scope gen =
       (PyCall (info, callee, py_args), gen)
   | EField (info, record, name, _) ->
       let py_record, gen = translate_expr record scope gen in
-      (PyAttr (info, py_record, public_py_name name), gen)
+      (PyAttr (info, py_record, member_name gen (owner_class gen record) name), gen)
+  | EMethod (info, obj, name, args, _) ->
+      let py_obj, gen = translate_expr obj scope gen in
+      let py_args, gen = translate_each (arg_exprs args) scope gen in
+      (PyCall (info, PyAttr (info, py_obj, member_name gen (owner_class gen obj) name), py_args), gen)
+  | ESuper (info, owner, name, args, _) ->
+      (* The implementation the checker chose, called on self by its
+         class: Python's own MRO plays no part. *)
+      let py_args, gen = translate_each (arg_exprs args) scope gen in
+      ( PyCall (info, PyAttr (info, PyVar (info, lookup owner scope), member_name gen (Some owner) name), PyVar (info, lookup "self" scope) :: py_args),
+        gen )
+  | EUpcast (_, inner, _, _) -> translate_expr inner scope gen
   | EAdd (info, l, r, _) -> binary (fun i a b -> PyAdd (i, a, b)) info l r
   (* Python's `+` concatenates strings and lists as well as adding, so
      both Pyking operators land on the same node. *)
@@ -3581,6 +3668,37 @@ let rec translate_expr e scope gen =
 
 (** Every expression of a list, left to right.
     [expr] -> scope -> gen -> ([pyexpr], gen) *)
+(** The class an expression's object is, where it is one: its type's,
+    or the class whose members are being written. expr -> gen -> string? *)
+and owner_class gen e =
+  match IntMap.find_opt (expr_sym e) gen.types with
+  | Some (TCon (_, name, _, _)) when Classes.find gen.classes name <> None -> Some name
+  | _ -> ( match e with EVar (_, "self", _) -> gen.class_ctx | _ -> None)
+
+(** What Python calls a member reached on an object of class `cls`: its
+    own name, or for a private one the name Python's own mangling gives
+    it inside its class, written out (`_Account__balance`), so it reads
+    the same from anywhere. gen -> string? -> string -> string *)
+and member_name gen cls name =
+  match cls with
+  | None -> public_py_name name
+  | Some c -> (
+      let private_owner =
+        match Classes.field_of gen.classes c name with
+        | Some f when f.Classes.f_private -> Some f.Classes.f_owner
+        | Some _ -> None
+        | None ->
+            List.find_map
+              (fun n ->
+                match Classes.own_method gen.classes n name with
+                | Some m when m.Classes.m_private -> Some n
+                | _ -> None)
+              (Classes.supers gen.classes c)
+      in
+      match private_owner with
+      | Some owner -> "_" ^ owner ^ "__" ^ name
+      | None -> public_py_name name)
+
 and translate_each exprs scope gen =
   List.fold_left
     (fun (out, gen) e ->
@@ -3851,6 +3969,7 @@ and declare_functions stmts scope =
       | SDatatype _ ->
           List.fold_left (fun scope name -> snd (bind name scope)) scope
             (Module.datatype_names s)
+      | SClass (_, c, _) -> snd (bind c.c_name scope)
       | SImport (_, _, local, selected, fields, _) ->
           let names =
             if selected then List.map (fun (_, local) -> local) fields
@@ -4109,6 +4228,7 @@ and translate_stmt s scope gen =
         | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ -> true
         | _ -> false
       in
+      let field = member_name gen (owner_class gen owner) field in
       let py_owner, gen = translate_expr owner scope gen in
       let setup, py_owner, gen =
         if stable owner || stable value then ([], py_owner, gen)
@@ -4302,6 +4422,9 @@ and translate_stmt s scope gen =
       in
       ([ PyMatch (info, py_subject, py_cases) ], scope, gen)
   | SFunctionSig _ -> ([], scope, gen)
+  | SClass (info, c, _) ->
+      let tops, py_class, gen = translate_class info c scope gen in
+      ([], scope, { gen with pending = gen.pending @ tops @ [ py_class ] })
   | SDatatype (info, name, params, constructors, sym, _, writable) ->
       (* A frozen dataclass per constructor, and the datatype's own name
          a type alias for their union -- what an import of it imports.
@@ -4371,6 +4494,126 @@ and translate_stmt s scope gen =
           dataclasses = true;
           declared = StringSet.add name gen.declared;
         } )
+
+(** A class or interface as a Python class: its fields in `__slots__`,
+    its header's in `_pyk_header` (what printing shows) and
+    `__match_args__` (what a pattern matches), a constructor setting up
+    the parent's part first, and each method a def taking `self` --
+    `@override` on an override, `@abstractmethod` where there is no body
+    (docs/target_python.md, "Classes").
+    info -> class_decl -> scope -> gen -> ([pystmt], pystmt, gen) *)
+and translate_class info c scope gen =
+  let table = gen.classes in
+  let k = Option.get (Classes.find table c.c_name) in
+  let outer_ctx = gen.class_ctx in
+  let gen = { gen with class_ctx = Some c.c_name } in
+  let attr name = member_name gen (Some c.c_name) name in
+  let interface = c.c_kind = ClassInterface in
+  let abstract_ = c.c_kind = ClassAbstract || interface in
+  let bases =
+    Option.to_list (Option.map (fun p -> lookup p scope) k.Classes.parent)
+    @ List.map (fun (n, _) -> lookup n scope) k.Classes.interfaces
+  in
+  let bases = if abstract_ && bases = [] then [ "ABC" ] else bases in
+  let quoted names = PyTuple (info, List.map (fun n -> PyString (info, n)) names) in
+  let header_attrs = List.map (fun (n, _) -> member_name gen (Some c.c_name) n) k.Classes.header in
+  let shows = Classes.resolve table c.c_name "show" <> None && Classes.own_method table c.c_name "show" <> None in
+  let class_attrs =
+    [ PyAssign (info, PyTargetName (info, "__slots__"), quoted (List.map (fun f -> attr f.Classes.f_name) k.Classes.fields)) ]
+    @ (if interface then []
+       else
+         [
+           PyAssign (info, PyTargetName (info, "_pyk_header"), quoted header_attrs);
+           PyAssign (info, PyTargetName (info, "__match_args__"), quoted header_attrs);
+         ])
+    @ if shows then [ PyAssign (info, PyTargetName (info, "_pyk_show"), PyBool (info, true)) ] else []
+  in
+  (* A def of Pyking's own, translated as any def is and then named as
+     the member: its name must not meet a name of the program. *)
+  let as_def mi name params body gen =
+    let def_ = SFunctionDef (mi, "__pyk_member__", params, body, None, 0, false, [], false) in
+    match translate_stmt def_ scope gen with
+    | [ PyFunctionDef (di, _, ps, b) ], _, gen -> (PyFunctionDef (di, name, ps, b), gen)
+    | _, _, gen -> (PyFunctionDef (mi, name, [ "self" ], [ PyExprStmt (mi, PyVar (mi, "...")) ]), gen)
+  in
+  (* Each member is a def at the module's top level, named for its class
+     (no def of a program starts with an uppercase letter), and the class
+     body names it: inside a class body Python would mangle the helpers'
+     `__pyk_` names. *)
+  let module_name member = lookup c.c_name scope ^ "__" ^ String.map (fun ch -> if ch = '_' then '_' else ch) member in
+  let attached member def_ wrap =
+    match def_ with
+    | PyFunctionDef (di, _, ps, b) ->
+        let top = module_name member in
+        ( PyFunctionDef (di, top, ps, b),
+          PyAssign (di, PyTargetName (di, member), match wrap with None -> PyVar (di, top) | Some w -> PyCall (di, PyVar (di, w), [ PyVar (di, top) ])) )
+    | other -> (other, PyExprStmt (info, PyVar (info, "...")))
+  in
+  let self_param i = Param (i, "self", None, None, 0) in
+  let init, gen =
+    if interface then (None, gen)
+    else
+      let var i n = EVar (i, n, 0) in
+      let parent =
+        match k.Classes.parent with
+        | Some p -> [ SExprStmt (info, ESuper (info, p, "__init__", k.Classes.parent_args, 0), 0) ]
+        | None -> []
+      in
+      let sets =
+        List.map (fun n -> SSetField (info, var info "self", n, var info n, 0)) k.Classes.own_header
+        @ List.filter_map
+            (fun (MemberField (fi, n, _, v, _, _, _)) -> Option.map (fun v -> SSetField (fi, var fi "self", n, v, 0)) v)
+            c.c_fields
+      in
+      let params = self_param info :: List.map (fun (n, s) -> Param (info, n, None, None, s)) k.Classes.header in
+      let def_, gen = as_def info "__init__" params (parent @ sets @ [ SExprStmt (info, ETuple (info, [], 0), 0) ]) gen in
+      (* Python's constructor answers nothing: the unit a Pyking body
+         ends in is left out. *)
+      let def_ =
+        match def_ with
+        | PyFunctionDef (di, n, ps, b) ->
+            let b =
+              List.filter_map
+                (function
+                  | PyReturn (_, PyTuple (_, [])) -> None
+                  | PyReturn (ri, e) -> Some (PyExprStmt (ri, e))
+                  | other -> Some other)
+                b
+            in
+            PyFunctionDef (di, n, ps, if b = [] then [ PyExprStmt (di, PyVar (di, "None")) ] else b)
+        | other -> other
+      in
+      (Some def_, gen)
+  in
+  let tops, init =
+    match init with
+    | Some d ->
+        let top, inside = attached "__init__" d None in
+        ([ top ], [ inside ])
+    | None -> ([], [])
+  in
+  let tops, methods, gen =
+    List.fold_left
+      (fun (tops, out, gen) (MethodDecl (mi, name, params, _, body, override, _, _)) ->
+        let name_py = attr name in
+        let params = self_param mi :: List.map (fun (Param (pi, pn, pt, _, ps)) -> Param (pi, pn, pt, None, ps)) params in
+        match body with
+        | None ->
+            let names = List.map (fun (Param (_, n, _, _, _)) -> public_py_name n) params in
+            let top, inside =
+              attached name_py (PyFunctionDef (mi, name_py, names, [ PyExprStmt (mi, PyVar (mi, "...")) ])) (Some "abstractmethod")
+            in
+            (tops @ [ top ], out @ [ inside ], { gen with abstracts = true })
+        | Some body ->
+            let def_, gen = as_def mi name_py params body gen in
+            let top, inside = attached name_py def_ (if override then Some "override" else None) in
+            (tops @ [ top ], out @ [ inside ], if override then { gen with overrides = true } else gen))
+      (tops, [], gen) c.c_methods
+  in
+  let gen = if abstract_ then { gen with abstracts = true } else gen in
+  ( tops,
+    PyClassDef (info, lookup c.c_name scope, List.map public_py_name c.c_params, bases, class_attrs @ init @ methods),
+    { gen with class_ctx = outer_ctx } )
 
 (** A Pyking type as a Python annotation: quoted where it names a
     datatype of this module not declared yet and the host does not
@@ -4804,6 +5047,10 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
             | SImport (_, module_, local, false, _, _) -> Some (local, module_)
             | _ -> None)
           stmts;
+      classes = Classes.table stmts;
+      class_ctx = None;
+      abstracts = false;
+      overrides = false;
     }
   in
   let translated, _, gen =
@@ -4829,9 +5076,24 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
   let datatype_imports =
     (if gen.dataclasses then [ PyFromImport (at, "dataclasses", [ ("dataclass", "dataclass") ]) ]
      else [])
-    @
-    if gen.callables then [ PyFromImport (at, "collections.abc", [ ("Callable", "Callable") ]) ]
-    else []
+    @ (if gen.callables then [ PyFromImport (at, "collections.abc", [ ("Callable", "Callable") ]) ]
+       else [])
+    @ (if gen.abstracts then [ PyFromImport (at, "abc", [ ("ABC", "ABC"); ("abstractmethod", "abstractmethod") ]) ]
+       else [])
+    @ if gen.overrides then [ PyFromImport (at, "typing", [ ("override", "override") ]) ] else []
+  in
+  (* A class is written after the classes it names, which Python needs
+     to exist when its own statement runs. *)
+  let pending =
+    let order = Classes.ordered gen.classes stmts in
+    let classes, rest = List.partition (function PyClassDef _ -> true | _ -> false) gen.pending in
+    let rank = function
+      | PyClassDef (_, n, _, _, _) ->
+          let rec find k = function [] -> k | x :: more -> if x = n then k else find (k + 1) more in
+          find 0 order
+      | _ -> 0
+    in
+    rest @ List.stable_sort (fun a b -> compare (rank a) (rank b)) classes
   in
   {
     imports = datatype_imports;
@@ -4841,5 +5103,5 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
     float_helper = gen.float_name;
     format_helper = Option.value gen.format_helper ~default:"__pyk_str";
     conversions = gen.conversions;
-    stmts = own_import @ gen.pending @ translated;
+    stmts = own_import @ pending @ translated;
   }

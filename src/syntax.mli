@@ -103,6 +103,21 @@ type expr =
          through. Desugar_args puts every field in its position, named
          by the field's own name where it has one. *)
   | EField of info * expr * string * int (* expr.name -- a named field *)
+  | EMethod of info * expr * string * (string option * expr) list * int
+      (* obj.name(args) -- a method called on an object (PYKING.md,
+         "Classes and interfaces"). The parser and the checker see an
+         ECall of an EField; elaborate.ml makes this node once the
+         checker has found the method, with every argument in its
+         position. *)
+  | ESuper of info * string * string * (string option * expr) list * int
+      (* super.name(args) -- the implementation the class inherited,
+         called on self. The first string is the class or interface
+         whose body runs: "" as parsed, filled in by elaborate.ml. *)
+  | EUpcast of info * expr * typ * int
+      (* expr's object seen as one of its supertypes: a class its class
+         extends or an interface it implements. Never written: made by
+         elaborate.ml where the checker found one, and printed as expr
+         alone. *)
 
 (* The binary operators beside the arithmetic and comparison ones above.
    `and`, `or` and `not` keep how they were written, so `-t pyking`
@@ -171,11 +186,46 @@ and datatype = Datatype of string * string list * (string * (string option * typ
    parameters, each constructor with its fields (the name, where the
    field has one, and the type), and whether it is a `var struct`, whose
    fields are written in place. *)
-(* a datatype as another module sees it: its canonical name, its
-   parameters, and each constructor with its fields (the name, where the
-   field has one, and the type). *)
 
 and implicit_param = IParam of string * typ
+
+(* A class, an abstract class or an interface (PYKING.md, "Classes and
+   interfaces"). *)
+and class_kind = ClassPlain | ClassAbstract | ClassInterface
+
+(* `[public] [abstract] class Name(header) [extends P(args)] [implements
+   I, J]:` and its members, or `[public] interface Name(params) [extends
+   I, J]:`. An interface's `extends` is its `implements` here. *)
+and class_decl = {
+  c_name : string;
+  c_kind : class_kind;
+  c_params : string list; (* its type parameters *)
+  c_header : member_field list; (* the constructor's parameters, each a field *)
+  c_extends : class_ref option; (* the one parent class, with its constructor's arguments *)
+  c_implements : class_ref list; (* the interfaces, with no arguments *)
+  c_fields : member_field list; (* the fields declared in the body *)
+  c_methods : method_decl list;
+  c_public : bool;
+}
+
+(* [module.]Name(T1, ...)(args) -- a supertype named in a class header:
+   its type arguments and, for the parent class, its constructor's
+   arguments. Desugar_args puts each argument in its position. *)
+and class_ref = ClassRef of info * string option * string * typ list * (string option * expr) list * int
+
+(* [private] [var] name: Type [= default] -- a field. A header field's
+   default is a constructor default, removed by desugar_args; a body
+   field's is its initial value, which every body field has. *)
+and member_field = MemberField of info * string * typ option * expr option * bool * bool * int
+(* info, name, type, default or initial value, `var`, `private`, sym *)
+
+(* [private] [override] [abstract] def name(self, params) [-> T]: body.
+   The parameters leave out `self`. The body is None for an abstract
+   method and an interface's signature. A parameter's default is kept
+   (as the call to the def desugar_args made of it, or the literal):
+   elaborate.ml fills it in where a call leaves it out. *)
+and method_decl = MethodDecl of info * string * param list * typ option * stmt list option * bool * bool * int
+(* info, name, params, return type, body, `override`, `private`, sym *)
 (* `implicit name: type`, in a function type. It carries no info and no
    sym: it is part of a type, and a type is synthesized. *)
 
@@ -201,6 +251,9 @@ and pattern =
          one. *)
   | POr of info * pattern list * int (* case p1 | p2 | ...: *)
   | PAs of info * pattern * string * int (* case p as name: *)
+  | PTyped of info * string * typ * int
+      (* case name: Class: -- an object of that class or interface (or
+         of a class below it), bound to the name at that type *)
 
 and list_rest = ListRest of info * string option * int
 (* the `..` / `..name` rest marker inside a PList *)
@@ -304,6 +357,8 @@ and stmt =
   | SDatatype of info * string * string list * constructor list * int * bool * bool
       (* [public] datatype Name(a, b): one constructor per line. The
          flags are `public`, and whether it is a `var struct`. *)
+  | SClass of info * class_decl * int
+      (* a class, an abstract class or an interface *)
   | SImport of info * string * string * bool * (string * string) list * int
       (* import module [as name] / from module import field [as name].
          The fields are the module's own name for each thing taken and
@@ -417,6 +472,13 @@ val assignment_word : stmt -> string
 
 (** The symbol of one statement. stmt -> int *)
 val stmt_sym : stmt -> int
+
+(** A class with every expression in it rewritten by the first function
+    and every method body by the second. *)
+val map_class : (expr -> expr) -> (stmt list -> stmt list) -> class_decl -> class_decl
+
+(** Every method body of a class, leaving out the abstract ones. *)
+val method_bodies : class_decl -> stmt list list
 
 (** One expression with its span replaced. info -> expr -> expr *)
 val set_expr_info : info -> expr -> expr

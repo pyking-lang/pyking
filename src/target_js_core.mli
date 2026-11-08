@@ -100,6 +100,9 @@ and jsstmt =
          array, whose index was checked by the statement before it. *)
   | JsSetField of info * jsexpr * string * jsexpr
       (* target.name = value; -- a field write into a `var struct`. *)
+  | JsClass of info * string * string option * jsstmt list
+      (* class Name [extends Parent] { members } -- a Pyking class or
+         interface; each member a JsFunc, printed as a method. *)
 
 (** Everything the packager decides and the core only names: how each
     runtime operation is called, and how what crosses a module boundary

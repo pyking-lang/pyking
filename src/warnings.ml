@@ -350,7 +350,7 @@ let resolved w here sym =
       (match target with Some (n, _) -> use w here n | None -> ());
       List.iter argument args
   | Some (Typesystem.Adapted (_, _, args)) -> List.iter argument args
-  | None -> ()
+  | Some _ | None -> ()
 
 let rec target_names = function
   | TargetName (i, n, _) -> [ (n, i) ]
@@ -372,6 +372,7 @@ let rec pattern_names w = function
       let after = { i with row1 = i.row2; col1 = 0 } in
       let span = name_span w n (if List.mem_assoc n inner_names then after else i) in
       inner_names @ [ (n, span) ]
+  | PTyped (i, n, _, _) -> [ (n, name_span w n i) ]
   | POr (_, [], _) | PInt _ | PString _ | PChar _ | PBool _ | PWildcard _ | PText _ -> []
 
 let param_span (Param (i, n, _, _, _)) = { i with row2 = i.row1; col2 = i.col1 + String.length n }
@@ -453,6 +454,11 @@ let rec expr w here e =
       in
       expr w inner body
   | EConstruct (_, _, _, args, _) -> List.iter go (arg_exprs args)
+  | EMethod (_, obj, _, args, _) ->
+      go obj;
+      List.iter go (arg_exprs args)
+  | ESuper (_, _, _, args, _) -> List.iter go (arg_exprs args)
+  | EUpcast (_, e, _, _) -> go e
 
 (** A nested block, in a scope of its own. *)
 and block w here stmts = ignore (statements w { here with block = fresh w } stmts)
@@ -564,6 +570,37 @@ and statement w here ~toplevel stmt =
       let inner = { here with block = fresh w; inside = self :: here.inside } in
       let inner = bind_params w inner (RParameter (Some n)) (params @ implicits) in
       ignore (statements w inner body);
+      here
+  | SClass (_, c, _) ->
+      (* A method's parameters, and the header's, are never reported: an
+         override takes what the method it replaces takes, used or not. *)
+      let exempt here role (n, span) =
+        let here, b = bind w here ~toplevel:false role n span in
+        b.exempt <- true;
+        here
+      in
+      let with_header =
+        List.fold_left
+          (fun h (MemberField (fi, n, _, _, _, _, _)) -> exempt h (RParameter None) (n, name_span w n fi))
+          { here with block = fresh w } c.c_header
+      in
+      List.iter (fun (MemberField (_, _, _, v, _, _, _)) -> Option.iter (expr w with_header) v) c.c_fields;
+      (match c.c_extends with
+      | Some (ClassRef (_, _, _, _, args, _)) -> List.iter (expr w with_header) (arg_exprs args)
+      | None -> ());
+      List.iter
+        (fun (MethodDecl (_, _, params, _, body, _, _, _)) ->
+          List.iter (fun (Param (_, _, _, default, _)) -> Option.iter (expr w here) default) params;
+          match body with
+          | None -> ()
+          | Some body ->
+              let inner =
+                List.fold_left
+                  (fun h (Param (_, n, _, _, _) as p) -> exempt h (RParameter None) (n, param_span p))
+                  { here with block = fresh w } params
+              in
+              ignore (statements w inner body))
+        c.c_methods;
       here
   | SFunctionSig _ | SDatatype _ | SImport _ | SBreak _ | SContinue _ -> here
 

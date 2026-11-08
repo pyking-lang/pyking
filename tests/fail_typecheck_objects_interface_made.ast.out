@@ -1,0 +1,3 @@
+'tests/fail_typecheck_objects_interface_made.pyk' 11:4-11:11 Type
+  error: 'Shape' is an interface, which cannot be made; make a class
+  that implements it

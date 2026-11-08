@@ -22,6 +22,11 @@ exception Refused of info * string
     nothing reaches, given the datatype each canonical name denotes and
     the types the checker worked out.
     (string -> datatype?) -> typ IntMap.t -> [stmt] -> () *)
+(** The constructor a datatype's list ends with where its values are
+    objects of a class or an interface: the shapes are its own and those
+    the cases name. *)
+val open_marker : string
+
 val check : (string -> datatype option) -> typ IntMap.t -> stmt list -> unit
 
 (** Whether these patterns between them match every value of a type,

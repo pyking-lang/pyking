@@ -1,0 +1,9 @@
+# `super` calls what a class inherited, inside one of its methods.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+def f() -> Int:
+    super.size()

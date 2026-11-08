@@ -1,0 +1,14 @@
+# `==` compares objects through their `eq`, one at a time: a list of
+# objects is not compared part by part, which each target would do its
+# own way.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+class Money(cents: Int):
+    def eq(self, other: Money) -> Bool:
+        self.cents == other.cents
+
+print([Money(1)] == [Money(1)])

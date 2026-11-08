@@ -1,0 +1,14 @@
+# A class that can be made gives every method a body.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+interface Shape:
+    def area(self) -> Float
+    def name(self) -> String
+
+class Rect(w: Float) implements Shape:
+    override def name(self) -> String:
+        "rectangle"

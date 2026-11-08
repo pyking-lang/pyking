@@ -1,0 +1,12 @@
+# A private field is reached only from its own class's methods.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects, mutation
+
+class Account(owner: String):
+    private var balance: Int = 0
+
+a = Account("ada")
+print(a.balance)

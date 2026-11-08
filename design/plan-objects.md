@@ -1,5 +1,43 @@
 # Plan: object-oriented programming (`use objects`)
 
+> **Status (November 2026): implemented**, all four phases, with every
+> recommendation of section 11. Where the implementation had to differ
+> from what is written below, it says so here:
+>
+> - **OCaml** (§6.4, §11.13 A): a Pyking class is an OCaml *class type*,
+>   and its objects immediate objects built by a function, each method a
+>   function taking `self` -- not an OCaml `class`, which cannot be
+>   recursive with the functions its methods call and that build its
+>   objects. `pyk_up` and the extensible variant are as planned. A
+>   generic class's constructor takes a printer per type parameter.
+>   OCaml's class types are regular, so a generic class whose method
+>   gives the class at other type arguments (`Pair(b, a)`) is refused on
+>   OCaml.
+> - **C** (§6.5, §11.14): an object is a thin `pyk_obj *` and every call
+>   goes through its class's method table, which has one slot per method
+>   name of the module -- the alternative B of §11.14, simpler than fat
+>   pointers since every object then has one C type. A generic class is
+>   refused on C rather than monomorphised.
+> - **Python** (§6.2): each method is a def at the module's top level,
+>   named for its class, which the class body names (`area =
+>   Rect__area`): inside a class body Python would mangle the runtime's
+>   `__pyk_` helpers. `__eq__` is not written: `==` on objects is a call
+>   of `eq` on every target.
+> - **`show`** (§3.6) is what `print` and `string` write; the REPL's echo
+>   of a value and the debugger show an object's header form, since
+>   neither runs a method to show one.
+> - **`==` on lists, tuples or datatypes holding objects** (§3.6) is
+>   refused rather than compared through `eq` part by part, which the
+>   targets' runtimes would each do their own way; an object is not a
+>   MutMap key either (§7 says so).
+> - **A parent class's type arguments** (§3.12) are worked out from the
+>   arguments its constructor is given in the header -- a header
+>   parameter or a literal for each field that names one.
+> - **Across modules** (§3.7): a class is used in the module declaring
+>   it; `public class` is refused with a message saying so. Exporting one
+>   -- its table in the module's signature, and each target reaching its
+>   constructor and methods in another file -- is the next step.
+
 This plan adds classes, interfaces and inheritance to Pyking, turned on
 per module with `use objects`, the same way `use mutation` turns on
 mutation. It replaces steps 12 and 13 of `design/steps.md`. Those steps

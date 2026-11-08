@@ -1,4 +1,5 @@
-# `self` is reserved, as a parameter's name as much as anywhere.
+# `self` is the object a method is called on, so no `def` outside a
+# class may name a parameter `self`.
 #
 # This program is expected to FAIL. Its `.ast.out` holds the error
 # message, not a program's output.

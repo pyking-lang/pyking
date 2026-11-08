@@ -128,6 +128,7 @@ let rec pattern_bindings pattern =
   | POr (_, first :: _, _) -> pattern_bindings first
   | POr (_, [], _) -> []
   | PAs (i, inner, n, s) -> pattern_bindings inner @ [ (n, i, s) ]
+  | PTyped (i, n, _, s) -> [ (n, { i with row2 = i.row1; col2 = i.col1 + String.length n }, s) ]
   | PInt _ | PString _ | PChar _ | PBool _ | PWildcard _ | PText _ -> []
 
 (** An environment with names bound at places in the module resolved.
@@ -219,6 +220,9 @@ let rec resolve_expr ctx env e found =
   | EConstruct (_, _, _, args, _) ->
       List.fold_left (fun found a -> go a found) found (arg_exprs args)
   | EField (_, record, _, _) -> go record found
+  | EMethod (_, obj, _, args, _) -> List.fold_left (fun found a -> go a found) (go obj found) (arg_exprs args)
+  | ESuper (_, _, _, args, _) -> List.fold_left (fun found a -> go a found) found (arg_exprs args)
+  | EUpcast (_, e, _, _) -> go e found
 
 (** Every name a block uses, and what is in scope where, with its `def`s
     bound before any of it. context -> meaning SMap.t -> [stmt] -> (int,
@@ -290,6 +294,40 @@ and resolve_stmt ctx env stmt found =
       (env, resolve_block ctx inner body (i.row2, i.col2) found)
   | SBreak (_, Some e, _) | SContinue (_, Some e, _) -> (env, resolve_expr ctx env e found)
   | SBreak _ | SContinue _ | SFunctionSig _ | SDatatype _ -> (env, found)
+  | SClass (i, c, s) ->
+      (* `self` and each method's parameters are in scope in its body;
+         the header's parameters in the fields' values and the parent's
+         arguments. *)
+      let header = List.map (fun (MemberField (fi, n, _, _, _, _, fs)) -> (n, { fi with row2 = fi.row1; col2 = fi.col1 + String.length n }, fs)) c.c_header in
+      let with_header = bind_all ctx KParameter env header in
+      let found =
+        List.fold_left
+          (fun found (MemberField (_, _, _, v, _, _, _)) ->
+            match v with Some e -> resolve_expr ctx with_header e found | None -> found)
+          found (c.c_header @ c.c_fields)
+      in
+      let found =
+        match c.c_extends with
+        | Some (ClassRef (_, _, _, _, args, _)) ->
+            List.fold_left (fun found a -> resolve_expr ctx with_header a found) found (arg_exprs args)
+        | None -> found
+      in
+      let self = bind_all ctx KParameter env [ ("self", i, s) ] in
+      ( env,
+        List.fold_left
+          (fun found (MethodDecl (mi, _, params, _, body, _, _, _)) ->
+            let found =
+              List.fold_left
+                (fun found (Param (_, _, _, default, _)) ->
+                  match default with Some e -> resolve_expr ctx env e found | None -> found)
+                found params
+            in
+            match body with
+            | None -> found
+            | Some body ->
+                let inner = bind_all ctx KParameter self (List.map param_binding params) in
+                resolve_block ctx inner body (mi.row2, mi.col2) found)
+          found c.c_methods )
   | SIf (i, c, then_, else_, _) ->
       let found = resolve_expr ctx env c found in
       let found = resolve_block ctx env then_ (i.row2, i.col2) found in

@@ -201,7 +201,99 @@ let rec expression e qmap work =
   | Some (Adapted (type_, passed, supplied)) ->
       let inner, work = expression_body e qmap work in
       adapting (expr_info e) work inner type_ passed supplied
-  | _ -> expression_body e qmap work
+  | _ -> (
+      let made, work = expression_body e qmap work in
+      (* An object seen as a supertype where it stands carries that
+         (PYKING.md, "Classes and interfaces"): the upcast the checker
+         found, recorded under the symbol negated. *)
+      match IntMap.find_opt (-expr_sym e) qmap with
+      | Some (Upcast target) ->
+          let sym, work = node work target in
+          (EUpcast (expr_info e, made, target, sym), work)
+      | _ -> (made, work))
+
+(** A copy of a method parameter's default, with symbols of its own: a
+    literal, or the call of the def desugar_args made of it.
+    expr -> work -> (expr, work) *)
+and copied_default e work =
+  let again old work = node work (expression_type work old) in
+  match e with
+  | EInt (i, v, _) -> let s, work = again e work in (EInt (i, v, s), work)
+  | EFloat (i, v, _) -> let s, work = again e work in (EFloat (i, v, s), work)
+  | EString (i, v, _) -> let s, work = again e work in (EString (i, v, s), work)
+  | EChar (i, v, _) -> let s, work = again e work in (EChar (i, v, s), work)
+  | EBool (i, v, _) -> let s, work = again e work in (EBool (i, v, s), work)
+  | ENeg (i, inner, _) ->
+      let inner, work = copied_default inner work in
+      let s, work = again e work in
+      (ENeg (i, inner, s), work)
+  | ECall (i, (EVar (vi, name, _) as callee), [], _) ->
+      let vs, work = again callee work in
+      let s, work = again e work in
+      (ECall (i, EVar (vi, plain name, vs), [], s), work)
+  | _ -> (e, work)
+
+(** A method call's arguments, every one in its parameter's position and
+    each one left out filled with its default. Where named ones are not
+    written in that order, the receiver and the arguments are worked out
+    first, in the order written, into temporaries the call then reads.
+    info -> expr -> [(String?, expr)] -> [(string * expr?)] -> work ->
+    ((string * typ * expr) list * expr * [expr] * work) *)
+and placed_arguments info receiver written params work =
+  let positional = List.filter (fun (n, _) -> n = None) written in
+  let at name = let rec find k = function [] -> -1 | (p, _) :: rest -> if p = name then k else find (k + 1) rest in find 0 params in
+  let order =
+    List.mapi (fun k (n, _) -> match n with None -> k | Some n -> at n) written
+  in
+  let in_order = List.sort compare order = order in
+  let temps, receiver, work =
+    if in_order then ([], receiver, work)
+    else
+      let t = expression_type work receiver in
+      let vs, work = node work t in
+      ([ ("self__arg", t, receiver) ], EVar (info, "self__arg", vs), work)
+  in
+  let temps, given, work =
+    if in_order then (temps, List.map (fun (n, e) -> (n, e)) written, work)
+    else
+      List.fold_left
+        (fun (temps, given, work) (n, e) ->
+          let k = match n with Some n -> at n | None -> List.length given in
+          let pname = fst (List.nth params k) in
+          let t = expression_type work e in
+          let temp = pname ^ "__arg" in
+          let vs, work = node work t in
+          (temps @ [ (temp, t, e) ], given @ [ (n, EVar (info, temp, vs)) ], work))
+        (temps, [], work) written
+  in
+  let positional_count = List.length positional in
+  let args, work =
+    List.fold_left
+      (fun (args, work) (k, (pname, default)) ->
+        if k < positional_count then (args @ [ snd (List.nth given k) ], work)
+        else
+          match List.assoc_opt (Some pname) given with
+          | Some e -> (args @ [ e ], work)
+          | None -> (
+              match default with
+              | Some d ->
+                  let d, work = copied_default d work in
+                  (args @ [ d ], work)
+              | None -> (args, work)))
+      ([], work)
+      (List.mapi (fun k p -> (k, p)) params)
+  in
+  (temps, receiver, args, work)
+
+(** `let name = value in body` for each temporary, outermost first.
+    info -> (string * typ * expr) list -> expr -> work -> (expr, work) *)
+and let_temps info temps body work =
+  List.fold_right
+    (fun (name, t, value) (body, work) ->
+      let ts, work = node work t in
+      let s, work = node work (expression_type work body) in
+      (ELet (info, TargetName (info, name, ts), None, value, body, s), work))
+    temps (body, work)
 
 (** The lambda that stands in front of an argument: it takes what the
     parameter wants, hands the first `passed` of them to `inner`, and
@@ -313,13 +405,20 @@ and expression_body e qmap work =
       let l, work = go l work in
       let r, work = go r work in
       (EGreatThanEq (i, l, r, s), work)
-  | EEq (i, l, r, s) ->
+  | EEq (i, l, r, s) -> (
       let l, work = go l work in
       let r, work = go r work in
-      (EEq (i, l, r, s), work)
+      match IntMap.find_opt s qmap with
+      | Some (Object_eq _) -> (EMethod (i, l, "eq", [ (None, r) ], s), work)
+      | _ -> (EEq (i, l, r, s), work))
   | ENeg (i, operand, s) ->
       let operand, work = go operand work in
       (ENeg (i, operand, s), work)
+  | EBinary (i, BNeq, l, r, s) when (match IntMap.find_opt s qmap with Some (Object_eq _) -> true | _ -> false) ->
+      let l, work = go l work in
+      let r, work = go r work in
+      let call_sym, work = node work (TBool (i, 0)) in
+      (EUnary (i, UNot Word, EMethod (i, l, "eq", [ (None, r) ], call_sym), s), work)
   | EBinary (i, op, l, r, s) ->
       let l, work = go l work in
       let r, work = go r work in
@@ -395,9 +494,73 @@ and expression_body e qmap work =
       let names = List.map fst args in
       let given, work = each (arg_exprs args) work in
       (EConstruct (i, module_, name, List.combine names given, s), work)
-  | EField (i, record, name, s) ->
+  | EField (i, record, name, s) -> (
       let record, work = go record work in
-      (EField (i, record, name, s), work)
+      match IntMap.find_opt s qmap with
+      | Some (Method_value _) -> (
+          (* `obj.m` as a value: the object worked out once, and a lambda
+             calling the method on it. *)
+          match IntMap.find_opt s work.tmap with
+          | Some (TFunction (_, params, result, _, _, _, _) as ft) ->
+              let rt = expression_type work record in
+              let rs, work = node work rt in
+              let receiver = EVar (i, "method__self", rs) in
+              let named, work =
+                List.fold_left
+                  (fun (out, work) t ->
+                    let ps, work = node work t in
+                    (out @ [ (Printf.sprintf "method__arg%d" (List.length out + 1), t, ps) ], work))
+                  ([], work) params
+              in
+              let uses, work =
+                List.fold_left
+                  (fun (out, work) (n, t, _) ->
+                    let us, work = node work t in
+                    (out @ [ (None, EVar (i, n, us)) ], work))
+                  ([], work) named
+              in
+              let call_sym, work = node work result in
+              let lambda_sym, work = node work ft in
+              let lambda =
+                ELambda
+                  ( i,
+                    List.map (fun (n, t, ps) -> Param (i, n, Some t, None, ps)) named,
+                    EMethod (i, receiver, name, uses, call_sym),
+                    lambda_sym )
+              in
+              let_temps i [ ("method__self", rt, record) ] lambda work
+          | _ -> (EField (i, record, name, s), work))
+      | _ -> (EField (i, record, name, s), work))
+  | EMethod (i, obj, name, args, s) ->
+      let obj, work = go obj work in
+      let names = List.map fst args in
+      let given, work = each (arg_exprs args) work in
+      (EMethod (i, obj, name, List.combine names given, s), work)
+  | EUpcast (i, inner, t, s) ->
+      let inner, work = go inner work in
+      (EUpcast (i, inner, t, s), work)
+  | ESuper (i, owner, name, args, s) -> (
+      let names = List.map fst args in
+      let given, work = each (arg_exprs args) work in
+      let written = List.combine names given in
+      match IntMap.find_opt s qmap with
+      | Some (Super_owner (owner, params)) ->
+          let self_type = expression_type work (EVar (i, "self", 0)) in
+          let temps, _, args, work = placed_arguments i (EVar (i, "self", 0)) written params work in
+          let temps = List.filter (fun (n, _, _) -> n <> "self__arg") temps in
+          ignore self_type;
+          let_temps i temps (ESuper (i, owner, name, List.map (fun e -> (None, e)) args, s)) work
+      | _ -> (ESuper (i, owner, name, written, s), work))
+  | ECall (i, (EField (_, obj, name, _) as callee), args, s)
+    when (match IntMap.find_opt s qmap with Some (Method_call _) -> true | _ -> false) ->
+      (* A method call: every argument in place, defaults filled in. *)
+      ignore callee;
+      let params = match IntMap.find_opt s qmap with Some (Method_call (_, ps)) -> ps | _ -> [] in
+      let obj, work = go obj work in
+      let names = List.map fst args in
+      let given, work = each (arg_exprs args) work in
+      let temps, receiver, args, work = placed_arguments i obj (List.combine names given) params work in
+      let_temps i temps (EMethod (i, receiver, name, List.map (fun e -> (None, e)) args, s)) work
   | ECall (i, func, args, s) -> (
       let names = List.map fst args in
       let given, work = each (arg_exprs args) work in
@@ -507,6 +670,59 @@ and statement s qmap work =
       let value, work = jump_value value work in
       (SContinue (i, value, sym), work)
   | SDatatype _ -> (s, work)
+  | SClass (i, c, sym) ->
+      let one_field (MemberField (fi, n, t, v, var, private_, fs)) work =
+        match v with
+        | None -> (MemberField (fi, n, t, None, var, private_, fs), work)
+        | Some e ->
+            let e, work = go e work in
+            (MemberField (fi, n, t, Some e, var, private_, fs), work)
+      in
+      let fields work list =
+        List.fold_left
+          (fun (out, work) f ->
+            let f, work = one_field f work in
+            (out @ [ f ], work))
+          ([], work) list
+      in
+      let header, work = fields work c.c_header in
+      let body_fields, work = fields work c.c_fields in
+      let extends, work =
+        match c.c_extends with
+        | None -> (None, work)
+        | Some (ClassRef (ri, m, n, ts, args, rs)) ->
+            let names = List.map fst args in
+            let given, work =
+              List.fold_left
+                (fun (out, work) e ->
+                  let e, work = go e work in
+                  (out @ [ e ], work))
+                ([], work) (arg_exprs args)
+            in
+            (Some (ClassRef (ri, m, n, ts, List.combine names given, rs)), work)
+      in
+      let methods, work =
+        List.fold_left
+          (fun (out, work) (MethodDecl (mi, n, params, ret, body, override, private_, ms)) ->
+            let params, work =
+              List.fold_left
+                (fun (out, work) param ->
+                  let param, work = parameter param qmap work in
+                  (out @ [ param ], work))
+                ([], work) params
+            in
+            let body, work =
+              match body with
+              | None -> (None, work)
+              | Some b ->
+                  let b, work = block b work in
+                  (Some b, work)
+            in
+            (out @ [ MethodDecl (mi, n, params, ret, body, override, private_, ms) ], work))
+          ([], work) c.c_methods
+      in
+      ( SClass (i, { c with c_header = header; c_fields = body_fields; c_extends = extends; c_methods = methods }, sym),
+        work )
   | SImport (i, module_, name, selected, fields, sym) ->
       (* What a module exports is renamed with everything else, and an
          import names it by the name the output uses. *)

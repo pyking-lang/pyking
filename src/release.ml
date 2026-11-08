@@ -36,7 +36,7 @@ let supplies_unit tmap statement =
   match statement with
   | SMutateTuple _ -> after_desugar "release"
   | SLet _ | SLetStmt _ | SVar _ | SMutate _ | SSetIndex _ | SSetField _ | SSetDeref _ | SFunctionDef _ | SFunctionSig _
-  | SImport _ | SDatatype _ ->
+  | SImport _ | SDatatype _ | SClass _ ->
       true
   | SExprStmt (_, e, _) -> (
       match IntMap.find_opt (expr_sym e) tmap with
@@ -82,6 +82,9 @@ let rec expression tmap e =
     | EConstruct (i, m, n, args, s) ->
         EConstruct (i, m, n, List.map (fun (name, a) -> (name, go a)) args, s)
     | EField (i, record, n, s) -> EField (i, go record, n, s)
+    | EMethod (i, obj, n, args, s) -> EMethod (i, go obj, n, List.map (fun (name, a) -> (name, go a)) args, s)
+    | ESuper (i, c, n, args, s) -> ESuper (i, c, n, List.map (fun (name, a) -> (name, go a)) args, s)
+    | EUpcast (i, e, t, s) -> EUpcast (i, go e, t, s)
     | EListComp (i, element, clauses, s) ->
         EListComp
           ( i,
@@ -142,6 +145,7 @@ and rewrite tmap statement =
   | SBreak (i, value, s) -> SBreak (i, Option.map go value, s)
   | SContinue (i, value, s) -> SContinue (i, Option.map go value, s)
   | SFunctionSig _ | SImport _ | SDatatype _ -> statement
+  | SClass (i, c, s) -> SClass (i, map_class go (block tmap) c, s)
   | SLoop (i, target, init, t, iterate, body, s) ->
       let iterate =
         match iterate with

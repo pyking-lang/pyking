@@ -598,6 +598,17 @@ let document_symbols state document =
                 if selected then
                   List.map (fun (_, local) -> symbol text 2 local i (name_span unit.tokens local i) (Some ("from " ^ module_)) []) fields
                 else [ symbol text 2 name i (name_span unit.tokens name i) (Some ("import " ^ module_)) [] ]
+            | SClass (i, c, _) ->
+                (* A class (5) or interface (11), its fields (8) and its
+                   methods (6), each method with what is written in it. *)
+                let field (MemberField (fi, n, _, _, _, _, fs)) = symbol text 8 n fi (name_span unit.tokens n fi) (typed fs) [] in
+                let method_ (MethodDecl (mi, n, _, _, body, _, _, ms)) =
+                  symbol text 6 n mi (name_span unit.tokens n mi) (typed ms) (of_stmts false (Option.value body ~default:[]))
+                in
+                [
+                  symbol text (if c.c_kind = ClassInterface then 11 else 5) c.c_name i (name_span unit.tokens c.c_name i) None
+                    (List.map field (c.c_header @ c.c_fields) @ List.map method_ c.c_methods);
+                ]
             | _ -> [])
           stmts
       in
@@ -724,7 +735,33 @@ let completion state document pos =
         | Some (Module_of real) -> Some real
         | _ -> (match SMap.find_opt m module_names with Some (Module_of r) -> Some r | _ -> None)
       in
+      let object_items =
+        (* `x.` where x holds an object: its class's fields (5) and
+           methods (2), its own and inherited. *)
+        match (path, SMap.find_opt m scope_names, own_unit analysis document) with
+        | [], Some (Bound (place, sym, _)), Some (unit, tmap) when sym <> 0 && place.file = unit.path -> (
+            match IntMap.find_opt sym tmap with
+            | Some (TCon (_, cls, _, _)) -> (
+                let table = Classes.table unit.stmts in
+                match Classes.find table cls with
+                | Some _ ->
+                    List.map (fun f -> item f.Classes.f_name 5 (Option.map show_type (IntMap.find_opt f.Classes.f_sym tmap))) (Classes.all_fields table cls)
+                    @ List.map
+                        (fun mname ->
+                          let detail =
+                            Option.bind (Classes.declaring table cls mname) (fun owner ->
+                                Option.bind (Classes.own_method table owner mname) (fun x ->
+                                    Option.map show_type (IntMap.find_opt x.Classes.m_sym tmap)))
+                          in
+                          item mname 2 detail)
+                        (Classes.method_names table cls)
+                | None -> [])
+            | _ -> [])
+        | _ -> []
+      in
       let items =
+        if object_items <> [] then object_items
+        else
         match (real, Option.bind real (fun r -> List.assoc_opt r analysis.sigmaps)) with
         | Some r, Some sigmap ->
             let dotted =
@@ -777,11 +814,7 @@ let completion state document pos =
           scope_names []
       in
       let names = if names = [] then List.map (fun n -> item n 3 (Some "builtin")) Builtin.words else names in
-      (* A reserved word nothing uses yet is no keyword to offer. *)
-      let keywords =
-        List.map (fun k -> item k 14 None)
-          (List.filter (fun k -> not (List.mem k Lexer.reserved_words)) Lexer.keywords)
-      in
+      let keywords = List.map (fun k -> item k 14 None) Lexer.keywords in
       (state, Json.Object [ ("isIncomplete", Json.Bool false); ("items", Json.List (List.rev names @ keywords)) ])
 
 (* --- signature help --- *)
@@ -1464,6 +1497,11 @@ let semantic_tokens state document =
             | Walk.NConstructor (Constructor (i, name, _, _)) ->
                 out @ [ (named name i, index "enumMember", bit "declaration") ]
             | Walk.NStmt (SDatatype (i, name, _, _, _, _, _)) -> out @ [ (named name i, index "type", bit "declaration") ]
+            | Walk.NStmt (SClass (i, c, _)) ->
+                out
+                @ [ (named c.c_name i, index "type", bit "declaration") ]
+                @ List.map (fun (MethodDecl (mi, n, _, _, _, _, _, _)) -> (named n mi, index "function", bit "declaration")) c.c_methods
+                @ List.map (fun (MemberField (fi, n, _, _, _, _, _)) -> (named n fi, index "property", bit "declaration")) (c.c_header @ c.c_fields)
             | Walk.NType (TCon (i, name, _, _)) when not (String.contains name '.') ->
                 out @ [ (named name i, index "type", 0) ]
             | Walk.NExpr (EField (_, record, name, _)) ->

@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Classes and interfaces, under `use objects` (PYKING.md, "Classes and
+  interfaces"; design/plan-objects.md). A `class` declares its fields
+  in its header -- its constructor's parameters -- and in its body,
+  methods with an explicit `self` and their types written, `private`
+  members, and `eq` and `show`, which `==` and printing use. An
+  `interface` declares signatures and defaults; a class `extends` one
+  parent (its constructor's arguments in the header) and `implements`
+  any number of interfaces, `override` is written, `super.m()` calls the
+  inherited body, and an `abstract class` has `abstract def`s. Objects
+  are shared and dispatch is dynamic. An object is seen as a supertype
+  where a type is written -- an annotation, a parameter, a result, a
+  field, a list or `if` there -- and nowhere else; `case Square(side):`
+  and `case c: Circle:` test an object's class. Every target compiles
+  them: Python and JavaScript classes, Java nested classes and
+  interfaces, OCaml class types and immediate objects, C structs with a
+  method table, and the interpreter, the REPL and the debugger run
+  them. The language server outlines a class's fields and methods and
+  completes them after `obj.`; VS Code and Emacs colour the new words
+  (`implements`, `override`, `abstract`, `private` are reserved now).
+  A generic class is not compiled to C, and a class is used in the
+  module declaring it (`public class` is refused for now).
 - The playground's Copy for slides works in the compiled code's editor
   too: on its key (Alt+Shift+C, Option+Shift+C on a Mac) and in its
   right-click menu, beside Copy, it copies the selection or all of the

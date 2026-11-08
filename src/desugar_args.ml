@@ -191,11 +191,30 @@ let constructor_meta exported sole (Constructor (_, name, fields, _)) =
     sole;
   }
 
+(** What a class's constructor takes: its header fields, as a struct's
+    constructor takes its fields. bool -> class_decl -> meta *)
+let class_meta exported c =
+  {
+    parameters =
+      List.map
+        (fun (MemberField (_, field, type_, default, _, _, _)) ->
+          { name = field; default = default_of (field_default_name c.c_name field) type_ default; implicit = false })
+        c.c_header;
+    exported;
+    sole = true;
+  }
+
+(** The name of the def holding a method parameter's default: one no
+    program writes. String -> String -> String -> String *)
+let method_default_name cls method_ param = "method" ^ marker ^ cls ^ "__" ^ method_ ^ "__" ^ param
+
 (** Every constructor declared directly in this block, with what a call
-    to it needs to know. [stmt] -> (String * meta) list *)
+    to it needs to know. A class has one, named as the class is; an
+    interface has none. [stmt] -> (String * meta) list *)
 let block_constructors stmts =
   List.concat_map
     (function
+      | SClass (_, c, _) when c.c_kind <> ClassInterface -> [ (c.c_name, class_meta c.c_public c) ]
       | SDatatype (_, _, _, constructors, _, public, _) ->
           let sole = List.length constructors = 1 in
           List.map
@@ -212,6 +231,7 @@ let block_datatypes stmts =
     (function
       | SDatatype (_, name, _, constructors, _, _, _) ->
           Some (name, List.map (fun (Constructor (_, n, _, _)) -> n) constructors)
+      | SClass (_, c, _) when c.c_kind <> ClassInterface -> Some (c.c_name, [ c.c_name ])
       | _ -> None)
     stmts
 
@@ -619,6 +639,9 @@ let rec expression signatures scope e =
           EField (i, EVar (alias_info, alias, 0), field, s)
       | _ -> e)
   | EField (i, record, field, s) -> EField (i, go record, field, s)
+  | ESuper (i, owner, name, args, s) -> ESuper (i, owner, name, List.map (fun (n, a) -> (n, go a)) args, s)
+  | EMethod (i, obj, name, args, s) -> EMethod (i, go obj, name, List.map (fun (n, a) -> (n, go a)) args, s)
+  | EUpcast (i, e, t, s) -> EUpcast (i, go e, t, s)
   | EConstruct (i, module_, name, args, s) -> (
       let args = List.map (fun (n, a) -> (n, go a)) args in
       let shown =
@@ -721,7 +744,8 @@ let rec expression signatures scope e =
                     && not (List.mem name Builtin.names)
                 | _ -> false
               in
-              if named && not unbound then
+              let method_ = match callee with EField _ -> true | _ -> false in
+              if named && not unbound && not method_ then
                 refuse i (sugar_refusal signatures scope callee)
               else ECall (i, callee, args, s))
       | Some (meta, reach) -> (
@@ -859,6 +883,7 @@ and pattern_of signatures scope p =
       PList (i, List.map go prefix, rest, List.map go suffix, s)
   | POr (i, alternatives, s) -> POr (i, List.map go alternatives, s)
   | PAs (i, inner, name, s) -> PAs (i, go inner, name, s)
+  | PTyped _ -> p
   | PConstructor (i, module_, name, positional, named, s) -> (
       let positional = List.map go positional in
       let named = List.map (fun (n, q) -> (n, go q)) named in
@@ -1150,6 +1175,82 @@ and rewrite signatures scope taken statement =
           constructors
       in
       (generated, SDatatype (i, name, params, constructors, s, public, writable), scope)
+  | SClass (i, c, s) ->
+      (* A header field's default is a generated def as a struct
+         field's is; a method parameter's is one too, and the parameter
+         keeps a call to it (or the literal), which elaborate.ml writes
+         where a call leaves the argument out -- only the checker knows
+         which class a method call reaches. *)
+      let check_free fi generated what =
+        if List.mem generated taken then
+          refuse fi
+            (Printf.sprintf "the default for '%s' needs the name '%s', which this block already binds" what generated)
+      in
+      let def_of fi generated type_ e =
+        SFunctionDef (fi, generated, [], [ SExprStmt (expr_info e, go e, 0) ], type_, 0, c.c_public, [], false)
+      in
+      let header_defaults =
+        List.filter_map
+          (fun (MemberField (fi, field, type_, default, _, _, _)) ->
+            match default with
+            | Some e when inlined type_ e = None ->
+                let generated = field_default_name c.c_name field in
+                check_free fi generated field;
+                Some (def_of fi generated type_ e)
+            | _ -> None)
+          c.c_header
+      in
+      let method_defaults, methods =
+        List.fold_left
+          (fun (defs, methods) (MethodDecl (mi, mname, params, ret, body, override, private_, ms)) ->
+            let defs, params =
+              List.fold_left
+                (fun (defs, params) (Param (pi, pname, annotation, default, ps)) ->
+                  match default with
+                  | None -> (defs, params @ [ Param (pi, pname, annotation, None, ps) ])
+                  | Some e when inlined annotation e <> None -> (defs, params @ [ Param (pi, pname, annotation, Some e, ps) ])
+                  | Some e ->
+                      let generated = method_default_name c.c_name mname pname in
+                      check_free pi generated pname;
+                      ( defs @ [ def_of pi generated annotation e ],
+                        params @ [ Param (pi, pname, annotation, Some (ECall (expr_info e, EVar (expr_info e, generated, 0), [], 0)), ps) ] ))
+                (defs, []) params
+            in
+            let inner = List.fold_left (fun scope (Param (_, p, _, _, _)) -> SMap.add p Binding scope) (SMap.add "self" Binding scope) params in
+            let body = Option.map (block signatures inner) body in
+            (defs, methods @ [ MethodDecl (mi, mname, params, ret, body, override, private_, ms) ]))
+          ([], []) c.c_methods
+      in
+      (* The header's parameters are in scope in the fields' values and
+         the parent's arguments, as they are in a constructor's body. *)
+      let with_header =
+        List.fold_left (fun scope (MemberField (_, f, _, _, _, _, _)) -> SMap.add f Binding scope) scope c.c_header
+      in
+      let header = List.map (fun (MemberField (fi, f, t, _, var, private_, fs)) -> MemberField (fi, f, t, None, var, private_, fs)) c.c_header in
+      let fields =
+        List.map
+          (fun (MemberField (fi, f, t, v, var, private_, fs)) ->
+            MemberField (fi, f, t, Option.map (expression signatures with_header) v, var, private_, fs))
+          c.c_fields
+      in
+      let extends =
+        match c.c_extends with
+        | None -> None
+        | Some (ClassRef (ri, module_, name, targs, args, rs)) -> (
+            match expression signatures with_header (EConstruct (ri, module_, name, args, 0)) with
+            | EConstruct (_, _, _, args, _) -> Some (ClassRef (ri, module_, name, targs, args, rs))
+            | made ->
+                (* named arguments out of order: worked out first, in
+                   the order written, which a header cannot hold *)
+                refuse (expr_info made)
+                  (Printf.sprintf
+                     "the arguments for '%s' are written in the order of its fields here, \
+                      since a class header has no place to work them out first"
+                     name))
+      in
+      ( header_defaults @ method_defaults,
+        SClass (i, { c with c_header = header; c_fields = fields; c_methods = methods; c_extends = extends }, s),
+        scope )
   | SLoop (i, target, init, t, iterate, body, s) ->
       let inner =
         match target with

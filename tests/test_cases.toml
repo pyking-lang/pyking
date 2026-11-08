@@ -2724,3 +2724,106 @@ excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-
 [[cases]]
 file = "empty_list_literals.pyk"
 excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+# Classes and interfaces (PYKING.md, "Classes and interfaces";
+# design/plan-objects.md): one program per part of the plan, each on
+# every target that compiles what it holds, and one per error message.
+[[cases]]
+file = "typecheck_objects_classes.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "lists and Strings need a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "objects_generic.pyk"
+libs = ["option"]
+also = ["pyking_rerun"]
+excluded = { c = "a generic class needs one struct and method table per type it is made at, which the C backend does not write", "c-gc" = "a generic class needs one struct and method table per type it is made at, which the C backend does not write" }
+
+[[cases]]
+file = "objects_interfaces.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "lists and Strings need a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "objects_inheritance.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "lists and Strings need a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "objects_abstract.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "lists and Strings need a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "objects_patterns.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "lists and Strings need a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "objects_plain_c.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "objects_shapes.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "lists and Strings need a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "fail_typecheck_objects_mixed_list.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_override_misspelled.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_missing_method.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_missing_override.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_eq.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_unknown_receiver.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_private.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_var_field_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_interface_made.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_list_variance.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_use.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_field_write.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_abstract_made.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_self_in_field.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_field_method_name.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_override_signature.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_method_untyped.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_super_outside.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_list_eq.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_public.pyk"

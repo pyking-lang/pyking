@@ -105,6 +105,10 @@ and jsstmt =
          array, whose index was checked by the statement before it. *)
   | JsSetField of info * jsexpr * string * jsexpr
       (* target.name = value; -- a field write into a `var struct`. *)
+  | JsClass of info * string * string option * jsstmt list
+      (* class Name [extends Parent] { members } -- a Pyking class or
+         interface; each member a JsFunc, printed as a method
+         (docs/target_js.md, "Classes"). *)
 
 (** Everything the packager decides and the core only names: how each
     runtime operation is called, and how what crosses a module boundary
@@ -159,6 +163,9 @@ type scope = {
      Pyking name: each is given a place beside its `let`
      (docs/target_js.md, "Pointers"). *)
   addressed : StringSet.t;
+  (* The program's classes and interfaces (PYKING.md, "Classes and
+     interfaces"). *)
+  classes : Classes.table;
 }
 
 (** A scope for a nested block: it sees the enclosing names, and what it
@@ -336,7 +343,7 @@ let reserved =
         init pykChars pykCharAt pykCharOfInt pykCharOfString pykFloatStr \
         pykShaped pykParseInt pykTrunc pykParseFloat pykFail pykArray \
         pykArraySize pykArrayOfList pykArrayFill pykArrayInit pykArrayUnfold \
-        pykAt pykCheckIndex pykIndexError pykStruct pykLater pykDynArray \
+        pykAt pykCheckIndex pykIndexError pykStruct pykClass pykMixin pykLater pykDynArray \
         pykDynArrayEmpty pykDynArrayOfList pykPush pykPop pykInsert pykRemove pykClear \
         pykSetAt pykEqual pykMutMap pykMutMapOfList pykKey pykKeyText pykMutMapPut \
         pykMutMapGet pykMutMapGetOr pykMutMapHas pykMutMapKeys pykMutMapValues pykMutMapItems \
@@ -463,6 +470,7 @@ let stmt_kind_name s =
   | SMatch _ -> "SMatch"
   | SImport _ -> "SImport"
   | SDatatype _ -> "SDatatype"
+  | SClass _ -> "SClass"
   | SSetIndex _ -> "SSetIndex"
   | SSetDeref _ -> "SSetDeref"
   | SSetField _ -> "SSetField"
@@ -839,6 +847,19 @@ let rec translate_expr e scope =
         ( info,
           translate_expr func scope,
           List.map (fun a -> translate_expr a scope) (arg_exprs args) )
+  | EConstruct (info, None, name, args, _) when Classes.find scope.classes name <> None ->
+      (* An object: its class's constructor. *)
+      JsCall (info, JsVar (info, "new " ^ lookup name scope), List.map (fun a -> translate_expr a scope) (arg_exprs args))
+  | EMethod (info, obj, name, args, _) ->
+      JsCall (info, JsMember (info, translate_expr obj scope, name), List.map (fun a -> translate_expr a scope) (arg_exprs args))
+  | ESuper (info, owner, name, args, _) ->
+      (* The implementation the checker chose, called on self by its
+         class: `Owner.prototype.name.call(self, ...)`. *)
+      JsCall
+        ( info,
+          JsMember (info, JsMember (info, JsMember (info, JsVar (info, lookup owner scope), "prototype"), name), "call"),
+          JsVar (info, lookup "self" scope) :: List.map (fun a -> translate_expr a scope) (arg_exprs args) )
+  | EUpcast (_, inner, _, _) -> translate_expr inner scope
   | EConstruct (info, module_, name, args, _) ->
       (* A constructor is a function of this module's or of the one it
          is reached through. A JavaScript number cannot say whether it is
@@ -933,6 +954,11 @@ and printed_argument argument scope =
           JsVar (expr_info argument, "pykShaped"),
           [ translated; JsStr (expr_info argument, float_shape type_) ] )
   | _ -> translated
+
+(** A class's own name, where an expression's object is one: its type's.
+    expr -> scope -> string? *)
+and object_class e scope =
+  match type_of e scope with Some (TCon (_, name, _, _)) -> Some name | _ -> None
 
 (** `[e for p in seq if c ...]` as a chain of `flatMap`s: each `for`
     maps its sequence and flattens, each `if` and each pattern that does
@@ -1104,6 +1130,20 @@ and pattern_test pattern subject scope =
         | _ -> (bindings, scope)
       in
       (test, bindings, scope)
+  | PConstructor (_, None, name, fields, _, _) when Classes.find scope.classes name <> None ->
+      (* An object of that class or one below it, its header's fields
+         read by name. *)
+      let c = Option.get (Classes.find scope.classes name) in
+      let test =
+        JsCall (info, JsMember (info, JsMember (info, subject, "pykClasses"), "includes"), [ JsStr (info, name) ])
+      in
+      pattern_parts fields (List.map (fun (h, _) -> JsMember (info, subject, h)) c.Classes.header) (Some test) scope
+  | PTyped (_, bound, t, _) ->
+      let target = match t with TCon (_, n, _, _) -> n | _ -> "" in
+      let js_name, scope = bind bound scope in
+      ( Some (JsCall (info, JsMember (info, JsMember (info, subject, "pykClasses"), "includes"), [ JsStr (info, target) ])),
+        [ JsConst (info, JsTargetName (info, js_name), subject) ],
+        scope )
   | PConstructor (_, _, name, fields, _, _) ->
       let tag =
         JsBinary (info, "===", JsMember (info, subject, "pykTag"), JsStr (info, name))
@@ -1272,6 +1312,7 @@ let declare_functions stmts scope =
             (fun scope name ->
               if StringSet.mem name scope.block then scope else snd (bind name scope))
             scope (Module.datatype_names s)
+      | SClass (_, c, _) when not (StringSet.mem c.c_name scope.block) -> snd (bind c.c_name scope)
       | SImport _ ->
           List.fold_left
             (fun scope name ->
@@ -1553,6 +1594,7 @@ and translate_stmt s scope =
           ([], body_scope) params
       in
       ([ JsFunc (info, js_name, param_names, translate_tail_stmts body body_scope) ], scope)
+  | SClass (info, c, _) -> ([ translate_class info c scope ], scope)
   | SDatatype (info, name, _, constructors, _, _, writable) ->
       (* One function per constructor, building the value; the type's
          own name is bound too, to its name, so that an import of it has
@@ -1676,6 +1718,58 @@ and translate_stmt s scope =
       in
       (owner_stmts @ index_stmts @ [ check; write ], scope)
   | s -> unsupported (stmt_info s) (stmt_kind_name s)
+
+(** A class or interface as a JavaScript class: a constructor setting
+    up the parent's part first, then its own fields; each method taking
+    its object as `self`. What printing and patterns read of it is set up
+    after it (`translate_program`). info -> class_decl -> scope -> jsstmt *)
+and translate_class info c scope =
+  let k = Option.get (Classes.find scope.classes c.c_name) in
+  let function_ params body =
+    let body_scope = block_scope scope in
+    let names, body_scope =
+      List.fold_left
+        (fun (out, body_scope) (Param (_, n, _, _, _)) ->
+          let js, body_scope = bind n body_scope in
+          (out @ [ js ], body_scope))
+        ([], body_scope) params
+    in
+    (names, body_scope, body)
+  in
+  let self_line body_scope = JsConst (info, JsTargetName (info, lookup "self" body_scope), JsVar (info, "this")) in
+  let constructor =
+    if c.c_kind = ClassInterface then []
+    else
+      let params = List.map (fun (n, s) -> Param (info, n, None, None, s)) k.Classes.header in
+      let names, body_scope, _ = function_ (Param (info, "self", None, None, 0) :: params) [] in
+      let names = List.tl names in
+      let super_call =
+        match k.Classes.parent with
+        | Some _ ->
+            [ JsExprStmt (info, JsCall (info, JsVar (info, "super"), List.map (fun a -> translate_expr a body_scope) (arg_exprs k.Classes.parent_args))) ]
+        | None -> []
+      in
+      let self = JsVar (info, lookup "self" body_scope) in
+      let sets =
+        List.map (fun n -> JsSetField (info, self, n, JsVar (info, lookup n body_scope))) k.Classes.own_header
+        @ List.filter_map
+            (fun (MemberField (fi, n, _, v, _, _, _)) -> Option.map (fun v -> JsSetField (fi, self, n, translate_expr v body_scope)) v)
+            c.c_fields
+      in
+      [ JsFunc (info, "constructor", names, super_call @ (self_line body_scope :: sets)) ]
+  in
+  let methods =
+    List.filter_map
+      (fun (MethodDecl (mi, name, params, _, body, _, _, _)) ->
+        match body with
+        | None -> None
+        | Some body ->
+            let params = List.map (fun (Param (pi, pn, pt, _, ps)) -> Param (pi, pn, pt, None, ps)) params in
+            let names, body_scope, body = function_ (Param (mi, "self", None, None, 0) :: params) body in
+            Some (JsFunc (mi, name, List.tl names, self_line body_scope :: translate_tail_stmts body body_scope)))
+      c.c_methods
+  in
+  JsClass (info, lookup c.c_name scope, Option.map (fun p -> lookup p scope) k.Classes.parent, constructor @ methods)
 
 (** The assignment a `break x`/`continue x` makes before it jumps: x
     into the variable carrying the loop's accumulator. Nothing for a
@@ -1876,8 +1970,70 @@ let translate_program ?(taken = []) ?(external_fields = []) ?(externals = [])
               | SImport (_, module_, local, false, _, _) -> Some (local, module_)
               | _ -> None)
             stmts;
+        classes = Classes.table stmts;
       }
   in
+  (* A class is not hoisted as a function is, and one names its parent
+     when its own statement runs: every class goes after the imports, a
+     parent before its child, with what each needs set up after it. *)
+  let classes = Classes.table stmts in
+  let order = Classes.ordered classes stmts in
+  let is_class = function JsClass _ -> true | _ -> false in
+  let rank = function
+    | JsClass (_, n, _, _) ->
+        let rec find k = function [] -> k | x :: more -> if x = n then k else find (k + 1) more in
+        find 0 order
+    | _ -> 0
+  in
+  let made = List.filter is_class statements in
+  let statements = List.filter (fun st -> not (is_class st)) statements in
+  let imports, rest = List.partition (function JsImport _ -> true | _ -> false) statements in
+  let at = Lexer.{ file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 } in
+  let set_up =
+    List.concat_map
+      (fun name ->
+        match Classes.find classes name with
+        | None -> []
+        | Some c ->
+            let js = lookup name scope in
+            let str t = JsStr (at, t) in
+            let own =
+              if c.Classes.kind = ClassInterface then []
+              else
+                let header_types =
+                  List.map (fun (_, sym) -> IntMap.find_opt sym tmap) c.Classes.header
+                in
+                let shape =
+                  if List.exists (function Some t -> holds_float t | None -> false) header_types then
+                    str ("(" ^ String.concat "," (List.map (function Some t -> float_shape t | None -> ".") header_types) ^ ")")
+                  else JsVar (at, "null")
+                in
+                [
+                  JsExprStmt
+                    ( at,
+                      JsCall
+                        ( at,
+                          JsVar (at, "pykClass"),
+                          [
+                            JsVar (at, js);
+                            str name;
+                            JsArray (at, List.map (fun (h, _) -> str h) c.Classes.header);
+                            shape;
+                            JsArray (at, List.map str (Classes.supers classes name));
+                            JsBool (at, Classes.resolve classes name "show" <> None && Classes.has_method classes name "show");
+                          ] ) );
+                ]
+            in
+            own
+            @ List.map
+                (fun i -> JsExprStmt (at, JsCall (at, JsVar (at, "pykMixin"), [ JsVar (at, js); JsVar (at, lookup i scope) ])))
+                (* every interface above it, nearest first: a default it
+                   has no body for, from its own chain or a nearer
+                   interface, is copied in *)
+                (List.filter (fun i -> i <> name) (Classes.interfaces classes name)))
+      order
+  in
+  let statements = imports @ List.stable_sort (fun a b -> compare (rank a) (rank b)) made @ set_up @ rest in
   (* The implementation of this module's own declaration half, imported
      so that a name declared here can be called here. *)
   let own_external =
@@ -2068,6 +2224,21 @@ and pprint_js_stmt ?(level = 0) s runtime =
       Printf.sprintf "%s%s = %s;" pad (pprint_js_target target) (plain e)
   | JsExprStmt (_, e) -> Printf.sprintf "%s%s;" pad (plain e)
   | JsReturn (_, e) -> Printf.sprintf "%sreturn %s;" pad (plain e)
+  | JsClass (_, name, parent, members) ->
+      let member m =
+        match m with
+        | JsFunc (_, mname, params, body) ->
+            let inner = String.concat "" (List.init (level + 1) (fun _ -> "  ")) in
+            String.concat "\n"
+              ([ Printf.sprintf "%s%s(%s) {" inner mname (String.concat ", " params) ]
+              @ (if body = [] then [] else [ join_stmts body runtime (level + 2) ])
+              @ [ inner ^ "}" ])
+        | other -> pprint_js_stmt ~level:(level + 1) other runtime
+      in
+      String.concat "\n"
+        ([ Printf.sprintf "%sclass %s%s {" pad name (match parent with Some p -> " extends " ^ p | None -> "") ]
+        @ List.map member members
+        @ [ pad ^ "}" ])
   | JsIf (_, cond, then_body, else_body) ->
       let lines =
         [ Printf.sprintf "%sif (%s) {" pad (plain cond);
@@ -2181,6 +2352,35 @@ let struct_helper =
       "  };";
       "  names.forEach((name, i) => { value[name] = values[i]; });";
       "  return value;";
+      "}";
+    ]
+
+let class_helper =
+  String.concat "\n"
+    [
+      "// What printing and a pattern read of an object, set on its class:";
+      "// its class's name, its header's fields, which of them are Floats,";
+      "// every class and interface it is, and whether `show` says how it";
+      "// prints (docs/target_js.md, \"Classes\").";
+      "function pykClass(c, tag, header, shape, classes, show) {";
+      "  c.prototype.pykTag = tag;";
+      "  Object.defineProperty(c.prototype, 'pykValues', {";
+      "    get() { return header.map((name) => this[name]); },";
+      "    configurable: true,";
+      "  });";
+      "  c.prototype.pykShape = shape;";
+      "  c.prototype.pykClasses = classes;";
+      "  c.prototype.pykShow = show;";
+      "}";
+      "";
+      "// An interface's defaults, copied into a class that has no body of its";
+      "// own for them, from its chain or a nearer interface.";
+      "function pykMixin(target, source) {";
+      "  for (const name of Object.getOwnPropertyNames(source.prototype)) {";
+      "    if (name !== 'constructor' && !(name in target.prototype)) {";
+      "      Object.defineProperty(target.prototype, name, Object.getOwnPropertyDescriptor(source.prototype, name));";
+      "    }";
+      "  }";
       "}";
     ]
 
@@ -2899,7 +3099,7 @@ let uses p stmts =
         in_expr sequence || List.exists in_stmt body
     | JsWhile (_, cond, body) -> in_expr cond || List.exists in_stmt body
     | JsBreak _ | JsContinue _ | JsImport _ | JsBreakTo _ -> false
-    | JsFunc (_, _, _, body) | JsLabeled (_, _, body) -> List.exists in_stmt body
+    | JsFunc (_, _, _, body) | JsLabeled (_, _, body) | JsClass (_, _, _, body) -> List.exists in_stmt body
   in
   List.exists in_stmt stmts
 
@@ -2951,6 +3151,7 @@ let js_helpers ?(level = 0) stmts =
     @ (if uses_concat then [ concat_helper ] else [])
     @ (if uses_data then [ data_helper ] else [])
     @ (if uses_struct then [ struct_helper ] else [])
+    @ (if named "pykClass" || named "pykMixin" then [ class_helper ] else [])
     @ if uses_shape then [ shape_helper ] else []
   in
   String.concat "\n\n"

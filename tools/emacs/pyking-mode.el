@@ -94,7 +94,8 @@ be changed, but is exposed as a customizable option the same way
   '("for" "in" "if" "while" "loop" "break" "continue" "then" "let" "else"
     "var" "def" "return" "match" "case" "public" "implicit" "import" "from" "as"
     "datatype" "struct" "use" "lam" "and" "or" "not" "xor"
-    "class" "interface" "extends" "self" "super")
+    "class" "interface" "extends" "implements" "override" "abstract"
+    "private" "self" "super")
   "Reserved keywords in Pyking.
 Mirrors the `keywords' list in src/lexer.ml, minus the names broken out
 into `pyking-mode-types' and `pyking-mode-constants' below (each gets its
@@ -110,8 +111,9 @@ implicit parameter in a header or a function type (see \"Implicits\").
 `datatype' declares an algebraic data type (see \"Datatypes\"), and
 `struct' one with a single constructor (see \"Structs\"). `use' turns
 a feature on for a module (`use mutation'), `lam' starts a lambda, and
-`and'/`or'/`not'/`xor' are operators. The last five are reserved for a
-later part of the language and mean nothing yet.")
+`and'/`or'/`not'/`xor' are operators. The last nine are the words of
+classes and interfaces (see \"Classes and interfaces\"), which need
+`use objects'.")
 
 (defconst pyking-mode-keywords-regexp
   (regexp-opt pyking-mode-keywords 'symbols)
@@ -183,6 +185,9 @@ builtin.")
      1 font-lock-type-face)
    ;; struct_stmt = "struct" , [ sub_path , "." ] , upper_ident , ...
    '("\\_<struct\\_>[ \t]+\\(\\(?:\\sw+\\.\\)*\\sw+\\)"
+     1 font-lock-type-face)
+   ;; class_stmt = ["abstract"] "class" | "interface" , upper_ident , ...
+   '("\\_<\\(?:class\\|interface\\)\\_>[ \t]+\\(\\sw+\\)"
      1 font-lock-type-face)
    ;; var_decl = "var" , ident , "=" , expr -- the declared variable name.
    '("\\_<var\\_>[ \t]+\\(\\sw+\\)"

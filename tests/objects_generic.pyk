@@ -1,0 +1,46 @@
+# Generic classes and interfaces: the class's own type parameters in
+# its fields and methods, and an interface instantiated by a class.
+
+use objects, mutation
+
+class Box(value: a):
+    def get(self) -> a:
+        self.value
+
+    def with_value(self, v: a) -> Box(a):
+        Box(v)
+
+class Stack(a):
+    private var items: [a] = []
+
+    def push(self, x: a):
+        self.items := [x] + self.items
+
+    def top(self) -> Option(a):
+        match self.items:
+            case []:
+                None
+            case [x, ..]:
+                Some(x)
+
+    def size(self) -> Int:
+        len(self.items)
+
+interface Source(a):
+    def next(self) -> a
+    def two(self) -> (a, a):
+        (self.next(), self.next())
+
+class Counting(var n: Int = 0) implements Source(Int):
+    override def next(self) -> Int:
+        self.n += 1
+        self.n
+
+b = Box(1)
+print(b, b.get(), b.with_value(5), Box("text"), Box([1, 2]).value)
+s: Stack(String) = Stack()
+s.push("a")
+s.push("b")
+print(s.top(), s.size())
+src: Source(Int) = Counting()
+print(src.next(), src.two())

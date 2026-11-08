@@ -914,3 +914,29 @@ A `let target = value in body` (PYKING.md, "Let expressions") is compiled as the
 A call whose named arguments are not in parameter order, with more
 than one that has an effect, reaches this backend as nested `let`s
 (`docs/desugar_args.md`).
+
+## Classes
+
+A Pyking class (PYKING.md, "Classes and interfaces") is simulated as C
+programs simulate one:
+
+- **Every object is a `pyk_obj *`**, whatever its class, so an upcast
+  changes nothing: a pointer to its class's struct, `pyk_o_<module>_<C>`,
+  which starts with a pointer to the class's descriptor and then holds
+  every field, its parents' first -- so a pointer to a `Square` reads a
+  `Rect`'s fields where a `Rect`'s are. A field is read through the
+  struct of the class declaring it.
+- **The descriptor**, `pyk_class_<module>_<C>`, holds the class's name,
+  its parent's descriptor, its interfaces', its method table and its
+  printer. The table has one slot per method name the module's classes
+  have, so `o.m(...)` is the slot's function, cast to the method's
+  signature, called on `o`; `super.m(...)` calls the body's function
+  directly.
+- **Each method** is a function taking the object first; `pyk_init_...`
+  sets up an object's fields (the parent's first) and `pyk_new_...`
+  allocates one -- `malloc`, never freed, on plain C, the collector on
+  c23-gc -- and sets it up.
+- **A class pattern** is `pyk_is_a(o->cls, &descriptor)`, which walks the
+  parents and the interfaces.
+- A generic class is refused: it would need one struct and table per
+  type it is made at.

@@ -1,0 +1,3 @@
+'tests/fail_typecheck_objects_field_method_name.pyk' 9:4-10:9 Parsing
+  error: 'size' is already a field or a method of 'Box'; a class has
+  one member of each name

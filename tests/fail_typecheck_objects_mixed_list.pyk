@@ -1,0 +1,20 @@
+# A list of a Rect and a Circle: Pyking does not guess a common type,
+# and the message says where to write one.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+interface Shape:
+    def area(self) -> Float
+
+class Rect(w: Float) implements Shape:
+    override def area(self) -> Float:
+        self.w
+
+class Circle(r: Float) implements Shape:
+    override def area(self) -> Float:
+        self.r
+
+shapes = [Rect(1.0), Circle(2.0)]

@@ -12,8 +12,8 @@ a scope, so a name bound inside one is gone after it.
 
 A module is **functional and immutable** unless it says otherwise. Parts
 of the language beyond that core are turned on per module by a `use`
-line at its top -- `use mutation` today, `use objects` reserved for
-later -- and every module is read by the same parser: a construct of a
+line at its top -- `use mutation` and `use objects` -- and every module
+is read by the same parser: a construct of a
 feature the module has not turned on is parsed as usual and refused as a
 syntax error naming the `use` line that would allow it. See "Features
 turned on with `use`".
@@ -172,6 +172,14 @@ restriction of it, but these are genuinely new.
   struct` is one whose fields are written in place (`p.x := 1`), shared
   by every name that holds it, as a Python object is. See "Mutable
   structs".
+- **Classes and interfaces**: under `use objects`, `class Rect(width:
+  Float, height: Float) implements Shape:` declares a class whose header
+  is its constructor's parameters and its fields, with methods taking an
+  explicit `self` and saying their types; an `interface` declares
+  signatures and defaults, and a class `extends` one parent and
+  `implements` any number of interfaces. Java's semantics in Python's
+  spelling: objects are shared, dispatch is dynamic, `override` is
+  written, and `==` calls a class's `eq`. See "Classes and interfaces".
 - **Uppercase is for types and constructors**: every name a program
   binds starts with a lowercase letter or `_`, so a constant is
   `pi = 3.14` rather than Python's `PI = 3.14`, and an uppercase name is
@@ -330,6 +338,12 @@ Statements:
   are written with `:=` and the compound operators and whose values are
   shared; `same(p, q)` asks whether two are one — Pyking extension (see
   "Mutable structs")
+- **Classes and interfaces** under `use objects`: `class`, `abstract
+  class` and `interface`, header and body fields (`var` ones with `use
+  mutation`), methods with `self`, `private`, `extends`, `implements`,
+  `override`, `super`, `eq` and `show`, upcasts where a type is written,
+  and class patterns (`case Square(side):`, `case c: Circle:`) — Pyking
+  extension (see "Classes and interfaces")
 - Patterns of every kind may be combined with `|` (`case 1 | 2:`), bind
   the whole value as well with `as` (`case Node(l, r) as whole:`), and
   carry a guard (`case n if n > 0:`); every `match` matches every
@@ -393,6 +407,7 @@ top_statement = import_stmt
             | public_stmt
             | datatype_stmt
             | struct_stmt
+            | class_stmt
             | statement ;
 
 import_stmt = "import" , module_item , { "," , module_item } ;
@@ -434,6 +449,32 @@ struct_stmt = [ "var" ] , "struct" , [ sub_path , "." ] , upper_ident ,
               | [ "(" , type_var , { "," , type_var } , ")" ] , ":" ,
                 INDENT , field_line , { field_line } , DEDENT ] ;
 field_line  = field , { "," , field } ;
+
+(* A class, an abstract class or an interface belongs to a module's top
+   level and needs `use objects` (see "Classes and interfaces"). A
+   class's header holds its type parameters (bare lowercase names) and
+   its fields, which are its constructor's parameters; a parent class is
+   written with its constructor's arguments, an interface with its type
+   arguments. Its members are on indented lines under its ':'. *)
+class_stmt  = ( [ "abstract" ] , "class" , upper_ident ,
+                "(" , [ header_item , { "," , header_item } ] , ")" ,
+                [ "extends" , class_name , "(" , [ args ] , ")" ] ,
+                [ "implements" , iface , { "," , iface } ]
+              | "interface" , upper_ident , [ "(" , type_var , { "," , type_var } , ")" ] ,
+                [ "extends" , iface , { "," , iface } ] ) ,
+              [ ":" , INDENT , member , { member } , DEDENT ] ;
+header_item = type_var | member_field ;
+class_name  = [ sub_path , "." ] , upper_ident ;
+iface       = class_name , [ "(" , type , { "," , type } , ")" ] ;
+member      = member_field | method ;
+(* A header field has a default only where every one after it has; a
+   body field always has its first value. *)
+member_field = [ "private" ] , [ "var" ] , ident , ( ":" , type , [ "=" , expr ] | "=" , literal ) ;
+(* A method's parameters after `self` all say their types; one with no
+   body is abstract (in an abstract class) or an interface's. *)
+method      = [ "private" ] , [ "override" ] , [ "abstract" ] ,
+              "def" , ident , "(" , "self" , { "," , param } , ")" , [ "->" , type ] ,
+              [ ":" , block ] ;
 
 (* A block is indented under its header, or is the single expression
    written on the header's own line -- which the EBNF cannot say, since
@@ -1861,7 +1902,7 @@ print(count)
 |---|---|
 | `mutation` | `var`, `:=` and compound assignment such as `+=` (see "Mutable variables"), making and writing arrays (see "Arrays"), DynArrays (see "DynArrays"), MutMaps (see "MutMaps") and views (see "Slices and views"), and declaring, making and writing `var struct`s (see "Mutable structs") |
 | `pointers` | `&`, `*` and `*p := v` (see "Pointers"); needs `mutation` too |
-| `objects` | nothing yet: the name is reserved for classes and methods |
+| `objects` | declaring classes, abstract classes and interfaces (see "Classes and interfaces") |
 
 Several are written on one line, `use mutation, objects`, or on lines
 of their own.
@@ -4215,6 +4256,156 @@ needs a use or an annotation saying what the list holds.
 written on Python and JavaScript, a final class on Java, a record with
 `mutable` fields on OCaml, and on C a pointer to a struct, which plain C
 mallocs and never frees and `c23-gc` takes from the collector.
+
+### Classes and interfaces — Pyking extension
+
+Under `use objects`, a module declares **classes**, **abstract classes**
+and **interfaces**. They follow Java's semantics -- objects are shared,
+a class extends one parent and implements any number of interfaces,
+dispatch is dynamic -- in Python's spelling, with `self` written. The
+design, with the choices it made and the ones it did not, is
+`design/plan-objects.md`.
+
+```pyking
+use objects
+
+interface Shape:
+    def area(self) -> Float
+    def name(self) -> String
+    def describe(self) -> String:
+        self.name() + " of area " + string(self.area())
+
+class Rect(width: Float, height: Float) implements Shape:
+    override def area(self) -> Float:
+        self.width * self.height
+    override def name(self) -> String:
+        "rectangle"
+
+class Square(side: Float) extends Rect(side, side):
+    override def name(self) -> String:
+        "square"
+
+shapes: [Shape] = [Rect(2.0, 3.0), Square(2.0)]
+for s in shapes:
+    print(s.describe())
+print(Square(2.0))
+```
+
+prints `rectangle of area 6.0`, `square of area 4.0` and `Square(2.0)`.
+
+**The gate.** Declaring a class or an interface needs `use objects`; a
+module without it may still make objects of another module's classes,
+call their methods and match them. A `var` field needs `use mutation` in
+the module declaring it, and writing one (`o.f := v`) in the module
+writing it.
+
+**Fields and the constructor.** A class's header lists its fields, as a
+struct's does, and they are its constructor's parameters, with defaults
+and named arguments: `Account("ada", limit = 100.0)`. Every field says
+its type, unless a literal default says it. Fields declared in the body,
+`name: T = value` or `var name: T = value`, are set up from that value,
+which may use the header's parameters by name -- not `self`, so nothing
+calls a method on a half-made object. An object is set up in a fixed
+order: its parent's part first, then its own header fields, then its
+body fields in the order written. A class with nothing to declare under
+its header has no `:`: `class Tag(name: String)`. A field never shares a
+name with a method, nor with a field of a class above it.
+
+**Methods.** A method is a `def` in the class body whose first parameter
+is `self`, written without a type; every other parameter says its type,
+and its result is written after `->`, or is `()` where nothing is
+written. A method reaches its object's fields and methods only through
+`self` (`self.width`, `self.area()`). It is called with `obj.m(args)`,
+named and default arguments as for any `def`; defaults are written where
+a method is first declared, never on an override. `obj.m` without a call
+is a function closed over the object, worked out once. A body ending in
+a value it does not return is fine in a method answering `()`.
+
+**Objects are references.** Every object is shared by each name, element
+and field holding it, as in Java and Python; `same(a, b)` asks whether
+two names hold one object. An object with no `var` field never changes.
+
+**Equality and printing.** `a == b` and `a != b` call the class's `eq`,
+written `def eq(self, other: C) -> Bool`, and are refused where it has
+none -- `same` is the identity test. An object prints as its class's
+name and its header's fields, `Square(2.0)`, or as its `show` says,
+written `def show(self) -> String`: in `print` and `string`, inside a
+printed list included. The REPL's echo of a value and the debugger's
+Variables view show the header form, since neither runs a method to show
+one. Objects have no order: `<` is refused.
+
+**`private`.** A field or method written `private` is reached only from
+the methods of the class declaring it, on any object of that class;
+classes below it do not see it, and none of them may declare a member of
+its name.
+
+**Interfaces.** An interface declares method signatures and, where it
+gives one, a default body; it has no fields, may `extends` other
+interfaces and may have type parameters (`interface Source(a):`, which a
+class implements as `implements Source(Int)`). An interface is a type --
+a parameter, an element, a field -- and is never made.
+
+**Inheritance.** `extends P(args)` names one parent class and what its
+constructor is given; the arguments may use the header's parameters. A
+header parameter with the name and type of an inherited field only
+passes it on. A method replacing one a class or interface above has is
+written `override def`, with the same parameters, by name and type, and
+the same result; `override` where nothing is replaced is refused, and so
+is replacing without it. `super.m(args)` calls the body the class
+inherited: its parent chain's first, then an interface's default. A class
+inheriting defaults of one name from two interfaces overrides it.
+
+**Abstract classes.** An `abstract class` may declare `abstract def`s,
+which have no body, and is never made; a class that can be made gives
+every method a body, its own or one it inherits.
+
+**Where an object is seen as a supertype.** A `Square` stands where a
+`Shape` is written -- an annotated binding, a declared parameter or
+result, a field, a `var` of a declared type -- and inside a list, a tuple
+or an `if` written there, each part on its own. Nowhere else is a type
+guessed: `[Rect(1.0, 1.0), Circle(1.0)]` with nothing written is refused,
+with where to write the type. Lists do not take subtypes: a `[Square]`
+is not a `[Shape]`.
+
+**A method call needs the class.** `x.m()` and `x.f` are checked where
+the type of `x` is known there; a parameter with no type a body calls a
+method on is refused with "annotate it", as a struct's field is.
+
+**Class patterns.** `case Square(side):` matches an object of that class
+or one below it, its header's fields matched as a struct's are; `case c:
+Circle:` binds the object at its class or interface. A `match` on an
+interface or a class others extend needs a `case _` (or a case for the
+type itself), since there may be other classes:
+
+```pyking
+def describe(p: Pet) -> String:
+    match p:
+        case Dog(n, age) if age > 10:
+            "an old dog, " + n
+        case c: Cat:
+            "a cat called " + c.name()
+        case _:
+            p.name()
+```
+
+**Targets.** Every target compiles them, each in its own idiom:
+
+| Target | A class is |
+|---|---|
+| Python | a class (an `abc.ABC` for an interface or abstract class), its methods defs named for it at the top level and given as attributes |
+| JavaScript, web | an ES class, an interface's defaults copied into the classes without them |
+| Java | a nested class, an interface a Java interface with `default` methods |
+| OCaml | a class type, objects immediate objects built by a function, each method a function taking `self` |
+| C | a struct starting with its class descriptor, a method table per class, one slot per method name |
+| interpreter | a value with its class's name and fields; methods kept by name |
+
+A class is used in the module declaring it: `public class` is refused
+for now, since what another module would need of one is not written yet.
+
+A generic class is not compiled to C, which would need one copy of it per
+type, and OCaml cannot write a generic class whose method gives the class
+at other type arguments than its own (`swap` answering `Pair(b, a)`):
+both are refused with a message saying so.
 
 ### `if`/`match` statements as bound values
 

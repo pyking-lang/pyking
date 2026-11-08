@@ -1,0 +1,15 @@
+# A method call needs the object's class known where it is written.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+class Rect(w: Float):
+    def area(self) -> Float:
+        self.w
+
+def area_of(s):
+    s.area()
+
+print(area_of(Rect(1.0)))

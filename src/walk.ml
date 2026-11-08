@@ -48,7 +48,7 @@ let option_of wrap = function None -> [] | Some x -> [ wrap x ]
 
 (** One node's immediate children, in the order src/syntax.ml declares
     the fields they came from. node -> [node] *)
-let children n =
+let rec children n =
   match n with
   | NExpr e -> (
       match e with
@@ -82,7 +82,10 @@ let children n =
       | ELet (_, target, annotation, value, body, _) ->
           (NTarget target :: option_of (fun t -> NType t) annotation)
           @ [ NExpr value; NExpr body ]
-      | EField (_, record, _, _) -> [ NExpr record ])
+      | EField (_, record, _, _) -> [ NExpr record ]
+      | EMethod (_, obj, _, args, _) -> NExpr obj :: exprs_of (arg_exprs args)
+      | ESuper (_, _, _, args, _) -> exprs_of (arg_exprs args)
+      | EUpcast (_, e, t, _) -> [ NExpr e; NType t ])
   | NType t -> (
       match t with
       | TInt _ | TFloat _ | TString _ | TChar _ | TBool _ | TUnknown _ | TBuiltin _
@@ -112,7 +115,8 @@ let children n =
       | PConstructor (_, _, _, positional, named, _) ->
           List.map (fun p -> NPattern p) (positional @ List.map snd named)
       | POr (_, alternatives, _) -> List.map (fun p -> NPattern p) alternatives
-      | PAs (_, inner, _, _) -> [ NPattern inner ])
+      | PAs (_, inner, _, _) -> [ NPattern inner ]
+      | PTyped (_, _, t, _) -> [ NType t ])
   | NListRest _ -> []
   | NCompClause c -> (
       match c with
@@ -171,7 +175,24 @@ let children n =
       | SMatch (_, subject, cases, _) ->
           NExpr subject :: List.map (fun c -> NMatchCase c) cases
       | SDatatype (_, _, _, constructors, _, _, _) ->
-          List.map (fun c -> NConstructor c) constructors)
+          List.map (fun c -> NConstructor c) constructors
+      | SClass (_, c, _) -> class_children c)
+
+(** A class's children: its header fields' types and defaults, its
+    supertypes' type and constructor arguments, its body fields, then
+    each method's parameters, body and return type. class_decl -> [node] *)
+and class_children c =
+  let field (MemberField (_, _, t, e, _, _, _)) = option_of (fun t -> NType t) t @ option_of (fun e -> NExpr e) e in
+  let ref_ (ClassRef (_, _, _, args, ctor, _)) = List.map (fun t -> NType t) args @ exprs_of (arg_exprs ctor) in
+  let method_ (MethodDecl (_, _, params, ret, body, _, _, _)) =
+    List.map (fun p -> NParam p) params
+    @ (match body with Some b -> stmts_of b | None -> [])
+    @ option_of (fun t -> NType t) ret
+  in
+  List.concat_map field c.c_header
+  @ List.concat_map ref_ (Option.to_list c.c_extends @ c.c_implements)
+  @ List.concat_map field c.c_fields
+  @ List.concat_map method_ c.c_methods
 
 (** f over every node in a subtree, the subtree's own root first.
     ('a -> node -> 'a) -> 'a -> node -> 'a *)
@@ -204,6 +225,7 @@ let name_field n =
   | NParam (Param (_, name, _, _, _)) -> Some name
   | NPattern (PCapture (_, name, _)) -> Some name
   | NPattern (PAs (_, _, name, _)) -> Some name
+  | NPattern (PTyped (_, name, _, _)) -> Some name
   | NListRest (ListRest (_, name, _)) -> name
   | NTarget (TargetName (_, name, _)) -> Some name
   | NLoopIter (ForIn (_, name, _, _)) -> Some name
@@ -214,3 +236,100 @@ let name_field n =
   | NStmt (SImport (_, _, name, _, _, _)) ->
       Some name
   | _ -> None
+
+(* --- rewriting every expression ---
+   A bottom-up map: each expression's children are rewritten first, and
+   the node rebuilt from them is handed to `f`. Statements, patterns and
+   types keep their shape; every expression inside them -- class members
+   included -- is reached. *)
+
+(** e with every expression in it rewritten by f, innermost first.
+    (expr -> expr) -> expr -> expr *)
+let rec map_expr f e =
+  let go = map_expr f in
+  let args a = List.map (fun (n, x) -> (n, go x)) a in
+  let rebuilt =
+    match e with
+    | EInt _ | EFloat _ | EString _ | EChar _ | EBool _ | EVar _ | EQualified _ -> e
+    | EAdd (i, l, r, s) -> EAdd (i, go l, go r, s)
+    | ESub (i, l, r, s) -> ESub (i, go l, go r, s)
+    | EMul (i, l, r, s) -> EMul (i, go l, go r, s)
+    | EDiv (i, l, r, s) -> EDiv (i, go l, go r, s)
+    | ENeg (i, o, s) -> ENeg (i, go o, s)
+    | EConcat (i, l, r, s) -> EConcat (i, go l, go r, s)
+    | ELessThan (i, l, r, s) -> ELessThan (i, go l, go r, s)
+    | ELessThanEq (i, l, r, s) -> ELessThanEq (i, go l, go r, s)
+    | EGreatThan (i, l, r, s) -> EGreatThan (i, go l, go r, s)
+    | EGreatThanEq (i, l, r, s) -> EGreatThanEq (i, go l, go r, s)
+    | EEq (i, l, r, s) -> EEq (i, go l, go r, s)
+    | EBinary (i, op, l, r, s) -> EBinary (i, op, go l, go r, s)
+    | EUnary (i, op, o, s) -> EUnary (i, op, go o, s)
+    | EIndex (i, l, x, s) -> EIndex (i, go l, go x, s)
+    | EAddr (i, x, s) -> EAddr (i, go x, s)
+    | EDeref (i, x, s) -> EDeref (i, go x, s)
+    | ESlice (i, l, a, b, s) -> ESlice (i, go l, Option.map go a, Option.map go b, s)
+    | ECall (i, callee, a, s) -> ECall (i, go callee, args a, s)
+    | EList (i, es, s) -> EList (i, List.map go es, s)
+    | ETuple (i, es, s) -> ETuple (i, List.map go es, s)
+    | EIf (i, c, a, b, s) -> EIf (i, go c, go a, go b, s)
+    | EListComp (i, x, clauses, s) ->
+        let clause c =
+          match c with
+          | CompFor (ci, p, seq, cs) -> CompFor (ci, p, go seq, cs)
+          | CompIf (ci, cond, cs) -> CompIf (ci, go cond, cs)
+        in
+        EListComp (i, go x, List.map clause clauses, s)
+    | ELambda (i, params, body, s) -> ELambda (i, List.map (map_param f) params, go body, s)
+    | ELet (i, t, a, v, b, s) -> ELet (i, t, a, go v, go b, s)
+    | EConstruct (i, m, n, a, s) -> EConstruct (i, m, n, args a, s)
+    | EField (i, r, n, s) -> EField (i, go r, n, s)
+    | EMethod (i, o, n, a, s) -> EMethod (i, go o, n, args a, s)
+    | ESuper (i, c, n, a, s) -> ESuper (i, c, n, args a, s)
+    | EUpcast (i, x, t, s) -> EUpcast (i, go x, t, s)
+  in
+  f rebuilt
+
+and map_param f (Param (i, n, t, d, s)) = Param (i, n, t, Option.map (map_expr f) d, s)
+
+(** A statement with every expression in it rewritten by f.
+    (expr -> expr) -> stmt -> stmt *)
+and map_stmt f st =
+  let e = map_expr f in
+  let block = List.map (map_stmt f) in
+  match st with
+  | SLet (i, t, x, a, s, p, im) -> SLet (i, t, e x, a, s, p, im)
+  | SLetStmt (i, t, inner, a, s, p) -> SLetStmt (i, t, map_stmt f inner, a, s, p)
+  | SVar (i, n, x, s) -> SVar (i, n, e x, s)
+  | SMutate (i, n, x, s) -> SMutate (i, n, e x, s)
+  | SSetIndex (i, o, x, v, s) -> SSetIndex (i, e o, e x, e v, s)
+  | SSetDeref (i, p, v, s) -> SSetDeref (i, e p, e v, s)
+  | SSetField (i, o, n, v, s) -> SSetField (i, e o, n, e v, s)
+  | SMutateTuple (i, t, x, s) -> SMutateTuple (i, t, e x, s)
+  | SReturn (i, x, s) -> SReturn (i, e x, s)
+  | SReturnStmt (i, inner, s) -> SReturnStmt (i, map_stmt f inner, s)
+  | SExprStmt (i, x, s) -> SExprStmt (i, e x, s)
+  | SLoop (i, t, init, a, it, body, s) ->
+      let it =
+        match it with
+        | Some (ForIn (fi, n, seq, fs)) -> Some (ForIn (fi, n, e seq, fs))
+        | Some (WhileTest (wi, c, ws)) -> Some (WhileTest (wi, e c, ws))
+        | None -> None
+      in
+      SLoop (i, t, Option.map e init, a, it, block body, s)
+  | SBreak (i, v, s) -> SBreak (i, Option.map e v, s)
+  | SContinue (i, v, s) -> SContinue (i, Option.map e v, s)
+  | SIf (i, c, a, b, s) -> SIf (i, e c, block a, Option.map block b, s)
+  | SFunctionDef (i, n, ps, body, r, s, p, imps, im) ->
+      SFunctionDef (i, n, List.map (map_param f) ps, block body, r, s, p, List.map (map_param f) imps, im)
+  | SFunctionSig _ | SDatatype _ | SImport _ -> st
+  | SMatch (i, subject, cases, s) ->
+      SMatch
+        ( i,
+          e subject,
+          List.map (fun (MatchCase (ci, p, g, b, cs)) -> MatchCase (ci, p, Option.map e g, block b, cs)) cases,
+          s )
+  | SClass (i, c, s) -> SClass (i, map_class e block c, s)
+
+(** Statements with every expression in them rewritten by f.
+    (expr -> expr) -> [stmt] -> [stmt] *)
+let map_stmts f stmts = List.map (map_stmt f) stmts

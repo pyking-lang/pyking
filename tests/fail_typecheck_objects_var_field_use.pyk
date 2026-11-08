@@ -1,0 +1,8 @@
+# A field that can be written needs `use mutation`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+class Counter(var count: Int = 0)

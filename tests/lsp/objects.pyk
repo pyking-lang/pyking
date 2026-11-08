@@ -1,0 +1,12 @@
+use objects, mutation
+
+interface Shape:
+    def area(self) -> Float
+
+class Rect(width: Float, height: Float) implements Shape:
+    var scale: Float = 1.0
+    override def area(self) -> Float:
+        self.width * self.height * self.scale
+
+r = Rect(2.0, 3.0)
+print(r.area())

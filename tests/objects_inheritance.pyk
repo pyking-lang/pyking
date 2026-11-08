@@ -1,0 +1,47 @@
+# Inheritance: one parent class, its constructor's arguments in the
+# header, overriding, `super`, dispatch from a parent's method to a
+# child's body, and the order an object's fields are set up in: the
+# parent's part first.
+
+use objects
+
+def note(text: String) -> Int:
+    print("set up", text)
+    0
+
+class Animal(name: String):
+    born: Int = note("an animal called " + name)
+
+    def sound(self) -> String:
+        "..."
+
+    def speak(self) -> String:
+        self.name + " says " + self.sound()
+
+class Dog(name: String, breed: String) extends Animal(name):
+    trained: Int = note("a dog")
+
+    override def sound(self) -> String:
+        "woof"
+
+    override def speak(self) -> String:
+        super.speak() + "!"
+
+class Puppy(name: String) extends Dog(name, "mixed"):
+    override def sound(self) -> String:
+        "yip"
+
+    def describe(self) -> String:
+        self.speak() + " (" + self.breed + ")"
+
+class Cat(name: String) extends Animal(name):
+    override def sound(self) -> String:
+        "meow"
+
+animals: [Animal] = [Dog("Rex", "terrier"), Cat("Tom"), Puppy("Bit"), Animal("Generic")]
+for a in animals:
+    print(a.speak())
+p = Puppy("Nib")
+print(p.describe(), p.name, p.breed, p)
+d: Dog = p
+print(d.sound(), d.speak())

@@ -1,0 +1,4 @@
+'tests/fail_typecheck_objects_list_eq.pyk' 14:6-14:30 Type error: `==`
+  compares [Money] part by part, and this one holds an object, a
+  Money, which `==` does not compare: compare the objects one at a
+  time with '==', which calls their 'eq'

@@ -1,0 +1,14 @@
+# Replacing a method written above needs `override`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+class Animal(name: String):
+    def sound(self) -> String:
+        "..."
+
+class Dog(name: String) extends Animal(name):
+    def sound(self) -> String:
+        "woof"

@@ -98,6 +98,8 @@ let format_js =
       "    const parts = value.map((element) => pykFormat(element, true, path));";
       "    return parts.length === 1 ? '(' + parts[0] + ',)' : '(' + parts.join(', ') + ')';";
       "  }";
+      "  // An object whose class has `show` prints what it says.";
+      "  if (value.pykShow === true) return value.show();";
       "  // A datatype's value, or a `var struct`'s: its constructor and its";
       "  // fields by position, each Float one written as a Float where the";
       "  // compiler said so.";

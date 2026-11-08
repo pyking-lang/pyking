@@ -458,6 +458,51 @@ module is checked, so a call from another module cannot choose it.
 `tests/typecheck_infer_indexed.pyk` and the three
 `tests/fail_typecheck_infer_indexed_*.pyk` hold the behaviour.
 
+## 9c. Classes: written types, and upcasts where a type is written
+
+A class (PYKING.md, "Classes and interfaces") adds the one form of
+subtyping Pyking has: an object of a class standing where one of its
+supertypes -- a class it extends, an interface it implements -- is
+wanted. Hindley-Milner has no subtyping, and the design keeps it out of
+inference altogether:
+
+- **Every method says its types**, and every field. So `declare_classes`
+  builds the whole class table -- each class's parent and interfaces at
+  their type arguments, its fields, its methods' signatures -- from
+  annotations alone, before any body is checked, and the rules a
+  declaration keeps (`override` exactly where something above has the
+  method, the same signature, every method given a body in a class that
+  can be made) are checked there, at the class. A class is a type
+  constructor, `TCon (name, args)`, like a datatype; unification treats
+  it as one.
+- **A method body is checked as an annotated `def`'s**: `self` at the
+  class's own type, its parameters rigid, its result `Declared`.
+- **`x.m()` and `x.f` need `x`'s type settled where they are written**,
+  as a struct's field does (section 3): a metavariable there is refused
+  with "annotate it". Nothing is deferred to a first call, which keeps
+  one rule for fields and methods.
+- **An upcast happens only where a type is written**: a call's
+  parameter whose declared type, instantiated and pruned, is a class or
+  an interface; an annotated binding; a declared result; a field's
+  value; and the parts of a list, tuple or `if` written at one of those.
+  `coerced` tries unification first and, between two objects whose
+  classes differ, whether the actual one's chain of supertypes reaches
+  the wanted one at equal arguments (`super_as`); where it does, the
+  upcast is recorded under the expression's symbol negated in `qmap`, and
+  `elaborate.ml` wraps the expression in an `EUpcast` the backends read.
+  Everywhere else two types are equal or the program is refused --
+  `[Rect(...), Circle(...)]` with nothing written is a mismatch, with
+  where to write the type in the message -- so generalisation, `verified`
+  and every type printed are as they were.
+- **Generics are invariant**: a `[Square]` is not a `[Shape]`.
+
+`elaborate.ml` makes the rest explicit from what `qmap` carries: a
+method call (`Method_call`) becomes an `EMethod` with every argument in
+place and each left out filled with its default; `super.m(...)`
+(`Super_owner`) an `ESuper` naming the class whose body runs; `obj.m`
+as a value (`Method_value`) a lambda over the object, worked out once;
+and `==` on objects (`Object_eq`) a call of `eq`.
+
 ## 9aa. Overloading, and why it is not deferred
 
 Section 9 says what is left of ad-hoc polymorphism. Since then there is
@@ -539,6 +584,8 @@ pins them.
 - **Overloaded builtins fix a parameter to its first call's type** (§9).
 - **An indexed parameter's kind is fixed by its first call**, its
   element left generic (§9b).
+- **Subtyping is an upcast where a type is written**, never inferred
+  (§9c).
 - **`?` in printed output does not round-trip.** `-t pyking` output is
   otherwise re-parsable Pyking; `?` is printed where a type has no
   spelling — an uncalled function, or a nested definition holding an

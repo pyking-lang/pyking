@@ -1,0 +1,54 @@
+# Class patterns: `case Dog(name, breed)` matches a class or one below
+# it by its header's fields, `case c: Cat` binds the object at its class,
+# with guards, a literal in a field, and `case _` for the rest an
+# interface may be.
+
+use objects
+
+interface Pet:
+    def name(self) -> String
+
+class Dog(nick: String, age: Int) implements Pet:
+    override def name(self) -> String:
+        self.nick
+
+class Puppy(nick: String) extends Dog(nick, 0):
+    override def name(self) -> String:
+        "little " + self.nick
+
+class Cat(nick: String) implements Pet:
+    override def name(self) -> String:
+        self.nick
+
+class Fish() implements Pet:
+    override def name(self) -> String:
+        "fish"
+
+def describe(p: Pet) -> String:
+    match p:
+        case Dog(n, 0):
+            "a puppy called " + n
+        case Dog(n, age) if age > 10:
+            "an old dog, " + n
+        case d: Dog:
+            "a dog of " + string(d.age)
+        case c: Cat:
+            "a cat called " + c.name()
+        case _:
+            "something: " + p.name()
+
+def is_dog(d: Dog) -> String:
+    match d:
+        case Dog(n, _):
+            n
+
+pets: [Pet] = [Puppy("Bit"), Dog("Rex", 12), Dog("Fido", 3), Cat("Tom"), Fish()]
+for p in pets:
+    print(describe(p))
+print(is_dog(Puppy("Nib")))
+pair: (Pet, Int) = (Cat("Kit"), 2)
+match pair:
+    case (c: Cat, 2):
+        print(c.nick)
+    case _:
+        print("no")

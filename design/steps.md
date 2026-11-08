@@ -1040,6 +1040,9 @@ print(len(a), a[2], array.to_list(a))
 
 ## Step 12 -- `use objects`: classes and methods
 
+> Superseded by `design/plan-objects.md`, which is implemented; steps 12
+> and 13 below are the first sketch it grew from.
+
 The first half of object orientation: a class is a type with fields
 and methods, without inheritance yet. Refused without `use objects`.
 

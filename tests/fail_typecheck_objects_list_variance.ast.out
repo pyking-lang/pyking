@@ -1,0 +1,4 @@
+'tests/fail_typecheck_objects_list_variance.pyk' 20:12-20:17 Type
+  error: argument 1 has type [Rect], but [Shape] was expected: a
+  [Rect] is not a [Shape], since lists do not take subtypes; annotate
+  the list where it is made

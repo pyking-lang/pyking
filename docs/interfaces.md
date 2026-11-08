@@ -148,8 +148,9 @@ respects that, which is what makes the library link.
 │             children, fold,     names, pure_names, is_qualified,     │
 │             exists, fold_stmts, lookup,            base, renamed,    │
 │             exists_stmts,       crosses_host,      qualifier, field  │
-│                                 is_debug                             │
-│             name_field                                               │
+│             map_stmts           is_debug                             │
+│             name_field          classes.ml: table, resolve,          │
+│                                 all_fields, declaring, ordered       │
 │                    │                                                 │
 │                    ▼                                                 │
 │             syntax.ml    the AST, its accessors, pprint_program      │
@@ -323,6 +324,13 @@ module. `design/plan-eval-lsp.md` names each of them as the surface the
 debugger, DAP and LSP servers are to sit on: `run_program` and
 `run_modules` are `step` and `run` with the loop written for the caller,
 and a debugger will want the loop itself.
+
+**`classes.ml`.** What the five backends and the language server ask of
+a module's classes -- each class's fields and their owners, its methods,
+the body a method runs (`resolve`), where it is declared (`declaring`),
+and the order to declare them in -- read from the checked declarations,
+below the checker and beside `walk.ml`: it needs only `syntax.ml`. The
+checker keeps its own table, with the types its annotations resolve to.
 
 **`walk.ml`.** `children` and the folds built on it are the compiler's
 one shared traversal, and the module exists to be called that way, so

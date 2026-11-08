@@ -33,3 +33,8 @@ description = "A step sequencer: a grid of drum steps played on the beat."
 source = "tests/tinyweb_piano.pyk"
 name = "piano.pyk"
 description = "A small piano: one octave, from one sample at many rates."
+
+[[examples]]
+source = "tests/objects_shapes.pyk"
+name = "shapes.pyk"
+description = "Classes and interfaces: shapes with an area, one extending another."

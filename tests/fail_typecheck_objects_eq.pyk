@@ -1,0 +1,10 @@
+# `==` on objects calls `eq`, and this class has none.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+class Point(x: Int, y: Int)
+
+print(Point(1, 2) == Point(1, 2))

@@ -1,0 +1,4 @@
+'tests/fail_typecheck_objects_eq.pyk' 10:6-10:32 Type error: '=='
+  compares two Points, but 'Point' has no 'eq' method; define 'def
+  eq(self, other: Point) -> Bool', or use 'same(a, b)' to ask whether
+  they are one object

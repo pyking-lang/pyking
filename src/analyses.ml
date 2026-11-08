@@ -131,6 +131,7 @@ let rec pattern_bindings pattern =
   | POr (_, first :: _, _) -> pattern_bindings first
   | POr (_, [], _) -> []
   | PAs (info, inner, name, _) -> pattern_bindings inner @ [ (name, info) ]
+  | PTyped (info, name, _, _) -> [ (name, info) ]
   | PInt _ | PString _ | PChar _ | PBool _ | PWildcard _ -> []
 
 (** Extends env with everything pattern binds. env -> pattern -> env *)
@@ -371,6 +372,23 @@ and analyze_stmt s env =
          constructors' start with an uppercase letter, which no binding
          may. *)
       env
+  | SClass (info, c, _) ->
+      (* A class binds no value name either. Each method body is a scope
+         of its own, holding `self` and its parameters; a field's value
+         is an expression, with the header's parameters in scope. *)
+      List.iter
+        (fun (MethodDecl (_, _, params, _, body, _, _, _)) ->
+          match body with
+          | None -> ()
+          | Some body ->
+              let inner =
+                List.fold_left
+                  (fun inner (Param (pinfo, pname, _, _, _)) -> bind inner pname Parameter pinfo)
+                  (bind env "self" Parameter info) params
+              in
+              analyze_scope body inner)
+        c.c_methods;
+      env
   | SFunctionSig _ ->
       (* A signature says what a `def` in this block is; it binds no
          name of its own and mentions none, so there is nothing here for
@@ -581,6 +599,27 @@ let rec sym_expr counter e =
       let record, counter = sym_expr counter record in
       let s, counter = assign s counter in
       (EField (i, record, name, s), counter)
+  | EMethod (i, obj, name, args, s) ->
+      let obj, counter = sym_expr counter obj in
+      let args, counter = sym_args counter args in
+      let s, counter = assign s counter in
+      (EMethod (i, obj, name, args, s), counter)
+  | ESuper (i, owner, name, args, s) ->
+      let args, counter = sym_args counter args in
+      let s, counter = assign s counter in
+      (ESuper (i, owner, name, args, s), counter)
+  | EUpcast (i, e, t, s) ->
+      let e, counter = sym_expr counter e in
+      let t, counter = sym_type counter t in
+      let s, counter = assign s counter in
+      (EUpcast (i, e, t, s), counter)
+
+(** A call's arguments, each keeping the name it was written with.
+    int -> [(String?, expr)] -> ([(String?, expr)], int) *)
+and sym_args counter args =
+  let names = List.map fst args in
+  let args, counter = map_fold sym_expr counter (arg_exprs args) in
+  (List.combine names args, counter)
 
 and sym_type counter t =
   match t with
@@ -693,6 +732,10 @@ and sym_pattern counter p =
       let inner, counter = sym_pattern counter inner in
       let s, counter = assign s counter in
       (PAs (i, inner, name, s), counter)
+  | PTyped (i, name, t, s) ->
+      let t, counter = sym_type counter t in
+      let s, counter = assign s counter in
+      (PTyped (i, name, t, s), counter)
 
 and sym_list_rest counter (ListRest (i, name, s)) =
   let s, counter = assign s counter in
@@ -865,6 +908,35 @@ and sym_stmt counter st =
       let constructors, counter = map_fold sym_constructor counter constructors in
       let s, counter = assign s counter in
       (SDatatype (i, name, params, constructors, s, public, writable), counter)
+  | SClass (i, c, s) ->
+      let header, counter = map_fold sym_member_field counter c.c_header in
+      let extends, counter = map_option sym_class_ref counter c.c_extends in
+      let implements, counter = map_fold sym_class_ref counter c.c_implements in
+      let fields, counter = map_fold sym_member_field counter c.c_fields in
+      let methods, counter = map_fold sym_method counter c.c_methods in
+      let s, counter = assign s counter in
+      ( SClass
+          (i, { c with c_header = header; c_extends = extends; c_implements = implements; c_fields = fields; c_methods = methods }, s),
+        counter )
+
+and sym_member_field counter (MemberField (i, name, type_, value, var, private_, s)) =
+  let type_, counter = map_option sym_type counter type_ in
+  let value, counter = map_option sym_expr counter value in
+  let s, counter = assign s counter in
+  (MemberField (i, name, type_, value, var, private_, s), counter)
+
+and sym_class_ref counter (ClassRef (i, module_, name, args, ctor, s)) =
+  let args, counter = map_fold sym_type counter args in
+  let ctor, counter = sym_args counter ctor in
+  let s, counter = assign s counter in
+  (ClassRef (i, module_, name, args, ctor, s), counter)
+
+and sym_method counter (MethodDecl (i, name, params, ret, body, override, private_, s)) =
+  let params, counter = map_fold sym_param counter params in
+  let body, counter = map_option (map_fold sym_stmt) counter body in
+  let ret, counter = map_option sym_type counter ret in
+  let s, counter = assign s counter in
+  (MethodDecl (i, name, params, ret, body, override, private_, s), counter)
 
 (* --- the largest symbol already handed out ---
    A tree that has been symbolized once keeps the numbers it has, and
@@ -911,6 +983,9 @@ let rec high_expr e =
           (max (high_expr value) (high_expr body))
     | EConstruct (_, _, _, args, _) -> high_list high_expr (arg_exprs args)
     | EField (_, record, _, _) -> high_expr record
+    | EMethod (_, obj, _, args, _) -> max (high_expr obj) (high_list high_expr (arg_exprs args))
+    | ESuper (_, _, _, args, _) -> high_list high_expr (arg_exprs args)
+    | EUpcast (_, e, t, _) -> max (high_expr e) (high_type t)
   in
   max (expr_sym e) children
 
@@ -945,6 +1020,7 @@ and high_pattern p =
         high_list high_pattern (positional @ List.map snd named)
     | POr (_, alternatives, _) -> high_list high_pattern alternatives
     | PAs (_, inner, _, _) -> high_pattern inner
+    | PTyped (_, _, t, _) -> high_type t
   in
   max (pattern_sym p) children
 
@@ -1038,6 +1114,23 @@ and high_stmt st =
     | SImport _ -> 0
     | SDatatype (_, _, _, constructors, _, _, _) ->
         high_list high_constructor constructors
+    | SClass (_, c, _) ->
+        let field (MemberField (_, _, t, v, _, _, fs)) = max fs (max (high_option high_type t) (high_option high_expr v)) in
+        let ref_ (ClassRef (_, _, _, args, ctor, rs)) =
+          max rs (max (high_list high_type args) (high_list high_expr (arg_exprs ctor)))
+        in
+        let method_ (MethodDecl (_, _, params, ret, body, _, _, ms)) =
+          List.fold_left max ms
+            [ high_list high_param params; high_option (high_list high_stmt) body; high_option high_type ret ]
+        in
+        List.fold_left max 0
+          [
+            high_list field c.c_header;
+            high_option ref_ c.c_extends;
+            high_list ref_ c.c_implements;
+            high_list field c.c_fields;
+            high_list method_ c.c_methods;
+          ]
   in
   max (stmt_sym st) children
 

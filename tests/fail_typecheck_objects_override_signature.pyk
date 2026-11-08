@@ -1,0 +1,14 @@
+# An override has the signature of what it overrides.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+class Animal(name: String):
+    def sound(self, loud: Bool) -> String:
+        "..."
+
+class Dog(name: String) extends Animal(name):
+    override def sound(self, loud: Int) -> String:
+        "woof"

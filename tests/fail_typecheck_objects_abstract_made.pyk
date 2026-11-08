@@ -1,0 +1,11 @@
+# An abstract class is never made: a class extending it is.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+abstract class Animal(name: String):
+    abstract def sound(self) -> String
+
+a = Animal("x")

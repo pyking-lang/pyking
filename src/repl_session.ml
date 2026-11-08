@@ -268,6 +268,7 @@ let rec set_source name text = function
     -> ([(stmt, typ option, Typesystem.env, Typesystem.store)], typ IntMap.t) *)
 let check_entry entry types store =
   let store = Typesystem.declare_datatypes entry store in
+  let store = Typesystem.declare_classes entry store in
   let types = Typesystem.import_env entry types store in
   let types, store = Typesystem.declare_functions entry types store in
   let store =

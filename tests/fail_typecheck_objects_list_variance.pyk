@@ -1,0 +1,20 @@
+# Lists do not take subtypes: a [Rect] is not a [Shape].
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+interface Shape:
+    def area(self) -> Float
+
+class Rect(w: Float) implements Shape:
+    override def area(self) -> Float:
+        self.w
+
+def total(shapes: [Shape]) -> Float:
+    loop sum = 0.0 for s in shapes:
+        sum + s.area()
+
+rects = [Rect(1.0), Rect(2.0)]
+print(total(rects))

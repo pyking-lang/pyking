@@ -67,3 +67,15 @@ val exists_stmts : (node -> bool) -> stmt list -> bool
     variables a TForall binds are called `vars`, so neither is an
     identifier by this test. node -> string option *)
 val name_field : node -> string option
+
+(** An expression with every expression in it rewritten by the function,
+    innermost first: each node is rebuilt from its rewritten children and
+    then handed to it. *)
+val map_expr : (expr -> expr) -> expr -> expr
+
+(** A statement with every expression in it rewritten, class members and
+    method bodies included. *)
+val map_stmt : (expr -> expr) -> stmt -> stmt
+
+(** Statements with every expression in them rewritten. *)
+val map_stmts : (expr -> expr) -> stmt list -> stmt list

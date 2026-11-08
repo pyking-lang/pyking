@@ -1,0 +1,26 @@
+# Abstract classes: fields every class below shares, methods each gives
+# a body to, and a body of its own calling them.
+
+use objects
+
+abstract class Employee(name: String, base: Int):
+    abstract def bonus(self) -> Int
+
+    def pay(self) -> Int:
+        self.base + self.bonus()
+
+    def line(self) -> String:
+        self.name + ": " + string(self.pay())
+
+class Engineer(name: String) extends Employee(name, 5000):
+    override def bonus(self) -> Int:
+        500
+
+class Manager(name: String, reports: Int) extends Employee(name, 6000):
+    override def bonus(self) -> Int:
+        100 * self.reports
+
+staff: [Employee] = [Engineer("Ada"), Manager("Bo", 3)]
+for e in staff:
+    print(e.line())
+print(Engineer("Cy"))

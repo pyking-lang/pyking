@@ -1,0 +1,12 @@
+# A body field's first value has the header's parameters in scope, and
+# no `self`: nothing calls a method on a half-made object.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+class Box(w: Int):
+    def twice(self) -> Int:
+        self.w * 2
+    doubled: Int = self.twice()

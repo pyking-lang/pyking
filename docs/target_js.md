@@ -1268,3 +1268,27 @@ A `let target = value in body` (PYKING.md, "Let expressions") is compiled as the
 A call whose named arguments are not in parameter order, with more
 than one that has an effect, reaches this backend as nested `let`s
 (`docs/desugar_args.md`).
+
+## Classes
+
+A Pyking class (PYKING.md, "Classes and interfaces") is an ES class, and
+an interface one too, never made:
+
+- **Every class goes after the imports**, a parent before its child: a
+  class is not hoisted as a function is, and `extends` reads its parent
+  when the class statement runs.
+- **The constructor** calls `super(...)` with the parent's arguments,
+  then sets the class's own header fields and its body fields; each
+  method takes its object as `self` (`const self = this;`).
+- **`pykClass(C, tag, header, shape, classes, show)`**, after the
+  classes, gives each class's prototype what printing and patterns read:
+  `pykTag` and `pykValues` (its name and its header's fields), so
+  `pykFormat` prints an object as it prints a datatype's value, with
+  `pykShape` saying which fields are Floats; `pykClasses`, every class
+  and interface it is, which a class pattern tests; and `pykShow`, true
+  where `show` says how it prints.
+- **`pykMixin(C, I)`** copies an interface's defaults into a class that
+  has no body for them, from its own chain or a nearer interface.
+- `obj.m(...)` is `obj.m(...)`; `super.m(...)` is
+  `Owner.prototype.m.call(self, ...)`, the body the checker chose. An
+  upcast is nothing.

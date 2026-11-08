@@ -1,0 +1,10 @@
+# Every method says its parameters' types.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+class Box(w: Int):
+    def add(self, n) -> Int:
+        self.w + n

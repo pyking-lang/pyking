@@ -1,0 +1,70 @@
+# Interfaces: signatures and defaults, an interface building on
+# another, a class implementing several, two defaults of one name settled
+# by an override -- and every place an object is seen as a supertype:
+# an annotated binding, a list literal, a call's argument, a returned
+# value, an `if`, a field and a method's argument.
+
+use objects, mutation
+
+interface Named:
+    def name(self) -> String
+
+interface Shape extends Named:
+    def area(self) -> Float
+    def describe(self) -> String:
+        self.name() + " of area " + string(self.area())
+
+interface Greeter:
+    def hello(self) -> String:
+        "hello"
+
+interface Waver:
+    def hello(self) -> String:
+        "wave"
+
+class Rect(width: Float, height: Float) implements Shape:
+    override def area(self) -> Float:
+        self.width * self.height
+    override def name(self) -> String:
+        "rectangle"
+
+class Circle(radius: Float) implements Shape, Greeter:
+    override def area(self) -> Float:
+        3.0 * self.radius * self.radius
+    override def name(self) -> String:
+        "circle"
+
+class Both() implements Greeter, Waver:
+    override def hello(self) -> String:
+        "hello and wave"
+
+class Holder(var shape: Shape):
+    def swap(self, other: Shape) -> Shape:
+        old = self.shape
+        self.shape := other
+        old
+
+def total(shapes: [Shape]) -> Float:
+    loop sum = 0.0 for s in shapes:
+        sum + s.area()
+
+def biggest(a: Shape, b: Shape) -> Shape:
+    if a.area() >= b.area() then a else b
+
+def unit_square() -> Shape:
+    Rect(1.0, 1.0)
+
+shapes: [Shape] = [Rect(2.0, 3.0), Circle(1.0)]
+for s in shapes:
+    print(s.describe())
+print(total(shapes), total([Rect(1.0, 2.0), Circle(2.0)]))
+print(biggest(Rect(1.0, 1.0), Circle(1.0)).name(), unit_square().area())
+one: Shape = Circle(2.0)
+pick: Shape = if one.area() > 10.0 then Rect(9.0, 9.0) else Circle(0.5)
+print(one.name(), pick.name())
+h = Holder(Rect(1.0, 1.0))
+print(h.swap(Circle(3.0)).name(), h.shape.name())
+g: Greeter = Circle(1.0)
+print(g.hello(), Both().hello(), Circle(1.0).hello())
+named: [Named] = [Rect(1.0, 1.0), Circle(1.0)]
+print([n.name() for n in named])

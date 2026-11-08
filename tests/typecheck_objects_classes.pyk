@@ -1,0 +1,61 @@
+# Classes: fields in the header and in the body, methods and `self`,
+# defaults and named arguments, a method as a value, `eq` and `show`,
+# printing, `var` fields and `private` members (PYKING.md, "Classes and
+# interfaces").
+
+use objects, mutation
+
+class Vec(x: Float, y: Float = 0.0):
+    def length2(self) -> Float:
+        self.x * self.x + self.y * self.y
+
+    def plus(self, other: Vec) -> Vec:
+        Vec(self.x + other.x, self.y + other.y)
+
+    def scaled(self, k: Float = 2.0) -> Vec:
+        Vec(self.x * k, self.y * k)
+
+    def eq(self, other: Vec) -> Bool:
+        self.x == other.x and self.y == other.y
+
+class Counter(var count: Int = 0):
+    var history: [Int] = []
+    steps: Int = 1
+
+    def tick(self, by: Int = 1):
+        self.count += by * self.steps
+        self.history := self.history + [self.count]
+
+    def ticked(self, times: Int) -> Int:
+        if times == 0 then self.count else self.once(times)
+
+    private def once(self, times: Int) -> Int:
+        self.tick()
+        self.ticked(times - 1)
+
+class Money(cents: Int, currency: String = "SEK"):
+    def show(self) -> String:
+        string(self.cents / 100) + "," + string(self.cents % 100) + " " + self.currency
+
+class Tag(name: String)
+
+class Empty()
+
+v = Vec(3.0, 4.0)
+print(v, v.length2(), Vec(1.0))
+print(v.plus(Vec(1.0, 1.0)), v.scaled(), v.scaled(k = 0.5))
+grow = v.scaled
+print(grow(10.0))
+print(Vec(1.0, 2.0) == Vec(1.0, 2.0), Vec(1.0) != Vec(1.0, 0.0), Vec(1.0) == Vec(2.0))
+print(same(v, v), same(v, Vec(3.0, 4.0)))
+
+c = Counter()
+c.tick()
+c.tick(by = 2)
+print(c.ticked(3), c.count, c.history, c)
+d = c
+d.count := 100
+print(c.count)
+
+print(Money(250), [Money(5, "EUR"), Money(1999)])
+print(Tag("x"), Empty(), Tag(name = "y").name)

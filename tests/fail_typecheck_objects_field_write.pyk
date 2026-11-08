@@ -1,0 +1,11 @@
+# A field declared without `var` never changes.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects, mutation
+
+class Point(x: Int)
+
+p = Point(1)
+p.x := 2

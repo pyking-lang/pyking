@@ -1,0 +1,4 @@
+'tests/fail_typecheck_objects_mixed_list.pyk' 20:9-20:33 Type error:
+  the elements of this list are a Rect and a Circle, and Pyking does
+  not guess a common type; annotate the list, as in 'xs: [Shape] =
+  [...]', with the class or interface both are

@@ -78,10 +78,13 @@ let lambda_message = "a lambda is now written 'lam x. x + 1'"
 
 (** Why a reserved word cannot stand where a name would. String -> String *)
 let reserved_message word =
-  Printf.sprintf
-    "'%s' is reserved for a later part of the language, so it cannot be \
-     used as a name"
-    word
+  match word with
+  | "self" -> "'self' is the object a method is called on, so it is written only inside a class's method"
+  | _ ->
+      Printf.sprintf
+        "'%s' is a word of classes and interfaces, so it cannot be used as a name \
+         or written here"
+        word
 
 
 (** Refuses a qualified name where only a plain one may stand. `::` is
@@ -188,6 +191,20 @@ and parse_atom eof tokens =
           raise
             (Parse_error
                (here eof rest, "expected ',', 'for', or ']' in list literal")))
+  | TokReserved (i, "self") :: rest -> parse_call_tail eof (EVar (i, "self", 0)) rest
+  | TokReserved (i, "super") :: TokDot dot :: TokIdent (ni, name) :: TokLParen lp :: rest
+    when dot.row1 = i.row2 && lp.row1 = ni.row2 ->
+      (* `super.name(args)`: the implementation the class inherited,
+         called on self; the class it is in is the checker's to find. *)
+      let args, rparen, rest = parse_args eof rest in
+      check_argument_shape args;
+      parse_call_tail eof (ESuper (combine_info i rparen, "", name, args, 0)) rest
+  | TokReserved (i, "super") :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             "'super' calls a method the class inherited, as in \
+              'super.name(args)', inside a method" ))
   | TokReserved (i, word) :: _ -> raise (Parse_error (i, reserved_message word))
   | t :: _ -> raise (Parse_error (token_info t, "unexpected token in expression"))
   | [] ->
@@ -951,6 +968,7 @@ and parse_param eof tokens =
     | TokIdent (i, name) :: rest ->
         check_plain_name i name "a parameter";
         (name, None, i, rest)
+    | TokReserved (i, word) :: _ -> raise (Parse_error (i, reserved_message word))
     | _ -> raise (Parse_error (here eof tokens, "expected a parameter"))
   in
   match rest with
@@ -1207,6 +1225,21 @@ and parse_block eof tokens header_info =
       ([ stmt ], rest)
   | _ -> raise (Parse_error (here eof tokens, "expected an indented block"))
 
+(** Whether a type starts these tokens and is followed by what may end a
+    pattern -- so that `name: Type` is a typed pattern rather than a
+    capture with its case's block on the same line.
+    info -> [token] -> bool *)
+and typed_pattern_follows eof tokens =
+  match parse_type eof tokens with
+  | t, next :: _ -> (
+      let same_row = (token_info next).row1 = (type_info t).row2 in
+      match next with
+      | TokColon _ | TokIf _ | TokAs _ | TokBar _ -> same_row
+      | TokComma _ | TokRParen _ | TokRBracket _ -> true
+      | _ -> false)
+  | _, [] -> false
+  | exception Parse_error _ -> false
+
 (** Parses one pattern: literal, wildcard, name, or parenthesized tuple
     pattern. info -> [token] -> (pattern, [token]) *)
 and parse_pattern_atom eof tokens =
@@ -1226,6 +1259,17 @@ and parse_pattern_atom eof tokens =
       parse_constructor_pattern eof (combine_info i ni) (Some module_) name rest
   | TokIdent (i, name) :: rest when is_constructor_name name ->
       parse_constructor_pattern eof i None name rest
+  | TokIdent (i, name) :: TokColon colon :: (TokIdent (ti, tname) :: _ as after)
+    when colon.row1 = i.row2 && ti.row1 = colon.row2
+         && is_constructor_name (List.hd (List.rev (String.split_on_char '.' tname)))
+         && typed_pattern_follows eof after ->
+      (* `case c: Circle:` -- an object of that class or interface. The
+         type is followed by what may follow a pattern: the case's `:`,
+         a guard, or the end of a pattern inside brackets; anything else
+         is `case c:` with a block on its own line. *)
+      check_plain_name i name "bound by a pattern";
+      let t, rest = parse_type eof after in
+      (PTyped (combine_info i (type_info t), name, t, 0), rest)
   | TokIdent (i, name) :: rest ->
       check_plain_name i name "bound by a pattern";
       (PCapture (i, name, 0), rest)
@@ -1615,6 +1659,17 @@ and parse_statement eof tokens =
            ( i,
              "'use' turns on a feature for the whole module, so it is \
               written before anything else" ))
+  | TokReserved (i, ("class" | "interface" | "abstract")) :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             "a class belongs to the top level of a module, so it cannot be \
+              declared inside a block" ))
+  | TokReserved (_, ("self" | "super")) :: _ -> (
+      (* `self.x := v`, `self.m()`, `super.m()`: an expression or a field
+         write, which the ordinary statement forms below read. *)
+      match parse_expr_statement eof tokens with
+      | stmt, rest -> (stmt, rest))
   | TokReserved (i, word) :: _ -> raise (Parse_error (i, reserved_message word))
   | (TokImport i | TokFrom i) :: _ ->
       raise
@@ -2953,6 +3008,401 @@ let parse_struct ?(writable = false) eof struct_info tokens =
         writable ),
     rest )
 
+
+(* --- classes and interfaces --- *)
+
+(** The modifiers in front of a class member or a header field:
+    `private`, `override`, `abstract` and `var`, in any order, each at
+    most once. [token] -> ((string * info) list, [token]) *)
+let parse_modifiers tokens =
+  let rec go rest found =
+    let add i word rest =
+      if List.mem_assoc word found then
+        raise (Parse_error (i, Printf.sprintf "'%s' is written twice" word));
+      go rest ((word, i) :: found)
+    in
+    match rest with
+    | TokReserved (i, (("private" | "override" | "abstract") as word)) :: rest -> add i word rest
+    | TokVar i :: rest -> add i "var" rest
+    | _ -> (List.rev found, rest)
+  in
+  go tokens []
+
+(** Refuses a modifier where it means nothing.
+    (string * info) list -> string list -> string -> () *)
+let allow_modifiers found allowed what =
+  List.iter
+    (fun (word, i) ->
+      if not (List.mem word allowed) then
+        raise (Parse_error (i, Printf.sprintf "'%s' cannot be written in front of %s" word what)))
+    found
+
+(** Parses one field of a class, after its modifiers: `name: Type`,
+    `name: Type = e` or `name = literal`. The type is required unless a
+    literal default gives it.
+    info -> bool -> bool -> [token] -> (member_field, [token]) *)
+let parse_member_field eof var private_ tokens =
+  match tokens with
+  | TokIdent (i, name) :: rest when not (is_constructor_name name) -> (
+      check_plain_name i name "a field name";
+      check_lowercase i name "a field name";
+      let type_, rest =
+        match rest with
+        | TokColon _ :: rest ->
+            let t, rest = parse_type eof rest in
+            (Some t, rest)
+        | _ -> (None, rest)
+      in
+      match rest with
+      | TokEq _ :: rest ->
+          let default, rest = parse_expr eof rest in
+          let type_ = match type_ with Some t -> Some t | None -> literal_type default in
+          if type_ = None then
+            raise
+              (Parse_error
+                 ( i,
+                   Printf.sprintf
+                     "the field '%s' needs its type written, as in '%s: Type = ...': \
+                      only a literal says its own type"
+                     name name ));
+          (MemberField (combine_info i (expr_info default), name, type_, Some default, var, private_, 0), rest)
+      | _ -> (
+          match type_ with
+          | Some t -> (MemberField (combine_info i (type_info t), name, Some t, None, var, private_, 0), rest)
+          | None ->
+              raise
+                (Parse_error
+                   (here eof rest, Printf.sprintf "expected ':' and the type of the field '%s'" name))))
+  | _ -> raise (Parse_error (here eof tokens, "expected a field: a name, ':' and its type"))
+
+(** Parses a class's header from just after its `(`: type parameters
+    (bare lowercase names) and fields, up to and including the `)`.
+    info -> [token] -> ([String], [member_field], info, [token]) *)
+let parse_class_header eof tokens =
+  let rec go rest params fields =
+    match rest with
+    | TokRParen rp :: rest -> (List.rev params, List.rev fields, rp, rest)
+    | _ -> (
+        let params, fields, rest =
+          match rest with
+          | TokIdent (vi, v) :: ((TokComma _ | TokRParen _) :: _ as rest) when is_type_var v ->
+              if List.mem v params then
+                raise (Parse_error (vi, Printf.sprintf "duplicate type parameter '%s'" v));
+              (v :: params, fields, rest)
+          | _ ->
+              let mods, rest = parse_modifiers rest in
+              allow_modifiers mods [ "private"; "var" ] "a field";
+              let f, rest = parse_member_field eof (List.mem_assoc "var" mods) (List.mem_assoc "private" mods) rest in
+              let (MemberField (fi, name, _, default, _, _, _)) = f in
+              if List.exists (fun (MemberField (_, n, _, _, _, _, _)) -> n = name) fields then
+                raise (Parse_error (fi, Printf.sprintf "duplicate field '%s'" name));
+              (match fields with
+              | MemberField (_, _, _, Some _, _, _, _) :: _ when default = None ->
+                  raise (Parse_error (fi, "this field needs a default, because a field before it has one"))
+              | _ -> ());
+              (params, f :: fields, rest)
+        in
+        match rest with
+        | TokComma _ :: rest -> go rest params fields
+        | TokRParen _ :: _ -> go rest params fields
+        | _ -> raise (Parse_error (here eof rest, "expected ',' or ')' in a class's header")))
+  in
+  go tokens [] []
+
+(** Parses a supertype a header names: `[module.]Name` with type
+    arguments (`Source(Int)`) for an interface, or with the parent
+    constructor's arguments (`Rect(side, side)`) for a parent class.
+    info -> bool -> [token] -> (class_ref, [token]) *)
+let parse_class_ref eof parent tokens =
+  let i, module_, name, rest =
+    match tokens with
+    | TokIdent _ :: TokDot _ :: _ when Option.is_some (constructor_path tokens) ->
+        let i, module_, ni, name, rest = Option.get (constructor_path tokens) in
+        (combine_info i ni, Some module_, name, rest)
+    | TokIdent (i, name) :: rest when is_constructor_name name -> (i, None, name, rest)
+    | _ ->
+        raise
+          (Parse_error
+             (here eof tokens, "expected the name of a class or an interface, starting with an uppercase letter"))
+  in
+  if parent then
+    match rest with
+    | TokLParen lp :: rest when lp.row1 = i.row2 ->
+        let args, rp, rest = parse_args eof rest in
+        check_argument_shape args;
+        (ClassRef (combine_info i rp, module_, name, [], args, 0), rest)
+    | _ ->
+        raise
+          (Parse_error
+             ( i,
+               Printf.sprintf
+                 "a parent class is written with the arguments its constructor is given, \
+                  as in 'extends %s(...)'; '()' where it takes none"
+                 name ))
+  else
+    match rest with
+    | TokLParen lp :: rest when lp.row1 = i.row2 ->
+        let rec args rest found =
+          let t, rest = parse_type eof rest in
+          match rest with
+          | TokComma _ :: rest -> args rest (t :: found)
+          | TokRParen rp :: rest -> (List.rev (t :: found), rp, rest)
+          | _ -> raise (Parse_error (here eof rest, "expected ',' or ')' after a type argument"))
+        in
+        let ts, rp, rest = args rest [] in
+        (ClassRef (combine_info i rp, module_, name, ts, [], 0), rest)
+    | _ -> (ClassRef (i, module_, name, [], [], 0), rest)
+
+(** Parses comma-separated supertypes. info -> bool -> [token] -> ([class_ref], [token]) *)
+let parse_class_refs eof parent tokens =
+  let rec go rest found =
+    let r, rest = parse_class_ref eof parent rest in
+    match rest with
+    | TokComma _ :: rest -> go rest (r :: found)
+    | _ -> (List.rev (r :: found), rest)
+  in
+  go tokens []
+
+(** Parses one method from its `def`: `def name(self, params) [-> T]`,
+    then its block where it has one.
+    info -> class_kind -> (string * info) list -> info -> [token] -> (method_decl, [token]) *)
+let parse_method eof kind mods def_info tokens =
+  let override = List.mem_assoc "override" mods and private_ = List.mem_assoc "private" mods in
+  let abstract_ = List.mem_assoc "abstract" mods in
+  match tokens with
+  | TokIdent (ni, name) :: TokLParen _ :: rest -> (
+      check_plain_name ni name "the name of a method";
+      check_lowercase ni name "the name of a method";
+      let params, rest =
+        match rest with
+        | TokReserved (_, "self") :: TokRParen _ :: rest -> ([], rest)
+        | TokReserved (_, "self") :: TokComma _ :: rest ->
+            let params, implicits, rest = parse_params eof rest in
+            (match implicits with
+            | Param (pi, _, _, _, _) :: _ ->
+                raise (Parse_error (pi, "a method takes no implicit parameter"))
+            | [] -> ());
+            (params, rest)
+        | _ ->
+            raise
+              (Parse_error
+                 ( ni,
+                   Printf.sprintf
+                     "a method's first parameter is 'self', the object it is called on: \
+                      'def %s(self, ...)'"
+                     name ))
+      in
+      List.iter
+        (fun (Param (pi, pname, ptype, _, _)) ->
+          if ptype = None then
+            raise
+              (Parse_error
+                 ( pi,
+                   Printf.sprintf
+                     "the parameter '%s' of the method '%s' needs its type written, \
+                      as in '%s: Type': every method says its types"
+                     pname name pname )))
+        params;
+      let return_type, rest =
+        match rest with
+        | TokArrow _ :: rest ->
+            let t, rest = parse_type eof rest in
+            (Some t, rest)
+        | _ -> (None, rest)
+      in
+      let head_end = match return_type with Some t -> type_info t | None -> ni in
+      let no_body = abstract_ || kind = ClassInterface in
+      match rest with
+      | TokColon colon :: rest when abstract_ ->
+          ignore rest;
+          raise (Parse_error (colon, Printf.sprintf "the abstract method '%s' has no body: a class below gives it" name))
+      | TokColon colon :: rest ->
+          let body, rest = parse_block eof rest colon in
+          ( MethodDecl (combine_info def_info (block_end_info def_info body), name, params, return_type,
+                        Some body, override, private_, 0),
+            rest )
+      | _ when no_body ->
+          (MethodDecl (combine_info def_info head_end, name, params, return_type, None, override, private_, 0), rest)
+      | _ ->
+          raise
+            (Parse_error
+               ( here eof rest,
+                 Printf.sprintf
+                   "expected ':' and the body of the method '%s'; only an abstract method \
+                    or an interface's has none"
+                   name )))
+  | _ -> raise (Parse_error (here eof tokens, "expected a method's name and '(' after 'def'"))
+
+(** Parses a class, an abstract class or an interface from just after
+    its keyword(s). info -> class_kind -> info -> [token] -> (stmt, [token]) *)
+let parse_class eof kind class_info tokens =
+  let what = match kind with ClassInterface -> "interface" | _ -> "class" in
+  let name_info, name, rest = parse_type_name eof what tokens in
+  let params, header, header_end, rest =
+    match (kind, rest) with
+    | ClassInterface, TokLParen lp :: after when lp.row1 = name_info.row2 ->
+        let params, rest = parse_type_params eof "interface" after in
+        (params, [], name_info, rest)
+    | ClassInterface, _ -> ([], [], name_info, rest)
+    | _, TokLParen lp :: after when lp.row1 = name_info.row2 ->
+        let bare, fields, rp, rest = parse_class_header eof after in
+        let named =
+          List.fold_left
+            (fun found (MemberField (_, _, t, _, _, _, _)) ->
+              match t with
+              | None -> found
+              | Some t -> found @ List.filter (fun v -> not (List.mem v found)) (type_variables t))
+            [] fields
+        in
+        (bare @ List.filter (fun v -> not (List.mem v bare)) named, fields, rp, rest)
+    | _, _ ->
+        raise
+          (Parse_error
+             ( name_info,
+               Printf.sprintf
+                 "a class is written with its fields in parentheses after its name, \
+                  as in 'class %s(x: Int)'; '()' where it has none"
+                 name ))
+  in
+  let extends, implements, rest =
+    match (kind, rest) with
+    | ClassInterface, TokReserved (_, "extends") :: rest ->
+        let refs, rest = parse_class_refs eof false rest in
+        (None, refs, rest)
+    | ClassInterface, TokReserved (i, "implements") :: _ ->
+        raise (Parse_error (i, "an interface 'extends' the interfaces it builds on"))
+    | ClassInterface, _ -> (None, [], rest)
+    | _ ->
+        let extends, rest =
+          match rest with
+          | TokReserved (_, "extends") :: rest ->
+              let r, rest = parse_class_ref eof true rest in
+              (Some r, rest)
+          | _ -> (None, rest)
+        in
+        let implements, rest =
+          match rest with
+          | TokReserved (_, "implements") :: rest -> parse_class_refs eof false rest
+          | _ -> ([], rest)
+        in
+        (extends, implements, rest)
+  in
+  let header_end =
+    match List.rev implements, extends with
+    | ClassRef (i, _, _, _, _, _) :: _, _ -> i
+    | [], Some (ClassRef (i, _, _, _, _, _)) -> i
+    | [], None -> header_end
+  in
+  let rec members rest fields methods =
+    match rest with
+    | TokDedent _ :: rest -> (List.rev fields, List.rev methods, rest)
+    | _ -> (
+        let mods, after = parse_modifiers rest in
+        match after with
+        | TokDef di :: after ->
+            allow_modifiers mods [ "private"; "override"; "abstract" ] "a method";
+            (match List.assoc_opt "abstract" mods with
+            | Some i when kind <> ClassAbstract ->
+                raise
+                  (Parse_error
+                     ( i,
+                       if kind = ClassInterface then
+                         "an interface's methods without a body are abstract already: write no 'abstract'"
+                       else
+                         Printf.sprintf
+                           "only an abstract class has abstract methods: write 'abstract class %s'"
+                           name ))
+            | _ -> ());
+            (match List.assoc_opt "private" mods with
+            | Some i when kind = ClassInterface ->
+                raise (Parse_error (i, "an interface's methods are all public"))
+            | _ -> ());
+            let start = match mods with (_, i) :: _ -> i | [] -> di in
+            let m, rest = parse_method eof kind mods start after in
+            members rest fields (m :: methods)
+        | _ ->
+            if kind = ClassInterface then
+              raise
+                (Parse_error
+                   (here eof after, "an interface has methods, and no fields: expected 'def'"));
+            allow_modifiers mods [ "private"; "var" ] "a field";
+            let f, rest = parse_member_field eof (List.mem_assoc "var" mods) (List.mem_assoc "private" mods) after in
+            let (MemberField (fi, fname, _, init, _, _, _)) = f in
+            if init = None then
+              raise
+                (Parse_error
+                   ( fi,
+                     Printf.sprintf
+                       "the field '%s' needs its first value, as in '%s: Type = value': \
+                        a field in a class's body is not one its constructor is given"
+                       fname fname ));
+            members rest (f :: fields) methods)
+  in
+  let fields, methods, last, rest =
+    match rest with
+    | TokColon _ :: TokIndent _ :: rest ->
+        let fields, methods, rest = members rest [] [] in
+        let last =
+          match List.rev methods, List.rev fields with
+          | MethodDecl (i, _, _, _, _, _, _, _) :: _, _ -> i
+          | [], MemberField (i, _, _, _, _, _, _) :: _ -> i
+          | [], [] -> header_end
+        in
+        (fields, methods, last, rest)
+    | [ TokColon c ] ->
+        raise
+          (Parse_error
+             (c, Printf.sprintf "unexpected end of input: a %s's members follow it, on indented lines" what))
+    | TokColon c :: _ ->
+        raise (Parse_error (c, Printf.sprintf "a %s's members are written on indented lines under its ':'" what))
+    | _ -> ([], [], header_end, rest)
+  in
+  let names =
+    List.map (fun (MemberField (i, n, _, _, _, _, _)) -> (n, i)) (header @ fields)
+    @ List.map (fun (MethodDecl (i, n, _, _, _, _, _, _)) -> (n, i)) methods
+  in
+  ignore
+    (List.fold_left
+       (fun seen (n, i) ->
+         if List.mem n seen then
+           raise
+             (Parse_error
+                ( i,
+                  Printf.sprintf
+                    "'%s' is already a field or a method of '%s'; a class has one member of each name"
+                    n name ));
+         n :: seen)
+       [] names);
+  ( SClass
+      ( combine_info class_info last,
+        {
+          c_name = name;
+          c_kind = kind;
+          c_params = params;
+          c_header = header;
+          c_extends = extends;
+          c_implements = implements;
+          c_fields = fields;
+          c_methods = methods;
+          c_public = false;
+        },
+        0 ),
+    rest )
+
+(** Parses what starts a class declaration, if these tokens start one:
+    `class`, `abstract class` or `interface`.
+    info -> [token] -> (stmt * [token]) option *)
+let parse_class_start eof tokens =
+  match tokens with
+  | TokReserved (i, ("class" | "interface")) :: next :: _
+    when (match next with TokIdent (_, n) -> not (is_constructor_name n) | _ -> true) ->
+      (* `class = 3`: the word used as a name *)
+      raise (Parse_error (i, reserved_message (match List.hd tokens with TokReserved (_, w) -> w | _ -> "class")))
+  | TokReserved (i, "class") :: rest -> Some (parse_class eof ClassPlain i rest)
+  | TokReserved (i, "abstract") :: TokReserved (_, "class") :: rest -> Some (parse_class eof ClassAbstract i rest)
+  | TokReserved (i, "interface") :: rest -> Some (parse_class eof ClassInterface i rest)
+  | _ -> None
+
 (** One statement with `public` written in front of it. stmt -> info ->
     stmt *)
 let made_public stmt public_info =
@@ -2966,6 +3416,15 @@ let made_public stmt public_info =
       SFunctionSig (i, name, type_, sym, true)
   | SDatatype (_, name, params, constructors, sym, _, writable) ->
       SDatatype (i, name, params, constructors, sym, true, writable)
+  | SClass (_, c, _) ->
+      (* What another module would need of a class -- its table, its
+         constructor, its methods, on every target -- is not written yet. *)
+      raise
+        (Parse_error
+           ( i,
+             Printf.sprintf
+               "a class is used in the module declaring it: '%s' cannot be exported yet"
+               c.c_name ))
   | SLet (_, (TargetName _ as target), e, annotation, sym, _, implicit) ->
       SLet (i, target, e, annotation, sym, true, implicit)
   | SLetStmt (_, (TargetName _ as target), inner, annotation, sym, _) ->
@@ -2982,8 +3441,8 @@ let made_public stmt public_info =
            ( i,
              Printf.sprintf
                "'public' says what a module exports, so it goes in front of a \
-                'def', a 'def' signature line, a 'datatype', a 'struct', or \
-                an '=' \
+                'def', a 'def' signature line, a 'datatype', a 'struct', a \
+                'class', an 'interface', or an '=' \
                 binding, not '%s'"
                (shorten (statement_text stmt)) ))
 
@@ -3010,7 +3469,10 @@ let parse_public eof public_info tokens =
     | TokDatatype i :: rest -> parse_datatype eof i rest
     | TokStruct i :: rest -> parse_struct eof i rest
     | TokVar i :: TokStruct _ :: rest -> parse_struct ~writable:true eof i rest
-    | _ -> parse_statement eof tokens
+    | _ -> (
+        match parse_class_start eof tokens with
+        | Some parsed -> parsed
+        | None -> parse_statement eof tokens)
   in
   (made_public stmt public_info, rest)
 
@@ -3036,9 +3498,12 @@ let parse_top_statement eof tokens =
   | TokVar i :: TokStruct _ :: rest ->
       let stmt, rest = parse_struct ~writable:true eof i rest in
       ([ stmt ], rest)
-  | _ ->
-      let stmt, rest = parse_statement eof tokens in
-      ([ stmt ], rest)
+  | _ -> (
+      match parse_class_start eof tokens with
+      | Some (stmt, rest) -> ([ stmt ], rest)
+      | None ->
+          let stmt, rest = parse_statement eof tokens in
+          ([ stmt ], rest))
 
 (* --- features turned on with `use` --- *)
 
@@ -3159,6 +3624,40 @@ let check_features enabled stmts =
         | _ -> [])
       stmts
   in
+  if not (List.mem "objects" enabled) then
+    List.iter
+      (function
+        | SClass (i, c, _) ->
+            let word, what =
+              match c.c_kind with
+              | ClassPlain -> ("class", "a class")
+              | ClassAbstract -> ("abstract class", "an abstract class")
+              | ClassInterface -> ("interface", "an interface")
+            in
+            raise
+              (Parse_error
+                 ( { i with row2 = i.row1; col2 = i.col1 + String.length word },
+                   Printf.sprintf "'%s' declares %s, which needs 'use objects' at the top of this module"
+                     word what ))
+        | _ -> ())
+      stmts;
+  if not (List.mem "mutation" enabled) then
+    List.iter
+      (function
+        | SClass (_, c, _) ->
+            List.iter
+              (fun (MemberField (i, name, _, _, var, _, _)) ->
+                if var then
+                  raise
+                    (Parse_error
+                       ( i,
+                         Printf.sprintf
+                           "'var %s' declares a field that can be written, which needs 'use \
+                            mutation' at the top of this module"
+                           name )))
+              (c.c_header @ c.c_fields)
+        | _ -> ())
+      stmts;
   if not (List.mem "pointers" enabled) then
     Walk.fold_stmts
       (fun () node ->
@@ -3238,8 +3737,8 @@ let check_features enabled stmts =
               (Parse_error
                  ( i,
                    Printf.sprintf
-                     "'%s' writes the field '%s' of a var struct, which needs \
-                      'use mutation' at the top of this module"
+                     "'%s' writes the field '%s', which needs 'use mutation' at \
+                      the top of this module"
                      (assignment_word statement) field ))
         | Walk.NStmt (SDatatype (i, name, _, _, _, _, true)) ->
             raise
@@ -3306,11 +3805,6 @@ let parse_with enabled tokens =
     | last :: _ -> token_info last
     | [] -> { file = "<empty>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
   in
-  (* A reserved word means nothing yet, so it is refused wherever it
-     stands -- a name, a parameter, a pattern -- with the same message. *)
-  (match List.find_opt (function TokReserved _ -> true | _ -> false) tokens with
-  | Some (TokReserved (i, word)) -> raise (Parse_error (i, reserved_message word))
-  | _ -> ());
   (* `+=` and its kind are statements: one inside brackets is being
      used as a value, which no assignment has. *)
   ignore

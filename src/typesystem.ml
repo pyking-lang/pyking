@@ -81,6 +81,20 @@ type resolution =
          a lambda of that type stands in its place, passing the first
          `int` of its own parameters to what was written and then these
          (docs/implicits.md) *)
+  | Upcast of typ
+      (* recorded under the expression's symbol negated: its object seen
+         as this supertype (PYKING.md, "Classes and interfaces") *)
+  | Method_call of string * (string * expr option) list
+      (* `obj.m(args)` calling a method: the class or interface whose
+         declaration the call reaches, and each parameter with its
+         default, by which elaborate.ml puts every argument in place *)
+  | Method_value of int
+      (* `obj.m` used as a value: a method taking this many arguments *)
+  | Super_owner of string * (string * expr option) list
+      (* `super.m(args)`: the class or interface whose body runs, and the
+         method's parameters, as for Method_call *)
+  | Object_eq of bool
+      (* `a == b` (true) or `a != b` (false) on objects: a call of `eq` *)
 
 and argument =
   | Direct of string * typ
@@ -365,6 +379,33 @@ type expected = No_function | Inferring | Declared of typ
     field_defaults -- each field written with no type, by the name of the
       def holding its default: the metavariable standing for its type
       until that def is reached, and the field's name. *)
+(** What the checker knows of one class or interface (PYKING.md, "Classes
+    and interfaces"): every type in it written in terms of the class's own
+    parameters, which are rigid. *)
+type class_info = {
+  cl_name : string;
+  cl_kind : class_kind;
+  cl_params : string list;
+  cl_parent : (string * typ list) option; (* the parent class, at its arguments *)
+  cl_interfaces : (string * typ list) list; (* the interfaces named in the header *)
+  cl_header : (string * typ) list; (* what the constructor takes *)
+  cl_fields : field_info list; (* the fields it declares itself *)
+  cl_methods : method_info list; (* the methods it declares itself *)
+  cl_info : info;
+}
+
+and field_info = { fd_name : string; fd_type : typ; fd_var : bool; fd_private : bool; fd_info : info }
+
+and method_info = {
+  md_name : string;
+  md_params : (string * typ * expr option) list; (* each with its default, where it has one *)
+  md_return : typ;
+  md_abstract : bool; (* no body: an abstract method, or an interface's signature *)
+  md_private : bool;
+  md_override : bool;
+  md_info : info;
+}
+
 type store = {
   environments : env IntMap.t;
   instances : typ IntMap.t;
@@ -391,6 +432,11 @@ type store = {
          decided -- "vec_add1's parameter v1" and so on -- for the
          message a later call that disagrees gets *)
   mutation : bool; (* whether the module has `use mutation` *)
+  classes : class_info SMap.t; (* every class and interface in scope, by canonical name *)
+  current_class : string option; (* the class whose method is being checked *)
+  upcasts : typ IntMap.t;
+      (* each expression whose object is seen as a supertype where it
+         stands, and that supertype: elaborate.ml wraps it in an EUpcast *)
 }
 
 (** The store a program starts checking in, holding the signature of
@@ -418,6 +464,9 @@ let empty_store sigmaps =
     open_kinds = [];
     kind_origins = SMap.empty;
     mutation = true;
+    classes = SMap.empty;
+    current_class = None;
+    upcasts = IntMap.empty;
   }
 
 (* The names a generalised variable is given, in order: a, b, ... z,
@@ -1339,6 +1388,7 @@ let learned store inner =
     pending_plus = inner.pending_plus;
     open_kinds = inner.open_kinds;
     kind_origins = inner.kind_origins;
+    upcasts = inner.upcasts;
   }
 
 (** store with what this call denotes recorded under its symbol. Like
@@ -1835,7 +1885,10 @@ let rec resolved ?params store type_ =
             | Some (Datatype (_, wanted, _, _)) -> List.length wanted
             | None when List.mem canonical [ array_name; dynarray_name; slice_name; ptr_name ] -> 1
             | None when canonical = mutmap_name -> 2
-            | None -> List.length args
+            | None -> (
+                match SMap.find_opt canonical store.classes with
+                | Some c -> List.length c.cl_params
+                | None -> List.length args)
           in
           if List.length args <> wanted then
             raise
@@ -2009,6 +2062,587 @@ let declare_datatypes stmts store =
       let store = { store with datatypes = SMap.add name d store.datatypes } in
       record store sym (TData (info, d, 0)))
     store own
+
+(* --- classes and interfaces ---
+   PYKING.md, "Classes and interfaces"; design/plan-objects.md. A class
+   is a nominal type, `TCon (name, args)`, like a datatype's. What the
+   checker knows of it is in `store.classes`, built from the
+   declarations' annotations alone -- every method says its types -- so
+   the table is complete before any body is checked. *)
+
+(** The class or interface of this canonical name, where there is one.
+    store -> string -> class_info? *)
+let class_named store name = SMap.find_opt name store.classes
+
+(** Whether a type is an object's: a class's or an interface's.
+    store -> typ -> bool *)
+let is_object_type store t =
+  match prune t store with TCon (_, name, _, _) -> SMap.mem name store.classes | _ -> false
+
+(** What a class's parameters are at these arguments.
+    class_info -> [typ] -> [(string, typ)] *)
+let class_mapping c args =
+  if List.length c.cl_params = List.length args then List.combine c.cl_params args else []
+
+(** A class's type at its own parameters, which are rigid: what `self` is
+    in its methods. info -> class_info -> typ *)
+let self_type info c = TCon (info, c.cl_name, List.map (t_var info) c.cl_params, 0)
+
+(** How a class or an interface is called in a message. class_info -> string *)
+let kind_word c =
+  match c.cl_kind with ClassPlain -> "class" | ClassAbstract -> "abstract class" | ClassInterface -> "interface"
+
+(** The supertypes a class names in its header, at the arguments `args`
+    gives its parameters: the parent first. store -> (string * [typ]) ->
+    [(string * [typ])] *)
+let direct_supers store (name, args) =
+  match class_named store name with
+  | None -> []
+  | Some c ->
+      let mapping = class_mapping c args in
+      List.map
+        (fun (n, ts) -> (n, List.map (fun t -> substitute t mapping) ts))
+        (Option.to_list c.cl_parent @ c.cl_interfaces)
+
+(** A class and its parents, nearest first, each at its arguments.
+    store -> (string * [typ]) -> [(string * [typ])] *)
+let class_chain store start =
+  let rec go seen (name, args) =
+    if List.mem_assoc name seen then List.rev seen
+    else
+      let seen = (name, args) :: seen in
+      match class_named store name with
+      | Some { cl_parent = Some _; _ } -> (
+          match direct_supers store (name, args) with
+          | parent :: _ -> go seen parent
+          | [] -> List.rev seen)
+      | _ -> List.rev seen
+  in
+  go [] start
+
+(** Every supertype of a class or interface, itself first: its class
+    chain, then every interface reached from any of them, nearest first.
+    store -> (string * [typ]) -> [(string * [typ])] *)
+let all_supers store start =
+  let rec go seen queue =
+    match queue with
+    | [] -> List.rev seen
+    | (n, a) :: rest ->
+        if List.mem_assoc n seen then go seen rest
+        else go ((n, a) :: seen) (rest @ direct_supers store (n, a))
+  in
+  let chain = class_chain store start in
+  go [] chain
+
+(** The arguments a supertype has as seen from (name, args), where it is
+    one. store -> (string * [typ]) -> string -> [typ]? *)
+let super_as store start target = List.assoc_opt target (all_supers store start)
+
+(** A method's types with a class's parameters given.
+    [(string, typ)] -> method_info -> method_info *)
+let method_at mapping m =
+  {
+    m with
+    md_params = List.map (fun (n, t, d) -> (n, substitute t mapping, d)) m.md_params;
+    md_return = substitute m.md_return mapping;
+  }
+
+(** The method `name` a value of class or interface `start` has: the
+    class whose declaration it is, and its types at `start`'s arguments.
+    A body a class in the chain gives is found before an interface's
+    default, which is found before a declaration without a body -- which
+    is Java's order. store -> (string * [typ]) -> string ->
+    (string * method_info)? *)
+let lookup_method_in store supers name =
+  let declared (n, args) =
+    match class_named store n with
+    | Some c -> (
+        match List.find_opt (fun m -> m.md_name = name) c.cl_methods with
+        | Some m -> Some (n, method_at (class_mapping c args) m)
+        | None -> None)
+    | None -> None
+  in
+  let with_body ca = match declared ca with Some (_, m) as found when not m.md_abstract -> found | _ -> None in
+  match List.find_map with_body supers with
+  | Some found -> Some found
+  | None -> List.find_map declared supers
+
+let lookup_method store start name =
+  let chain = class_chain store start in
+  match List.find_map (fun ca -> lookup_method_in store [ ca ] name |> Option.map (fun r -> (ca, r))) chain with
+  | Some (_, (owner, m)) when not m.md_abstract -> Some (owner, m)
+  | _ -> lookup_method_in store (all_supers store start) name
+
+(** The field `name` of a class, from it or a class above it: the class
+    that declares it, and the field at `start`'s arguments.
+    store -> (string * [typ]) -> string -> (string * field_info)? *)
+let lookup_field store start name =
+  List.find_map
+    (fun (n, args) ->
+      match class_named store n with
+      | Some c -> (
+          match List.find_opt (fun f -> f.fd_name = name) c.cl_fields with
+          | Some f -> Some (n, { f with fd_type = substitute f.fd_type (class_mapping c args) })
+          | None -> None)
+      | None -> None)
+    (class_chain store start)
+
+(** Every method a class or interface has, its own and inherited, by
+    name, each where `lookup_method` finds it.
+    store -> (string * [typ]) -> [(string, (string * method_info))] *)
+let all_methods store start =
+  let names =
+    List.fold_left
+      (fun names (n, _) ->
+        match class_named store n with
+        | Some c ->
+            List.fold_left
+              (fun names m -> if List.mem m.md_name names then names else names @ [ m.md_name ])
+              names c.cl_methods
+        | None -> names)
+      [] (all_supers store start)
+  in
+  List.filter_map (fun n -> Option.map (fun found -> (n, found)) (lookup_method store start n)) names
+
+(** The store in which `actual` stands where `wanted` is expected: one
+    type, or -- for objects -- a class or interface `actual`'s class
+    extends or implements, which is an upcast, recorded under the
+    expression's symbol negated for elaborate.ml. None where neither.
+    store -> int -> typ -> typ -> store? *)
+let coerced store sym wanted actual =
+  match unify wanted actual store with
+  | Some answer -> Some answer
+  | None -> (
+      match (prune wanted store, prune actual store) with
+      | TCon (info, w, wargs, _), TCon (_, a, aargs, _)
+        when w <> a && SMap.mem w store.classes && SMap.mem a store.classes -> (
+          match super_as store (a, aargs) w with
+          | Some seen -> (
+              match unify (TCon (info, w, wargs, 0)) (TCon (info, w, seen, 0)) store with
+              | Some answer -> Some (record_resolution answer (-sym) (Upcast (TCon (info, w, wargs, 0))))
+              | None -> None)
+          | None -> None)
+      | _ -> None)
+
+(** The class a construction or a pattern names, where it names one:
+    `[module.]Name`. store -> string? -> string -> class_info? *)
+let object_class store module_ name =
+  let spelled = match module_ with Some m -> m ^ "." ^ name | None -> name in
+  match SMap.find_opt spelled store.types with
+  | Some canonical -> class_named store canonical
+  | None -> None
+
+(** Whether a type mentions an object anywhere, so that a value written
+    where it is wanted has the type pushed into it -- each element of a
+    list literal upcast on its own. store -> typ -> bool *)
+let rec mentions_object store t =
+  match prune t store with
+  | TCon (_, name, args, _) -> SMap.mem name store.classes || List.exists (mentions_object store) args
+  | TList (_, e, _) -> mentions_object store e
+  | TTuple (_, es, _) -> List.exists (mentions_object store) es
+  | _ -> false
+
+(** Two method signatures agree: the same parameters, by name and type,
+    and the same result. method_info -> method_info -> bool *)
+let same_signature a b =
+  List.length a.md_params = List.length b.md_params
+  && List.for_all2 (fun (n1, t1, _) (n2, t2, _) -> n1 = n2 && printed t1 = printed t2) a.md_params b.md_params
+  && printed a.md_return = printed b.md_return
+
+(** A method's signature as a program writes it, for a message.
+    method_info -> string *)
+let signature_text m =
+  Printf.sprintf "%s(%s)%s" m.md_name
+    (String.concat ", " ("self" :: List.map (fun (n, t, _) -> n ^ ": " ^ printed t) m.md_params))
+    (match m.md_return with TTuple (_, [], _) -> "" | t -> " -> " ^ printed t)
+
+(** store knowing every class and interface these statements declare:
+    their names first, so they may name each other in any order, then
+    what each says, then the rules a declaration must keep -- every one
+    checked here, at the class, before any body is.
+    [stmt] -> store -> store *)
+let declare_classes stmts store =
+  let own = List.filter_map (function SClass (i, c, _) -> Some (i, c) | _ -> None) stmts in
+  (* A class declared again -- a REPL entry redefining one -- replaces it. *)
+  let store =
+    List.fold_left
+      (fun store (_, c) ->
+        if SMap.mem c.c_name store.classes then
+          { store with classes = SMap.remove c.c_name store.classes; types = SMap.remove c.c_name store.types }
+        else store)
+      store own
+  in
+  let store =
+    List.fold_left
+      (fun store (i, c) ->
+        if SMap.mem c.c_name store.types then
+          raise
+            (Type_error
+               ( i,
+                 Printf.sprintf "'%s' is already declared: a class or a datatype of one name is declared once"
+                   c.c_name ));
+        if SMap.mem c.c_name store.constructors then
+          raise (Type_error (i, Printf.sprintf "'%s' is already a constructor of '%s'" c.c_name
+                                  (base_name (SMap.find c.c_name store.constructors))));
+        { store with types = SMap.add c.c_name c.c_name store.types })
+      store own
+  in
+  (* Placeholders, so a type naming any class resolves with its arity. *)
+  let store =
+    List.fold_left
+      (fun store (i, c) ->
+        {
+          store with
+          classes =
+            SMap.add c.c_name
+              {
+                cl_name = c.c_name;
+                cl_kind = c.c_kind;
+                cl_params = c.c_params;
+                cl_parent = None;
+                cl_interfaces = [];
+                cl_header = [];
+                cl_fields = [];
+                cl_methods = [];
+                cl_info = i;
+              }
+              store.classes;
+        })
+      store own
+  in
+  let resolve c t = resolved ~params:(c.c_name, c.c_params) store t in
+  let supertype c want (ClassRef (ri, module_, name, args, _, _)) =
+    let spelled = match module_ with Some m -> m ^ "." ^ name | None -> name in
+    match SMap.find_opt spelled store.types with
+    | Some canonical when SMap.mem canonical store.classes ->
+        let target = SMap.find canonical store.classes in
+        let interface = target.cl_kind = ClassInterface in
+        if want = `Interface && not interface then
+          raise
+            (Type_error
+               ( ri,
+                 Printf.sprintf
+                   "'%s' is a class, which a class 'extends'; 'implements' names interfaces"
+                   spelled ));
+        if want = `Class && interface then
+          raise
+            (Type_error
+               ( ri,
+                 Printf.sprintf
+                   "'%s' is an interface, which a %s 'implements'; 'extends' names the one parent class"
+                   spelled (match c.c_kind with ClassInterface -> "interface" | _ -> "class") ));
+        let args = List.map (resolve c) args in
+        if want <> `Class && List.length args <> List.length target.cl_params then
+          raise
+            (Type_error
+               ( ri,
+                 Printf.sprintf "'%s' takes %d type parameter%s, but is given %d" spelled
+                   (List.length target.cl_params)
+                   (if List.length target.cl_params = 1 then "" else "s")
+                   (List.length args) ));
+        (canonical, args)
+    | _ ->
+        raise
+          (Type_error
+             ( ri,
+               Printf.sprintf "unknown %s '%s': none of that name is declared or imported here"
+                 (if want = `Class then "class" else "interface") spelled ))
+  in
+  (* The header, the methods and the supertypes named, each class on its
+     own; a parent's arguments are what its constructor's arguments say. *)
+  let store =
+    List.fold_left
+      (fun store (i, c) ->
+        let header = List.map (fun (MemberField (_, n, t, _, _, _, _)) -> (n, resolve c (Option.get t))) c.c_header in
+        let interfaces =
+          (* an interface's `extends` names interfaces, as a class's
+             `implements` does *)
+          List.map (supertype c `Interface) c.c_implements
+        in
+        let parent =
+          match c.c_extends with
+          | None -> None
+          | Some (ClassRef (ri, _, _, _, ctor, _) as r) ->
+              let canonical, _ = supertype c `Class r in
+              let target = SMap.find canonical store.classes in
+              (* The parent's type arguments: what each argument given to
+                 its constructor says it is -- a header parameter, a
+                 literal -- matched against what that constructor takes. *)
+              let target_header =
+                match List.find_opt (fun (_, d) -> d.c_name = canonical) own with
+                | Some (_, d) ->
+                    List.map
+                      (fun (MemberField (_, n, t, _, _, _, _)) ->
+                        (n, resolved ~params:(d.c_name, d.c_params) store (Option.get t)))
+                      d.c_header
+                | None -> target.cl_header
+              in
+              let metas, inner = fresh_metas (List.length target.cl_params) ri store in
+              let mapping = class_mapping target metas in
+              let known arg =
+                match arg with
+                | EVar (_, n, _) -> List.assoc_opt n header
+                | EInt (ai, _, _) -> Some (t_int ai)
+                | EFloat (ai, _, _) -> Some (t_float ai)
+                | EString (ai, _, _) -> Some (t_string ai)
+                | EBool (ai, _, _) -> Some (t_bool ai)
+                | EChar (ai, _, _) -> Some (t_char ai)
+                | _ -> None
+              in
+              let inner =
+                if List.length ctor <> List.length target_header then inner
+                else
+                  List.fold_left2
+                    (fun inner (_, arg) (_, wanted) ->
+                      match known arg with
+                      | Some t -> ( match unify (substitute wanted mapping) t inner with Some s -> s | None -> inner)
+                      | None -> inner)
+                    inner ctor target_header
+              in
+              let args = List.map (fun m -> zonk m inner) metas in
+              if List.exists (fun a -> metas_in a inner <> []) args then
+                raise
+                  (Type_error
+                     ( ri,
+                       Printf.sprintf
+                         "nothing here says what the type parameters of '%s' are: pass it a header \
+                          parameter or a literal for each field that names one"
+                         canonical ));
+              Some (canonical, args)
+        in
+        let methods =
+          List.map
+            (fun (MethodDecl (mi, name, params, ret, body, override, private_, _)) ->
+              {
+                md_name = name;
+                md_params = List.map (fun (Param (_, n, t, d, _)) -> (n, resolve c (Option.get t), d)) params;
+                md_return = (match ret with Some t -> resolve c t | None -> unit_type mi);
+                md_abstract = body = None;
+                md_private = private_;
+                md_override = override;
+                md_info = mi;
+              })
+            c.c_methods
+        in
+        let placeholder = SMap.find c.c_name store.classes in
+        {
+          store with
+          classes =
+            SMap.add c.c_name
+              { placeholder with cl_parent = parent; cl_interfaces = interfaces; cl_header = header; cl_methods = methods }
+              store.classes;
+        })
+      store own
+  in
+  (* No class above itself. *)
+  List.iter
+    (fun (i, c) ->
+      let rec climb seen name =
+        List.iter
+          (fun (n, _) ->
+            if n = c.c_name then
+              raise
+                (Type_error
+                   (i, Printf.sprintf "'%s' is above itself: a class or interface cannot extend what extends it" c.c_name));
+            if not (List.mem n seen) then climb (n :: seen) n)
+          (direct_supers store (name, List.map (t_var i) (match class_named store name with Some k -> k.cl_params | None -> [])))
+      in
+      climb [] c.c_name)
+    own;
+  (* Each class's fields, now that every parent's are known: the header's
+     -- less a parameter that only passes an inherited field on -- then
+     the body's. Parents first. *)
+  let rec fields_of done_ (i, c) =
+    if List.mem c.c_name done_ then (done_, ())
+    else
+      let info = SMap.find c.c_name store.classes in
+      let done_ =
+        match info.cl_parent with
+        | Some (p, _) -> (
+            match List.find_opt (fun (_, d) -> d.c_name = p) own with
+            | Some parent -> fst (fields_of done_ parent)
+            | None -> done_)
+        | None -> done_
+      in
+      ignore i;
+      (c.c_name :: done_, ())
+  in
+  let order = List.fold_left (fun done_ ic -> fst (fields_of done_ ic)) [] own |> List.rev in
+  let store =
+    List.fold_left
+      (fun store name ->
+        let i, c = List.find (fun (_, d) -> d.c_name = name) own in
+        let info = SMap.find name store.classes in
+        let self = (name, List.map (t_var i) info.cl_params) in
+        let inherited n =
+          match info.cl_parent with
+          | Some p -> lookup_field store p n
+          | None -> None
+        in
+        let field passed (MemberField (fi, n, t, _, var, private_, _)) =
+          let t = resolve c (Option.get t) in
+          match inherited n with
+          | Some (owner, f) when passed && printed f.fd_type = printed t && not var && not private_ -> ignore owner; None
+          | Some (owner, _) ->
+              raise
+                (Type_error
+                   ( fi,
+                     Printf.sprintf
+                       "'%s' is already a field of '%s', which '%s' extends; a field is declared once, \
+                        and a header parameter that only passes it on has its type"
+                       n owner name ))
+          | None -> Some { fd_name = n; fd_type = t; fd_var = var; fd_private = private_; fd_info = fi }
+        in
+        let fields = List.filter_map (field true) c.c_header @ List.filter_map (field false) c.c_fields in
+        ignore self;
+        { store with classes = SMap.add name { info with cl_fields = fields } store.classes })
+      store order
+  in
+  (* The rules of each declaration. *)
+  List.iter
+    (fun (i, c) ->
+      let info = SMap.find c.c_name store.classes in
+      let self = (c.c_name, List.map (t_var i) info.cl_params) in
+      let above = List.tl (all_supers store self) in
+      let above_method name = lookup_method_in store above name in
+      (* A field and a method never share a name, in a class or above it. *)
+      List.iter
+        (fun m ->
+          match lookup_field store self m.md_name with
+          | Some (owner, _) ->
+              raise
+                (Type_error
+                   ( m.md_info,
+                     Printf.sprintf "'%s' is a field of '%s'; a field and a method never share a name"
+                       m.md_name owner ))
+          | None -> ())
+        info.cl_methods;
+      List.iter
+        (fun f ->
+          match above_method f.fd_name with
+          | Some (owner, _) ->
+              raise
+                (Type_error
+                   ( f.fd_info,
+                     Printf.sprintf "'%s' is a method of '%s'; a field and a method never share a name"
+                       f.fd_name owner ))
+          | None -> ())
+        info.cl_fields;
+      (* `override` exactly where something above has the method, with
+         the same signature; defaults are written once, above. *)
+      List.iter
+        (fun m ->
+          match above_method m.md_name with
+          | Some (owner, theirs) ->
+              if theirs.md_private then
+                raise
+                  (Type_error
+                     ( m.md_info,
+                       Printf.sprintf "'%s' is private to '%s', so nothing below it may have a method of that name"
+                         m.md_name owner ));
+              if not m.md_override then
+                raise
+                  (Type_error
+                     ( m.md_info,
+                       Printf.sprintf "'%s' is defined by '%s', which '%s' %s: write 'override def %s'"
+                         m.md_name owner c.c_name
+                         (match class_named store owner with
+                         | Some { cl_kind = ClassInterface; _ } when c.c_kind <> ClassInterface -> "implements"
+                         | _ -> "extends")
+                         m.md_name ));
+              if m.md_private then
+                raise (Type_error (m.md_info, Printf.sprintf "an override of '%s' is public, as what it overrides is" m.md_name));
+              if not (same_signature m theirs) then
+                raise
+                  (Type_error
+                     ( m.md_info,
+                       Printf.sprintf "'%s' overrides '%s' of '%s', so it is written '%s'"
+                         m.md_name (signature_text theirs) owner (signature_text { theirs with md_name = m.md_name }) ));
+              List.iter
+                (fun (n, _, d) ->
+                  if d <> None then
+                    raise
+                      (Type_error
+                         ( m.md_info,
+                           Printf.sprintf
+                             "the default for '%s' is written where '%s' is first declared, in '%s', not in an override"
+                             n m.md_name owner )))
+                m.md_params
+          | None ->
+              if m.md_override then
+                let known = List.map fst (List.concat_map (fun (n, _) ->
+                  match class_named store n with Some k -> List.map (fun md -> (md.md_name, ())) k.cl_methods | None -> []) above) in
+                raise
+                  (Type_error
+                     ( m.md_info,
+                       Printf.sprintf "'%s' has no method '%s' to override%s" c.c_name m.md_name
+                         (match Suggest.closest m.md_name known with
+                         | meant :: _ -> Printf.sprintf "; did you mean '%s'?" meant
+                         | [] -> "") )))
+        info.cl_methods;
+      (* `eq` and `show` mean what `==` and printing take them to. *)
+      List.iter
+        (fun m ->
+          match m.md_name with
+          | "eq" -> (
+              match (m.md_params, m.md_return) with
+              | [ (_, TCon (_, n, _, _), _) ], TBool _ when n = c.c_name || List.mem_assoc n above -> ()
+              | _ ->
+                  raise
+                    (Type_error
+                       (m.md_info, Printf.sprintf "'eq' is what '==' calls, so it is written 'def eq(self, other: %s) -> Bool'" c.c_name)))
+          | "show" -> (
+              match (m.md_params, m.md_return) with
+              | [], TString _ -> ()
+              | _ -> raise (Type_error (m.md_info, "'show' is what printing calls, so it is written 'def show(self) -> String'")))
+          | _ -> ())
+        info.cl_methods;
+      (* A class that can be made gives every method a body; two defaults
+         of one name from two interfaces are settled by an override. *)
+      if c.c_kind = ClassPlain then
+        List.iter
+          (fun (name, (owner, m)) ->
+            if m.md_abstract then
+              raise
+                (Type_error
+                   ( i,
+                     Printf.sprintf "class '%s' %s '%s' but does not define '%s'" c.c_name
+                       (match class_named store owner with
+                       | Some { cl_kind = ClassInterface; _ } -> "implements"
+                       | _ -> "extends")
+                       owner (signature_text m) )))
+          (all_methods store self);
+      if c.c_kind <> ClassInterface then
+        List.iter
+          (fun (name, _) ->
+            let chain = class_chain store self in
+            let in_chain = lookup_method_in store chain name in
+            let defaults =
+              List.filter_map
+                (fun (n, args) ->
+                  match class_named store n with
+                  | Some ({ cl_kind = ClassInterface; _ } as k) -> (
+                      match List.find_opt (fun md -> md.md_name = name && not md.md_abstract) k.cl_methods with
+                      | Some _ -> ignore args; Some n
+                      | None -> None)
+                  | _ -> None)
+                (all_supers store self)
+            in
+            match in_chain with
+            | Some (_, m) when not m.md_abstract -> ()
+            | _ -> (
+                match defaults with
+                | a :: b :: _ ->
+                    raise
+                      (Type_error
+                         ( i,
+                           Printf.sprintf
+                             "'%s' has a default for '%s' from both '%s' and '%s': write 'override def %s' to say which runs"
+                             c.c_name name a b name ))
+                | _ -> ()))
+          (all_methods store self))
+    own;
+  store
 
 (** What a constructor builds, from how the source spells it: the
     canonical datatype, the constructor's field types and the type of
@@ -2611,6 +3245,14 @@ let argument_error ?(note = "") position actual expected arg store =
     | TTuple (_, [ mine; theirs ], _) -> (mine, theirs)
     | _ -> (actual, expected)
   in
+  (* A list of objects where a list of their supertype is wanted. *)
+  let note =
+    match (prune actual store, prune expected store) with
+    | TList (_, a, _), TList (_, w, _) when note = "" && is_object_type store a && is_object_type store w ->
+        Printf.sprintf ": a [%s] is not a [%s], since lists do not take subtypes; annotate the list where it is made"
+          (shown a store) (shown w store)
+    | _ -> note
+  in
   Type_error
     ( info,
       Printf.sprintf "argument %d has type %s, but %s was expected%s" position
@@ -3021,6 +3663,10 @@ let equality_problem store t =
     | TCon (_, name, _, _) when name = dynarray_name -> Some ("a DynArray", same_hint)
     | TCon (_, name, _, _) when name = mutmap_name -> Some ("a MutMap", same_hint)
     | TCon (_, name, _, _) when name = slice_name -> Some ("a view", same_hint)
+    | TCon (_, name, _, _) when SMap.mem name store.classes ->
+        Some
+          ( Printf.sprintf "an object, a %s" (base_name name),
+            ": compare the objects one at a time with '==', which calls their 'eq'" )
     | TCon (_, name, args, _) -> (
         match SMap.find_opt name store.datatypes with
         | Some (Datatype (_, _, _, true)) -> Some (Printf.sprintf "a var struct, %s" (base_name name), same_hint)
@@ -3056,6 +3702,8 @@ let key_problem store t =
     | TCon (_, name, _, _) when name = ptr_name -> Some "a pointer, whose target changes"
     | TCon (_, name, _, _) when List.mem name [ array_name; dynarray_name; mutmap_name; slice_name ] ->
         Some (Printf.sprintf "%s, which changes" (if name = array_name then "an array" else "a " ^ name))
+    | TCon (_, name, _, _) when SMap.mem name store.classes ->
+        Some (Printf.sprintf "an object, a %s, which has an identity of its own" (base_name name))
     | TCon (_, name, args, _) -> (
         match SMap.find_opt name store.datatypes with
         | Some (Datatype (_, _, _, true)) -> Some (Printf.sprintf "a var struct, %s, which changes" (base_name name))
@@ -3216,8 +3864,16 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
   | SLet (info, target, e, annotation, sym, _, implicit) ->
       (* The binding's symbol records what its right-hand side turned out
          to be; the binding *itself* is a statement, so it has unit
-         type. *)
-      let expr_type_, store = check_expr e env store in
+         type. An annotation naming an object is pushed into the value,
+         which may then be an upcast. *)
+      let expr_type_, store =
+        match annotation with
+        | Some written when mentions_object store (resolved store written) ->
+            let wanted = resolved store written in
+            let store = check_wanted e wanted "this binding's value" env store in
+            (zonk wanted store, record store (expr_sym e) (zonk wanted store))
+        | _ -> check_expr e env store
+      in
       let store = check_annotation annotation expr_type_ store in
       let expr_type_ = zonk expr_type_ store in
       let store = record store sym expr_type_ in
@@ -3419,6 +4075,28 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
         if o.row1 = o.row2 && o.col1 = o.col2 then info else o
       in
       (match prune owner_type store with
+      | TCon (_, canonical, args, _) when SMap.mem canonical store.classes -> (
+          (* An object's field is written where it is declared `var`. *)
+          match lookup_field store (canonical, args) field with
+          | Some (owner_class, f) ->
+              if f.fd_private && store.current_class <> Some owner_class then
+                raise (Type_error (owner_info, Printf.sprintf "'%s' is private to '%s'" field (base_name owner_class)));
+              if not f.fd_var then
+                raise
+                  (Type_error
+                     ( owner_info,
+                       Printf.sprintf
+                         "the field '%s' of '%s' never changes, so it is not written with '%s'; declare it 'var %s'"
+                         field (base_name owner_class) (assignment_word statement) field ));
+              let store =
+                check_wanted value f.fd_type
+                  (Printf.sprintf "what '%s' writes to the field '%s'" (assignment_word statement) field)
+                  env store
+              in
+              (Some (unit_type info), env, record store sym (unit_type info))
+          | None -> ignore (object_member info canonical args field 0 store); (Some (unit_type info), env, store))
+      | _ ->
+      (match prune owner_type store with
       | TCon (_, canonical, _, _) when SMap.mem canonical store.datatypes -> (
           match SMap.find canonical store.datatypes with
           | Datatype (_, _, _, true) -> ()
@@ -3468,7 +4146,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
                      (shown actual store) ))
       in
       let store = record store sym (unit_type info) in
-      (Some (unit_type info), env, store)
+      (Some (unit_type info), env, store))
   | SMutate (info, name, e, sym) -> (
       (* A mutation binds nothing and is worth nothing: the name keeps
          the type it was declared with, and the value written into it
@@ -3561,9 +4239,16 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
       if return_type = No_function then
         raise (Type_error (info, "'return' outside a function"));
       let actual, store = check_expr e env store in
+      let store =
+        match return_type with
+        | Declared declared -> (
+            match coerced store (expr_sym e) declared actual with Some answer -> answer | None -> store)
+        | _ -> store
+      in
       ( Some actual,
         env,
         check_return (Some actual) return_type (expr_info e) store )
+  | SClass (info, c, _) -> (Some (unit_type info), env, check_class info c env store)
   | SReturnStmt (info, inner, _) ->
       (* `return if c: ...` -- the same rule, against whatever the branch
          that runs yields. *)
@@ -3892,6 +4577,10 @@ and expr_type e env store =
                        (String.concat ", "
                           (List.map (fun (n, _) -> "'" ^ n ^ "'") candidates))
                    ))
+          | None when name = "self" ->
+              raise
+                (Analyses.Analysis_error
+                   (info, "'self' is the object a method is called on, so it is written only inside a class's method"))
           | None ->
               raise
                 (Analyses.Analysis_error (info, unbound_message env name)))
@@ -3987,6 +4676,16 @@ and expr_type e env store =
                 let both, store = agree (Some element) (Some other) store in
                 match both with
                 | Some both -> (both, store)
+                | None when is_object_type store element && is_object_type store other ->
+                    (* Two classes: no common type is guessed. *)
+                    raise
+                      (Type_error
+                         ( info,
+                           Printf.sprintf
+                             "the elements of this list are a %s and a %s, and Pyking does not guess a \
+                              common type; annotate the list, as in 'xs: [Shape] = [...]', with the \
+                              class or interface both are"
+                             (shown element store) (shown other store) ))
                 | None ->
                     raise
                       (Type_error
@@ -4011,6 +4710,34 @@ and expr_type e env store =
       let value_type = zonk value_type store in
       let inner, store = check_target target value_type env store in
       check_expr body inner store
+  | EConstruct (info, module_, name, args, _) when object_class store module_ name <> None ->
+      let c = Option.get (object_class store module_ name) in
+      if c.cl_kind <> ClassPlain then
+        raise
+          (Type_error
+             ( info,
+               if c.cl_kind = ClassInterface then
+                 Printf.sprintf "'%s' is an interface, which cannot be made; make a class that implements it" name
+               else
+                 Printf.sprintf "'%s' is an abstract class, which cannot be made; make a class that extends it" name ));
+      let metas, store = fresh_metas (List.length c.cl_params) info store in
+      let mapping = class_mapping c metas in
+      let given = arg_exprs args in
+      if List.length given <> List.length c.cl_header then
+        raise
+          (Type_error
+             ( info,
+               Printf.sprintf "'%s' takes %d argument%s, but %d %s given" name (List.length c.cl_header)
+                 (if List.length c.cl_header = 1 then "" else "s")
+                 (List.length given)
+                 (if List.length given = 1 then "was" else "were") ));
+      let store =
+        List.fold_left2
+          (fun store arg (n, t) ->
+            check_wanted arg (substitute t mapping) (Printf.sprintf "the field '%s' of '%s'" n name) env store)
+          store given c.cl_header
+      in
+      (zonk (TCon (info, c.cl_name, metas, 0)) store, store)
   | EConstruct (info, module_, name, args, _) ->
       (* A constructor is applied to every one of its fields -- the sugar
          has filled in the defaults and put the named ones in place --
@@ -4063,9 +4790,14 @@ and expr_type e env store =
           (store, 0) given fields
       in
       (zonk result store, store)
-  | EField (info, record, field, _) ->
+  | EField (info, record, field, sym) -> (
       let record_type, store = check_expr record env store in
-      field_type info record_type field store
+      match prune record_type store with
+      | TCon (_, canonical, args, _) when SMap.mem canonical store.classes ->
+          object_member info canonical args field sym store
+      | _ -> field_type info record_type field store)
+  | ESuper (info, _, name, args, sym) -> check_super info name args sym env store
+  | EMethod (info, _, _, _, _) | EUpcast (info, _, _, _) -> unsupported info
   | ECall _ -> check_call e env store
   | EAdd _ | EConcat _ | ESub _ | EMul _ | EDiv _ | ELessThan _
   | ELessThanEq _ | EGreatThan _ | EGreatThanEq _ | EEq _ | EBinary _ ->
@@ -4353,6 +5085,46 @@ and check_each exprs env store =
     pin two types that had said nothing to whichever row the table lists
     first. expr -> env -> store -> (typ, store) *)
 and check_binary e env store =
+  let ordering = match e with ELessThan _ | ELessThanEq _ | EGreatThan _ | EGreatThanEq _ -> true | _ -> false in
+  let equality =
+    match e with EEq (_, l, r, _) -> Some (true, l, r) | EBinary (_, BNeq, l, r, _) -> Some (false, l, r) | _ -> None
+  in
+  let object_answer =
+    match (equality, binary_operands e) with
+    | Some (positive, left, right), _ -> (
+        let left_type, peeked = check_expr left env store in
+        match prune left_type peeked with
+        | TCon (_, canonical, args, _) when SMap.mem canonical peeked.classes -> (
+            let word = if positive then "==" else "!=" in
+            match lookup_method peeked (canonical, args) "eq" with
+            | Some (_, m) ->
+                let other = match m.md_params with [ (_, t, _) ] -> t | _ -> left_type in
+                let store = check_wanted right other (Printf.sprintf "what '%s' compares a %s to" word (base_name canonical)) env peeked in
+                Some (t_bool (expr_info e), record_resolution store (expr_sym e) (Object_eq positive))
+            | None ->
+                raise
+                  (Type_error
+                     ( expr_info e,
+                       Printf.sprintf
+                         "'%s' compares two %ss, but '%s' has no 'eq' method; define 'def eq(self, other: %s) -> Bool', \
+                          or use 'same(a, b)' to ask whether they are one object"
+                         word (base_name canonical) (base_name canonical) (base_name canonical) )))
+        | _ -> None)
+    | None, Some (left, _) when ordering -> (
+        let left_type, peeked = check_expr left env store in
+        match prune left_type peeked with
+        | TCon (_, canonical, _, _) when SMap.mem canonical peeked.classes ->
+            raise
+              (Type_error
+                 ( expr_info e,
+                   Printf.sprintf "objects have no order, so a %s is not compared with '<'; compare what a method says of them"
+                     (base_name canonical) ))
+        | _ -> None)
+    | _ -> None
+  in
+  match object_answer with
+  | Some answer -> answer
+  | None ->
   let spelling, rows =
     match operator_of e with Some pair -> pair | None -> unsupported (expr_info e)
   in
@@ -4405,8 +5177,341 @@ and check_binary e env store =
   | Some pair -> pair
   | None -> raise (operator_error e spelling rows left_type right_type store)
 
+(** The store in which `arg` is a `wanted`: one type, or an object seen as
+    one of its supertypes (an upcast). Where `wanted` holds an object, a
+    list, tuple or `if` written here has it pushed into each part, so
+    each element is upcast on its own. Raises Type_error naming `what`.
+    expr -> typ -> string -> env -> store -> store *)
+and check_wanted arg wanted what env store =
+  match arg with
+  | (EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EIf _) when mentions_object store wanted -> (
+      match (arg, prune wanted store) with
+      | EList (info, elements, sym), TList (_, element, _) ->
+          let store = List.fold_left (fun store x -> check_wanted x element what env store) store elements in
+          record store sym (t_list info element)
+      | ETuple (info, elements, sym), TTuple (_, parts, _) when List.length parts = List.length elements ->
+          let store = List.fold_left2 (fun store x w -> check_wanted x w what env store) store elements parts in
+          record store sym (TTuple (info, parts, 0))
+      | EIf (info, condition, then_, else_, sym), _ ->
+          let c, store = check_expr condition env store in
+          let store = demand c (t_bool info) (expr_info condition) "the condition of an 'if'" store in
+          let store = check_wanted then_ wanted what env store in
+          let store = check_wanted else_ wanted what env store in
+          record store sym wanted
+      | _ -> check_plain_wanted arg wanted what env store)
+  | _ -> check_plain_wanted arg wanted what env store
+
+and check_plain_wanted arg wanted what env store =
+  let actual, store = check_expr arg env store in
+  match coerced store (expr_sym arg) wanted actual with
+  | Some answer -> answer
+  | None ->
+      let hint =
+        match (prune wanted store, prune actual store) with
+        | TList (_, w, _), TList (_, a, _) when is_object_type store w && is_object_type store a ->
+            Printf.sprintf ": a [%s] is not a [%s], since lists do not take subtypes; annotate the list where it is made"
+              (shown a store) (shown w store)
+        | _ -> ""
+      in
+      raise
+        (Type_error
+           (expr_info arg, Printf.sprintf "%s must be %s, not %s%s" what (shown wanted store) (shown actual store) hint))
+
+(** What reading `field` of an object gives: a field's value, or a
+    method as a function, closed over the object. Private members are
+    reached only from the methods of the class declaring them.
+    info -> string -> [typ] -> string -> int -> store -> (typ, store) *)
+and object_member info canonical args field sym store =
+  let private_to owner = store.current_class <> Some owner in
+  match lookup_field store (canonical, args) field with
+  | Some (owner, f) ->
+      if f.fd_private && private_to owner then
+        raise (Type_error (info, Printf.sprintf "'%s' is private to '%s'" field (base_name owner)));
+      (zonk f.fd_type store, store)
+  | None -> (
+      match lookup_method store (canonical, args) field with
+      | Some (owner, m) ->
+          if m.md_private && private_to owner then
+            raise (Type_error (info, Printf.sprintf "'%s' is private to '%s'" field (base_name owner)));
+          let store = record_resolution store sym (Method_value (List.length m.md_params)) in
+          (t_function info (List.map (fun (_, t, _) -> t) m.md_params) m.md_return, store)
+      | None ->
+          let known =
+            List.concat_map
+              (fun (n, _) ->
+                match class_named store n with
+                | Some c -> List.map (fun f -> f.fd_name) c.cl_fields @ List.map (fun m -> m.md_name) c.cl_methods
+                | None -> [])
+              (all_supers store (canonical, args))
+          in
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf "'%s' has no field or method '%s'%s" (base_name canonical) field
+                   (match Suggest.closest field known with
+                   | meant :: _ -> Printf.sprintf "; did you mean '%s'?" meant
+                   | [] -> "") )))
+
+(** The store in which a method's arguments -- positional, then named,
+    any left out having a default -- each fit their parameter.
+    info -> string -> method_info -> [(String?, expr)] -> env -> store -> store *)
+and check_method_arguments info shown m written env store =
+  let params = m.md_params in
+  let positional = List.filter (fun (n, _) -> n = None) written in
+  let named = List.filter_map (fun (n, e) -> Option.map (fun n -> (n, e)) n) written in
+  if List.length written > List.length params || List.length positional > List.length params then
+    raise
+      (Type_error
+         ( info,
+           Printf.sprintf "'%s' takes %d argument%s, but %d %s given" shown (List.length params)
+             (if List.length params = 1 then "" else "s")
+             (List.length written)
+             (if List.length written = 1 then "was" else "were") ));
+  List.iter
+    (fun (n, e) ->
+      match List.find_opt (fun (p, _, _) -> p = n) params with
+      | None -> raise (Type_error (expr_info e, Printf.sprintf "'%s' has no parameter '%s'" shown n))
+      | Some _ ->
+          let at = let rec find k = function [] -> 0 | (p, _, _) :: rest -> if p = n then k else find (k + 1) rest in find 0 params in
+          if at < List.length positional then
+            raise (Type_error (expr_info e, Printf.sprintf "'%s' is already given by position %d" n (at + 1))))
+    named;
+  List.fold_left
+    (fun (store, at) (p, t, default) ->
+      let given =
+        if at < List.length positional then Some (snd (List.nth positional at)) else List.assoc_opt p named
+      in
+      match given with
+      | Some e -> (check_wanted e t (Printf.sprintf "the argument '%s' of '%s'" p shown) env store, at + 1)
+      | None when default <> None -> (store, at + 1)
+      | None ->
+          raise (Type_error (info, Printf.sprintf "'%s' needs its argument '%s', which has no default" shown p)))
+    (store, 0) params
+  |> fst
+
+(** A call of a method found on an object's class.
+    expr -> (string * method_info) -> [(String?, expr)] -> env -> store -> (typ, store) *)
+and check_method_call call (owner, m) written env store =
+  let info = expr_info call in
+  if m.md_private && store.current_class <> Some owner then
+    raise (Type_error (info, Printf.sprintf "'%s' is private to '%s'" m.md_name (base_name owner)));
+  let store = check_method_arguments info m.md_name m written env store in
+  let store =
+    record_resolution store (expr_sym call) (Method_call (owner, List.map (fun (n, _, d) -> (n, d)) m.md_params))
+  in
+  (zonk m.md_return store, store)
+
+(** `super.name(args)`: the implementation the class inherited, from its
+    parent's chain first, then a default of one of its interfaces.
+    info -> string -> [(String?, expr)] -> int -> env -> store -> (typ, store) *)
+and check_super info name written sym env store =
+  match store.current_class with
+  | None -> raise (Type_error (info, "'super' calls a method the class inherited, so it is written only inside a method"))
+  | Some cname ->
+      let c = Option.get (class_named store cname) in
+      let self_args = List.map (t_var info) c.cl_params in
+      let chain = match c.cl_parent with Some p -> class_chain store p | None -> [] in
+      let in_chain =
+        match lookup_method_in store chain name with Some (o, m) when not m.md_abstract -> Some (o, m) | _ -> None
+      in
+      let found =
+        match in_chain with
+        | Some found -> found
+        | None -> (
+            let defaults =
+              List.filter_map
+                (fun (n, args) ->
+                  match class_named store n with
+                  | Some ({ cl_kind = ClassInterface; _ } as k) -> (
+                      match List.find_opt (fun m -> m.md_name = name && not m.md_abstract) k.cl_methods with
+                      | Some m -> Some (n, method_at (class_mapping k args) m)
+                      | None -> None)
+                  | _ -> None)
+                (List.tl (all_supers store (cname, self_args)))
+            in
+            match defaults with
+            | [ one ] -> one
+            | [] ->
+                raise
+                  (Type_error
+                     (info, Printf.sprintf "nothing above '%s' gives '%s' a body for 'super' to call" (base_name cname) name))
+            | (a, _) :: (b, _) :: _ ->
+                raise
+                  (Type_error
+                     ( info,
+                       Printf.sprintf "'super.%s' could mean the default of '%s' or of '%s'" name (base_name a) (base_name b) )))
+      in
+      let owner, m = found in
+      let store = check_method_arguments info name m written env store in
+      let store = record_resolution store sym (Super_owner (owner, List.map (fun (n, _, d) -> (n, d)) m.md_params)) in
+      (zonk m.md_return store, store)
+
+(** The type a class pattern matches, given the subject's type: the
+    class at arguments that make it one with the subject, whichever of
+    the two is above the other. info -> class_info -> [typ] -> typ ->
+    store -> (typ, store) *)
+and object_pattern_type info c written subject store =
+  let args, store =
+    if written <> [] then (written, store) else fresh_metas (List.length c.cl_params) info store
+  in
+  let mine = TCon (info, c.cl_name, args, 0) in
+  let refuse () =
+    raise
+      (Type_error
+         ( info,
+           Printf.sprintf "this pattern matches %s, but it is matched against %s, which is never one"
+             (shown mine store) (shown subject store) ))
+  in
+  match prune subject store with
+  | TCon (_, sname, sargs, _) when SMap.mem sname store.classes -> (
+      let joined =
+        match super_as store (c.cl_name, args) sname with
+        | Some seen -> unify (TCon (info, sname, seen, 0)) (TCon (info, sname, sargs, 0)) store
+        | None -> (
+            match super_as store (sname, sargs) c.cl_name with
+            | Some seen -> unify mine (TCon (info, c.cl_name, seen, 0)) store
+            | None -> None)
+      in
+      match joined with Some store -> (mine, store) | None -> refuse ())
+  | settled when is_meta settled -> (
+      match unify settled mine store with Some store -> (mine, store) | None -> refuse ())
+  | _ -> refuse ()
+
+(** The store in which a class's body checks: each body field's first
+    value, the parent's arguments -- with the header's parameters in scope,
+    as in a constructor -- and each method's body, with `self` and its
+    parameters in scope and its result what it says.
+    info -> class_decl -> env -> store -> store *)
+and check_class info c env store =
+  let ci = Option.get (class_named store c.c_name) in
+  let self_t = self_type info ci in
+  let header_env = List.fold_left (fun env (n, t) -> bind env n t) env ci.cl_header in
+  let store =
+    List.fold_left2
+      (fun store (MemberField (_, _, _, _, _, _, fs)) (_, t) -> record store fs t)
+      store c.c_header ci.cl_header
+  in
+  let store =
+    List.fold_left
+      (fun store (MemberField (_, n, _, v, _, _, fs)) ->
+        let t = match List.find_opt (fun f -> f.fd_name = n) ci.cl_fields with Some f -> f.fd_type | None -> t_unknown info in
+        let store = record store fs t in
+        match v with
+        | Some e -> check_wanted e t (Printf.sprintf "the first value of the field '%s'" n) header_env store
+        | None -> store)
+      store c.c_fields
+  in
+  let store =
+    match (c.c_extends, ci.cl_parent) with
+    | Some (ClassRef (ri, _, pname, _, args, rs)), Some (pcanon, pargs) ->
+        let p = Option.get (class_named store pcanon) in
+        let mapping = class_mapping p pargs in
+        if List.length args <> List.length p.cl_header then
+          raise
+            (Type_error
+               ( ri,
+                 Printf.sprintf "'%s' takes %d argument%s, but %d %s given" pname (List.length p.cl_header)
+                   (if List.length p.cl_header = 1 then "" else "s")
+                   (List.length args)
+                   (if List.length args = 1 then "was" else "were") ));
+        let store =
+          List.fold_left2
+            (fun store (_, a) (n, t) ->
+              check_wanted a (substitute t mapping) (Printf.sprintf "the field '%s' of '%s'" n pname) header_env store)
+            store args p.cl_header
+        in
+        record store rs (TCon (ri, pcanon, pargs, 0))
+    | _ -> store
+  in
+  let store =
+    List.fold_left2
+      (fun store (ClassRef (ri, _, _, _, _, rs)) (n, args) -> record store rs (TCon (ri, n, args, 0)))
+      store c.c_implements ci.cl_interfaces
+  in
+  List.fold_left
+    (fun store (MethodDecl (mi, name, params, _, body, _, _, ms)) ->
+      let md = List.find (fun m -> m.md_name = name) ci.cl_methods in
+      let store = record store ms (t_function mi (List.map (fun (_, t, _) -> t) md.md_params) md.md_return) in
+      let store = List.fold_left2 (fun store (Param (_, _, _, _, ps)) (_, t, _) -> record store ps t) store params md.md_params in
+      (* A default is a literal or the call of the def desugar_args made
+         of it, checked here so a call that leaves it out can use it. *)
+      let store =
+        List.fold_left2
+          (fun store (Param (_, pn, _, d, _)) (_, t, _) ->
+            match d with
+            | Some e -> check_wanted e t (Printf.sprintf "the default for '%s'" pn) env store
+            | None -> store)
+          store params md.md_params
+      in
+      match body with
+      | None -> store
+      | Some body ->
+          let menv = bind env "self" self_t in
+          let menv = List.fold_left2 (fun e (Param (_, n, _, _, _)) (_, t, _) -> bind e n t) menv params md.md_params in
+          let unit_result = match md.md_return with TTuple (_, [], _) -> true | _ -> false in
+          let inner = { (with_frame store { returns = [] }) with current_class = Some c.c_name } in
+          let supplied, inner = check_stmts body menv (Declared md.md_return) None inner in
+          let inner =
+            if unit_result then inner
+            else
+              match supplied with
+              | None -> inner
+              | Some t -> (
+                  let last_sym =
+                    match List.rev body with SExprStmt (_, e, _) :: _ -> expr_sym e | _ -> 0
+                  in
+                  match coerced inner last_sym md.md_return t with
+                  | Some answer -> answer
+                  | None ->
+                      raise
+                        (Type_error
+                           ( mi,
+                             Printf.sprintf "the method '%s' has to return %s, but its body ends in a value of type %s"
+                               name (shown md.md_return inner) (shown t inner) )))
+          in
+          learned store inner)
+    store c.c_methods
+
 (** Type-checks a function call. expr -> env -> store -> (typ, store) *)
 and check_call call env store =
+  let method_ =
+    match call with
+    | ECall (_, (EField (_, obj, name, _) as callee), written, _) -> (
+        let obj_type, peeked = check_expr obj env store in
+        match prune obj_type peeked with
+        | TCon (_, canonical, oargs, _) when SMap.mem canonical peeked.classes -> (
+            match lookup_method peeked (canonical, oargs) name with
+            | Some found -> Some (check_method_call call found written env peeked)
+            | None ->
+                if List.exists (fun (n, _) -> n <> None) written then
+                  raise
+                    (Type_error
+                       ( expr_info callee,
+                         Printf.sprintf "'%s' has no method '%s', and only a method's arguments are named" canonical name ));
+                None)
+        | settled when is_meta settled && not (SMap.is_empty peeked.classes) ->
+            (* `s.area()` where nothing says what `s` is. *)
+            let subject = match obj with EVar (_, n, _) -> Printf.sprintf "'%s'" n | _ -> "this value" in
+            raise
+              (Type_error
+                 ( expr_info callee,
+                   Printf.sprintf
+                     "nothing here says what class %s is, so there is no telling which method '%s' is meant; \
+                      annotate it, as in 'def f(%s: Shape)'"
+                     subject name (match obj with EVar (_, n, _) -> n | _ -> "x") ))
+        | _ ->
+            if List.exists (fun (n, _) -> n <> None) written then
+              raise
+                (Type_error
+                   ( expr_info call,
+                     "an argument is named only in a call of a 'def', a method or a constructor, which say \
+                      what their parameters are called" ));
+            None)
+    | _ -> None
+  in
+  match method_ with
+  | Some answer -> answer
+  | None ->
   let func, args =
     match call with
     | ECall (_, func, args, _) -> (func, arg_exprs args)
@@ -4905,19 +6010,29 @@ and check_builtin_call name call env store =
          element type, or both one `var struct` -- the values that have
          an identity; one nothing has decided is an array. *)
       check_builtin_arity name info given;
-      let wanted = "two arrays, DynArrays, MutMaps, views or var structs, of one type" in
+      let wanted = "two arrays, DynArrays, MutMaps, views, var structs or objects, of one type" in
       let identity settled =
         match settled with
         | TCon (_, c, _, _) when List.mem c [ array_name; dynarray_name; mutmap_name; slice_name ] -> true
+        | TCon (_, c, _, _) when SMap.mem c store.classes -> true
         | TCon (_, c, _, _) -> (
             match SMap.find_opt c store.datatypes with
             | Some (Datatype (_, _, _, writable)) -> writable
             | None -> false)
         | _ -> false
       in
+      (* Two objects are compared where either's class is above the
+         other's: a Shape may be the very Square it is asked about. *)
+      let related =
+        match (prune first store, prune second store) with
+        | TCon (_, a, aargs, _), TCon (_, b, bargs, _) when SMap.mem a store.classes && SMap.mem b store.classes ->
+            super_as store (a, aargs) b <> None || super_as store (b, bargs) a <> None
+        | _ -> false
+      in
       let store =
         match unify first second store with
         | Some store -> store
+        | None when related -> store
         | None -> raise (builtin_argument_error name (List.nth args 1) second wanted)
       in
       let store =
@@ -5027,8 +6142,14 @@ and check_arguments ?about args declared env store position =
   match (args, declared) with
   | [], _ -> store
   | arg :: rest, expected :: rest_declared ->
-      let actual, store = check_expr arg env store in
-      let store = fitted ?about expected actual arg position env store in
+      let store =
+        match arg with
+        | (EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EIf _) when mentions_object store expected ->
+            check_wanted arg expected (Printf.sprintf "argument %d" position) env store
+        | _ ->
+            let actual, store = check_expr arg env store in
+            fitted ?about expected actual arg position env store
+      in
       check_arguments ?about rest rest_declared env store (position + 1)
   | _ :: _, [] -> store
 
@@ -5063,6 +6184,7 @@ and fitted ?about expected actual arg position env store =
   match unify settled actual store with
   | Some answer ->
       if kinds = [] || key = "" then answer else remember_kinds kinds (expr_info arg) key subject answer
+  | None when coerced store (expr_sym arg) settled actual <> None -> Option.get (coerced store (expr_sym arg) settled actual)
   | None -> (
       match adapted arg actual settled env store with
       | Some answer -> answer
@@ -5539,7 +6661,14 @@ and check_function node env store =
   let supplied, store =
     check_stmts (def_body node) body_env (Declared result_type) None store
   in
-  match satisfies result_type supplied store with
+  (* A body ending in an object of a class below the declared result is
+     an upcast there. *)
+  let tail_upcast =
+    match (supplied, List.rev (def_body node)) with
+    | Some t, SExprStmt (_, e, _) :: _ -> coerced store (expr_sym e) result_type t
+    | _ -> None
+  in
+  match (match tail_upcast with Some answer -> Some answer | None -> satisfies result_type supplied store) with
   | Some answer -> (Some (unit_type (stmt_info node)), answer)
   | None -> (
       match supplied with
@@ -5637,6 +6766,53 @@ and check_pattern pattern type_ env store =
         match name with None -> env | Some name -> bind env name (t_string info)
       in
       (env, store)
+  | PConstructor (info, module_, name, fields, _, sym) when object_class store module_ name <> None ->
+      (* `case Square(side):` -- an object of that class or one below it,
+         its header's fields matched as a struct's are. *)
+      let c = Option.get (object_class store module_ name) in
+      if c.cl_kind = ClassInterface then
+        raise
+          (Type_error
+             ( info,
+               Printf.sprintf "'%s' is an interface, which has no fields to match: write 'case x: %s:'" name name ));
+      let instance, store = object_pattern_type info c [] type_ store in
+      if List.length fields <> List.length c.cl_header then
+        raise
+          (Type_error
+             ( info,
+               Printf.sprintf "'%s' has %d field%s in its header, and this pattern matches %d" name
+                 (List.length c.cl_header)
+                 (if List.length c.cl_header = 1 then "" else "s")
+                 (List.length fields) ));
+      let mapping = match instance with TCon (_, _, args, _) -> class_mapping c args | _ -> [] in
+      let store = record store sym (zonk instance store) in
+      List.fold_left2
+        (fun (env, store) one (_, t) -> check_pattern one (zonk (substitute t mapping) store) env store)
+        (env, store) fields c.cl_header
+  | PTyped (info, name, t, sym) -> (
+      (* `case c: Circle:` -- an object of that class or interface. *)
+      match t with
+      | TCon (ti, spelled, written, _) -> (
+          match SMap.find_opt spelled store.types with
+          | Some canonical when SMap.mem canonical store.classes ->
+              let c = SMap.find canonical store.classes in
+              let written = List.map (resolved store) written in
+              if written <> [] && List.length written <> List.length c.cl_params then
+                raise
+                  (Type_error
+                     ( ti,
+                       Printf.sprintf "'%s' takes %d type parameter%s, but is given %d" spelled
+                         (List.length c.cl_params)
+                         (if List.length c.cl_params = 1 then "" else "s")
+                         (List.length written) ));
+              let instance, store = object_pattern_type info c written type_ store in
+              let instance = zonk instance store in
+              (bind env name instance, record store sym instance)
+          | _ ->
+              raise
+                (Type_error
+                   (ti, Printf.sprintf "'case %s: %s' tests the class of an object, and '%s' is no class or interface" name spelled spelled)))
+      | _ -> raise (Type_error (type_info t, "'case name: Type' tests the class of an object, so Type is a class or an interface")))
   | PConstructor (info, module_, name, fields, _, sym) ->
       let spelled = match module_ with Some m -> m ^ "." ^ name | None -> name in
       let _, wanted, result, store = constructor_use info spelled name store in
@@ -5728,12 +6904,24 @@ and check_pattern pattern type_ env store =
     exhaustive.ml puts it. Run once the types are worked out, since what
     a pattern could match is a question about its type.
     [stmt] -> store -> () *)
+(** What exhaustiveness knows of a type's shapes: a datatype's
+    constructors, or for a class its own name -- a pattern on it takes its
+    header's fields -- and for an interface its own, each open to the
+    classes below it that a case names. store -> string -> datatype? *)
+let exhaustive_datatype store canonical =
+  match SMap.find_opt canonical store.datatypes with
+  | Some d -> Some d
+  | None -> (
+      match class_named store canonical with
+      | Some c ->
+          let own = if c.cl_kind = ClassInterface then [] else List.map (fun (n, t) -> (Some n, t)) c.cl_header in
+          Some (Datatype (canonical, c.cl_params, [ (canonical, own); (Exhaustive.open_marker, []) ], false))
+      | None -> None)
+
 let check_matches stmts store =
   let tmap = IntMap.map (fun type_ -> zonk type_ store) store.tmap in
   try
-    Exhaustive.check
-      (fun canonical -> SMap.find_opt canonical store.datatypes)
-      tmap stmts
+    Exhaustive.check (exhaustive_datatype store) tmap stmts
   with Exhaustive.Refused (info, message) -> raise (Type_error (info, message))
 
 (** One resolution with every type in it read back through what has
@@ -5751,6 +6939,8 @@ let rec resolved_types answer store =
         ( zonk type_ store,
           passed,
           List.map (fun one -> resolved_argument one store) supplied )
+  | Upcast type_ -> Upcast (zonk type_ store)
+  | Method_call _ | Method_value _ | Super_owner _ | Object_eq _ -> answer
 
 (** One resolved argument, read back the same way.
     argument -> store -> argument *)
@@ -5842,6 +7032,7 @@ let check_open_arrays stmts store =
     [stmt] -> [(string, sigmap)] -> (typ IntMap.t, resolution IntMap.t) *)
 let type_check ?(declared = []) ?(mutation = true) stmts sigmaps =
   let store = declare_datatypes stmts { (empty_store sigmaps) with mutation } in
+  let store = declare_classes stmts store in
   (* A module's own declaration half is in scope here, unqualified and
      with no import: `foo.pyk` and `foo_external.pyk` are one module, so
      a name the target's source provides is a name of this module (see
