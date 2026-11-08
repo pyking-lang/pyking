@@ -1,0 +1,21 @@
+from prelude import list__fmap, array__fmap, dynarray__fmap, slice__fmap, map__fmap, mutmap__fmap, option__fmap, result__fmap, list__filter, array__filter, dynarray__filter, slice__filter, map__filter, mutmap__filter, option__filter, list__foldl, array__foldl, dynarray__foldl, slice__foldl, map__foldl, mutmap__foldl, option__foldl, result__foldl, list__foldr, array__foldr, dynarray__foldr, slice__foldr, map__foldr, mutmap__foldr, option__foldr, result__foldr, list__any, array__any, dynarray__any, slice__any, map__any, mutmap__any, option__any, result__any, list__all, array__all, dynarray__all, slice__all, map__all, mutmap__all, option__all, result__all, list__list, array__list, dynarray__list, slice__list, string__list, map__list, mutmap__list, option__list, fill__list, init__list_init, unfold__list_init, fill__dynarray, init__dynarray_init, unfold__dynarray_init, keys__map_init, unfold__map_init, keys__mutmap_init, unfold__mutmap_init
+datatype Point:
+    Point(x: Int, y: Int)
+def apply_all(f:(a) -> b, xs:[a]) -> [b]:
+    [f(x) for x in xs]
+def fold(f:(b, a) -> b, init:b, xs:[a]) -> b:
+    loop (f, init, xs): ((b, a) -> b, b, [a]) = (f, init, xs):
+        match xs:
+            case []:
+                return init
+            case [first, ..others]:
+                (f, f(init, first), others)
+points: [Point] = [Point(x = 1, y = 2), Point(x = 3, y = 4)]
+print(apply_all(lam (p:Point). p.x + p.y, points))
+print(fold(lam (total:Int, p:Point). total + p.x * p.y, 0, points))
+print(list__fmap(lam (p:Point). Point(x = p.y, y = p.x), points))
+print(list__foldl(lam (best:Point, p:Point). if p.x > best.x then p else best, Point(x = 0, y = 0), points))
+def trace(label:String, value:Int) -> Int:
+    print(label)
+    value
+print(apply_all(lam (n:Int). n + trace("in the lambda", 0), [trace("the list", 1)]))

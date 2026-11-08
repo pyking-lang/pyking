@@ -10,6 +10,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- One way to make and convert every collection, `fmap` and the folds,
+  an immutable `Map`, and `Result` (PYKING.md, "Making and converting
+  collections", "fmap and the folds", "Maps", "Result";
+  design/plan_collections.md). `list(xs)`, `list(n, v)` and `list_init`
+  join `array`/`array_init`, as do `dynarray(n, v)`, `dynarray_init`,
+  `map_init` and `mutmap_init`, and each constructor of one argument
+  converts another collection: `list(array(3, "a"))`, `array("abc")`,
+  `mutmap(m)`. `fmap`, `filter`, `foldl`, `foldr`, `any` and `all` take a
+  list, an array, a DynArray, a view, a Map or a MutMap (its values), an
+  Option or a Result, function first, and answer a new collection of
+  the kind given; they are written in Pyking in the new lib/prelude,
+  imported into a module that calls one, so a module's own `map` or
+  `filter` still means itself. `Map(K, V)` keeps its keys' order, is
+  made by `map(...)` with no `use mutation`, is read as a MutMap is and
+  compared by its entries with `==`; lib/map's `insert`, `remove`,
+  `insert_with`, `alter`, `union`, ... answer a new Map. `Result(t, e)`
+  is `Ok(value)` or `Error(error)`, builtin from lib/result as Option is
+  from lib/option, with Rust's functions (`and_then`, `map_error`,
+  `unwrap_or`, `all_ok`, ...). New libraries lib/list (`take`, `zip`,
+  `chunks`, `find`, `partition`, `unique`, `group`, `sum`, `maximum`,
+  `sort`, `sort_by`, `sort_on`, ... with Haskell's names), lib/map and
+  lib/mutmap; lib/option gains Rust's `unwrap_or`, `and_then`,
+  `or_else`, `zip`, `flatten`, `unwrap`, `expect`, `all_some` and
+  `values`; lib/array and lib/dynarray gain lib/list's searching and
+  counting functions, `sort_by`, `sort_on`, `map_in_place`, `sorted`
+  and `reversed`, and lib/dynarray `truncate`, `retain` and `append`.
+  The builtin `panic(message)` stops a program with a runtime error.
+  A lambda argument is checked after a call's other arguments, so
+  `fmap(lam p. p.name, people)` knows `p` from the list, and a lambda's
+  body may settle which overloaded definition a call means; a binding's
+  annotation inside a generic body may name the body's type variables.
+  The language server, VS Code and Emacs know the new names.
 - Classes and interfaces, under `use objects` (PYKING.md, "Classes and
   interfaces"; design/plan-objects.md). A `class` declares its fields
   in its header -- its constructor's parameters -- and in its body,
@@ -55,7 +87,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   2026-11-03". `make website-release` keeps the previous build for tabs
   still on it, and waits for `version.json` to name the new one.
 
+### Changed
+
+- `option.or_else(o, f)` takes a function answering an Option, as Rust's
+  does; the default value itself is `option.unwrap_or(o, value)`, and an
+  old call is refused with that named.
+- A key error for a MutMap made by a call is reported at the call, not
+  at the binding.
+
 ### Fixed
+
+- A comprehension's `if` whose condition's type was still open -- what
+  an unannotated parameter's call gives -- was refused; it is unified
+  with Bool, as an `if` statement's condition is.
+- The interpreter built a comprehension's list in time quadratic in its
+  length (a 100000-element one took minutes, and longer in the browser);
+  it is linear now.
+- Nodes elaborate.ml built in an imported module could share a symbol
+  with the importing module's, which made the interpreter run the wrong
+  node; they are numbered past every module's now.
 
 - A parameter with no annotation that a body indexes (`xs[i]`), writes
   by index, slices or walks with `for` takes its kind -- a list, an

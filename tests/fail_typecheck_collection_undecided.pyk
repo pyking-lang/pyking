@@ -1,0 +1,9 @@
+# A parameter given to `fmap` is a collection of a kind nothing here decides.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def double_all(c):
+    fmap(lam x. x * 2, c)
+
+print(double_all([1, 2]))

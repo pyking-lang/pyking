@@ -1,0 +1,14 @@
+# lib/option, named as Rust names it.
+
+import option
+
+none: Option(Int) = None
+print(option.is_some(Some(1)), option.is_none(none), option.unwrap_or(none, 7), option.unwrap_or(Some(1), 7))
+print(option.unwrap_or_else(none, lam (). 6 * 7), option.unwrap(Some("x")), option.expect(Some(2), "two"))
+def half(n: Int) -> Option(Int):
+    if n % 2 == 0 then Some(n / 2) else None
+print(option.and_then(Some(8), half), option.and_then(Some(3), half), option.and_then(none, half))
+print(option.and_then(option.and_then(Some(12), half), half), option.or_else(none, lam (). Some(0)), option.or_else(Some(5), lam (). Some(0)))
+print(option.zip(Some(1), Some("a")), option.zip(Some(1), none), option.flatten(Some(Some(3))), option.flatten(Some(none)))
+print(option.all_some([Some(1), Some(2)]), option.all_some([Some(1), none]), option.values([none, Some(4), none, Some(5)]))
+print(fmap(lam x. x * 3, Some(2)), filter(lam x. x > 2, Some(2)), list(Some(9)), foldr(lam (x, a). x + a, 1, none))

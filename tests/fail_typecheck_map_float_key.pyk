@@ -1,0 +1,6 @@
+# A Map's keys are hashed, so no Float is one.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(map([(1.5, "one and a half")]))

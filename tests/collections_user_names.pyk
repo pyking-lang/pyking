@@ -1,0 +1,18 @@
+# A module's own `map`, `filter`, `list`, `fmap` and `all` mean
+# themselves: the builtins written in Pyking are imported only where a
+# module calls one of those names and binds none of them.
+
+def map(f, xs):
+    [f(x) for x in xs]
+
+def filter(p, xs):
+    [x for x in xs if p(x)]
+
+def fmap(f: (Int) -> Int, x: Int) -> Int:
+    f(f(x))
+
+list = [1, 2, 3]
+all = "all of them"
+print(map(lam x. x * 2, list), filter(lam x. x > 1, list), fmap(lam x. x + 1, 0), all)
+# `foldl` is not bound here, so it is the builtin
+print(foldl(lam (acc, x). acc + x, 0, list))

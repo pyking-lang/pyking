@@ -1,0 +1,52 @@
+# The immutable Map: made by `map(...)`, read like a MutMap, compared by
+# its entries in any order, printed as what makes it (PYKING.md, "Maps").
+
+ages = map([("ann", 31), ("bo", 5), ("cy", 40)])
+print(ages, len(ages), ages["bo"])
+print(get(ages, "bo", 0), get(ages, "zed", 0), has(ages, "cy"), has(ages, "zed"))
+print(keys(ages), values(ages), items(ages))
+for name in ages:
+    print(name, ages[name])
+print([name + "!" for name in ages], [v * 2 for v in values(ages)])
+
+# a key written twice keeps its first place and its last value
+print(map([(1, "a"), (2, "b"), (1, "c")]))
+
+# == compares the entries, in any order; != too
+print(map([(1, "a"), (2, "b")]) == map([(2, "b"), (1, "a")]))
+print(map([(1, "a")]) == map([(1, "b")]), map([(1, "a")]) != map([(1, "a"), (2, "b")]))
+e1: Map(Int, Int) = map()
+e2: Map(Int, Int) = map([])
+print(e1 == e2, e1)
+
+# keys of every kind a key may be
+struct Pos(row: Int, col: Int)
+board = map([(Pos(0, 0), 'x'), (Pos(1, 1), 'o')])
+print(board[Pos(1, 1)], has(board, Pos(2, 2)), keys(board))
+pairs = map([((1, 2), "pair"), ((2, 1), "other")])
+print(pairs[(2, 1)], map([([1, 2], true)])[[1, 2]], map([('c', 1)]), map([(true, 0), (false, 1)]))
+
+# Maps inside other values, and as parameters and results
+nested = map([("outer", map([("inner", 1)]))])
+print(nested, nested["outer"]["inner"])
+print([map([(1, 1)]), map([(2, 2)])], (map([("t", 1)]), 1))
+print([map([(1, "a")])] == [map([(1, "a")])], (map([(1, 2)]), 3) == (map([(1, 2)]), 3))
+
+def older(m: Map(String, Int), years: Int) -> Map(String, Int):
+    map([(name, age + years) for (name, age) in items(m)])
+print(older(ages, 1), ages)
+
+def oldest(m: Map(String, Int)) -> String:
+    match keys(m):
+        case [first, ..others]:
+            foldl(lam (best, name). if m[name] > m[best] then name else best, first, others)
+        case []:
+            ""
+print(oldest(ages))
+
+# a Map of lists, and of Floats as values
+groups = map([("even", [0, 2]), ("odd", [1])])
+print(groups["even"] + groups["odd"], map([("pi", 3.14)]))
+
+# a missing key is a runtime error, reported at the end
+print(ages["zed"])

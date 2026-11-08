@@ -1,0 +1,5 @@
+'tests/fail_typecheck_filter_result.pyk' 7:6-7:29 Type error: 'filter'
+  takes a list, an array, a DynArray, a view, a Map, a MutMap or an
+  Option, not Result(Int, String); a Result has no 'filter', since
+  where the test is false there is no error to give: 'result.and_then'
+  decides which

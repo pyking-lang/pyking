@@ -48,8 +48,11 @@ contain.
 `Typesystem.resolve_overload`, and it is four steps:
 
 1. **The arguments are checked once**, left to right, exactly as any
-   call's are. What they turn out to be is what the candidates are
-   tried against; nothing is checked twice.
+   call's are -- except a lambda with no parameter types written, which
+   stands as a function of its arity (`(?1) -> ?2`) until a candidate is
+   chosen, and is then checked against that candidate's parameter, so
+   `fmap(lam p. p.name, people)` knows `p` is a Person. What the
+   arguments turn out to be is what the candidates are tried against.
 2. **Candidates** are every binding in scope whose base name is the one
    written. An unqualified call sees this file's own `q::name`
    definitions and, through an import, a module's *public implicit*
@@ -60,7 +63,10 @@ contain.
    value, so a trial that does not fit is discarded by not being kept —
    there is no backtracking to undo.
 4. **Exactly one survivor resolves the call**, and its store is the one
-   that is kept.
+   that is kept. Where several survive and a lambda is among the
+   arguments, the lambda's body is checked against each in turn and a
+   candidate it does not check against is dropped: `sort_on(lam p.
+   p.age, people)` fits every key type until the body says Int.
 
 The test is **unification, not matching**. That is what lets
 `leq([171, 10], [188])` pick `list::leq` when the argument type is

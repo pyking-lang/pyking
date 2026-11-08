@@ -1,0 +1,32 @@
+# Result: Ok(value) or Error(error), builtin as Option is, and lib/result.
+
+import result
+
+def parse_age(s: String) -> Result(Int, String):
+    n = int(s)
+    if string(n) == s and n >= 0 then Ok(n) else Error("not an age: " + s)
+
+nothing: Option(Int) = None
+good = parse_age("31")
+bad = parse_age("x")
+print(good, bad, good == Ok(31), bad != good)
+match bad:
+    case Ok(n):
+        print("age", n)
+    case Error(problem):
+        print("problem:", problem)
+print(result.is_ok(good), result.is_error(good), result.ok(good), result.ok(bad), result.error(bad))
+print(result.unwrap_or(bad, 0), result.unwrap_or_else(bad, lam e. len(e)), result.unwrap(good), result.expect(good, "an age"))
+def below(limit: Int) -> (Int) -> Result(Int, String):
+    lam n. if n < limit then Ok(n) else Error("too big: " + string(n))
+print(result.and_then(good, below(150)), result.and_then(good, below(20)), result.and_then(bad, below(150)))
+print(result.or_else(bad, lam e. Ok(0)), result.map_error(lam e. len(e), bad), result.map_error(lam e. len(e), good))
+print(result.unwrap_error(bad), result.flatten(Ok(good)), result.ok_or(Some(1), "none"), result.ok_or(nothing, "none"))
+print(result.all_ok([good, parse_age("2")]), result.all_ok([good, bad, parse_age("y")]), result.partition_results([good, bad, parse_age("7")]))
+# the builtins take a Result too
+print(fmap(lam n. n + 1, good), foldl(lam (a, n). a + n, 100, good), any(lam n. n > 30, good), all(lam n. n > 30, bad))
+print(list(fmap(lam n. n * 2, Some(21))))
+# a chain of steps that stops at the first error
+def checked(s: String) -> Result(Int, String):
+    result.and_then(result.and_then(parse_age(s), below(150)), lam n. if n % 2 == 0 then Ok(n / 2) else Error("odd"))
+print(checked("40"), checked("41"), checked("400"), checked("forty"))

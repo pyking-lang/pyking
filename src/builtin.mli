@@ -57,6 +57,20 @@ val overload_sets : (string * string list) list
     the interpreter and every backend implement. [string] *)
 val member_names : string list
 
+(** The members of the builtin sets that convert from another collection
+    (`dynarray::array`), which elaborate.ml rewrites into a list form. *)
+val conversion_members : string list
+
+(** The builtin sets whose result is not a store, so making one needs no
+    `use mutation`: `map`. *)
+val immutable_sets : string list
+
+(** The overload sets lib/prelude defines, each with its members. *)
+val prelude_sets : (string * string list) list
+
+(** Every name a prelude set is called by. *)
+val prelude_names : string list
+
 (** The builtins that change a mutable collection in place -- `push`,
     `pop`, `insert`, `remove`, `clear` -- which need `use mutation`.
     [string] *)

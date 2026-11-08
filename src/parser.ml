@@ -3609,8 +3609,10 @@ let check_features enabled stmts =
   in
   let makes_array name =
     List.exists
-      (fun (set, members) -> (name = set || List.mem name members) && not (owns set))
+      (fun (set, members) ->
+        (name = set || List.mem name members) && (not (List.mem set Builtin.immutable_sets)) && not (owns set))
       Builtin.overload_sets
+    || (List.mem name [ "dynarray_init"; "mutmap_init" ] && not (owns name))
   in
   let writes_store name = List.mem name Builtin.writers && not (owns name) in
   (* The constructors of this module's `var struct`s: making one is
@@ -3698,7 +3700,10 @@ let check_features enabled stmts =
                      "'%s' makes %s, which needs 'use mutation' at the top of \
                       this module"
                      name
-                     (match Names.base name with "dynarray" -> "a DynArray" | "mutmap" -> "a MutMap" | _ -> "an array") ))
+                     (match Names.base name with
+                     | "dynarray" | "dynarray_init" -> "a DynArray"
+                     | "mutmap" | "mutmap_init" -> "a MutMap"
+                     | _ -> "an array") ))
         | Walk.NExpr (ECall (_, EVar (i, name, _), _, _))
           when writes_store name ->
             raise
@@ -3761,13 +3766,13 @@ let check_features enabled stmts =
         | _ -> ())
       () stmts
 
-(** stmts with `from option import Option` in front where the module
-    uses `Option`, `Some` or `None` and neither declares nor imports any
-    of them: the builtin option, from lib/option (PYKING.md, "Option").
+(** stmts with `from <module_> import <type_name>` in front where the
+    module uses the type or one of its constructors and neither declares
+    nor imports any of them: a datatype builtin in the way a library is.
     A module declaring its own -- many do, from before it was builtin --
-    means its own. [stmt] -> [stmt] *)
-let with_option stmts =
-  let names = [ "Option"; "Some"; "None" ] in
+    means its own. string -> string -> [string] -> [stmt] -> [stmt] *)
+let with_library_datatype module_ type_name constructors stmts =
+  let names = type_name :: constructors in
   let own =
     List.exists
       (function
@@ -3784,16 +3789,66 @@ let with_option stmts =
         found
         ||
         match node with
-        | Walk.NExpr (EConstruct (_, None, ("Some" | "None"), _, _)) -> true
-        | Walk.NPattern (PConstructor (_, None, ("Some" | "None"), _, _, _)) -> true
-        | Walk.NType (TCon (_, "Option", _, _)) -> true
+        | Walk.NExpr (EConstruct (_, None, c, _, _)) -> List.mem c constructors
+        | Walk.NPattern (PConstructor (_, None, c, _, _, _)) -> List.mem c constructors
+        | Walk.NType (TCon (_, t, _, _)) -> t = type_name
         | _ -> false)
       false stmts
   in
   if own || not used then stmts
   else
-    let nowhere = { file = "<option>"; row1 = 0; col1 = 0; row2 = 0; col2 = 0 } in
-    SImport (nowhere, "option", "option", true, [ ("Option", "Option") ], 0) :: stmts
+    let nowhere = { file = "<" ^ module_ ^ ">"; row1 = 0; col1 = 0; row2 = 0; col2 = 0 } in
+    SImport (nowhere, module_, module_, true, [ (type_name, type_name) ], 0) :: stmts
+
+(** stmts with `from option import Option` in front where the module
+    uses `Option`, `Some` or `None` and neither declares nor imports any
+    of them: the builtin option, from lib/option (PYKING.md, "Option").
+    [stmt] -> [stmt] *)
+let with_option stmts = with_library_datatype "option" "Option" [ "Some"; "None" ] stmts
+
+(** The same for `Result`, `Ok` and `Error`, from lib/result (PYKING.md,
+    "Result"). [stmt] -> [stmt] *)
+let with_result stmts = with_library_datatype "result" "Result" [ "Ok"; "Error" ] stmts
+
+(** stmts with lib/prelude's overload sets imported -- every member,
+    under its `::` name -- where the module calls one of their names
+    (`fmap`, `list`, `dynarray(n, v)`, ...) and binds none of them
+    itself: the builtins written in Pyking (PYKING.md, "fmap and the
+    folds"). Only `::` names are bound, so a module's own `filter` or
+    `list` still means itself. lib/prelude, which defines them, imports
+    nothing. [stmt] -> [stmt] *)
+let with_prelude stmts =
+  let members = List.concat_map snd Builtin.prelude_sets in
+  let defines =
+    Walk.fold_stmts
+      (fun found node ->
+        match node with
+        | Walk.NStmt (SFunctionDef (_, name, _, _, _, _, _, _, _)) -> name :: found
+        | Walk.NStmt (SImport (_, _, _, true, fields, _)) -> List.map snd fields @ found
+        | Walk.NTarget (TargetName (_, name, _)) -> name :: found
+        | _ -> found)
+      [] stmts
+  in
+  let own = List.exists (fun m -> List.mem m defines) members in
+  let calls name args =
+    List.mem name Builtin.prelude_names
+    && (not (List.mem name defines))
+    && (name <> "dynarray" || List.length args = 2)
+  in
+  let used =
+    Walk.fold_stmts
+      (fun found node ->
+        found
+        ||
+        match node with
+        | Walk.NExpr (ECall (_, EVar (_, name, _), args, _)) -> calls name args
+        | _ -> false)
+      false stmts
+  in
+  if own || not used then stmts
+  else
+    let nowhere = { file = "<prelude>"; row1 = 0; col1 = 0; row2 = 0; col2 = 0 } in
+    SImport (nowhere, "prelude", "prelude", true, List.map (fun m -> (m, m)) members, 0) :: stmts
 
 (** Parses a module's tokens with some features already on -- a REPL
     session's, which an earlier entry turned on -- answering the features
@@ -3852,7 +3907,7 @@ let parse_with enabled tokens =
         | _ -> ());
         statements rest (List.rev_append group collected)
   in
-  let stmts = with_option (statements tokens []) in
+  let stmts = with_prelude (with_result (with_option (statements tokens []))) in
   check_loop_context stmts false None;
   check_features (enabled @ own) stmts;
   (own, stmts)

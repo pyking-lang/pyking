@@ -1,0 +1,6 @@
+# A Map has no identity to ask about: `==` compares two.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(same(map([(1, 1)]), map([(1, 1)])))

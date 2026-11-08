@@ -247,7 +247,7 @@ const offered = (col, line) => JSON.parse(pykReplComplete(col + "\n" + line));
 let complete = offered(1, "f");
 replCheck("Tab offers what is bound, with its type, a keyword and a builtin",
           complete.start === 0 && JSON.stringify(complete.items.map((i) => i.label))
-            === JSON.stringify(["f", "false", "float", "for", "from"])
+            === JSON.stringify(["f", "false", "filter", "float", "fmap", "foldl", "foldr", "for", "from"])
           && complete.items[0].detail === "(Int) -> Int", JSON.stringify(complete));
 complete = offered(6, "y = x + ");
 replCheck("Tab where nothing has been typed offers everything",

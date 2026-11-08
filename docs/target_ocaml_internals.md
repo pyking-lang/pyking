@@ -269,15 +269,18 @@ unscoped name search) couldn't tell the difference.
 
 `regroup` runs before any of that, on the Pyking AST, and is what makes
 a split group legal in the first place: a `def` naming one written
-further down is **moved down to join it**, so the group is consecutive
-by the time `groups` sees it. A `def` binds no value and runs nothing,
+further down is **moved down to join it**, and so is a `def` naming one
+that moves, so the group is consecutive by the time `groups` sees it,
+below every `def` it reaches; those that land together are ordered
+callees first. A `def` binds no value and runs nothing,
 so moving one changes nothing — which is why only `def`s move, and only
 downward, and every other statement keeps its place. Two things stop a
 move and are refused instead: a name the body reads being bound again
 in between (moving would give it the later binding, and Pyking's
 capture rule is positional — see PYKING.md, "Names and scoping"), and
-the `def`'s own name being used in between (moving would leave that use
-reading a name OCaml has not bound yet). Only a reference *forward*
+the `def`'s own name being used in between by a statement other than a
+`def` (moving would leave that use reading a name OCaml has not bound
+yet). Only a reference *forward*
 makes a group at all: one naming a `def` written above it already has
 that one in scope.
 

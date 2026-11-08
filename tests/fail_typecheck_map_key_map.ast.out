@@ -1,0 +1,4 @@
+'tests/fail_typecheck_map_key_map.pyk' 7:6-7:25 Type error: a Map's
+  keys are compared and hashed, so a key is an Int, a Char, a String,
+  a Bool, or a tuple, list or datatype of those; the key type here,
+  Map(Int, Int), is or holds a Map, which is not hashed

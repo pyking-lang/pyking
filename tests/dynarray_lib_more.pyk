@@ -1,0 +1,26 @@
+# lib/dynarray's functions shared with lib/list, and truncate, retain and
+# append, which change the DynArray in place.
+
+use mutation
+import dynarray
+
+v = dynarray([3, 1, 4, 1, 5])
+print(dynarray.first(v), dynarray.last(v), dynarray.nth(v, 9), dynarray.is_empty(v))
+print(dynarray.find(lam x. x > 3, v), dynarray.count(lam x. x == 1, v), dynarray.contains(5, v), dynarray.index_of(4, v))
+print(dynarray.sum(v), dynarray.maximum(v), dynarray.minimum(v), dynarray.sorted(v), dynarray.reversed(v), v)
+dynarray.sort_by(lam (x, y). x < y, v)
+print(v)
+dynarray.sort_on(lam x. 0 - x, v)
+print(v)
+dynarray.map_in_place(lam x. x + 1, v)
+print(v)
+dynarray.retain(lam x. x % 2 == 0, v)
+print(v)
+dynarray.append(v, v)
+print(v)
+dynarray.truncate(v, 3)
+print(v, len(v))
+dynarray.truncate(v, 10)
+print(v)
+print(dynarray.zip(v, dynarray([true, false])), dynarray.enumerate(dynarray(['q'])), dynarray.flat_map(lam x. [x], v))
+print(dynarray.equal_by(lam (x, y). x == y, v, dynarray([6, 2, 6])), dynarray.reduce(lam (x, y). x + y, v))

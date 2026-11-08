@@ -1,0 +1,21 @@
+# Word counts: a Map built from a list by a fold, read with fmap, filter
+# and lib/list, with no `use mutation` anywhere.
+
+import list
+import map
+
+words = ["the", "cat", "sat", "on", "the", "mat", "and", "the", "dog", "sat", "on", "the", "log"]
+
+# One pass: each word adds one to its count in a new Map.
+counts = foldl(lam (acc, w). map.insert_with(lam (old, new). old + new, acc, w, 1), map(), words)
+print(counts)
+
+# The words seen more than once, most frequent first.
+repeated = filter(lam n. n > 1, counts)
+by_count = list.sort_by(lam (a, b). counts[a] > counts[b], keys(repeated))
+for w in by_count:
+    print(w, counts[w])
+
+# Lengths of the distinct words, the longest, and a check on the total.
+lengths = fmap(lam w. len(w), list.unique(words))
+print(lengths, list.maximum(lengths), list.sum(values(counts)) == len(words))

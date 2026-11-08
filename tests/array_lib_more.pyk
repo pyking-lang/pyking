@@ -1,0 +1,24 @@
+# lib/array's functions shared with lib/list, and the ones only an array
+# has: sorting in place by a function or a key, mapping in place.
+
+use mutation
+import array
+
+a = array([3, 1, 4, 1, 5])
+none: Array(Int) = array([])
+print(array.first(a), array.last(none), array.nth(a, 4), array.nth(a, 5), array.is_empty(none))
+print(array.find(lam x. x > 3, a), array.find_index(lam x. x > 3, a), array.count(lam x. x == 1, a), array.reduce(lam (x, y). x * y, a))
+print(array.contains(4, a), array.contains("q", array(["a"])), array.contains_by(lam (x, y). x % 2 == y % 2, 6, a))
+print(array.index_of(1, a), array.index_of(7, a), array.index_of_by(lam (x, y). x == y * 2, 8, a))
+print(array.sum(a), array.product(array([0.5, 4.0])), array.maximum(a), array.minimum(array(["b", "a"])), array.maximum(none))
+print(array.maximum_by(lam (x, y). x % 4 < y % 4, a), array.minimum_by(lam (x, y). x > y, a))
+print(array.sorted(a), a, array.reversed(a), a)
+array.sort_by(lam (x, y). x > y, a)
+print(a)
+words = array(["ccc", "a", "bb"])
+array.sort_on(lam s. len(s), words)
+print(words)
+array.map_in_place(lam x. x * 10, a)
+print(a)
+print(array.zip(a, array("ab")), array.enumerate(array(["x"])), array.flat_map(lam x. [x, -x], array([1, 2])))
+print(array.equal_by(lam (x, y). x == y, a, array([50, 40, 30, 10, 10])))

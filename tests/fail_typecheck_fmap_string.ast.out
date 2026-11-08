@@ -1,0 +1,4 @@
+'tests/fail_typecheck_fmap_string.pyk' 6:6-6:27 Type error: 'fmap'
+  takes a list, an array, a DynArray, a view, a Map, a MutMap, an
+  Option or a Result, not String; a String's Chars are 'list(s)',
+  which 'fmap' takes

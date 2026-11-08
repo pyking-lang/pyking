@@ -3,7 +3,10 @@
 ## Every module that uses `Option`, `Some` or `None` without declaring
 ## its own has them as if it began `from option import Option` (PYKING.md,
 ## "Option"); a module declaring its own Option, or its own `Some` or
-## `None`, means its own. `import option` reaches the functions below.
+## `None`, means its own. `import option` reaches the functions below,
+## named as Rust's are. `fmap`, `filter`, `foldl`, `foldr`, `any` and
+## `all` take an Option too, as a collection of none or one value, and
+## `list(o)` makes it a list.
 #
 # Written in Pyking alone, so every target runs the same code.
 
@@ -45,7 +48,7 @@ public datatype Option(a):
 ## ```
 public def is_some(o: Option(a)) -> Bool:
     match o:
-        case Some(_):
+        case Some(v):
             true
         case None:
             false
@@ -69,13 +72,14 @@ public def is_some(o: Option(a)) -> Bool:
 ## ```
 public def is_none(o: Option(a)) -> Bool:
     match o:
-        case Some(_):
+        case Some(v):
             false
         case None:
             true
 
 
-## The value `o` holds, or `default` where it holds none.
+## The value `o` holds, or `default` where it holds none (Rust's
+## `unwrap_or`, Haskell's `fromMaybe`).
 ##
 ## # Parameters
 ## - `o`: the option.
@@ -87,14 +91,238 @@ public def is_none(o: Option(a)) -> Bool:
 ## # Examples
 ## ```pyking
 ## import option
-## print(option.or_else(Some(3), 0), option.or_else(None, 0))
+## print(option.unwrap_or(Some(3), 0), option.unwrap_or(None, 0))
 ## ```
 ## ```stdout
 ## 3 0
 ## ```
-public def or_else(o: Option(a), default: a) -> a:
+public def unwrap_or(o: Option(a), default: a) -> a:
     match o:
         case Some(v):
             v
         case None:
             default
+
+
+## The value `o` holds, or what `f` makes where it holds none: `f` is
+## called only then.
+##
+## # Parameters
+## - `o`: the option.
+## - `f`: makes the value for `None`.
+##
+## # Returns
+## The value of a `Some`, or `f()`.
+##
+## # Examples
+## ```pyking
+## import option
+## print(option.unwrap_or_else(None, lam (). 6 * 7))
+## ```
+## ```stdout
+## 42
+## ```
+public def unwrap_or_else(o: Option(a), f: () -> a) -> a:
+    match o:
+        case Some(v):
+            v
+        case None:
+            f()
+
+
+## Goes on with `f` where `o` holds a value: the next step of a search
+## that stops at the first `None` (Haskell's `>>=`, OCaml's `bind`).
+##
+## # Parameters
+## - `o`: the option so far.
+## - `f`: the next step, given the value.
+##
+## # Returns
+## What `f` answers, or `None`.
+##
+## # Examples
+## ```pyking
+## import option
+## def half(n: Int) -> Option(Int):
+##     if n % 2 == 0 then Some(n / 2) else None
+## print(option.and_then(Some(8), half), option.and_then(Some(3), half), option.and_then(None, half))
+## ```
+## ```stdout
+## Some(4) None None
+## ```
+public def and_then(o: Option(a), f: (a) -> Option(b)) -> Option(b):
+    match o:
+        case Some(v):
+            f(v)
+        case None:
+            None
+
+
+## `o` where it holds a value, and otherwise what `f` answers: a second
+## place to look (Rust's `or_else`; the default value itself is
+## `unwrap_or`).
+##
+## # Parameters
+## - `o`: the option.
+## - `f`: called for `None` only.
+##
+## # Returns
+## `o` for a `Some`, or `f()`.
+##
+## # Examples
+## ```pyking
+## import option
+## print(option.or_else(None, lam (). Some(2)), option.or_else(Some(1), lam (). Some(2)))
+## ```
+## ```stdout
+## Some(2) Some(1)
+## ```
+public def or_else(o: Option(a), f: () -> Option(a)) -> Option(a):
+    match o:
+        case Some(v):
+            o
+        case None:
+            f()
+
+
+## Both values as a pair, where both options hold one.
+##
+## # Parameters
+## - `o`: the first option.
+## - `p`: the second.
+##
+## # Returns
+## `Some((x, y))`, or `None` where either is `None`.
+##
+## # Examples
+## ```pyking
+## import option
+## print(option.zip(Some(1), Some("a")), option.zip(Some(1), None))
+## ```
+## ```stdout
+## Some((1, "a")) None
+## ```
+public def zip(o: Option(a), p: Option(b)) -> Option((a, b)):
+    match (o, p):
+        case (Some(x), Some(y)):
+            Some((x, y))
+        case _:
+            None
+
+
+## An option holding an option, as one.
+##
+## # Parameters
+## - `oo`: the option of an option.
+##
+## # Returns
+## The inner option, or `None`.
+##
+## # Examples
+## ```pyking
+## import option
+## nested: Option(Option(Int)) = Some(Some(1))
+## print(option.flatten(nested))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def flatten(oo: Option(Option(a))) -> Option(a):
+    match oo:
+        case Some(v):
+            v
+        case None:
+            None
+
+
+## The value `o` holds; for `None` the program stops with a runtime error.
+##
+## # Parameters
+## - `o`: the option, which should hold a value.
+##
+## # Returns
+## The value.
+##
+## # Examples
+## ```pyking
+## import option
+## print(option.unwrap(Some(42)))
+## ```
+## ```stdout
+## 42
+## ```
+public def unwrap(o: Option(a)) -> a:
+    match o:
+        case Some(v):
+            v
+        case None:
+            panic("option.unwrap of None")
+
+
+## The value `o` holds; for `None` the program stops with the runtime
+## error `message`.
+##
+## # Parameters
+## - `o`: the option, which should hold a value.
+## - `message`: what the runtime error says.
+##
+## # Returns
+## The value.
+##
+## # Examples
+## ```pyking
+## import option
+## print(option.expect(Some("ready"), "the setting should be there"))
+## ```
+## ```stdout
+## ready
+## ```
+public def expect(o: Option(a), message: String) -> a:
+    match o:
+        case Some(v):
+            v
+        case None:
+            panic(message)
+
+
+## Every value, where every option holds one; otherwise `None` (Rust's
+## `collect` into an Option, Haskell's `sequence`).
+##
+## # Parameters
+## - `os`: the options.
+##
+## # Returns
+## `Some` of every value in order, or `None`.
+##
+## # Examples
+## ```pyking
+## import option
+## print(option.all_some([Some(1), Some(2)]), option.all_some([Some(1), None]))
+## ```
+## ```stdout
+## Some([1, 2]) None
+## ```
+public def all_some(os: [Option(a)]) -> Option([a]):
+    found = [v for Some(v) in os]
+    if len(found) == len(os) then Some(found) else None
+
+
+## The values of the options that hold one, in order: the `None`s
+## dropped (Haskell's `catMaybes`, Rust's `flatten`).
+##
+## # Parameters
+## - `os`: the options.
+##
+## # Returns
+## Every value held, in order.
+##
+## # Examples
+## ```pyking
+## import option
+## print(option.values([Some(1), None, Some(3)]))
+## ```
+## ```stdout
+## [1, 3]
+## ```
+public def values(os: [Option(a)]) -> [a]:
+    [v for Some(v) in os]

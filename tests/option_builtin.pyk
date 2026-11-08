@@ -20,7 +20,7 @@ def find(xs: [Int], wanted: Int, at: Int) -> Option(Int):
 found = find([5, 6, 7], 7, 0)
 missing = find([1], 2, 0)
 print(found, missing, option.is_some(found), option.is_none(missing))
-print(option.or_else(found, -1), option.or_else(missing, -1), found == Some(2), missing != None)
+print(option.unwrap_or(found, -1), option.unwrap_or(missing, -1), found == Some(2), missing != None)
 match found:
     case Some(i):
         print("at", i)

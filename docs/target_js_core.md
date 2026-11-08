@@ -175,7 +175,8 @@ array helpers (`pykArray`, `pykArrayOfList`, `pykArrayFill`,
 slice and view ones (`pykSlice`, `pykView`, `pykViewAt`, `pykViewSet`,
 `pykViewItems`, `pykViewWalk`, `pykCopyInto`), the pointer ones
 (`pykVarPlace`, `pykSlotPlace`, `pykElemPlace`, `pykFieldPlace`), and
-the MutMap ones (`pykMutMap`, `pykKey`, `pykMutMapPut`, `pykMutMapGet` and the rest)
+the MutMap ones (`pykMutMap`, `pykKey`, `pykMutMapPut`, `pykMutMapGet` and the rest,
+with `pykMapEmpty` and `pykMapOfList` for a Map)
 also list the helpers each calls, and `wanted_array_helpers` closes over that list, so a program
 that only reads `a[i]` gets `pykAt` and what it calls and nothing else.
 A helper that builds a list lists `pykList` among what it calls, which

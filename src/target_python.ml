@@ -689,6 +689,14 @@ let mutmap_keys_helper = "__pyk_mutmap_keys"
 let mutmap_items_helper = "__pyk_mutmap_items"
 let mutmap_walk_helper = "__pyk_mutmap_walk"
 
+(* A Map is a dict of a class of its own too, made once and never
+   written, so every MutMap helper that only reads serves it; only what
+   makes one, and a missing key's message, are its own
+   (docs/target_python.md, "Maps"). *)
+let map_class = "__PykMap"
+let map_list_helper = "__pyk_map_list"
+let map_get_helper = "__pyk_map_get"
+
 (* A view is an object of a class of its own holding the array, the
    offset of its first element and its length; it answers `len` and a
    `for` itself, and its index reads and writes go through helpers
@@ -732,7 +740,9 @@ let conversion_needs name =
   else if name = slice_helper then [ array_class; fail_helper ]
   else if name = key_helper then [ key_class; frozen_helper ]
   else if name = mutmap_list_helper then mutmap_class :: keyed
-  else if name = mutmap_get_helper || name = mutmap_remove_helper then keyed @ [ fail_helper ]
+  else if name = map_list_helper then map_class :: keyed
+  else if name = mutmap_get_helper || name = map_get_helper || name = mutmap_remove_helper then
+    keyed @ [ fail_helper ]
   else if name = mutmap_set_helper || name = mutmap_has_helper || name = mutmap_discard_helper then keyed
   else if name = mutmap_keys_helper || name = mutmap_items_helper then [ unkey_helper ]
   else if name = mutmap_walk_helper then [ unkey_helper; fail_helper ]
@@ -893,6 +903,16 @@ let conversion_def ?(formatter = "__pyk_str") name =
          "    def __init__(self):";
          "        self.changes = 0";
        ]
+     else if name = map_class then
+       [
+         Printf.sprintf "class %s(dict):" name;
+         "    # A Map: a dict, in the order its keys were put in, never written";
+         "    # once made; `changes` stays 0 for the MutMap helpers that read it.";
+         "    __slots__ = ('changes',)";
+         "";
+         "    def __init__(self):";
+         "        self.changes = 0";
+       ]
      else if name = key_class then
        [
          Printf.sprintf "class %s:" name;
@@ -940,6 +960,23 @@ let conversion_def ?(formatter = "__pyk_str") name =
          "    for k, v in pairs:";
          Printf.sprintf "        d[%s(k)] = v" key_helper;
          "    return d";
+       ]
+     else if name = map_list_helper then
+       [
+         Printf.sprintf "def %s(pairs):" name;
+         "    # A key written twice keeps its first place and its last value.";
+         Printf.sprintf "    d = %s()" map_class;
+         "    for k, v in pairs:";
+         Printf.sprintf "        d[%s(k)] = v" key_helper;
+         "    return d";
+       ]
+     else if name = map_get_helper then
+       [
+         Printf.sprintf "def %s(d, k):" name;
+         Printf.sprintf "    key = %s(k)" key_helper;
+         "    if key in d:";
+         "        return d[key]";
+         Printf.sprintf "    %s('the Map has no key ' + %s(k, False))" fail_helper formatter;
        ]
      else if name = mutmap_get_helper then
        [
@@ -1007,6 +1044,9 @@ let conversion_def ?(formatter = "__pyk_str") name =
          "    if hasattr(a, '__dataclass_fields__'):";
          "        return type(a) is type(b) and all(";
          Printf.sprintf "            %s(getattr(a, f), getattr(b, f)) for f in a.__match_args__)" name;
+         "    if isinstance(a, dict):";
+         "        # A Map: the same keys, each with an equal value, in any order.";
+         Printf.sprintf "        return len(a) == len(b) and all(k in b and %s(a[k], b[k]) for k in a)" name;
          "    return a == b";
        ]
      else if name = array_class then
@@ -1508,8 +1548,18 @@ let reserved =
       "finally"; "for"; "from"; "global"; "if"; "import"; "in"; "is";
       "lambda"; "nonlocal"; "not"; "or"; "pass"; "raise"; "return"; "try";
       "while"; "with"; "yield"; "_"; "case"; "match"; "type";
-      (* What the output imports to declare a datatype. *)
-      "dataclass"; "Callable";
+      (* What the output imports to declare a datatype or a class. *)
+      "dataclass"; "Callable"; "ABC"; "abstractmethod"; "override";
+      (* Python's builtins that the output and its helpers call by name:
+         a Pyking binding -- a `def`, a module (`import list`), a
+         constructor -- may not take one over, or a helper reading
+         `list` or `len` would find it instead. *)
+      "abs"; "all"; "any"; "bool"; "chr"; "dict"; "float"; "getattr";
+      "hasattr"; "hash"; "id"; "int"; "isinstance"; "len"; "list"; "map";
+      "next"; "object"; "ord"; "pow"; "print"; "range"; "repr"; "set";
+      "setattr"; "slice"; "str"; "tuple"; "type"; "zip";
+      "KeyError"; "MemoryError"; "OverflowError"; "SystemExit"; "TypeError";
+      "ValueError";
     ]
 
 (** name2, or name3, ... -- the first not already used, as a Python name
@@ -2380,8 +2430,8 @@ let build_format_helper info name floats =
             PyReturn (info, joined [ text "view(["; out; text "])" ]);
           ],
           None );
-      (* A MutMap is written as what makes one: its entries, in order, as
-         (key, value) tuples. A key held as a `key_class` is shown as it
+      (* A MutMap or a Map is written as what makes one: its entries, in
+         order, as (key, value) tuples. A key held as a `key_class` is shown as it
          was. *)
       PyIf
         ( info,
@@ -2413,7 +2463,18 @@ let build_format_helper info name floats =
                     step;
                   ],
                   None );
-              PyReturn (info, joined [ text "mutmap(["; out; text "])" ]);
+              PyReturn
+                ( info,
+                  joined
+                    [
+                      PyIfExp
+                        ( info,
+                          PyEq (info, PyAttr (info, call "type" [ v ], "__name__"), text map_class),
+                          text "map([",
+                          text "mutmap([" );
+                      out;
+                      text "])";
+                    ] );
             ],
           None );
       PyReturn (info, call "str" [ v ]);
@@ -2492,7 +2553,7 @@ let rec holds_float type_ =
   | TFunction (_, params, result, _, _, _, _) ->
       List.exists holds_float params || holds_float result
   | TForall (_, _, body, _) -> holds_float body
-  | TCon (_, ("Array" | "DynArray" | "MutMap" | "Slice" | "Ptr"), args, _) -> List.exists holds_float args
+  | TCon (_, ("Array" | "DynArray" | "MutMap" | "Map" | "Slice" | "Ptr"), args, _) -> List.exists holds_float args
   | _ -> false
 
 (** Whether a value of this type can be changed after it is made --
@@ -3157,7 +3218,7 @@ let add_conversion name gen =
   let gen = List.fold_left (fun gen need -> add need gen) gen (conversion_needs name) in
   (* A missing key is shown as the print walker shows it. *)
   let gen =
-    if name = mutmap_get_helper || name = mutmap_remove_helper then
+    if name = mutmap_get_helper || name = map_get_helper || name = mutmap_remove_helper then
       snd (format_helper_name Lexer.{ file = ""; row1 = 1; col1 = 0; row2 = 1; col2 = 0 } gen)
     else gen
   in
@@ -3211,11 +3272,18 @@ let is_view_expr e gen =
   | Some (TCon (_, "Slice", [ _ ], _)) -> true
   | _ -> false
 
-(** Whether the checker gave this expression a MutMap type.
+(** Whether the checker gave this expression a MutMap type, or a Map
+    one: a Map is read by the MutMap helpers (see `map_class`).
     expr -> gen -> bool *)
 let is_mutmap_expr e gen =
   match IntMap.find_opt (expr_sym e) gen.types with
-  | Some (TCon (_, "MutMap", [ _; _ ], _)) -> true
+  | Some (TCon (_, ("MutMap" | "Map"), [ _; _ ], _)) -> true
+  | _ -> false
+
+(** Whether the checker gave this expression a Map type. expr -> gen -> bool *)
+let is_map_expr e gen =
+  match IntMap.find_opt (expr_sym e) gen.types with
+  | Some (TCon (_, "Map", [ _; _ ], _)) -> true
   | _ -> false
 
 (** Whether the checker gave this expression the type String -- what
@@ -3262,6 +3330,10 @@ let rec translate_expr e scope gen =
       (PyVar (info, mutmap_class), add_conversion mutmap_class gen)
   | EVar (info, "list__mutmap", _) when not (is_bound "list__mutmap" scope) ->
       (PyVar (info, mutmap_list_helper), add_conversion mutmap_list_helper gen)
+  | EVar (info, "empty__map", _) when not (is_bound "empty__map" scope) ->
+      (PyVar (info, map_class), add_conversion map_class gen)
+  | EVar (info, "list__map", _) when not (is_bound "list__map" scope) ->
+      (PyVar (info, map_list_helper), add_conversion map_list_helper gen)
   | EVar (info, name, _) when List.mem name dynarray_makers && not (is_bound name scope) ->
       (* `dynarray()` and `dynarray(xs)` are the class itself, called. *)
       (PyVar (info, dynarray_class), add_conversion dynarray_class gen)
@@ -3460,10 +3532,10 @@ let rec translate_expr e scope gen =
         add_conversion view_get_helper gen )
   | EIndex (info, l, index, _) when is_mutmap_expr l gen ->
       (* A missing key is an error, not Python's KeyError. *)
+      let get = if is_map_expr l gen then map_get_helper else mutmap_get_helper in
       let py_l, gen = translate_expr l scope gen in
       let py_index, gen = translate_expr index scope gen in
-      ( PyCall (info, PyVar (info, mutmap_get_helper), [ py_l; py_index ]),
-        add_conversion mutmap_get_helper gen )
+      (PyCall (info, PyVar (info, get), [ py_l; py_index ]), add_conversion get gen)
   | EIndex (info, l, index, _) when is_dynarray_expr l gen ->
       (* A DynArray's index is checked against its length as it is now. *)
       let py_l, gen = translate_expr l scope gen in
@@ -3514,6 +3586,11 @@ let rec translate_expr e scope gen =
   | ECall (info, EVar (_, (("int" | "float" | "bool") as name), _), [ (_, argument) ], _)
     when not (is_bound name scope) ->
       conversion info name argument scope gen
+  | ECall (info, EVar (_, "panic", _), [ (_, message) ], _) when not (is_bound "panic" scope) ->
+      (* `panic(message)` is a runtime error like any other here: the
+         helper raises, so the call answers whatever type is wanted. *)
+      let py_message, gen = translate_expr message scope gen in
+      (PyCall (info, PyVar (info, fail_helper), [ py_message ]), add_conversion fail_helper gen)
   | ECall (info, EVar (_, "same", _), [ (_, l); (_, r) ], _) when not (is_bound "same" scope) ->
       (* Two arrays, or two var structs, are the same when they are one
          Python object. *)
@@ -4645,8 +4722,8 @@ and annotation t scope gen =
         (* A view is an object of the prelude's class, which a module
            handed one need not have. *)
         ("object", gen, false)
-    | TCon (_, "MutMap", [ k; v ], _) ->
-        (* A MutMap is a dict of a class of its own. *)
+    | TCon (_, ("MutMap" | "Map"), [ k; v ], _) ->
+        (* A MutMap or a Map is a dict of a class of its own. *)
         let k, gen, f1 = text k gen in
         let v, gen, f2 = text v gen in
         ("dict[" ^ k ^ ", " ^ v ^ "]", gen, f1 || f2)

@@ -1,0 +1,6 @@
+# `dynarray_init` makes a DynArray, which needs `use mutation`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+v = dynarray_init(3, lam i. i)

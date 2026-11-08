@@ -1,0 +1,39 @@
+# Converting between collections: each constructor of one argument takes
+# any collection, and makes a new one that shares nothing with it.
+
+use mutation
+
+xs = [3, 1, 2]
+a = array(xs)
+d = dynarray(a)
+w = view(a, 1, 3)
+s = "héllo"
+m = map([("a", 1), ("b", 2)])
+dm = mutmap(m)
+none: Option(Int) = None
+
+# to a list
+print(list(xs), list(a), list(d), list(w), list(s), list(m), list(dm), list(Some(5)), list(none))
+
+# to an array, a DynArray
+print(array(a), array(d), array(w), array(s), array(m), array(dm))
+print(dynarray(a), dynarray(d), dynarray(w), dynarray(s), dynarray(m), dynarray(dm))
+
+# between maps
+dm["c"] := 3
+print(map(dm), map(m), mutmap(m), mutmap(dm))
+
+# every conversion copies
+copy = array(a)
+copy[0] := 99
+grown = dynarray(d)
+push(grown, 4)
+again = mutmap(dm)
+again["z"] := 26
+print(a, copy, d, grown, dm, again, same(a, copy))
+
+# what a list of pairs becomes
+print(map([(1, "one"), (2, "two")]), mutmap(list(m)), list(map(list(m))))
+
+# a String's Chars, back
+print(list("ab") + list(array("cd")))

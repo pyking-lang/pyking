@@ -1,0 +1,3 @@
+'tests/fail_typecheck_map_remove.pyk' 9:13-9:14 Type error: a Map is
+  never changed: 'map.remove(m, k)' from lib/map gives a new one
+  without the key, and a MutMap is the map written in place

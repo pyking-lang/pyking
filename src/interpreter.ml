@@ -114,6 +114,9 @@ type value =
   | VMutMap of mutmap
       (* a MutMap: a map from keys to values that keeps the order its keys
          were put in, shared by every name holding it (PYKING.md, "MutMaps") *)
+  | VMap of mutmap
+      (* a Map: a MutMap's storage that nothing writes once it is made, so
+         the sharing is never seen (PYKING.md, "Maps") *)
   | VView of view
       (* a view of a run of an array's elements, which it shares
          (PYKING.md, "Slices") *)
@@ -449,9 +452,9 @@ let display_value value =
             Buffer.add_string out "view([";
             path := Obj.repr v.owner :: !path;
             go (commas (Array.to_list (Array.sub v.owner v.offset v.length)) "])" @ (Leave :: rest))
-        | VMutMap d ->
+        | VMutMap d | VMap d ->
             (* Written as what makes one: the list of its entries. *)
-            Buffer.add_string out "mutmap([";
+            Buffer.add_string out (match item with VMap _ -> "map([" | _ -> "mutmap([");
             path := Obj.repr d :: !path;
             let entries =
               List.filter_map
@@ -517,7 +520,7 @@ let sequence_items value =
   | VString text -> VList (List.map (fun c -> VChar c) (Builtin.code_points text))
   | VArray elements -> VList (Array.to_list elements)
   | VDynArray v -> VList (Array.to_list (Array.sub v.items 0 v.size))
-  | VMutMap d ->
+  | VMutMap d | VMap d ->
       VList (List.filter_map (Option.map fst) (Array.to_list (Array.sub d.entries 0 d.used)))
   | VView v -> VList (Array.to_list (Array.sub v.owner v.offset v.length))
   | value -> value
@@ -544,6 +547,7 @@ let describe value =
   | VArray _ -> "an array"
   | VDynArray _ -> "a DynArray"
   | VMutMap _ -> "a MutMap"
+  | VMap _ -> "a Map"
   | VView _ -> "a view"
   | VPtr _ -> "a pointer"
   | VTuple elements -> Printf.sprintf "a tuple of %d" (List.length elements)
@@ -1177,6 +1181,17 @@ let rec equal_parts left right =
   | VData (c, a), VData (d, b) ->
       if c <> d || Array.length a <> Array.length b then Some false
       else all_equal (List.map snd (Array.to_list a)) (List.map snd (Array.to_list b))
+  | VMap a, VMap b ->
+      (* The same keys, each with an equal value, in whatever order
+         (PYKING.md, "Maps"). *)
+      if a.live <> b.live then Some false
+      else
+        List.fold_left
+          (fun answer (k, v) ->
+            match answer with
+            | Some true -> ( match mutmap_find b k with Some w -> equal_parts v w | None -> Some false)
+            | other -> other)
+          (Some true) (mutmap_entries a)
   | _ -> None
 
 and all_equal a b =
@@ -1270,10 +1285,16 @@ let element left right =
   | VView v, VInt i ->
       check_view_index v i;
       Some v.owner.(v.offset + i)
-  | VMutMap d, key -> (
+  | (VMutMap d | VMap d), key -> (
       match mutmap_find d key with
       | Some value -> Some value
-      | None -> raise (Trap (divide_info, Printf.sprintf "the MutMap has no key %s" (display_value key))))
+      | None ->
+          raise
+            (Trap
+               ( divide_info,
+                 Printf.sprintf "the %s has no key %s"
+                   (match left with VMap _ -> "Map" | _ -> "MutMap")
+                   (display_value key) )))
   | VString text, VInt i ->
       let chars = Builtin.code_points text in
       let n = List.length chars in
@@ -1488,7 +1509,8 @@ let apply_builtin name args info host =
       Array.fill v.items 0 v.size VUnit;
       v.size <- 0;
       VUnit
-  | "len", [ VMutMap d ] -> VInt d.live
+  | "len", [ (VMutMap d | VMap d) ] -> VInt d.live
+  | "panic", [ VString message ] -> raise (Trap (divide_info, message))
   | "len", [ VView v ] -> VInt v.length
   | "same", [ VView a; VView b ] -> VBool (a == b)
   | "view", [ seq; VInt i; VInt j ] -> (
@@ -1525,6 +1547,11 @@ let apply_builtin name args info host =
       VUnit
   | "same", [ VMutMap a; VMutMap b ] -> VBool (a == b)
   | "empty__mutmap", [] -> VMutMap (new_mutmap ())
+  | "empty__map", [] -> VMap (new_mutmap ())
+  | "list__map", [ VList pairs ] ->
+      let d = new_mutmap () in
+      List.iter (function VTuple [ k; v ] -> mutmap_set d k v | _ -> ()) pairs;
+      VMap d
   | "list__mutmap", [ VList pairs ] ->
       (* A key written twice keeps its first place and its last value. *)
       let d = new_mutmap () in
@@ -1537,12 +1564,12 @@ let apply_builtin name args info host =
   | "discard", [ VMutMap d; key ] ->
       ignore (mutmap_take d key);
       VUnit
-  | "get", [ VMutMap d; key; default ] -> (
+  | "get", [ (VMutMap d | VMap d); key; default ] -> (
       match mutmap_find d key with Some value -> value | None -> default)
-  | "has", [ VMutMap d; key ] -> VBool (mutmap_find d key <> None)
-  | "keys", [ VMutMap d ] -> VList (List.map fst (mutmap_entries d))
-  | "values", [ VMutMap d ] -> VList (List.map snd (mutmap_entries d))
-  | "items", [ VMutMap d ] -> VList (List.map (fun (k, v) -> VTuple [ k; v ]) (mutmap_entries d))
+  | "has", [ (VMutMap d | VMap d); key ] -> VBool (mutmap_find d key <> None)
+  | "keys", [ (VMutMap d | VMap d) ] -> VList (List.map fst (mutmap_entries d))
+  | "values", [ (VMutMap d | VMap d) ] -> VList (List.map snd (mutmap_entries d))
+  | "items", [ (VMutMap d | VMap d) ] -> VList (List.map (fun (k, v) -> VTuple [ k; v ]) (mutmap_entries d))
   | "clear", [ VMutMap d ] ->
       d.entries <- [||];
       d.used <- 0;
@@ -2388,7 +2415,9 @@ and comprehend state node frames done_ env outer rest =
 and take state node frames done_ outer rest =
   match frames with
   | [] ->
-      { state with control = CApply (VList done_); env = outer; kont = rest }
+      (* The elements were gathered last first, so each is added in
+         constant time. *)
+      { state with control = CApply (VList (List.rev done_)); env = outer; kont = rest }
   | (index, items, entered) :: outer_frames -> (
       match List.nth (comp_clauses node) index with
       (* A test's frame holds no items; it is a marker that the test
@@ -2413,7 +2442,7 @@ and comprehended state node want index frames done_ value env outer rest =
     | CompFor (info, _, _, _) | CompIf (info, _, _) -> info
   in
   match want with
-  | WElement -> take state node frames (done_ @ [ value ]) outer rest
+  | WElement -> take state node frames (value :: done_) outer rest
   | WTest -> (
       match value with
       | VBool true ->

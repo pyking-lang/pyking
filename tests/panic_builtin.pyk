@@ -1,0 +1,13 @@
+# `panic(message)` stops the program with a runtime error, as an index
+# outside an array does; `result.unwrap` of an Error calls it.
+
+def checked_div(a: Int, b: Int) -> Int:
+    if b == 0:
+        panic("division by zero in checked_div")
+    a / b
+
+print(checked_div(7, 2))
+x: Int = if checked_div(1, 1) == 1 then 5 else panic("never")
+print(x)
+print(checked_div(1, 0))
+print("never")

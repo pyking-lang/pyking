@@ -1,0 +1,22 @@
+# lib/mutmap: changes in place, and the rest of what a MutMap is asked.
+
+use mutation
+import mutmap
+
+d = mutmap([("ann", 31), ("bo", 5)])
+mutmap.update(lam v. v + 1, d, "bo")
+mutmap.update(lam v. v + 1, d, "zed")
+print(d)
+counts: MutMap(String, Int) = mutmap()
+for word in ["a", "b", "a"]:
+    mutmap.insert_with(lam (old, new). old + new, counts, word, 1)
+print(counts)
+mutmap.extend(d, [("cy", 40), ("ann", 32)])
+print(d)
+mutmap.retain(lam v. v > 18, d)
+print(d, mutmap.lookup(d, "ann"), mutmap.lookup(d, "bo"))
+print(mutmap.fold_with_key(lam (acc, k, v). acc + v, 0, d), mutmap.find_key(lam v. v == 40, d))
+print(mutmap.is_empty(d), mutmap.is_empty(mutmap_init([], lam (k: Int). k)))
+e = mutmap.copy(d)
+e["dee"] := 1
+print(d, e, same(d, e), mutmap.equal_by(lam (a, b). a == b, d, mutmap([("cy", 40), ("ann", 32)])))

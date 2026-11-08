@@ -533,6 +533,36 @@ body happened to call, which is exactly the property section 5
 guarantees against. The feature that solves the problem properly is an
 implicit parameter, and the error message names it.
 
+## 9d. A collection's kind, by overloading
+
+`fmap`, `filter`, `foldl`, `foldr`, `any`, `all` and the converting
+forms of `list`, `array` and the rest work on every kind of collection
+(PYKING.md, "fmap and the folds"). They are not one polymorphic
+function -- that would need a type variable standing for a type
+constructor, `f(a)`, which section 5 keeps out -- but an overload set
+per name, one member per kind: `list::fmap`, `array::fmap`,
+`map::fmap`, ... in lib/prelude, written in Pyking. A call is resolved
+by the collection argument, as §9aa resolves any call, and a lambda
+argument is checked after it (§17), so its parameter is the
+collection's element.
+
+So a definition serves one kind of collection, of any element type, and
+a parameter nothing has said anything about is refused at the call
+with the annotation to write, rather than inferred to "some collection"
+-- which would be a context, the thing §9aa does not infer.
+
+## 9e. A binding's annotation inside a generic body
+
+A written type is quantified wherever it is written (§5), and a
+binding's annotation is no exception: `out: [a] = []` at the top level
+says `out` is a list of anything. Inside the body of a definition over
+`a`, the same line means the definition's own `a` -- the body is about
+one `a`, rigid there -- and `check_annotation` reads it so where the
+quantified reading does not fit and every variable it names is one the
+enclosing environment's types hold. That is also what `-t pyking`
+prints for a binding whose type the checker worked out to hold the
+definition's variable, so its output checks again.
+
 ## 9a. Two numeric types, no type classes
 
 `Int` and `Float` make `+ - * /` overloaded as well, and they are the
@@ -927,8 +957,24 @@ called_at(scheme, call, args, env, tmap, store)
     1. instantiate the scheme          fresh variables, this call's own
     2. is it still just `?f`?          then BUILD (?a…) -> ?r and unify
     3. check the arity
-    4. check_arguments: left to right, so the first mistake is reported
+    4. check_arguments: left to right, so the first mistake is reported,
+       every argument but a lambda first, then each lambda (seeded_lambda)
+    5. demand_keys_within the result: a Map's or a MutMap's key type
+       the call decided is one a key can be
 ```
+
+Step 4 checks a lambda last, against what its parameter has become:
+`seeded_lambda` gives each of the lambda's parameters with no type
+written the type the expected function type has there, where that is
+settled, so `apply(lam p. p.x, points)` reads `p.x` with `p` a Point.
+Only the checking waits; the program still runs the arguments in the
+order written. Overload resolution does the same, with the lambda
+standing as a function of its arity until a candidate is chosen
+(docs/overloading.md).
+
+Step 5 is what lets a generic definition make a map of its own type
+variable: a key type that is a rigid variable is accepted where it is
+written (`key_problem`), and the call that says what it is is checked.
 
 Step 2 is the one place a type is *built* by a demand rather than
 compared against one. It is what types `f(x)` inside a body where

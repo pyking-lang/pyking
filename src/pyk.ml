@@ -926,7 +926,7 @@ let report_warnings found =
     answering the types it worked out. Exits via fail on the first
     error. Module.t -> [(string, Typesystem.sigmap)] -> bool
     -> ([stmt], typ IntMap.t) *)
-let check_module ?(warnings = Warnings.default) ?(warn = false) (unit : Module.t) sigmaps experiment =
+let check_module ?(warnings = Warnings.default) ?(warn = false) ?(start = 0) (unit : Module.t) sigmaps experiment =
   let declared = Module.external_signatures unit.declarations in
   (* Pyking is statically typed, so this is not a mode: a program that
      does not check is refused, whatever was asked for. The checker
@@ -955,7 +955,7 @@ let check_module ?(warnings = Warnings.default) ?(warn = false) (unit : Module.t
      ordinary argument. Everything after this point sees ordinary
      Pyking (docs/implicits.md). *)
   let stmts, tmap =
-    try Elaborate.program qmap tmap unit.stmts
+    try Elaborate.program ~start qmap tmap unit.stmts
     with Analyses.Analysis_error _ as e -> fail e
   in
   (stmts, tmap)
@@ -1059,7 +1059,7 @@ let front_end options =
             let elaborated, tmap =
               check_module ~warnings:(warning_config options)
                 ~warn:(not (Module.in_library (library_path options) unit.path))
-                unit
+                ~start:highest unit
                 (Module.sigmaps_for unit sigmaps)
                 options.type_experiment
             in

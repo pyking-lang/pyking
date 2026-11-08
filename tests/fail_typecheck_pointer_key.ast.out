@@ -1,4 +1,4 @@
-'tests/fail_typecheck_pointer_key.pyk' 9:0-9:4 Type error: a MutMap's
+'tests/fail_typecheck_pointer_key.pyk' 9:7-9:27 Type error: a MutMap's
   keys are compared and hashed, so a key is an Int, a Char, a String,
   a Bool, or a tuple, list or datatype of those; the key type here,
   Ptr(Int), is or holds a pointer, whose target changes

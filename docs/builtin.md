@@ -11,19 +11,36 @@ boundary".
 ## Four readers, one table
 
 `print`, `debug`, `range`, `string`, `len`, `same`, `int`, `float`,
-`bool` and `char` are in scope in every program and are bound by
-nothing, and so are `array` and `array_init`, the two builtin
-**overload sets** (`Builtin.overload_sets`): `array`'s members
-`list::array` and `fill::array`, and `array_init`'s `init::array_init`
-and `unfold::array_init`, are bound by the checker's `builtin_env` as
-ordinary polymorphic `::` definitions and resolved by their arguments as
-any set is (docs/overloading.md). A set's members take different
-numbers of arguments, so no call is ever ambiguous. After elaborate.ml
-a call names the member's plain name (`fill__array`,
-`init__array_init`, `Builtin.member_names`), and that is what the
-interpreter and every backend implement; the printer writes it back as
-`fill::array`. Four parts of the compiler need that fact, and each
-needs something different about it:
+`bool`, `char` and `panic` are in scope in every program and are bound by
+nothing, and so are the builtin **overload sets**
+(`Builtin.overload_sets`) `array`, `array_init`, `dynarray`, `mutmap`
+and `map`: their members (`list::array`, `fill::array`, `empty::map`,
+...) are bound by the checker's `builtin_env` as ordinary polymorphic
+`::` definitions and resolved by their arguments as any set is
+(docs/overloading.md). After elaborate.ml a call names the member's
+plain name (`fill__array`, `init__array_init`, `Builtin.member_names`),
+and that is what the interpreter and every backend implement; the
+printer writes it back as `fill::array`.
+
+The members that convert another collection -- `dynarray::array`,
+`string::array`, `map::mutmap`, ... (`Builtin.conversion_members`) --
+are typed there too but never reach a backend: elaborate.ml rewrites
+`dynarray::array(v)` into `list::array([x for x in v])`, and a map's
+into the list form of `items(m)`, so a backend only ever compiles the
+list forms (PYKING.md, "Making and converting collections").
+
+The collection builtins that are ordinary Pyking -- `fmap`, `filter`,
+`foldl`, `foldr`, `any`, `all`, `list`, `list_init`, `dynarray(n, v)`,
+`dynarray_init`, `map_init`, `mutmap_init` -- are not here at all but in
+lib/prelude, written in Pyking. `Builtin.prelude_sets` names their
+members, and the parser (`with_prelude`) imports every one of them,
+under its `::` name, into a module that calls one of those names and
+binds none of them itself, as `with_option` imports Option. So a
+backend compiles them as it compiles any library function (PYKING.md,
+"fmap and the folds").
+
+Four parts of the compiler need the facts about the builtins, and each
+needs something different about them:
 
 - `typesystem.ml` puts the names in the environment before the first
   statement is checked, and checks each call's arity against the one it

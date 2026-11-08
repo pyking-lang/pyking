@@ -1,0 +1,2 @@
+'tests/fail_typecheck_panic_argument.pyk' 6:6-6:8 Type error: 'panic'
+  cannot be applied to Int; it accepts a String

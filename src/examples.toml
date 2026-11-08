@@ -38,3 +38,8 @@ description = "A small piano: one octave, from one sample at many rates."
 source = "tests/objects_shapes.pyk"
 name = "shapes.pyk"
 description = "Classes and interfaces: shapes that have an area."
+
+[[examples]]
+source = "tests/collections_words.pyk"
+name = "words.pyk"
+description = "Word counts in a Map, with fmap, filter and a fold."

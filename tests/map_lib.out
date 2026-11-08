@@ -1,0 +1,16 @@
+map([("ann", 31), ("bo", 5), ("cy", 40)]) map([("ann", 32), ("bo", 5)]) map([("ann", 31), ("bo", 5)])
+map([("bo", 5)]) map([("ann", 31), ("bo", 5)]) map([("ann", 31), ("bo", 5)])
+map([("a", 2)]) map([("a", 1), ("b", 1)])
+map([("ann", 31), ("bo", 10)]) map([("ann", 31), ("bo", 5)])
+map([("bo", 5)]) map([("ann", 31), ("bo", 5), ("cy", 1)])
+map([("ann", 31), ("bo", 105)]) map([("ann", 31), ("bo", 5)])
+map([(1, "a"), (2, "b")]) map([("x", 11), ("y", 2)])
+map([(2, "b")]) map([(1, "a")])
+map([("ann", "ann31"), ("bo", "bo5")]) map([("bo", 5)])
+(map([("ann", 31)]), map([("bo", 5)])) map([("one", 1)])
+Some(5) None Some("bo") None
+ann31bo5
+true false
+true false
+map([(0, 3), (1, 4), (2, 2)])
+map([("the", 3), ("cat", 1), ("hat", 1)])

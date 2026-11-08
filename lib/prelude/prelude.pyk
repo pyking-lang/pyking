@@ -1,0 +1,1611 @@
+## The builtins written in Pyking: `fmap`, `filter`, `foldl`, `foldr`,
+## `any` and `all` over every collection, and the forms of `list`,
+## `list_init`, `dynarray`, `dynarray_init`, `map_init` and `mutmap_init`
+## that make one by calling a function or convert another.
+##
+## Nothing imports this module: a module calling one of those names, and
+## binding none of them itself, has every one of the definitions below
+## under its `::` name, as if it began `from prelude import list::fmap,
+## ...` (PYKING.md, "fmap and the folds"). Each name is an overload set,
+## and a call is resolved by the kind of collection it is given -- which
+## has to be known where the call is, written or worked out. A module's
+## own `filter` or `list` means itself.
+##
+## Each function answers a **new** collection of the kind it was given,
+## and making an array, a DynArray or a MutMap needs `use mutation` in
+## the calling module. A Map's and a MutMap's elements here are its
+## values. The functions call `f` once per element, in order: `foldr`
+## from the last, and `any` and `all` stopping at the first answer that
+## decides.
+#
+# Written in Pyking alone, so every target runs the same code. `foldr`
+# walks an array backwards rather than recursing, so a long list does not
+# overflow the stack.
+
+use mutation
+
+
+## `fmap(f, xs)` on a list: `f` applied to each element, as Haskell's
+## `fmap` and Rust's `map` are.
+##
+## # Parameters
+## - `f`: the function, called once per element, in order.
+## - `xs`: a list.
+##
+## # Returns
+## A new list of `f(x)` for each element `x`, in order.
+##
+## # Examples
+## ```pyking
+## xs = [1, 2, 3]
+## print(fmap(lam x. x * 10, xs))
+## ```
+## ```stdout
+## [10, 20, 30]
+## ```
+public def list::fmap(f: (a) -> b, xs: [a]) -> [b]:
+    [f(x) for x in xs]
+
+
+## `fmap(f, xs)` on an array: `f` applied to each element, as Haskell's
+## `fmap` and Rust's `map` are.
+##
+## # Parameters
+## - `f`: the function, called once per element, in order.
+## - `xs`: an array.
+##
+## # Returns
+## A new array of `f(x)` for each element `x`, in order.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = array([1, 2, 3])
+## print(fmap(lam x. x * 10, xs))
+## ```
+## ```stdout
+## array([10, 20, 30])
+## ```
+public def array::fmap(f: (a) -> b, xs: Array(a)) -> Array(b):
+    array_init(len(xs), lam i. f(xs[i]))
+
+
+## `fmap(f, xs)` on a DynArray: `f` applied to each element, as Haskell's
+## `fmap` and Rust's `map` are.
+##
+## # Parameters
+## - `f`: the function, called once per element, in order.
+## - `xs`: a DynArray.
+##
+## # Returns
+## A new DynArray of `f(x)` for each element `x`, in order.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = dynarray([1, 2, 3])
+## print(fmap(lam x. x * 10, xs))
+## ```
+## ```stdout
+## dynarray([10, 20, 30])
+## ```
+public def dynarray::fmap(f: (a) -> b, xs: DynArray(a)) -> DynArray(b):
+    dynarray([f(x) for x in xs])
+
+
+## `fmap(f, xs)` on a view: `f` applied to each element, as Haskell's
+## `fmap` and Rust's `map` are.
+##
+## # Parameters
+## - `f`: the function, called once per element, in order.
+## - `xs`: a view.
+##
+## # Returns
+## A new array of `f(x)` for each element of the view.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = view(array([0, 1, 2, 3]), 1, 4)
+## print(fmap(lam x. x * 10, xs))
+## ```
+## ```stdout
+## array([10, 20, 30])
+## ```
+public def slice::fmap(f: (a) -> b, xs: Slice(a)) -> Array(b):
+    array_init(len(xs), lam i. f(xs[i]))
+
+
+## `fmap(f, m)` on a Map: `f` applied to each value, as Haskell's
+## `fmap` and Rust's `map` are.
+##
+## # Parameters
+## - `f`: the function, called once per element, in order.
+## - `m`: a Map.
+##
+## # Returns
+## A new Map of the same keys, in the same order, each value `v` replaced by `f(v)`.
+##
+## # Examples
+## ```pyking
+## m = map([("a", 1), ("b", 2), ("c", 3)])
+## print(fmap(lam x. x * 10, m))
+## ```
+## ```stdout
+## map([("a", 10), ("b", 20), ("c", 30)])
+## ```
+public def map::fmap(f: (a) -> b, m: Map(k, a)) -> Map(k, b):
+    map([(key, f(value)) for (key, value) in items(m)])
+
+
+## `fmap(f, m)` on a MutMap: `f` applied to each value, as Haskell's
+## `fmap` and Rust's `map` are.
+##
+## # Parameters
+## - `f`: the function, called once per element, in order.
+## - `m`: a MutMap.
+##
+## # Returns
+## A new MutMap of the same keys, in the same order, each value `v` replaced by `f(v)`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## m = mutmap([("a", 1), ("b", 2), ("c", 3)])
+## print(fmap(lam x. x * 10, m))
+## ```
+## ```stdout
+## mutmap([("a", 10), ("b", 20), ("c", 30)])
+## ```
+public def mutmap::fmap(f: (a) -> b, m: MutMap(k, a)) -> MutMap(k, b):
+    mutmap([(key, f(value)) for (key, value) in items(m)])
+
+
+## `fmap(f, o)` on an Option: `f` applied to each value it holds, as Haskell's
+## `fmap` and Rust's `map` are.
+##
+## # Parameters
+## - `f`: the function, called once per element, in order.
+## - `o`: an Option.
+##
+## # Returns
+## `Some(f(v))` for `Some(v)`, and `None` for `None`.
+##
+## # Examples
+## ```pyking
+## o = Some(3)
+## none: Option(Int) = None
+## print(fmap(lam x. x * 10, o), fmap(lam x. x * 10, none))
+## ```
+## ```stdout
+## Some(30) None
+## ```
+public def option::fmap(f: (a) -> b, o: Option(a)) -> Option(b):
+    match o:
+        case Some(v):
+            Some(f(v))
+        case None:
+            None
+
+
+## `fmap(f, r)` on a Result: `f` applied to each value it holds, as Haskell's
+## `fmap` and Rust's `map` are.
+##
+## # Parameters
+## - `f`: the function, called once per element, in order.
+## - `r`: a Result.
+##
+## # Returns
+## `Ok(f(v))` for `Ok(v)`, and the same `Error` for an `Error`.
+##
+## # Examples
+## ```pyking
+## r: Result(Int, String) = Ok(3)
+## bad: Result(Int, String) = Error("no")
+## print(fmap(lam x. x * 10, r), fmap(lam x. x * 10, bad))
+## ```
+## ```stdout
+## Ok(30) Error("no")
+## ```
+public def result::fmap(f: (a) -> b, r: Result(a, e)) -> Result(b, e):
+    match r:
+        case Ok(v):
+            Ok(f(v))
+        case Error(problem):
+            Error(problem)
+
+
+## `filter(p, xs)` on a list: what `p` is true of.
+##
+## # Parameters
+## - `p`: the test, called once per element, in order.
+## - `xs`: a list.
+##
+## # Returns
+## A new list of the elements `p` is true of, in order.
+##
+## # Examples
+## ```pyking
+## xs = [1, 2, 3]
+## print(filter(lam x. x % 2 == 1, xs))
+## ```
+## ```stdout
+## [1, 3]
+## ```
+public def list::filter(p: (a) -> Bool, xs: [a]) -> [a]:
+    [x for x in xs if p(x)]
+
+
+## `filter(p, xs)` on an array: what `p` is true of.
+##
+## # Parameters
+## - `p`: the test, called once per element, in order.
+## - `xs`: an array.
+##
+## # Returns
+## A new array of the elements `p` is true of, in order.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = array([1, 2, 3])
+## print(filter(lam x. x % 2 == 1, xs))
+## ```
+## ```stdout
+## array([1, 3])
+## ```
+public def array::filter(p: (a) -> Bool, xs: Array(a)) -> Array(a):
+    array([x for x in xs if p(x)])
+
+
+## `filter(p, xs)` on a DynArray: what `p` is true of.
+##
+## # Parameters
+## - `p`: the test, called once per element, in order.
+## - `xs`: a DynArray.
+##
+## # Returns
+## A new DynArray of the elements `p` is true of, in order.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = dynarray([1, 2, 3])
+## print(filter(lam x. x % 2 == 1, xs))
+## ```
+## ```stdout
+## dynarray([1, 3])
+## ```
+public def dynarray::filter(p: (a) -> Bool, xs: DynArray(a)) -> DynArray(a):
+    dynarray([x for x in xs if p(x)])
+
+
+## `filter(p, xs)` on a view: what `p` is true of.
+##
+## # Parameters
+## - `p`: the test, called once per element, in order.
+## - `xs`: a view.
+##
+## # Returns
+## A new array of the elements `p` is true of, in order.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = view(array([0, 1, 2, 3]), 1, 4)
+## print(filter(lam x. x % 2 == 1, xs))
+## ```
+## ```stdout
+## array([1, 3])
+## ```
+public def slice::filter(p: (a) -> Bool, xs: Slice(a)) -> Array(a):
+    array([x for x in xs if p(x)])
+
+
+## `filter(p, m)` on a Map: what `p` is true of, by value.
+##
+## # Parameters
+## - `p`: the test, called once per element, in order.
+## - `m`: a Map.
+##
+## # Returns
+## A new Map of the entries whose value `p` is true of, in order.
+##
+## # Examples
+## ```pyking
+## m = map([("a", 1), ("b", 2), ("c", 3)])
+## print(filter(lam x. x % 2 == 1, m))
+## ```
+## ```stdout
+## map([("a", 1), ("c", 3)])
+## ```
+public def map::filter(p: (a) -> Bool, m: Map(k, a)) -> Map(k, a):
+    map([(key, value) for (key, value) in items(m) if p(value)])
+
+
+## `filter(p, m)` on a MutMap: what `p` is true of, by value.
+##
+## # Parameters
+## - `p`: the test, called once per element, in order.
+## - `m`: a MutMap.
+##
+## # Returns
+## A new MutMap of the entries whose value `p` is true of, in order.
+##
+## # Examples
+## ```pyking
+## use mutation
+## m = mutmap([("a", 1), ("b", 2), ("c", 3)])
+## print(filter(lam x. x % 2 == 1, m))
+## ```
+## ```stdout
+## mutmap([("a", 1), ("c", 3)])
+## ```
+public def mutmap::filter(p: (a) -> Bool, m: MutMap(k, a)) -> MutMap(k, a):
+    mutmap([(key, value) for (key, value) in items(m) if p(value)])
+
+
+## `filter(p, o)` on an Option: what `p` is true of.
+##
+## # Parameters
+## - `p`: the test, called once per element, in order.
+## - `o`: an Option.
+##
+## # Returns
+## `o` where it holds a value `p` is true of, and otherwise `None`.
+##
+## # Examples
+## ```pyking
+## o = Some(3)
+## none: Option(Int) = None
+## print(filter(lam x. x % 2 == 1, o), filter(lam x. x % 2 == 1, none))
+## ```
+## ```stdout
+## Some(3) None
+## ```
+public def option::filter(p: (a) -> Bool, o: Option(a)) -> Option(a):
+    match o:
+        case Some(v):
+            if p(v) then o else None
+        case None:
+            None
+
+
+## `foldl(f, init, xs)` on a list: `f(...f(f(init, x1), x2)..., xn)`, the
+## elements from the first.
+##
+## # Parameters
+## - `f`: takes what is gathered so far and the next element.
+## - `init`: what is gathered before any element.
+## - `xs`: a list.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## xs = [1, 2, 3]
+## print(foldl(lam (acc, x). acc * 10 + x, 0, xs))
+## ```
+## ```stdout
+## 123
+## ```
+public def list::foldl(f: (b, a) -> b, init: b, xs: [a]) -> b:
+    var acc = init
+    for x in xs:
+        acc := f(acc, x)
+    acc
+
+
+## `foldl(f, init, xs)` on an array: `f(...f(f(init, x1), x2)..., xn)`, the
+## elements from the first.
+##
+## # Parameters
+## - `f`: takes what is gathered so far and the next element.
+## - `init`: what is gathered before any element.
+## - `xs`: an array.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = array([1, 2, 3])
+## print(foldl(lam (acc, x). acc * 10 + x, 0, xs))
+## ```
+## ```stdout
+## 123
+## ```
+public def array::foldl(f: (b, a) -> b, init: b, xs: Array(a)) -> b:
+    var acc = init
+    for x in xs:
+        acc := f(acc, x)
+    acc
+
+
+## `foldl(f, init, xs)` on a DynArray: `f(...f(f(init, x1), x2)..., xn)`, the
+## elements from the first.
+##
+## # Parameters
+## - `f`: takes what is gathered so far and the next element.
+## - `init`: what is gathered before any element.
+## - `xs`: a DynArray.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = dynarray([1, 2, 3])
+## print(foldl(lam (acc, x). acc * 10 + x, 0, xs))
+## ```
+## ```stdout
+## 123
+## ```
+public def dynarray::foldl(f: (b, a) -> b, init: b, xs: DynArray(a)) -> b:
+    var acc = init
+    for x in xs:
+        acc := f(acc, x)
+    acc
+
+
+## `foldl(f, init, xs)` on a view: `f(...f(f(init, x1), x2)..., xn)`, the
+## elements from the first.
+##
+## # Parameters
+## - `f`: takes what is gathered so far and the next element.
+## - `init`: what is gathered before any element.
+## - `xs`: a view.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = view(array([0, 1, 2, 3]), 1, 4)
+## print(foldl(lam (acc, x). acc * 10 + x, 0, xs))
+## ```
+## ```stdout
+## 123
+## ```
+public def slice::foldl(f: (b, a) -> b, init: b, xs: Slice(a)) -> b:
+    var acc = init
+    for x in xs:
+        acc := f(acc, x)
+    acc
+
+
+## `foldl(f, init, m)` on a Map: `f(...f(f(init, x1), x2)..., xn)`, the
+## values from the first.
+##
+## # Parameters
+## - `f`: takes what is gathered so far and the next element.
+## - `init`: what is gathered before any element.
+## - `m`: a Map.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## m = map([("a", 1), ("b", 2), ("c", 3)])
+## print(foldl(lam (acc, x). acc * 10 + x, 0, m))
+## ```
+## ```stdout
+## 123
+## ```
+public def map::foldl(f: (b, a) -> b, init: b, m: Map(k, a)) -> b:
+    var acc = init
+    for x in values(m):
+        acc := f(acc, x)
+    acc
+
+
+## `foldl(f, init, m)` on a MutMap: `f(...f(f(init, x1), x2)..., xn)`, the
+## values from the first.
+##
+## # Parameters
+## - `f`: takes what is gathered so far and the next element.
+## - `init`: what is gathered before any element.
+## - `m`: a MutMap.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## m = mutmap([("a", 1), ("b", 2), ("c", 3)])
+## print(foldl(lam (acc, x). acc * 10 + x, 0, m))
+## ```
+## ```stdout
+## 123
+## ```
+public def mutmap::foldl(f: (b, a) -> b, init: b, m: MutMap(k, a)) -> b:
+    var acc = init
+    for x in values(m):
+        acc := f(acc, x)
+    acc
+
+
+## `foldl(f, init, o)` on an Option: `f(...f(f(init, x1), x2)..., xn)`, the
+## value it holds, if any from the first.
+##
+## # Parameters
+## - `f`: takes what is gathered so far and the next element.
+## - `init`: what is gathered before any element.
+## - `o`: an Option.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## o = Some(3)
+## none: Option(Int) = None
+## print(foldl(lam (acc, x). acc * 10 + x, 0, o), foldl(lam (acc, x). acc * 10 + x, 0, none))
+## ```
+## ```stdout
+## 3 0
+## ```
+public def option::foldl(f: (b, a) -> b, init: b, o: Option(a)) -> b:
+    match o:
+        case Some(v):
+            f(init, v)
+        case None:
+            init
+
+
+## `foldl(f, init, r)` on a Result: `f(...f(f(init, x1), x2)..., xn)`, the
+## value it holds, if any from the first.
+##
+## # Parameters
+## - `f`: takes what is gathered so far and the next element.
+## - `init`: what is gathered before any element.
+## - `r`: a Result.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## r: Result(Int, String) = Ok(3)
+## bad: Result(Int, String) = Error("no")
+## print(foldl(lam (acc, x). acc * 10 + x, 0, r), foldl(lam (acc, x). acc * 10 + x, 0, bad))
+## ```
+## ```stdout
+## 3 0
+## ```
+public def result::foldl(f: (b, a) -> b, init: b, r: Result(a, e)) -> b:
+    match r:
+        case Ok(v):
+            f(init, v)
+        case Error(_):
+            init
+
+
+## `foldr(f, init, xs)` on a list: `f(x1, f(x2, ...f(xn, init)))`, the
+## elements from the last.
+##
+## # Parameters
+## - `f`: takes the next element, from the end, and what is gathered so far.
+## - `init`: what is gathered before any element.
+## - `xs`: a list.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## xs = [1, 2, 3]
+## print(foldr(lam (x, acc). acc * 10 + x, 0, xs))
+## ```
+## ```stdout
+## 321
+## ```
+public def list::foldr(f: (a, b) -> b, init: b, xs: [a]) -> b:
+    fold_back(f, init, array(xs))
+
+
+## `foldr(f, init, xs)` on an array: `f(x1, f(x2, ...f(xn, init)))`, the
+## elements from the last.
+##
+## # Parameters
+## - `f`: takes the next element, from the end, and what is gathered so far.
+## - `init`: what is gathered before any element.
+## - `xs`: an array.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = array([1, 2, 3])
+## print(foldr(lam (x, acc). acc * 10 + x, 0, xs))
+## ```
+## ```stdout
+## 321
+## ```
+public def array::foldr(f: (a, b) -> b, init: b, xs: Array(a)) -> b:
+    fold_back(f, init, xs)
+
+
+## `foldr(f, init, xs)` on a DynArray: `f(x1, f(x2, ...f(xn, init)))`, the
+## elements from the last.
+##
+## # Parameters
+## - `f`: takes the next element, from the end, and what is gathered so far.
+## - `init`: what is gathered before any element.
+## - `xs`: a DynArray.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = dynarray([1, 2, 3])
+## print(foldr(lam (x, acc). acc * 10 + x, 0, xs))
+## ```
+## ```stdout
+## 321
+## ```
+public def dynarray::foldr(f: (a, b) -> b, init: b, xs: DynArray(a)) -> b:
+    fold_back(f, init, array(xs))
+
+
+## `foldr(f, init, xs)` on a view: `f(x1, f(x2, ...f(xn, init)))`, the
+## elements from the last.
+##
+## # Parameters
+## - `f`: takes the next element, from the end, and what is gathered so far.
+## - `init`: what is gathered before any element.
+## - `xs`: a view.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = view(array([0, 1, 2, 3]), 1, 4)
+## print(foldr(lam (x, acc). acc * 10 + x, 0, xs))
+## ```
+## ```stdout
+## 321
+## ```
+public def slice::foldr(f: (a, b) -> b, init: b, xs: Slice(a)) -> b:
+    fold_back(f, init, array(xs))
+
+
+## `foldr(f, init, m)` on a Map: `f(x1, f(x2, ...f(xn, init)))`, the
+## values from the last.
+##
+## # Parameters
+## - `f`: takes the next element, from the end, and what is gathered so far.
+## - `init`: what is gathered before any element.
+## - `m`: a Map.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## m = map([("a", 1), ("b", 2), ("c", 3)])
+## print(foldr(lam (x, acc). acc * 10 + x, 0, m))
+## ```
+## ```stdout
+## 321
+## ```
+public def map::foldr(f: (a, b) -> b, init: b, m: Map(k, a)) -> b:
+    fold_back(f, init, array(values(m)))
+
+
+## `foldr(f, init, m)` on a MutMap: `f(x1, f(x2, ...f(xn, init)))`, the
+## values from the last.
+##
+## # Parameters
+## - `f`: takes the next element, from the end, and what is gathered so far.
+## - `init`: what is gathered before any element.
+## - `m`: a MutMap.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## m = mutmap([("a", 1), ("b", 2), ("c", 3)])
+## print(foldr(lam (x, acc). acc * 10 + x, 0, m))
+## ```
+## ```stdout
+## 321
+## ```
+public def mutmap::foldr(f: (a, b) -> b, init: b, m: MutMap(k, a)) -> b:
+    fold_back(f, init, array(values(m)))
+
+
+## `foldr(f, init, o)` on an Option: `f(x1, f(x2, ...f(xn, init)))`, the
+## value it holds, if any from the last.
+##
+## # Parameters
+## - `f`: takes the next element, from the end, and what is gathered so far.
+## - `init`: what is gathered before any element.
+## - `o`: an Option.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## o = Some(3)
+## none: Option(Int) = None
+## print(foldr(lam (x, acc). acc * 10 + x, 0, o), foldr(lam (x, acc). acc * 10 + x, 0, none))
+## ```
+## ```stdout
+## 3 0
+## ```
+public def option::foldr(f: (a, b) -> b, init: b, o: Option(a)) -> b:
+    match o:
+        case Some(v):
+            f(v, init)
+        case None:
+            init
+
+
+## `foldr(f, init, r)` on a Result: `f(x1, f(x2, ...f(xn, init)))`, the
+## value it holds, if any from the last.
+##
+## # Parameters
+## - `f`: takes the next element, from the end, and what is gathered so far.
+## - `init`: what is gathered before any element.
+## - `r`: a Result.
+##
+## # Returns
+## What `f` gathered, or `init` where there are no elements.
+##
+## # Examples
+## ```pyking
+## r: Result(Int, String) = Ok(3)
+## bad: Result(Int, String) = Error("no")
+## print(foldr(lam (x, acc). acc * 10 + x, 0, r), foldr(lam (x, acc). acc * 10 + x, 0, bad))
+## ```
+## ```stdout
+## 3 0
+## ```
+public def result::foldr(f: (a, b) -> b, init: b, r: Result(a, e)) -> b:
+    match r:
+        case Ok(v):
+            f(v, init)
+        case Error(_):
+            init
+
+
+## `any(p, xs)` on a list: whether `p` is true of some element,
+## stopping at the first that it is.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: a list.
+##
+## # Returns
+## `true` where `p` is true of one, `false` where there is none.
+##
+## # Examples
+## ```pyking
+## xs = [1, 2, 3]
+## print(any(lam x. x > 2, xs), any(lam x. x > 5, xs))
+## ```
+## ```stdout
+## true false
+## ```
+public def list::any(p: (a) -> Bool, xs: [a]) -> Bool:
+    for x in xs:
+        if p(x):
+            return true
+    false
+
+
+## `any(p, xs)` on an array: whether `p` is true of some element,
+## stopping at the first that it is.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: an array.
+##
+## # Returns
+## `true` where `p` is true of one, `false` where there is none.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = array([1, 2, 3])
+## print(any(lam x. x > 2, xs), any(lam x. x > 5, xs))
+## ```
+## ```stdout
+## true false
+## ```
+public def array::any(p: (a) -> Bool, xs: Array(a)) -> Bool:
+    for x in xs:
+        if p(x):
+            return true
+    false
+
+
+## `any(p, xs)` on a DynArray: whether `p` is true of some element,
+## stopping at the first that it is.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: a DynArray.
+##
+## # Returns
+## `true` where `p` is true of one, `false` where there is none.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = dynarray([1, 2, 3])
+## print(any(lam x. x > 2, xs), any(lam x. x > 5, xs))
+## ```
+## ```stdout
+## true false
+## ```
+public def dynarray::any(p: (a) -> Bool, xs: DynArray(a)) -> Bool:
+    for x in xs:
+        if p(x):
+            return true
+    false
+
+
+## `any(p, xs)` on a view: whether `p` is true of some element,
+## stopping at the first that it is.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: a view.
+##
+## # Returns
+## `true` where `p` is true of one, `false` where there is none.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = view(array([0, 1, 2, 3]), 1, 4)
+## print(any(lam x. x > 2, xs), any(lam x. x > 5, xs))
+## ```
+## ```stdout
+## true false
+## ```
+public def slice::any(p: (a) -> Bool, xs: Slice(a)) -> Bool:
+    for x in xs:
+        if p(x):
+            return true
+    false
+
+
+## `any(p, m)` on a Map: whether `p` is true of some value,
+## stopping at the first that it is.
+##
+## # Parameters
+## - `p`: the test.
+## - `m`: a Map.
+##
+## # Returns
+## `true` where `p` is true of one, `false` where there is none.
+##
+## # Examples
+## ```pyking
+## m = map([("a", 1), ("b", 2), ("c", 3)])
+## print(any(lam x. x > 2, m), any(lam x. x > 5, m))
+## ```
+## ```stdout
+## true false
+## ```
+public def map::any(p: (a) -> Bool, m: Map(k, a)) -> Bool:
+    for x in values(m):
+        if p(x):
+            return true
+    false
+
+
+## `any(p, m)` on a MutMap: whether `p` is true of some value,
+## stopping at the first that it is.
+##
+## # Parameters
+## - `p`: the test.
+## - `m`: a MutMap.
+##
+## # Returns
+## `true` where `p` is true of one, `false` where there is none.
+##
+## # Examples
+## ```pyking
+## use mutation
+## m = mutmap([("a", 1), ("b", 2), ("c", 3)])
+## print(any(lam x. x > 2, m), any(lam x. x > 5, m))
+## ```
+## ```stdout
+## true false
+## ```
+public def mutmap::any(p: (a) -> Bool, m: MutMap(k, a)) -> Bool:
+    for x in values(m):
+        if p(x):
+            return true
+    false
+
+
+## `any(p, o)` on an Option: whether `p` is true of some value it holds,
+## stopping at the first that it is.
+##
+## # Parameters
+## - `p`: the test.
+## - `o`: an Option.
+##
+## # Returns
+## `true` where `p` is true of one, `false` where there is none, as for an empty collection.
+##
+## # Examples
+## ```pyking
+## o = Some(3)
+## none: Option(Int) = None
+## print(any(lam x. x > 2, o), any(lam x. x > 2, none))
+## ```
+## ```stdout
+## true false
+## ```
+public def option::any(p: (a) -> Bool, o: Option(a)) -> Bool:
+    match o:
+        case Some(v):
+            p(v)
+        case None:
+            false
+
+
+## `any(p, r)` on a Result: whether `p` is true of some value it holds,
+## stopping at the first that it is.
+##
+## # Parameters
+## - `p`: the test.
+## - `r`: a Result.
+##
+## # Returns
+## `true` where `p` is true of one, `false` where there is none, as for an empty collection.
+##
+## # Examples
+## ```pyking
+## r: Result(Int, String) = Ok(3)
+## bad: Result(Int, String) = Error("no")
+## print(any(lam x. x > 2, r), any(lam x. x > 2, bad))
+## ```
+## ```stdout
+## true false
+## ```
+public def result::any(p: (a) -> Bool, r: Result(a, e)) -> Bool:
+    match r:
+        case Ok(v):
+            p(v)
+        case Error(_):
+            false
+
+
+## `all(p, xs)` on a list: whether `p` is true of every element,
+## stopping at the first that it is not.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: a list.
+##
+## # Returns
+## `false` where `p` is false of one, `true` where there is none.
+##
+## # Examples
+## ```pyking
+## xs = [1, 2, 3]
+## print(all(lam x. x > 0, xs), all(lam x. x > 1, xs))
+## ```
+## ```stdout
+## true false
+## ```
+public def list::all(p: (a) -> Bool, xs: [a]) -> Bool:
+    for x in xs:
+        if not p(x):
+            return false
+    true
+
+
+## `all(p, xs)` on an array: whether `p` is true of every element,
+## stopping at the first that it is not.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: an array.
+##
+## # Returns
+## `false` where `p` is false of one, `true` where there is none.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = array([1, 2, 3])
+## print(all(lam x. x > 0, xs), all(lam x. x > 1, xs))
+## ```
+## ```stdout
+## true false
+## ```
+public def array::all(p: (a) -> Bool, xs: Array(a)) -> Bool:
+    for x in xs:
+        if not p(x):
+            return false
+    true
+
+
+## `all(p, xs)` on a DynArray: whether `p` is true of every element,
+## stopping at the first that it is not.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: a DynArray.
+##
+## # Returns
+## `false` where `p` is false of one, `true` where there is none.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = dynarray([1, 2, 3])
+## print(all(lam x. x > 0, xs), all(lam x. x > 1, xs))
+## ```
+## ```stdout
+## true false
+## ```
+public def dynarray::all(p: (a) -> Bool, xs: DynArray(a)) -> Bool:
+    for x in xs:
+        if not p(x):
+            return false
+    true
+
+
+## `all(p, xs)` on a view: whether `p` is true of every element,
+## stopping at the first that it is not.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: a view.
+##
+## # Returns
+## `false` where `p` is false of one, `true` where there is none.
+##
+## # Examples
+## ```pyking
+## use mutation
+## xs = view(array([0, 1, 2, 3]), 1, 4)
+## print(all(lam x. x > 0, xs), all(lam x. x > 1, xs))
+## ```
+## ```stdout
+## true false
+## ```
+public def slice::all(p: (a) -> Bool, xs: Slice(a)) -> Bool:
+    for x in xs:
+        if not p(x):
+            return false
+    true
+
+
+## `all(p, m)` on a Map: whether `p` is true of every value,
+## stopping at the first that it is not.
+##
+## # Parameters
+## - `p`: the test.
+## - `m`: a Map.
+##
+## # Returns
+## `false` where `p` is false of one, `true` where there is none.
+##
+## # Examples
+## ```pyking
+## m = map([("a", 1), ("b", 2), ("c", 3)])
+## print(all(lam x. x > 0, m), all(lam x. x > 1, m))
+## ```
+## ```stdout
+## true false
+## ```
+public def map::all(p: (a) -> Bool, m: Map(k, a)) -> Bool:
+    for x in values(m):
+        if not p(x):
+            return false
+    true
+
+
+## `all(p, m)` on a MutMap: whether `p` is true of every value,
+## stopping at the first that it is not.
+##
+## # Parameters
+## - `p`: the test.
+## - `m`: a MutMap.
+##
+## # Returns
+## `false` where `p` is false of one, `true` where there is none.
+##
+## # Examples
+## ```pyking
+## use mutation
+## m = mutmap([("a", 1), ("b", 2), ("c", 3)])
+## print(all(lam x. x > 0, m), all(lam x. x > 1, m))
+## ```
+## ```stdout
+## true false
+## ```
+public def mutmap::all(p: (a) -> Bool, m: MutMap(k, a)) -> Bool:
+    for x in values(m):
+        if not p(x):
+            return false
+    true
+
+
+## `all(p, o)` on an Option: whether `p` is true of every value it holds,
+## stopping at the first that it is not.
+##
+## # Parameters
+## - `p`: the test.
+## - `o`: an Option.
+##
+## # Returns
+## `false` where `p` is false of one, `true` where there is none, as for an empty collection.
+##
+## # Examples
+## ```pyking
+## o = Some(3)
+## none: Option(Int) = None
+## print(all(lam x. x > 2, o), all(lam x. x > 2, none))
+## ```
+## ```stdout
+## true true
+## ```
+public def option::all(p: (a) -> Bool, o: Option(a)) -> Bool:
+    match o:
+        case Some(v):
+            p(v)
+        case None:
+            true
+
+
+## `all(p, r)` on a Result: whether `p` is true of every value it holds,
+## stopping at the first that it is not.
+##
+## # Parameters
+## - `p`: the test.
+## - `r`: a Result.
+##
+## # Returns
+## `false` where `p` is false of one, `true` where there is none, as for an empty collection.
+##
+## # Examples
+## ```pyking
+## r: Result(Int, String) = Ok(3)
+## bad: Result(Int, String) = Error("no")
+## print(all(lam x. x > 2, r), all(lam x. x > 2, bad))
+## ```
+## ```stdout
+## true true
+## ```
+public def result::all(p: (a) -> Bool, r: Result(a, e)) -> Bool:
+    match r:
+        case Ok(v):
+            p(v)
+        case Error(_):
+            true
+
+
+## `list(xs)` of a list: itself, which is never changed.
+##
+## # Parameters
+## - `xs`: a list.
+##
+## # Returns
+## A new list.
+##
+## # Examples
+## ```pyking
+## print(list([1, 2]))
+## ```
+## ```stdout
+## [1, 2]
+## ```
+public def list::list(xs: [a]) -> [a]:
+    xs
+
+
+## `list(xs)` of an array: its elements as they are now.
+##
+## # Parameters
+## - `xs`: an array.
+##
+## # Returns
+## A new list.
+##
+## # Examples
+## ```pyking
+## use mutation
+## print(list(array(3, 'a')))
+## ```
+## ```stdout
+## ['a', 'a', 'a']
+## ```
+public def array::list(xs: Array(a)) -> [a]:
+    [x for x in xs]
+
+
+## `list(xs)` of a DynArray: its elements as they are now.
+##
+## # Parameters
+## - `xs`: a DynArray.
+##
+## # Returns
+## A new list.
+##
+## # Examples
+## ```pyking
+## use mutation
+## print(list(dynarray([1, 2])))
+## ```
+## ```stdout
+## [1, 2]
+## ```
+public def dynarray::list(xs: DynArray(a)) -> [a]:
+    [x for x in xs]
+
+
+## `list(xs)` of a view: the elements it shows now.
+##
+## # Parameters
+## - `xs`: a view.
+##
+## # Returns
+## A new list.
+##
+## # Examples
+## ```pyking
+## use mutation
+## print(list(view(array([1, 2, 3]), 1, 3)))
+## ```
+## ```stdout
+## [2, 3]
+## ```
+public def slice::list(xs: Slice(a)) -> [a]:
+    [x for x in xs]
+
+
+## `list(s)` of a String: its Chars.
+##
+## # Parameters
+## - `s`: a String.
+##
+## # Returns
+## A new list.
+##
+## # Examples
+## ```pyking
+## print(list("héllo"))
+## ```
+## ```stdout
+## ['h', 'é', 'l', 'l', 'o']
+## ```
+public def string::list(s: String) -> [Char]:
+    [c for c in s]
+
+
+## `list(m)` of a Map: its (key, value) pairs, in order.
+##
+## # Parameters
+## - `m`: a Map.
+##
+## # Returns
+## A new list.
+##
+## # Examples
+## ```pyking
+## print(list(map([("a", 1), ("b", 2)])))
+## ```
+## ```stdout
+## [("a", 1), ("b", 2)]
+## ```
+public def map::list(m: Map(k, v)) -> [(k, v)]:
+    items(m)
+
+
+## `list(m)` of a MutMap: its (key, value) pairs, in order.
+##
+## # Parameters
+## - `m`: a MutMap.
+##
+## # Returns
+## A new list.
+##
+## # Examples
+## ```pyking
+## use mutation
+## print(list(mutmap([("a", 1)])))
+## ```
+## ```stdout
+## [("a", 1)]
+## ```
+public def mutmap::list(m: MutMap(k, v)) -> [(k, v)]:
+    items(m)
+
+
+## `list(o)` of an Option: its value, or nothing.
+##
+## # Parameters
+## - `o`: an Option.
+##
+## # Returns
+## A new list.
+##
+## # Examples
+## ```pyking
+## none: Option(Int) = None
+## print(list(Some(1)), list(none))
+## ```
+## ```stdout
+## [1] []
+## ```
+public def option::list(o: Option(a)) -> [a]:
+    match o:
+        case Some(v):
+            [v]
+        case None:
+            []
+
+
+## `list(n, v)`: `n` copies of `v` (Haskell's `replicate`). A negative `n` is
+## a runtime error.
+##
+## # Parameters
+## - `n`: how many.
+## - `v`: the value, worked out once.
+##
+## # Returns
+## A list of `n` elements.
+##
+## # Examples
+## ```pyking
+## print(list(3, 'a'), list(0, 1))
+## ```
+## ```stdout
+## ['a', 'a', 'a'] []
+## ```
+public def fill::list(n: Int, v: a) -> [a]:
+    if n < 0:
+        panic("a list's size is never negative, and this one is " + string(n))
+    [v for _ in range(n)]
+
+
+## `list_init(n, f)`: element `i` is `f(i)`, called in index order (OCaml's
+## `List.init`). A negative `n` is a runtime error.
+##
+## # Parameters
+## - `n`: how many.
+## - `f`: makes element `i`.
+##
+## # Returns
+## A list of `n` elements.
+##
+## # Examples
+## ```pyking
+## print(list_init(5, lam i. i * i))
+## ```
+## ```stdout
+## [0, 1, 4, 9, 16]
+## ```
+public def init::list_init(n: Int, f: (Int) -> a) -> [a]:
+    if n < 0:
+        panic("a list's size is never negative, and this one is " + string(n))
+    [f(i) for i in range(n)]
+
+
+## `list_init(n, seed, f)`: `n` elements unfolded from `seed`, `f` answering
+## each element and the next seed. A negative `n` is a runtime error.
+##
+## # Parameters
+## - `n`: how many.
+## - `seed`: what the first element is made from.
+## - `f`: answers an element and the next seed.
+##
+## # Returns
+## A list of `n` elements.
+##
+## # Examples
+## ```pyking
+## print(list_init(8, (0, 1), lam p. let (a, b) = p in (a, (b, a + b))))
+## ```
+## ```stdout
+## [0, 1, 1, 2, 3, 5, 8, 13]
+## ```
+public def unfold::list_init(n: Int, seed: s, f: (s) -> (a, s)) -> [a]:
+    if n < 0:
+        panic("a list's size is never negative, and this one is " + string(n))
+    out = dynarray()
+    var state = seed
+    for _ in range(n):
+        (x, following) = f(state)
+        push(out, x)
+        state := following
+    list(out)
+
+
+## `dynarray(n, v)`: a DynArray of `n` copies of `v`. Needs `use mutation`.
+## A negative `n` is a runtime error.
+##
+## # Parameters
+## - `n`: how many.
+## - `v`: the value, worked out once.
+##
+## # Returns
+## A new DynArray of `n` elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## v = dynarray(2, 0)
+## push(v, 7)
+## print(v)
+## ```
+## ```stdout
+## dynarray([0, 0, 7])
+## ```
+public def fill::dynarray(n: Int, v: a) -> DynArray(a):
+    if n < 0:
+        panic("a DynArray's size is never negative, and this one is " + string(n))
+    dynarray([v for _ in range(n)])
+
+
+## `dynarray_init(n, f)`: element `i` is `f(i)`, as `array_init`. Needs `use
+## mutation`. A negative `n` is a runtime error.
+##
+## # Parameters
+## - `n`: how many.
+## - `f`: makes element `i`.
+##
+## # Returns
+## A new DynArray of `n` elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## print(dynarray_init(4, lam i. i * 2))
+## ```
+## ```stdout
+## dynarray([0, 2, 4, 6])
+## ```
+public def init::dynarray_init(n: Int, f: (Int) -> a) -> DynArray(a):
+    if n < 0:
+        panic("a DynArray's size is never negative, and this one is " + string(n))
+    dynarray([f(i) for i in range(n)])
+
+
+## `dynarray_init(n, seed, f)`: `n` elements unfolded from `seed`, as
+## `array_init`'s unfolding form. Needs `use mutation`.
+##
+## # Parameters
+## - `n`: how many.
+## - `seed`: what the first element is made from.
+## - `f`: answers an element and the next seed.
+##
+## # Returns
+## A new DynArray of `n` elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## print(dynarray_init(4, 1, lam x. (x, x * 3)))
+## ```
+## ```stdout
+## dynarray([1, 3, 9, 27])
+## ```
+public def unfold::dynarray_init(n: Int, seed: s, f: (s) -> (a, s)) -> DynArray(a):
+    dynarray(list_init(n, seed, f))
+
+
+## `map_init(keys, f)`: each key `k` maps to `f(k)`, in the order of `keys`;
+## a key written twice keeps its first place (Haskell's `Map.fromSet`).
+##
+## # Parameters
+## - `keys`: the keys.
+## - `f`: makes a key's value.
+##
+## # Returns
+## A new Map.
+##
+## # Examples
+## ```pyking
+## print(map_init(["ann", "bo"], lam name. len(name)))
+## ```
+## ```stdout
+## map([("ann", 3), ("bo", 2)])
+## ```
+public def keys::map_init(keys: [k], f: (k) -> v) -> Map(k, v):
+    map([(key, f(key)) for key in keys])
+
+
+## `map_init(n, seed, f)`: `n` (key, value) entries unfolded from `seed`, a
+## later one with a key already there replacing its value.
+##
+## # Parameters
+## - `n`: how many entries to unfold.
+## - `seed`: what the first is made from.
+## - `f`: answers an entry and the next seed.
+##
+## # Returns
+## A new Map.
+##
+## # Examples
+## ```pyking
+## print(map_init(3, 1, lam x. ((x, x * x), x + 1)))
+## ```
+## ```stdout
+## map([(1, 1), (2, 4), (3, 9)])
+## ```
+public def unfold::map_init(n: Int, seed: s, f: (s) -> ((k, v), s)) -> Map(k, v):
+    map(list_init(n, seed, f))
+
+
+## `mutmap_init(keys, f)`: as `map_init`, a MutMap. Needs `use mutation`.
+##
+## # Parameters
+## - `keys`: the keys.
+## - `f`: makes a key's value.
+##
+## # Returns
+## A new MutMap.
+##
+## # Examples
+## ```pyking
+## use mutation
+## counts = mutmap_init(["a", "b"], lam _. 0)
+## counts["a"] += 1
+## print(counts)
+## ```
+## ```stdout
+## mutmap([("a", 1), ("b", 0)])
+## ```
+public def keys::mutmap_init(keys: [k], f: (k) -> v) -> MutMap(k, v):
+    mutmap([(key, f(key)) for key in keys])
+
+
+## `mutmap_init(n, seed, f)`: as `map_init`'s unfolding form, a MutMap. Needs
+## `use mutation`.
+##
+## # Parameters
+## - `n`: how many entries to unfold.
+## - `seed`: what the first is made from.
+## - `f`: answers an entry and the next seed.
+##
+## # Returns
+## A new MutMap.
+##
+## # Examples
+## ```pyking
+## use mutation
+## print(mutmap_init(2, 0, lam x. ((x, string(x)), x + 1)))
+## ```
+## ```stdout
+## mutmap([(0, "0"), (1, "1")])
+## ```
+public def unfold::mutmap_init(n: Int, seed: s, f: (s) -> ((k, v), s)) -> MutMap(k, v):
+    mutmap(list_init(n, seed, f))
+
+
+# The elements of `xs` from the last, gathered by `f`: the one walk every
+# `foldr` makes, over an array of the elements.
+def fold_back(f: (a, b) -> b, init: b, xs: Array(a)) -> b:
+    var acc = init
+    var i = len(xs) - 1
+    while i >= 0:
+        acc := f(xs[i], acc)
+        i -= 1
+    acc

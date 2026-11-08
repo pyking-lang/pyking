@@ -1,0 +1,6 @@
+# `fmap` takes no String: its Chars are `list(s)`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(fmap(lam c. c, "abc"))

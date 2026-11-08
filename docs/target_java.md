@@ -119,6 +119,7 @@ java8 also spells every local's type, where java17 and java21 write
 | `DynArray(T)` | `PykRuntime.PykDynArray<T>`, holding a `java.util.ArrayList<Object>` |
 | `Slice(T)` | `PykRuntime.PykView<T>`: the array it is of, an offset and a length |
 | `MutMap(K, V)` | `PykRuntime.PykMutMap<K, V>`, holding a `java.util.LinkedHashMap` (see "Equality and MutMaps") |
+| `Map(K, V)` | `PykRuntime.PykMap<K, V>`, a `PykMutMap` nothing writes (see "Equality and MutMaps") |
 | `Ptr(T)` | `PykRuntime.PykPtr<T>`: the store it points into and a slot (see "Pointers") |
 | `(A, B)` | `PykRuntime.T2<A, B>`, up to `T8` and beyond as a program needs |
 | `(A) -> R`, `(A, B) -> R`, `() -> R` | `java.util.function.Function`, `BiFunction`, `Supplier` |
@@ -399,7 +400,10 @@ anything or makes anything, and an `OutOfMemoryError` making the
 elements with `an array of N elements is more than this machine can
 hold`. A runtime error is `PykRuntime.fail`: it flushes `System.out`,
 writes `error: ` and the message to `System.err` and exits with
-status 1.
+status 1. **`panic(message)`** is `PykRuntime.panic(message)`, a generic
+`static <T> T panic(String)` that throws `fail(message)`, so it stands
+in an expression of any type (`PykRuntime.<Integer>panic(...)` where the
+checker settled the type without variables) or as a statement.
 
 **An element write runs in Pyking's order**, not Java's: `a[i] = v`
 would work `v` out before it checks `i`. So `owner[index] := value` is
@@ -482,6 +486,15 @@ changed while a for loop was reading it` at the next `hasNext`, the one
 that would end the loop too, before the `LinkedHashMap`'s own iterator
 is touched; a value replaced is no change. A comprehension over a MutMap
 walks `keys()`, the keys as they are when it starts.
+
+A **`Map(K, V)`** (PYKING.md, "Maps") is `PykRuntime.PykMap<K, V>`, a
+subclass of `PykMutMap` that only the reading builtins above ever reach:
+`map()` and `map(pairs)` are `PykRuntime.<K, V>mapEmpty()` and
+`mapOfList(pairs)`, and `m[k]` of a missing key stops the program with
+`the Map has no key "zed"`. It prints as `map([("a", 1)])`, and
+`PykRuntime.equal` compares two Maps by their entries in whatever order:
+the same keys, each with an equal value. A Map is never a key, so it
+needs no hash.
 
 ## Pointers
 

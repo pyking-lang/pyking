@@ -89,8 +89,17 @@ let slice_element t = match t with TCon (_, c, [ e ], _) when c = slice_name -> 
    their keys came. *)
 let mutmap_name = "MutMap"
 
-(** A MutMap type's key and value types. typ -> (typ * typ) option *)
-let mutmap_parts t = match t with TCon (_, c, [ k; v ], _) when c = mutmap_name -> Some (k, v) | _ -> None
+(* `Map(K, V)`: a MutMap that is never written once made, `pyk_m_<code>`
+   of its own code. It prints as `map([...])`, and two are equal where
+   they hold the same keys, each with an equal value, in any order. *)
+let map_name = "Map"
+
+(** Whether t is a Map type. typ -> bool *)
+let is_map t = match t with TCon (_, c, [ _; _ ], _) -> c = map_name | _ -> false
+
+(** A MutMap's or a Map's key and value types: every helper over one
+    serves the other. typ -> (typ * typ) option *)
+let mutmap_parts t = match t with TCon (_, c, [ k; v ], _) when c = mutmap_name || c = map_name -> Some (k, v) | _ -> None
 
 (* `Ptr(T)`: C's own `T *`, pointing at a variable, an element or a
    field. *)
@@ -100,8 +109,9 @@ let ptr_name = "Ptr"
 let ptr_target t = match t with TCon (_, c, [ e ], _) when c = ptr_name -> Some e | _ -> None
 
 (** Whether a TCon's name is a store's -- an array's, a DynArray's, a view's,
-    a MutMap's or a pointer's -- rather than a datatype's. string -> bool *)
-let is_store c = c = array_name || c = dynarray_name || c = slice_name || c = mutmap_name || c = ptr_name
+    a MutMap's, a Map's or a pointer's -- rather than a datatype's.
+    string -> bool *)
+let is_store c = c = array_name || c = dynarray_name || c = slice_name || c = mutmap_name || c = map_name || c = ptr_name
 
 (** An array's, a DynArray's or a view's element type. typ -> typ option *)
 let store_element t = match t with TCon (_, c, [ e ], _) when is_store c && c <> ptr_name -> Some e | _ -> None
@@ -277,6 +287,29 @@ let rec substitute bound t =
       TForall (i, vs, substitute (List.filter (fun (v, _) -> not (List.mem v vs)) bound) body, s)
   | t -> t
 
+(** t with each datatype a module of the name own declares, which it
+    names bare, named as other modules name it, `own.Name`: an instance
+    another module compiles for it, and that datatype's fields there.
+    string -> (string -> bool) -> typ -> typ *)
+let rec qualify own declared t =
+  match t with
+  | TList (i, e, s) -> TList (i, qualify own declared e, s)
+  | TTuple (i, es, s) -> TTuple (i, List.map (qualify own declared) es, s)
+  | TCon (i, c, es, s) ->
+      let c = if (not (String.contains c '.')) && declared c then own ^ "." ^ c else c in
+      TCon (i, c, List.map (qualify own declared) es, s)
+  | TFunction (i, ps, r, a, b, c, imps) ->
+      TFunction
+        ( i,
+          List.map (qualify own declared) ps,
+          qualify own declared r,
+          a,
+          b,
+          c,
+          List.map (fun (IParam (n, t)) -> IParam (n, qualify own declared t)) imps )
+  | TForall (i, vs, body, s) -> TForall (i, vs, qualify own declared body, s)
+  | t -> t
+
 (** What each variable of a declared type stands for, read off a type of
     the same shape. [(string, typ)] -> typ -> typ -> [(string, typ)] *)
 let rec matching bound declared actual =
@@ -330,6 +363,7 @@ let rec code own info t =
   | TCon (_, c, [ e ], _) when c = slice_name -> "W" ^ code own info e ^ "_"
   | TCon (_, c, [ e ], _) when c = ptr_name -> "P" ^ code own info e ^ "_"
   | TCon (_, c, [ k; v ], _) when c = mutmap_name -> "M" ^ code own info k ^ code own info v ^ "_"
+  | TCon (_, c, [ k; v ], _) when c = map_name -> "N" ^ code own info k ^ code own info v ^ "_"
   | TCon (_, c, _, _) when Hashtbl.mem object_types c -> "O_"
   | TCon (_, c, args, _) ->
       (* A datatype is named by its module wherever it is used, so every
@@ -339,12 +373,17 @@ let rec code own info t =
   | TFunction (_, ps, r, _, _, _, imps) ->
       "F" ^ String.concat "" (List.map (code own info) (ps @ List.map (fun (IParam (_, t)) -> t) imps)) ^ "_" ^ code own info r ^ "_"
   | TList (_, e, _) -> "L" ^ code own info (list_element e) ^ "_"
+  | TVar _ ->
+      (* What nothing settles holds no value -- `dynarray()` never given
+         one, the error of an `Ok` -- and is the unit type, as an empty
+         list's element is. *)
+      "u"
   | TForall _ ->
       unsupported info
         "a polymorphic parameter (`all a. ...`), which one C function would \
          have to serve at every type: C compiles a polymorphic function once \
          per type"
-  | TVar _ | TUnknown _ | _ ->
+  | TUnknown _ | _ ->
       unsupported info "a value whose type nothing in the program settles, which C has to know"
 
 (* --- which calls can change something ---
@@ -1049,7 +1088,7 @@ let type_children ctx t =
   | TTuple (_, es, _) -> es
   | TList (_, e, _) -> [ list_element e ]
   | TCon (_, c, [ e ], _) when is_store c -> [ e ]
-  | TCon (_, c, [ k; v ], _) when c = mutmap_name -> [ k; v ]
+  | TCon (_, c, [ k; v ], _) when c = mutmap_name || c = map_name -> [ k; v ]
   | TCon (_, c, args, _) -> (
       match SMap.find_opt c ctx.datatypes with
       | Some (Datatype (_, params, ctors, _)) ->
@@ -1144,6 +1183,20 @@ let check_index_helper =
       "        fprintf(stderr, \"error: the index %d is outside an array of %d element%s\\n\", i, n, n == 1 ? \"\" : \"s\");";
       "        exit(1);";
       "    }";
+      "}";
+    ]
+
+(* What `panic(message)` calls: the program stops as any runtime error
+   stops it. It answers a pointer that is never there, so that a panic
+   in an expression is that pointer read as the value's own C type. *)
+let panic_helper =
+  String.concat "\n"
+    [
+      "static void *pyk_panic(const char *message)";
+      "{";
+      "    fprintf(stderr, \"error: %s\\n\", message);";
+      "    exit(1);";
+      "    return NULL;";
       "}";
     ]
 
@@ -1275,8 +1328,8 @@ let rec ctype ctx st info t =
               (declaration (pointer_to ect) "items") name
           in
           (shown, { st with types = st.types @ [ (name, decl) ] })
-  | TCon (_, c, [ key; value ], _) when c = mutmap_name ->
-      (* A MutMap is a pointer to its struct: its keys and values side by
+  | TCon (_, c, [ key; value ], _) when c = mutmap_name || c = map_name ->
+      (* A MutMap (or a Map) is a pointer to its struct: its keys and values side by
          side, in the order the keys came. On c23-gc, `slots` is a hash
          index into them (-1 for an empty slot) and `version` counts the
          keys put in and taken out, which a `for` watches; plain C finds
@@ -1636,7 +1689,7 @@ let need_path st =
     value's text and the path's. ctx -> state -> info -> typ ->
     (string -> string -> string, state) *)
 let rec shower_at ctx st info t =
-  let t = substitute ctx.sigma t in
+  let t = match substitute ctx.sigma t with TVar (i, _, _, _) -> TTuple (i, [], 0) | t -> t in
   (* A printer's call, its signature, and -- for a store that guards
      itself -- the lines that write `...` for it and push it on the path,
      with the path its parts are handed. *)
@@ -1751,8 +1804,9 @@ let rec shower_at ctx st info t =
             @ [ Printf.sprintf "    return pyk_concat(pyk_concat(\"Ptr(\", %s), \")\");" (show "*v" inner); "}" ])
         in
         (call name, need_helper st name text)
-  | TCon (_, c, [ key; value ], _) when c = mutmap_name ->
-      (* `mutmap([("ada", 37), ("bo", 6)])`: its entries as pairs, in order. *)
+  | TCon (_, c, [ key; value ], _) when c = mutmap_name || c = map_name ->
+      (* `mutmap([("ada", 37), ("bo", 6)])`: its entries as pairs, in order;
+         a Map's `map([...])`. *)
       let name = "pyk_show_" ^ code ctx.own info t in
       let ct, st = ctype ctx st info t in
       if List.mem_assoc name st.helpers then (call name, st)
@@ -1763,7 +1817,7 @@ let rec shower_at ctx st info t =
         let st = need_concat st in
         let text =
           String.concat "\n"
-            ([ Printf.sprintf "static const char *%s(%s)" name (params ct); "{"; "    const char *out = \"mutmap([\";"; "    int i;" ]
+            ([ Printf.sprintf "static const char *%s(%s)" name (params ct); "{"; Printf.sprintf "    const char *out = \"%s([\";" (if is_map t then "map" else "mutmap"); "    int i;" ]
             @ decls @ checks
             @ [
                 "    for (i = 0; i < v->len; i++) {";
@@ -1917,7 +1971,7 @@ let hash_string_helper =
     function ignores its second text and answers an unsigned. ctx ->
     state -> info -> string -> typ -> (string -> string -> string, state) *)
 let rec structural ctx st info kind t =
-  let t = substitute ctx.sigma t in
+  let t = match substitute ctx.sigma t with TVar (i, _, _, _) -> TTuple (i, [], 0) | t -> t in
   let eq = kind = "eq" in
   let name = Printf.sprintf "pyk_%s_%s" kind (code ctx.own info t) in
   let call = if eq then fun a b -> Printf.sprintf "%s(%s, %s)" name a b else fun a _ -> Printf.sprintf "%s(%s)" name a in
@@ -1982,6 +2036,24 @@ let rec structural ctx st info kind t =
         else
           [ signature ct; "{"; "    unsigned h = 17u;"; "    for (; a != NULL; a = a->tail) {"; Printf.sprintf "        h = h * 31u + %s;" p;
             "    }"; "    return h;"; "}" ]
+      in
+      (call, need_helper st name (String.concat "\n" lines))
+  | TCon (_, _, [ key; value ], _) when is_map t && eq ->
+      (* As many entries, and each key of a found in b with an equal
+         value: the order they came in is no part of a Map. *)
+      let ct, st = ctype ctx st info t in
+      let st = { st with building = StringSet.add name st.building } in
+      let same_key, st = part st key "a->keys[i]" "b->keys[j]" in
+      let same_value, st = part st value "a->values[i]" "b->values[j]" in
+      let st = { st with building = StringSet.remove name st.building } in
+      let lines =
+        [
+          signature ct; "{"; "    int i, j;"; "    if (a->len != b->len) {"; "        return 0;"; "    }";
+          "    for (i = 0; i < a->len; i++) {"; "        for (j = 0; j < b->len; j++) {";
+          Printf.sprintf "            if (%s) {" same_key; "                break;"; "            }"; "        }";
+          Printf.sprintf "        if (j == b->len || !(%s)) {" same_value; "            return 0;"; "        }"; "    }";
+          "    return 1;"; "}";
+        ]
       in
       (call, need_helper st name (String.concat "\n" lines))
   | TCon (_, canonical, args, _) when not (is_store canonical) ->
@@ -2326,7 +2398,7 @@ let rec mutmap_helper ctx st info t kind =
         let show, st = shower ctx st info key in
         ( [
             "    if (i < 0) {";
-            Printf.sprintf "        fprintf(stderr, \"error: the MutMap has no key %%s%s\\n\", %s);" suffix (show "k");
+            Printf.sprintf "        fprintf(stderr, \"error: the %s has no key %%s%s\\n\", %s);" (if is_map t then "Map" else "MutMap") suffix (show "k");
             "        exit(1);";
             "    }";
           ],
@@ -3604,10 +3676,10 @@ and make_array ctx st scope e name args =
   let info = expr_info e in
   let t = type_of ctx scope e in
   match (dynarray_element t, name, args) with
-  | _, "empty__mutmap", [] ->
+  | _, ("empty__mutmap" | "empty__map"), [] ->
       let _, st = ctype ctx st info t in
       (atom (Printf.sprintf "pyk_new_%s()" (code ctx.own info t)), st)
-  | _, "list__mutmap", [ EList (_, items, _) ] ->
+  | _, ("list__mutmap" | "list__map"), [ EList (_, items, _) ] ->
       (* Each pair put in turn, its key and value worked out left to
          right first; a pair that is not written out is held whole. *)
       let dt, st = ctype ctx st info t in
@@ -3615,7 +3687,7 @@ and make_array ctx st scope e name args =
       let put, st = mutmap_helper ctx st info t "put" in
       let pieces = List.concat_map (fun item -> match item with ETuple (_, [ k; v ], _) -> [ k; v ] | e -> [ e ]) items in
       let values, steps, st = in_order ctx st scope pieces in
-      if List.exists (fun v -> v.local_env) values then unsupported info (escaping "a MutMap");
+      if List.exists (fun v -> v.local_env) values then unsupported info (escaping (if is_map t then "a Map" else "a MutMap"));
       let held, st = fresh_temp st dt in
       let rec puts items values st =
         match (items, values) with
@@ -3631,11 +3703,11 @@ and make_array ctx st scope e name args =
       in
       let made, st = puts items values st in
       (sequenced steps (atom ("(" ^ String.concat ", " ((Printf.sprintf "%s = pyk_new_%s()" held mcode :: made) @ [ held ]) ^ ")")), st)
-  | _, "list__mutmap", [ xs ] when ctx.gc ->
+  | _, ("list__mutmap" | "list__map"), [ xs ] when ctx.gc ->
       let v, st = expr ctx st scope xs in
       let helper, st = mutmap_helper ctx st info t "of_list" in
       (atom (Printf.sprintf "%s(%s)" helper v.text), st)
-  | _, "list__mutmap", _ -> unsupported info heap_reason
+  | _, ("list__mutmap" | "list__map"), _ -> unsupported info heap_reason
   | Some _, "empty__dynarray", [] ->
       let _, st = ctype ctx st info t in
       (atom (Printf.sprintf "pyk_new_%s(0)" (code ctx.own info t)), st)
@@ -3845,6 +3917,10 @@ and instance ctx st info f result args =
           let proto =
             Printf.sprintf "%s(%s);" (declaration rt name) (match pts with [] -> "void" | pts -> String.concat ", " pts)
           in
+          (* This module's own datatypes are asked for by the names the
+             other module knows them by (translate_all). *)
+          let own_datatype c = SMap.mem c ctx.datatypes && not (Hashtbl.mem object_types c) in
+          let sigma = List.map (fun (v, t) -> (v, qualify ctx.own own_datatype t)) sigma in
           (name, { st with requests = st.requests @ [ (f.cname, sigma) ]; protos = st.protos @ [ (name, proto) ] })
     | None ->
         unsupported info
@@ -3869,7 +3945,9 @@ and function_value ?at ctx st scope e f =
   let info = expr_info e in
   let t = match at with Some t -> substitute ctx.sigma t | None -> type_of ctx scope e in
   let t = match t with TFunction _ -> t | _ -> substitute ctx.sigma f.ftype in
-  if type_vars (match t with TForall (_, _, b, _) -> b | t -> t) <> [] then
+  (* A lambda's or a plain def's variable is one nothing settles, the
+     unit type (`code`); only a polymorphic def has no one function. *)
+  if f.generic && type_vars (match t with TForall (_, _, b, _) -> b | t -> t) <> [] then
     unsupported info
       "a polymorphic function as a value: C compiles a polymorphic function \
        once per type, and a value of every type has no one function to be";
@@ -4164,6 +4242,15 @@ and builtin ctx st scope e name args =
   | ("pop" | "remove"), (_ :: _ as vs) when dynarray_element (arg_type 0) <> None ->
       let helper, st = dynarray_helper ctx st info (arg_type 0) name in
       (sequenced steps (atom (Printf.sprintf "%s(%s)" helper (String.concat ", " (List.map (fun v -> v.text) vs)))), st)
+  | "panic", [ m ] ->
+      (* It answers any type: the C type the checker recorded for the
+         call, read through the pointer pyk_panic never returns. *)
+      let st = need_helper st "pyk_panic" panic_helper in
+      let t = type_of ctx scope e in
+      if is_unit t || type_vars t <> [] then (sequenced steps (mk p_comma (Printf.sprintf "pyk_panic(%s), 0" m.text)), st)
+      else
+        let ct, st = ctype ctx st info t in
+        (sequenced steps (mk p_unary (Printf.sprintf "*(%s)pyk_panic(%s)" (pointer_to ct) m.text)), st)
   | "string", [ v ] -> (
       match arg_type 0 with
       | TString _ -> wrap v
@@ -5611,7 +5698,7 @@ let class_functions ctx st scope info c =
 
 (** One module of a program as a cprogram. [stmt] -> typ IntMap.t ->
     Module.context -> string -> cprogram *)
-let translate_program ?(requested = []) stmts tmap (context : Module.context) target =
+let translate_program ?(requested = []) ?(foreign = []) stmts tmap (context : Module.context) target =
   Hashtbl.reset object_types;
   List.iter (function SClass (_, c, _) -> Hashtbl.replace object_types c.c_name () | _ -> ()) stmts;
   let standard, gc = standard_of target in
@@ -5632,6 +5719,10 @@ let translate_program ?(requested = []) stmts tmap (context : Module.context) ta
       SMap.empty context.sigmaps
   in
   let datatypes = List.fold_left (fun map (Datatype (c, _, _, _) as d) -> SMap.add c d map) datatypes own_datatypes in
+  (* The other modules' datatypes, for the instances they ask of this one. *)
+  let datatypes =
+    List.fold_left (fun map (Datatype (c, _, _, _) as d) -> if SMap.mem c map then map else SMap.add c d map) datatypes foreign
+  in
   let modules = List.filter_map (function SImport (_, m, alias, false, _, _) -> Some (alias, m) | _ -> None) stmts in
   let ctx =
     {
@@ -5964,9 +6055,38 @@ let translate_program ?(requested = []) stmts tmap (context : Module.context) ta
     module asks for one more. [([stmt], typ IntMap.t, Module.context)] ->
     string -> [cprogram] *)
 let translate_all units standard =
+  (* Every module's datatypes by the names other modules know them by,
+     `module.Name`, their fields named so too: an instance one module asks
+     of another can be at a datatype the other does not import. *)
+  let foreign =
+    List.concat_map
+      (fun (stmts, tmap, (context : Module.context)) ->
+        let own = context.context_name in
+        let ds =
+          List.filter_map
+            (function
+              | SDatatype (_, _, _, _, sym, _, _) -> (
+                  match IntMap.find_opt sym tmap with Some (TData (_, d, _)) -> Some d | _ -> None)
+              | _ -> None)
+            stmts
+        in
+        let declared c = List.exists (fun (Datatype (d, _, _, _)) -> d = c) ds in
+        List.filter_map
+          (fun (Datatype (c, params, ctors, writable)) ->
+            if String.contains c '.' then None
+            else
+              Some
+                (Datatype
+                   ( own ^ "." ^ c,
+                     params,
+                     List.map (fun (cname, fields) -> (cname, List.map (fun (n, t) -> (n, qualify own declared t)) fields)) ctors,
+                     writable )))
+          ds)
+      units
+  in
   let rec go requested rounds =
     let programs =
-      List.map (fun (stmts, tmap, context) -> translate_program ~requested stmts tmap context standard) units
+      List.map (fun (stmts, tmap, context) -> translate_program ~requested ~foreign stmts tmap context standard) units
     in
     let asked =
       List.fold_left

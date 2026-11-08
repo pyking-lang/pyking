@@ -1,0 +1,6 @@
+# `map(...)` of a list takes (key, value) pairs.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(map([1, 2, 3]))

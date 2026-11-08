@@ -1,0 +1,5 @@
+'tests/fail_typecheck_map_not_pairs.pyk' 6:6-6:20 Type error: no
+  definition of 'map' takes ([Int]); the ones in scope are
+  'empty::map' of type () -> Map(k, v), 'list::map' of type ([(k, v)])
+  -> Map(k, v), 'map::map' of type (Map(k, v)) -> Map(k, v),
+  'mutmap::map' of type (MutMap(k, v)) -> Map(k, v)

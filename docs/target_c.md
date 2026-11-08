@@ -190,14 +190,17 @@ escaped) and a String by `pyk_quote` (`"abc"`, with `\\`, `\"`, `\n`,
 | `DynArray(Int)` | `pyk_v_Vi_ *`: a pointer to a struct of `len`, `cap` and `items` |
 | a `var struct` `Point` | `pyk_d_D<module>_Point__ *`: a pointer to its struct |
 | `MutMap(String, Int)` | `pyk_m_Msi_ *`: a pointer to its entries' struct |
+| `Map(String, Int)` | `pyk_m_Nsi_ *`: the same struct, of its own code |
 | `Slice(Int)`, a view | `pyk_w_Wi_ *`: a pointer to the array's elements, a start and a length |
 | `Ptr(Int)` | `int *`: C's own pointer |
 
 A compound type's name is its **code**: one letter per scalar (`i`,
 `c`, `f`, `b`, `s`, `u` for unit), and `T...`, `D<module>_<name>_...`,
-`F..._..._`, `A..._`, `V..._`, `W..._`, `M..._`, `P..._` and `L..._` for
-a tuple, a datatype, a function, an array, a DynArray, a view, a MutMap, a
-pointer and a list. A datatype is
+`F..._..._`, `A..._`, `V..._`, `W..._`, `M..._`, `N..._`, `P..._` and
+`L..._` for a tuple, a datatype, a function, an array, a DynArray, a
+view, a MutMap, a Map, a pointer and a list. A type variable nothing
+settles (`dynarray()` never given an element, the error type of an `Ok`)
+holds no value and is the unit type, `u`. A datatype is
 always named with its module, so every file of a program writes the
 same struct. Each type is declared guarded (`#ifndef PYK_TYPE_...`), so
 a header and the file including it may both carry it, and a module's
@@ -405,6 +408,31 @@ typedef struct pyk_m_Msi_ {
 
 Printing one is `mutmap([(k, v), ...])`, guarded on the path as a DynArray is.
 
+### Maps
+
+A Map (PYKING.md, "Maps") is a MutMap that is never written once made:
+the same struct and helpers, under its own code, `N` (`pyk_m_Nsi_`,
+`pyk_at_Nsi_`, ...). `map()` and `map([...])` are made as `mutmap()` and
+`mutmap([...])` are, a key written twice keeping its first place and its
+last value; `len`, `get`, `has`, `keys`, `values`, `items`, `m[k]`, `for k
+in m` and comprehensions read it as they read a MutMap. The elaborator
+turns every conversion into these. A Map prints as `map([(k, v), ...])`,
+and `==` on one, also inside a list, a tuple or a datatype, is
+`pyk_eq_N<code>`: as many entries, and each key of one found in the
+other with an equal value, in any order. A missing key stops c23-gc with
+`the Map has no key ...`. Plain C makes and reads a Map as it does a
+MutMap, but `keys`, `values`, `items` and every conversion make lists, so
+a program using Maps is in practice c23-gc's.
+
+### `panic`
+
+`panic(message)` calls `pyk_panic`, which writes `error: <message>` to
+stderr and exits with status 1, as every runtime error does on all four
+targets. It answers any type: in an expression it is
+`*(T *)pyk_panic(message)`, the pointer pyk_panic never returns read as
+the C type `T` the checker recorded for the call, and where that type is
+unit, `(pyk_panic(message), 0)`.
+
 ## Slices and views
 
 `s[i:j]` copies a run into a new value of the sequence's own kind --
@@ -525,7 +553,12 @@ A call to another module's polymorphic function asks that module for
 the instance: `Target_c.translate_all` translates every module of a
 program, gathers what each asks of the others, and translates again
 until nothing new is asked. The importing file declares the instance; the
-module that wrote the function defines it.
+module that wrote the function defines it. An instance asked at the
+asking module's own datatype (lib/prelude's `fmap` over a list of the
+program's `Person`) names it `module.Person`, and every module is handed
+every other's datatypes by those names, so the one compiling the
+instance can declare the struct, under the same name, without importing
+the module that wrote it.
 
 A def nothing reaches is not compiled: the checker works out an
 unannotated def's types the first time something calls it, so one no

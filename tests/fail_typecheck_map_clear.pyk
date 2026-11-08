@@ -1,0 +1,9 @@
+# `clear` empties a MutMap; an empty Map is `map()`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+m = map([("a", 1)])
+clear(m)

@@ -1,0 +1,46 @@
+# `fmap` on every kind of collection: a new collection of the same kind,
+# `f` called once per element, in order (PYKING.md, "fmap and the folds").
+
+use mutation
+
+struct Person(name: String, age: Int)
+
+people = [Person("ann", 31), Person("bo", 5), Person("cy", 40)]
+# The list says what `p` is, although the lambda comes first.
+print(fmap(lam p. p.name, people))
+print(fmap(lam p. p.age > 18, people))
+
+xs = [1, 2, 3]
+print(fmap(lam x. x * 10, xs), fmap(lam x. string(x), xs), fmap(lam x. [x, x], xs))
+print(fmap(lam x. x + 1, array(xs)), fmap(lam x. x * 2, dynarray(xs)))
+print(fmap(lam x. -x, view(array([5, 6, 7, 8]), 1, 3)))
+ages = map([("ann", 31), ("bo", 5)])
+print(fmap(lam (age: Int). age + 1, ages), fmap(lam age. age > 18, mutmap(ages)))
+none: Option(Int) = None
+print(fmap(lam n. n * n, Some(4)), fmap(lam n. n * n, none))
+ok: Result(Int, String) = Ok(2)
+bad: Result(Int, String) = Error("no")
+print(fmap(lam n. float(n) + 0.5, ok), fmap(lam n. float(n) + 0.5, bad))
+empty: [Int] = []
+print(fmap(lam x. x, empty))
+
+# the order of the calls
+def noisy(x: Int) -> Int:
+    print("f", x)
+    x * 100
+print(fmap(noisy, [1, 2, 3]))
+print(fmap(noisy, array([4, 5])))
+print(fmap(noisy, map([("z", 6), ("a", 7)])))
+
+# a named function, and fmap inside a function whose type says the kind
+def double(x: Int) -> Int:
+    x * 2
+def doubled(c: Array(Int)) -> Array(Int):
+    fmap(double, c)
+print(doubled(array([1, 2])))
+def lengths(words: [String]) -> [Int]:
+    fmap(lam w. len(w), words)
+print(lengths(["a", "bcd"]))
+
+# nested: a list of lists
+print(fmap(lam row. fmap(lam x. x * x, row), [[1, 2], [3]]))

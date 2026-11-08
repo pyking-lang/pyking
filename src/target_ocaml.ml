@@ -348,6 +348,15 @@ let is_list t = match t with TList _ -> true | _ -> false
 let dynarray_element = Typesystem.dynarray_element
 let mutmap_parts = Typesystem.mutmap_parts
 
+(** The key and value types of a Map type, or None for any other type.
+    typ -> (typ * typ) option *)
+let map_parts t = match t with TCon (_, "Map", [ key; value ], _) -> Some (key, value) | _ -> None
+
+(** The key and value types of a Map or a MutMap, which are read alike
+    (docs/target_ocaml.md, "Maps"), or None for any other type.
+    typ -> (typ * typ) option *)
+let table_parts t = match mutmap_parts t with Some parts -> Some parts | None -> map_parts t
+
 (** The type a pointer type, `Ptr(T)`, points at, or None for any other
     type. typ -> typ option *)
 let ptr_target t = match t with TCon (_, "Ptr", [ target ], _) -> Some target | _ -> None
@@ -371,7 +380,7 @@ let held_element t =
   | Some element -> Some element
   | None when ptr_target t <> None -> ptr_target t
   | None -> (
-      match mutmap_parts t with
+      match table_parts t with
       | Some (key, value) -> Some
           (TTuple ({ file = "<ocaml>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }, [ key; value ], 0))
       | None -> None)
@@ -766,13 +775,16 @@ let bound_names stmt =
   | SFunctionDef (_, name, _, _, _, _, _, _, _) -> StringSet.singleton name
   | _ -> StringSet.empty
 
-(** stmts with every group of `def`s that name each other made
-    consecutive, which is what `let rec ... and ...` needs: a `def`
-    naming one written further down is moved to join it. A `def` binds
-    no value and runs nothing, so moving one changes nothing -- unless
-    something it moves past rebinds a name its body reads, which is
-    refused. Only this list is reordered; a nested block is its own.
-    [stmt] -> [stmt] *)
+(** stmts with every `def` written after each `def` it names, which is
+    what OCaml needs: a group naming each other is one `let rec ... and
+    ...`, written together, and a function is in scope only below its
+    `let`. A `def` naming one written further down is moved to join it,
+    and so is one naming a `def` that moves -- each to just after the
+    last `def` it reaches, the ones it calls first. A `def` binds no
+    value and runs nothing, so moving one changes nothing -- unless
+    something it moves past names it, or rebinds a name its body reads,
+    which is refused. Only this list is reordered; a nested block is its
+    own. [stmt] -> [stmt] *)
 let regroup stmts =
   let all = Array.of_list stmts in
   let count = Array.length all in
@@ -782,62 +794,38 @@ let regroup stmts =
     | _ -> None
   in
   let defs = List.filter (fun i -> def_name i <> None) (List.init count Fun.id) in
-  (* Over-reported on purpose: a name the body binds itself only puts two
-     definitions in one group, which is always safe to write together. *)
+  (* Over-reported on purpose: a name the body binds itself only moves a
+     definition down past others, which is safe where nothing between
+     names it. *)
   let reads = List.map (fun i -> (i, collect_identifiers [ all.(i) ])) defs in
-  (* Only a reference *forward* makes a group: one written further down
-     is already in scope where OCaml reads it, so a `def` naming an
-     earlier one needs nothing done to it. *)
-  let names_one_another i j =
-    let forward earlier later =
-      match def_name later with
-      | Some other -> StringSet.mem other (List.assoc earlier reads)
-      | None -> false
+  let named i = List.filter (fun j -> j <> i && StringSet.mem (Option.get (def_name j)) (List.assoc i reads)) defs in
+  let calls = List.map (fun i -> (i, named i)) defs in
+  (* Where each `def` is written: after the statement at its slot, which
+     is its own place or the slot of a `def` it names, if that is further
+     down. A group naming each other shares one slot. *)
+  let slots = Hashtbl.create 16 in
+  List.iter (fun i -> Hashtbl.replace slots i i) defs;
+  let rec settle () =
+    let moved =
+      List.fold_left
+        (fun moved i ->
+          let slot =
+            List.fold_left (fun slot j -> max slot (Hashtbl.find slots j)) (Hashtbl.find slots i) (List.assoc i calls)
+          in
+          if slot > Hashtbl.find slots i then (Hashtbl.replace slots i slot; true) else moved)
+        false defs
     in
-    if i < j then forward i j else forward j i
+    if moved then settle ()
   in
-  let rec close group =
-    let grown =
-      List.filter
-        (fun d ->
-          List.mem d group || List.exists (fun g -> names_one_another d g) group)
-        defs
-    in
-    if List.length grown = List.length group then group else close grown
-  in
-  let rec components left made =
-    match left with
-    | [] -> made
-    | first :: _ ->
-        let group = close [ first ] in
-        components
-          (List.filter (fun d -> not (List.mem d group)) left)
-          (made @ [ group ])
-  in
-  let made = components defs [] in
-  let joins = List.filter (fun group -> List.length group > 1) made in
-  if joins = [] then stmts
-  else
-    let place =
-      List.concat_map
-        (fun group ->
-          let last = List.fold_left max 0 group in
-          List.map (fun index -> (index, last, group)) group)
-        joins
-    in
+  settle ();
+  let moving = List.filter (fun i -> Hashtbl.find slots i > i) defs in
+  if moving = [] then stmts
+  else begin
     List.iter
-      (fun (index, last, group) ->
-        let between =
-          List.filter
-            (fun j -> j > index && j <= last && not (List.mem j group))
-            (List.init count Fun.id)
-        in
-        let passed =
-          List.fold_left
-            (fun found j -> StringSet.union found (bound_names all.(j)))
-            StringSet.empty between
-        in
-        let mine = Option.value (def_name index) ~default:"" in
+      (fun index ->
+        let last = Hashtbl.find slots index in
+        let between = List.filter (fun j -> j > index && j <= last) (List.init count Fun.id) in
+        let mine = Option.get (def_name index) in
         let refuse reason =
           unsupported (stmt_info all.(index))
             (String.concat ""
@@ -850,13 +838,19 @@ let regroup stmts =
                ])
         in
         (* Moved past something that names it, it would be read before it
-           is written; moved past something that binds a name its body
-           reads, it would be given the later binding. *)
+           is written -- a `def` that names it moves too; moved past
+           something that binds a name its body reads, it would be given
+           the later binding. *)
         if
           List.exists
-            (fun j -> StringSet.mem mine (collect_identifiers [ all.(j) ]))
+            (fun j -> def_name j = None && StringSet.mem mine (collect_identifiers [ all.(j) ]))
             between
         then refuse (Printf.sprintf "`%s` is named in between" mine);
+        let passed =
+          List.fold_left
+            (fun found j -> if def_name j = None then StringSet.union found (bound_names all.(j)) else found)
+            StringSet.empty between
+        in
         let shadowed = StringSet.inter passed (List.assoc index reads) in
         match StringSet.elements shadowed with
         | [] -> ()
@@ -865,16 +859,56 @@ let regroup stmts =
               (Printf.sprintf
                  "`%s` is bound again in between, so moving it would give it the later one"
                  first))
-      place;
+      moving;
+    (* The `def`s sharing a slot, the ones called first: a `def` goes
+       once every one it reaches has gone or reaches it back, the
+       earliest written first. So each group naming each other is
+       consecutive, below everything it calls. *)
+    let reaches i =
+      let rec go seen frontier =
+        match frontier with
+        | [] -> seen
+        | j :: rest ->
+            let fresh = List.filter (fun k -> not (List.mem k seen)) (List.assoc j calls) in
+            go (seen @ fresh) (rest @ fresh)
+      in
+      go [] [ i ]
+    in
+    let reach = List.map (fun i -> (i, reaches i)) defs in
+    let rank = Hashtbl.create 16 in
+    let rec order left next =
+      match left with
+      | [] -> ()
+      | _ ->
+          let ready i =
+            List.for_all
+              (fun j -> (not (List.mem j left)) || List.mem i (List.assoc j reach))
+              (List.assoc i reach)
+          in
+          let first = match List.find_opt ready left with Some i -> i | None -> List.hd left in
+          (* first's whole group goes with it. *)
+          let group =
+            List.filter
+              (fun j -> j = first || (List.mem j (List.assoc first reach) && List.mem first (List.assoc j reach)))
+              left
+          in
+          List.iteri (fun k j -> Hashtbl.replace rank j (next + k)) group;
+          order (List.filter (fun j -> not (List.mem j group)) left) (next + List.length group)
+    in
+    let by_slot = List.sort_uniq compare (List.map (fun i -> Hashtbl.find slots i) defs) in
+    List.iter
+      (fun slot -> order (List.filter (fun i -> Hashtbl.find slots i = slot) defs) 0)
+      by_slot;
     let key index =
-      match List.find_opt (fun (i, _, _) -> i = index) place with
-      | Some (_, last, _) -> last
-      | None -> index
+      match Hashtbl.find_opt slots index with
+      | Some slot -> (slot, 1 + Hashtbl.find rank index)
+      | None -> (index, 0)
     in
     List.map snd
       (List.stable_sort
          (fun (a, _) (b, _) -> compare (key a) (key b))
          (List.mapi (fun index stmt -> (index, stmt)) stmts))
+  end
 
 (** Raises Unsupported if a def in run names one in later with something
     other than a def in between (docs/target_ocaml.md, "A def naming one
@@ -1165,7 +1199,7 @@ let list_printer = "pyk_string_of_int_list"
 
 let list_printer_def =
   Printf.sprintf
-    "let %s xs =\n  \"[\" ^ String.concat \", \" (List.map string_of_int xs) ^ \"]\""
+    "let %s xs =\n  \"[\" ^ Stdlib.String.concat \", \" (Stdlib.List.map string_of_int xs) ^ \"]\""
     list_printer
 
 let float_helper = "pyk_float_str"
@@ -1186,35 +1220,35 @@ let float_helper_def =
       "    if a = 0.0 then sign ^ \"0.0\"";
       "    else";
       "      let rec shortest p =";
-      "        let s = Printf.sprintf \"%.*e\" p a in";
+      "        let s = Stdlib.Printf.sprintf \"%.*e\" p a in";
       "        if p >= 16 || float_of_string s = a then s else shortest (p + 1)";
       "      in";
       "      let s = shortest 0 in";
-      "      let at = String.index s 'e' in";
+      "      let at = Stdlib.String.index s 'e' in";
       "      let digits =";
-      "        String.concat \"\" (String.split_on_char '.' (String.sub s 0 at))";
+      "        Stdlib.String.concat \"\" (Stdlib.String.split_on_char '.' (Stdlib.String.sub s 0 at))";
       "      in";
       "      let rec trim n =";
       "        if n > 1 && digits.[n - 1] = '0' then trim (n - 1) else n";
       "      in";
-      "      let digits = String.sub digits 0 (trim (String.length digits)) in";
-      "      let len = String.length digits in";
+      "      let digits = Stdlib.String.sub digits 0 (trim (Stdlib.String.length digits)) in";
+      "      let len = Stdlib.String.length digits in";
       "      let decpt =";
-      "        int_of_string (String.sub s (at + 1) (String.length s - at - 1))";
+      "        int_of_string (Stdlib.String.sub s (at + 1) (Stdlib.String.length s - at - 1))";
       "        + 1";
       "      in";
-      "      let zeros n = String.make (max 0 n) '0' in";
+      "      let zeros n = Stdlib.String.make (max 0 n) '0' in";
       "      if decpt <= -4 || decpt > 16 then";
       "        let mantissa =";
       "          if len = 1 then digits";
-      "          else String.sub digits 0 1 ^ \".\" ^ String.sub digits 1 (len - 1)";
+      "          else Stdlib.String.sub digits 0 1 ^ \".\" ^ Stdlib.String.sub digits 1 (len - 1)";
       "        in";
       "        sign ^ mantissa ^ \"e\" ^ string_of_int (decpt - 1)";
       "      else if decpt <= 0 then sign ^ \"0.\" ^ zeros (-decpt) ^ digits";
       "      else if decpt >= len then sign ^ digits ^ zeros (decpt - len) ^ \".0\"";
       "      else";
-      "        sign ^ String.sub digits 0 decpt ^ \".\"";
-      "        ^ String.sub digits decpt (len - decpt)";
+      "        sign ^ Stdlib.String.sub digits 0 decpt ^ \".\"";
+      "        ^ Stdlib.String.sub digits decpt (len - decpt)";
     ]
 
 let range_helper = "pyk_range"
@@ -1229,7 +1263,7 @@ let range_helper_def =
       "  if step = 0 then failwith \"'range' step must not be zero\";";
       "  let rec go n out =";
       "    if (step > 0 && n >= stop) || (step < 0 && n <= stop) then";
-      "      List.rev out";
+      "      Stdlib.List.rev out";
       "    else go (n + step) (n :: out)";
       "  in";
       "  go start []";
@@ -1257,9 +1291,9 @@ let char_helper_lines name =
     Some
       [
         Printf.sprintf "let %s c =" name;
-        "  let out = Buffer.create 4 in";
-        "  Buffer.add_utf_8_uchar out (Uchar.of_int c);";
-        "  Buffer.contents out";
+        "  let out = Stdlib.Buffer.create 4 in";
+        "  Stdlib.Buffer.add_utf_8_uchar out (Stdlib.Uchar.of_int c);";
+        "  Stdlib.Buffer.contents out";
       ]
   else if name = char_quote_helper then
     Some
@@ -1273,19 +1307,19 @@ let char_helper_lines name =
         "  | 0x0D -> \"'\\\\r'\"";
         "  | 0x00 -> \"'\\\\0'\"";
         "  | _ ->";
-        "      let out = Buffer.create 6 in";
-        "      Buffer.add_char out '\\'';";
-        "      Buffer.add_utf_8_uchar out (Uchar.of_int c);";
-        "      Buffer.add_char out '\\'';";
-        "      Buffer.contents out";
+        "      let out = Stdlib.Buffer.create 6 in";
+        "      Stdlib.Buffer.add_char out '\\'';";
+        "      Stdlib.Buffer.add_utf_8_uchar out (Stdlib.Uchar.of_int c);";
+        "      Stdlib.Buffer.add_char out '\\'';";
+        "      Stdlib.Buffer.contents out";
       ]
   else if name = char_length_helper then
     Some
       [
         Printf.sprintf "let %s s =" name;
         "  let rec go k n =";
-        "    if k >= String.length s then n";
-        "    else go (k + Uchar.utf_decode_length (String.get_utf_8_uchar s k)) (n + 1)";
+        "    if k >= Stdlib.String.length s then n";
+        "    else go (k + Stdlib.Uchar.utf_decode_length (Stdlib.String.get_utf_8_uchar s k)) (n + 1)";
         "  in";
         "  go 0 0";
       ]
@@ -1294,11 +1328,11 @@ let char_helper_lines name =
       [
         Printf.sprintf "let %s s i =" name;
         "  let rec go k j =";
-        "    if i < 0 || k >= String.length s then invalid_arg \"index out of range\"";
+        "    if i < 0 || k >= Stdlib.String.length s then invalid_arg \"index out of range\"";
         "    else";
-        "      let d = String.get_utf_8_uchar s k in";
-        "      if j = i then Uchar.to_int (Uchar.utf_decode_uchar d)";
-        "      else go (k + Uchar.utf_decode_length d) (j + 1)";
+        "      let d = Stdlib.String.get_utf_8_uchar s k in";
+        "      if j = i then Stdlib.Uchar.to_int (Stdlib.Uchar.utf_decode_uchar d)";
+        "      else go (k + Stdlib.Uchar.utf_decode_length d) (j + 1)";
         "  in";
         "  go 0 0";
       ]
@@ -1307,10 +1341,10 @@ let char_helper_lines name =
       [
         Printf.sprintf "let %s s =" name;
         "  let rec go k out =";
-        "    if k >= String.length s then List.rev out";
+        "    if k >= Stdlib.String.length s then Stdlib.List.rev out";
         "    else";
-        "      let d = String.get_utf_8_uchar s k in";
-        "      go (k + Uchar.utf_decode_length d) (Uchar.to_int (Uchar.utf_decode_uchar d) :: out)";
+        "      let d = Stdlib.String.get_utf_8_uchar s k in";
+        "      go (k + Stdlib.Uchar.utf_decode_length d) (Stdlib.Uchar.to_int (Stdlib.Uchar.utf_decode_uchar d) :: out)";
         "  in";
         "  go 0 []";
       ]
@@ -1325,7 +1359,7 @@ let char_helper_lines name =
       [
         Printf.sprintf "let %s s =" name;
         "  if s = \"\" then 0";
-        "  else Uchar.to_int (Uchar.utf_decode_uchar (String.get_utf_8_uchar s 0))";
+        "  else Stdlib.Uchar.to_int (Stdlib.Uchar.utf_decode_uchar (Stdlib.String.get_utf_8_uchar s 0))";
       ]
   else None
 
@@ -1410,6 +1444,14 @@ let mutmap_walk_helper = "pyk_mutmap_walk"
 let mutmap_walk_length_helper = "pyk_mutmap_walk_length"
 let mutmap_walk_key_helper = "pyk_mutmap_walk_key"
 
+(* A Map's own helpers (docs/target_ocaml.md, "Maps"); the rest are a
+   MutMap's. *)
+let map_of_list_helper = "pyk_map_of_list"
+let map_get_helper = "pyk_map_get"
+
+(* Writes a map's key of a type variable for an error message. *)
+let show_key_helper = "pyk_show_key"
+
 (** The helpers each array helper calls, nearest first. string -> [string] *)
 let array_helper_needs name =
   if name = array_size_helper || name = array_check_helper then [ array_fail_helper ]
@@ -1434,6 +1476,8 @@ let array_helper_needs name =
   else if name = ptr_elem_helper then [ array_fail_helper ]
   else if name = ptr_view_elem_helper then [ array_fail_helper; ptr_elem_helper ]
   else if name = equal_helper then [ ptr_same_helper ]
+  else if name = map_of_list_helper then [ mutmap_set_helper; mutmap_of_list_helper ]
+  else if name = map_get_helper then [ array_fail_helper ]
   else if name = mutmap_of_list_helper then [ mutmap_set_helper ]
   else if name = mutmap_keys_helper || name = mutmap_values_helper then [ mutmap_items_helper ]
   else if name = mutmap_get_helper || name = mutmap_remove_helper then [ array_fail_helper ]
@@ -1534,7 +1578,7 @@ let array_helper_lines name =
         "   so it keeps no value alive; the cell is what every holder of";
         "   the DynArray shares. *)";
         Printf.sprintf "let %s xs =" name;
-        "  let items = Stdlib.Array.of_list (List.map Option.some xs) in";
+        "  let items = Stdlib.Array.of_list (Stdlib.List.map Stdlib.Option.some xs) in";
         "  ref (items, Stdlib.Array.length items)";
       ]
   else if name = dynarray_length_helper then
@@ -1636,7 +1680,7 @@ let array_helper_lines name =
     Some
       [
         "(* The elements as they are now. *)";
-        Printf.sprintf "let %s v = List.init (snd !v) (pyk_dynarray_item v)" name;
+        Printf.sprintf "let %s v = Stdlib.List.init (snd !v) (pyk_dynarray_item v)" name;
       ]
   else if name = ptr_cell_helper then
     Some
@@ -1698,9 +1742,11 @@ let array_helper_lines name =
   else if name = equal_helper then
     Some
       [
-        "(* `==` on values that can hold a pointer: structural, as OCaml's `=`";
-        "   is, except that two pointers are equal where they name one place.";
-        "   A pointer is the only object a Pyking value holds. *)";
+        "(* `==` on values that can hold a pointer or a Map: structural, as";
+        "   OCaml's `=` is, except that two pointers are equal where they name";
+        "   one place, and two Maps where they have the same keys, each with";
+        "   an equal value, in any order. A pointer is the only object a";
+        "   Pyking value holds, and a Map the only block of tag 200. *)";
         Printf.sprintf "let %s a b =" name;
         "  let rec equal a b =";
         "    if Obj.is_int a || Obj.is_int b then a == b";
@@ -1712,6 +1758,14 @@ let array_helper_lines name =
         "      else if tag = Obj.double_tag then (Obj.obj a : float) = (Obj.obj b : float)";
         "      else if tag = Obj.string_tag then (Obj.obj a : string) = (Obj.obj b : string)";
         "      else if tag = Obj.double_array_tag then (Obj.obj a : float array) = (Obj.obj b : float array)";
+        "      else if tag = 200 then";
+        "        let table v : (Obj.t, int * Obj.t) Stdlib.Hashtbl.t = Obj.obj (Obj.field v 0) in";
+        "        let ta = table a and tb = table b in";
+        "        Stdlib.Hashtbl.length ta = Stdlib.Hashtbl.length tb";
+        "        && Stdlib.Hashtbl.fold";
+        "             (fun k (_, v) same ->";
+        "               same && match Stdlib.Hashtbl.find_opt tb k with Some (_, w) -> equal v w | None -> false)";
+        "             ta true";
         "      else";
         "        let n = Obj.size a in";
         "        let rec fields i = i >= n || (equal (Obj.field a i) (Obj.field b i) && fields (i + 1)) in";
@@ -1736,8 +1790,8 @@ let array_helper_lines name =
     Some
       [
         Printf.sprintf "let %s xs low high =" name;
-        "  let high = pyk_slice_bounds \"a list\" (List.length xs) low high in";
-        "  List.filteri (fun i _ -> i >= low && i < high) xs";
+        "  let high = pyk_slice_bounds \"a list\" (Stdlib.List.length xs) low high in";
+        "  Stdlib.List.filteri (fun i _ -> i >= low && i < high) xs";
       ]
   else if name = slice_helper "string" then
     Some
@@ -1745,8 +1799,8 @@ let array_helper_lines name =
         "(* By code point. *)";
         Printf.sprintf "let %s s low high =" name;
         "  let chars = pyk_chars s in";
-        "  let high = pyk_slice_bounds \"a String\" (List.length chars) low high in";
-        "  String.concat \"\" (List.map pyk_char_text (List.filteri (fun i _ -> i >= low && i < high) chars))";
+        "  let high = pyk_slice_bounds \"a String\" (Stdlib.List.length chars) low high in";
+        "  Stdlib.String.concat \"\" (Stdlib.List.map pyk_char_text (Stdlib.List.filteri (fun i _ -> i >= low && i < high) chars))";
       ]
   else if name = slice_helper "array" then
     Some
@@ -1833,7 +1887,7 @@ let array_helper_lines name =
     Some
       [
         Printf.sprintf "let %s (owner, offset, length) =" name;
-        "  List.init length (fun k -> Stdlib.Array.unsafe_get owner (offset + k))";
+        "  Stdlib.List.init length (fun k -> Stdlib.Array.unsafe_get owner (offset + k))";
       ]
   else if name = whole_helper then
     Some
@@ -1871,7 +1925,7 @@ let array_helper_lines name =
       [
         Printf.sprintf "let %s pairs =" name;
         "  let d = (Stdlib.Hashtbl.create 8, ref 0) in";
-        "  List.iter (fun (k, v) -> pyk_mutmap_set d k v) pairs;";
+        "  Stdlib.List.iter (fun (k, v) -> pyk_mutmap_set d k v) pairs;";
         "  d";
       ]
   else if name = mutmap_items_helper then
@@ -1880,13 +1934,13 @@ let array_helper_lines name =
         "(* The entries, in the order their keys were put in. *)";
         Printf.sprintf "let %s (table, _) =" name;
         "  Stdlib.Hashtbl.fold (fun k (stamp, v) out -> (stamp, (k, v)) :: out) table []";
-        "  |> List.sort (fun (a, _) (b, _) -> compare (a : int) b)";
-        "  |> List.map snd";
+        "  |> Stdlib.List.sort (fun (a, _) (b, _) -> compare (a : int) b)";
+        "  |> Stdlib.List.map snd";
       ]
   else if name = mutmap_keys_helper then
-    Some [ Printf.sprintf "let %s d = List.map fst (pyk_mutmap_items d)" name ]
+    Some [ Printf.sprintf "let %s d = Stdlib.List.map fst (pyk_mutmap_items d)" name ]
   else if name = mutmap_values_helper then
-    Some [ Printf.sprintf "let %s d = List.map snd (pyk_mutmap_items d)" name ]
+    Some [ Printf.sprintf "let %s d = Stdlib.List.map snd (pyk_mutmap_items d)" name ]
   else if name = mutmap_get_helper then
     Some
       [
@@ -1946,6 +2000,43 @@ let array_helper_lines name =
       ]
   else if name = mutmap_walk_key_helper then
     Some [ Printf.sprintf "let %s (keys, _, _) i = Stdlib.Array.unsafe_get keys i" name ]
+  else if name = map_of_list_helper then
+    Some
+      [
+        "(* A Map is a MutMap's pair that is never written, in a block of a";
+        "   tag no datatype reaches, so pyk_equal tells one in any value, in";
+        "   any module, and compares it by its entries. *)";
+        Printf.sprintf "let %s (pairs : ('k * 'v) list) : ('k, int * 'v) Stdlib.Hashtbl.t * int ref =" name;
+        "  let table, counter = pyk_mutmap_of_list pairs in";
+        "  let b = Obj.new_block 200 2 in";
+        "  Obj.set_field b 0 (Obj.repr table);";
+        "  Obj.set_field b 1 (Obj.repr counter);";
+        "  Obj.obj b";
+      ]
+  else if name = show_key_helper then
+    Some
+      [
+        "(* A key of a type variable, as an error names it: OCaml keeps no";
+        "   type at run time, so it is written as it is held -- an Int, a";
+        "   String quoted, a tuple of those. *)";
+        Printf.sprintf "let %s k =" name;
+        "  let rec show v =";
+        "    if Obj.is_int v then string_of_int (Obj.obj v)";
+        "    else if Obj.tag v = Obj.string_tag then pyk_quote (Obj.obj v)";
+        "    else if Obj.tag v = 0 then";
+        "      \"(\" ^ Stdlib.String.concat \", \" (Stdlib.List.init (Obj.size v) (fun i -> show (Obj.field v i))) ^ \")\"";
+        "    else \"...\"";
+        "  in";
+        "  show (Obj.repr k)";
+      ]
+  else if name = map_get_helper then
+    Some
+      [
+        Printf.sprintf "let %s show (table, _) k =" name;
+        "  match Stdlib.Hashtbl.find_opt table k with";
+        "  | Some (_, v) -> v";
+        "  | None -> pyk_array_fail (\"the Map has no key \" ^ show k)";
+      ]
   else if name = guard_helper then
     (* The path is what formatting is inside of, innermost first: an
        array or var struct met again on it is a cycle, and stops there.
@@ -1956,7 +2047,7 @@ let array_helper_lines name =
         "   is already being formatted further out. *)";
         Printf.sprintf "let %s path value show =" name;
         "  let key = Obj.repr value in";
-        "  if List.memq key path then \"...\" else show (key :: path)";
+        "  if Stdlib.List.memq key path then \"...\" else show (key :: path)";
       ]
   else None
 
@@ -2000,7 +2091,7 @@ let conversion_def name =
      else if name = int_helper then
        [
          Printf.sprintf "let %s s =" name;
-         "  let n = String.length s in";
+         "  let n = Stdlib.String.length s in";
          "  let start = if n > 0 && (s.[0] = '-' || s.[0] = '+') then 1 else 0 in";
          "  let rec digits i = i = n || (s.[i] >= '0' && s.[i] <= '9' && digits (i + 1)) in";
          "  if start = n || not (digits start) then 0";
@@ -2012,15 +2103,15 @@ let conversion_def name =
      else if name = truncate_helper then
        [
          Printf.sprintf "let %s x =" name;
-         "  if Float.is_nan x then 0";
+         "  if Stdlib.Float.is_nan x then 0";
          "  else";
-         "    let t = Float.trunc x in";
+         "    let t = Stdlib.Float.trunc x in";
          "    if t < -2147483648.0 || t > 2147483647.0 then 0 else int_of_float t";
        ]
      else
        [
          Printf.sprintf "let %s s =" name;
-         "  let n = String.length s in";
+         "  let n = Stdlib.String.length s in";
          "  let rec digits i = if i < n && s.[i] >= '0' && s.[i] <= '9' then digits (i + 1) else i in";
          "  let signed i = if i < n && (s.[i] = '-' || s.[i] = '+') then i + 1 else i in";
          "  let whole = digits (signed 0) in";
@@ -2050,21 +2141,21 @@ let quote_helper_def =
   String.concat "\n"
     [
       Printf.sprintf "let %s text =" quote_helper;
-      "  let out = Buffer.create (String.length text + 2) in";
-      "  Buffer.add_char out '\"';";
-      "  String.iter";
+      "  let out = Stdlib.Buffer.create (Stdlib.String.length text + 2) in";
+      "  Stdlib.Buffer.add_char out '\"';";
+      "  Stdlib.String.iter";
       "    (fun c ->";
       "      match c with";
-      "      | '\\\\' -> Buffer.add_string out \"\\\\\\\\\"";
-      "      | '\"' -> Buffer.add_string out \"\\\\\\\"\"";
-      "      | '\\n' -> Buffer.add_string out \"\\\\n\"";
-      "      | '\\t' -> Buffer.add_string out \"\\\\t\"";
-      "      | '\\r' -> Buffer.add_string out \"\\\\r\"";
-      "      | '\\000' -> Buffer.add_string out \"\\\\0\"";
-      "      | c -> Buffer.add_char out c)";
+      "      | '\\\\' -> Stdlib.Buffer.add_string out \"\\\\\\\\\"";
+      "      | '\"' -> Stdlib.Buffer.add_string out \"\\\\\\\"\"";
+      "      | '\\n' -> Stdlib.Buffer.add_string out \"\\\\n\"";
+      "      | '\\t' -> Stdlib.Buffer.add_string out \"\\\\t\"";
+      "      | '\\r' -> Stdlib.Buffer.add_string out \"\\\\r\"";
+      "      | '\\000' -> Stdlib.Buffer.add_string out \"\\\\0\"";
+      "      | c -> Stdlib.Buffer.add_char out c)";
       "    text;";
-      "  Buffer.add_char out '\"';";
-      "  Buffer.contents out";
+      "  Stdlib.Buffer.add_char out '\"';";
+      "  Stdlib.Buffer.contents out";
     ]
 
 (** The OCaml spelling of an arithmetic operator, which OCaml gives one
@@ -2156,15 +2247,15 @@ let takes_path ctx canonical =
   in
   datatype [] canonical
 
-(** Whether a value of type t can hold a pointer, which `==` compares by
-    the place it names rather than by what is there. A datatype this
-    module cannot see counts as holding one. ctx -> typ -> bool *)
-let holds_pointer ctx t =
+(** Whether a value of type t can hold a value of a type `leaf` picks.
+    A datatype this module cannot see counts as holding one.
+    ctx -> (typ -> bool) -> typ -> bool *)
+let holds_such ctx leaf t =
   let rec go seen t =
     match t with
     | TList (_, element, _) -> go seen element
     | TTuple (_, elements, _) -> List.exists (go seen) elements
-    | TCon _ when ptr_target t <> None -> true
+    | TCon _ when leaf t -> true
     | TCon (_, c, args, _) -> (
         List.exists (go seen) args
         || (not (List.mem c seen))
@@ -2178,6 +2269,15 @@ let holds_pointer ctx t =
     | _ -> false
   in
   go [] t
+
+(** Whether a value of type t can hold a pointer, which `==` compares by
+    the place it names rather than by what is there. ctx -> typ -> bool *)
+let holds_pointer ctx t = holds_such ctx (fun t -> ptr_target t <> None) t
+
+(** Whether `==` on values of type t is pyk_equal's rather than OCaml's
+    `=`: where they can hold a pointer, or a Map, which is compared by its
+    entries in any order. ctx -> typ -> bool *)
+let compared_by_helper ctx t = holds_pointer ctx t || holds_such ctx (fun t -> map_parts t <> None) t
 
 (** Whether a value of type t can hold an array or a var struct: one a
     call can change between the moment it is worked out and the moment
@@ -2196,6 +2296,13 @@ let rec holds_mutable ctx t =
       | Some _ -> takes_path ctx c)
   | _ -> false
 
+(** Whether a call's callee is a builtin: the checker records a type for
+    one it resolved to a definition and none for a builtin, and
+    elaborate.ml gives a builtin it calls, as `items` in a conversion,
+    its TBuiltin type. typ IntMap.t -> int -> bool *)
+let builtin_callee tmap callee =
+  match IntMap.find_opt callee tmap with None | Some (TBuiltin _) -> true | Some _ -> false
+
 (** Whether one call can change what a caller sees: a builtin that
     changes a DynArray, a function of the program's own that is in `known`, a
     function of another module, and -- where `unknown` -- one reached
@@ -2204,7 +2311,7 @@ let rec holds_mutable ctx t =
 let call_changes defined known unknown tmap e =
   match e with
   | ECall (_, EVar (_, name, callee), _, _) ->
-      if (not (IntMap.mem callee tmap)) && List.mem name Builtin.names then
+      if builtin_callee tmap callee && List.mem name Builtin.names then
         List.mem name Builtin.writers
       else if StringSet.mem name defined then StringSet.mem name known
       else unknown
@@ -2293,7 +2400,7 @@ let writes ctx e =
        (fun node ->
          match node with
          | Walk.NExpr (EIndex (_, owner, _, _)) ->
-             typed ctx (fun t -> store_element t <> None || mutmap_parts t <> None) owner
+             typed ctx (fun t -> store_element t <> None || table_parts t <> None) owner
          (* An element's address checks the index. *)
          | Walk.NExpr (EAddr (_, EIndex _, _)) -> true
          | Walk.NExpr (ECall (_, EVar (_, name, _), _, _))
@@ -2327,13 +2434,13 @@ let observes ctx e =
          | Walk.NExpr (ECall (_, EVar (_, "string", _), [ (_, value) ], _)) ->
              holds_mutable ctx (type_of ctx value)
          | Walk.NExpr (ECall (_, EVar (_, name, callee), args, _))
-           when List.mem name Builtin.pure_names && not (IntMap.mem callee ctx.tmap) -> (
+           when List.mem name Builtin.pure_names && builtin_callee ctx.tmap callee -> (
              (* A builtin -- the checker gave a program's own function of
                 the name a type, and none to the builtin. `len`, `get`,
                 `has`, `keys`, ... read a DynArray or a MutMap. *)
              match args with
              | (_, first) :: _ ->
-                 dynarray_element (type_of ctx first) <> None || mutmap_parts (type_of ctx first) <> None
+                 dynarray_element (type_of ctx first) <> None || table_parts (type_of ctx first) <> None
              | [] -> false)
          | Walk.NExpr (ECall (_, EVar _, _, _)) -> true
          | Walk.NExpr (ECall _) -> true
@@ -2386,7 +2493,7 @@ let rec type_text type_ name top =
   | TCon (_, _, [ element ], _) when slice_element type_ <> None ->
       Printf.sprintf "(%s array * int * int)" (type_text element name false)
   (* A MutMap: its table and its counter, Stdlib's types again. *)
-  | TCon (_, _, [ key; value ], _) when mutmap_parts type_ <> None ->
+  | TCon (_, _, [ key; value ], _) when table_parts type_ <> None ->
       let pair =
         Printf.sprintf "(%s, int * %s) Stdlib.Hashtbl.t * int ref" (type_text key name true)
           (type_text value name false)
@@ -2500,14 +2607,14 @@ let rec expr ctx acc e =
      and none for a builtin, which is how a program's own `debug` is told
      from the builtin. *)
   | ECall (_, EVar (_, name, callee), args, _)
-    when Builtin.crosses_host name && not (IntMap.mem callee ctx.tmap) ->
+    when Builtin.crosses_host name && builtin_callee ctx.tmap callee ->
       print_call ctx acc e (arg_exprs args)
   | ECall (_, EVar (_, name, callee), args, _)
     when List.mem name Builtin.pure_names
          (* `same` is a newer builtin than many a program's own `same`,
             which the checker gave a type and which is called as any
             definition is. *)
-         && not (List.mem name Builtin.yielding && IntMap.mem callee ctx.tmap) ->
+         && not (List.mem name Builtin.yielding && not (builtin_callee ctx.tmap callee)) ->
       builtin_call ctx acc e name (arg_exprs args)
   (* The four ways to make an array (docs/target_ocaml.md, "Arrays"):
      the arguments are worked out left to right like any call's, then
@@ -2524,6 +2631,7 @@ let rec expr ctx acc e =
         | "empty__dynarray" -> ("ref", acc)
         | "list__mutmap" -> (mutmap_of_list_helper, need acc mutmap_of_list_helper)
         | "empty__mutmap" -> ("Stdlib.Hashtbl.create", acc)
+        | "list__map" | "empty__map" -> (map_of_list_helper, need acc map_of_list_helper)
         | _ ->
             unsupported (expr_info e)
               (Printf.sprintf "the builtin `%s` is not supported yet" name)
@@ -2532,6 +2640,7 @@ let rec expr ctx acc e =
         if name = "empty__dynarray" then OApp (OVar "ref", [ OTuple [ OVar "[||]"; OInt 0 ] ])
         else if name = "empty__mutmap" then
           OTuple [ OApp (OVar "Stdlib.Hashtbl.create", [ OInt 8 ]); OApp (OVar "ref", [ OInt 0 ]) ]
+        else if name = "empty__map" then OApp (OVar helper, [ OList [] ])
         else sequence (OApp (OVar helper, pieces))
       in
       (* `array([])` says nothing of its element type to OCaml, which
@@ -2539,8 +2648,8 @@ let rec expr ctx acc e =
          generalise: the checker's type is written on it instead. *)
       let made =
         match (name, arg_exprs args) with
-        | ("list__array" | "list__dynarray" | "list__mutmap"), [ EList (_, [], _) ]
-        | ("empty__dynarray" | "empty__mutmap"), [] ->
+        | ("list__array" | "list__dynarray" | "list__mutmap" | "list__map"), [ EList (_, [], _) ]
+        | ("empty__dynarray" | "empty__mutmap" | "empty__map"), [] ->
             (* Only a type written the same in every module, with no
                variable left in it, is written. *)
             let rec plain t =
@@ -2549,7 +2658,7 @@ let rec expr ctx acc e =
               | TList (_, element, _) -> plain element
               | TTuple (_, elements, _) -> List.for_all plain elements
               | t -> (
-                  match (store_element t, mutmap_parts t) with
+                  match (store_element t, table_parts t) with
                   | Some element, _ -> plain element
                   | None, Some (key, value) -> plain key && plain value
                   | None, None -> false)
@@ -2641,13 +2750,13 @@ let rec expr ctx acc e =
           let b, acc = expr ctx acc right in
           (OBin ((match op with BAnd _ -> "&&" | _ -> "||"), a, b), acc)
       (* `<>` is structural, as `=` is, and IEEE's on two floats. *)
-      | BNeq when holds_pointer ctx (type_of ctx left) ->
+      | BNeq when compared_by_helper ctx (type_of ctx left) ->
           let same, acc = equality ctx acc left right in
           (OApp (OVar "not", [ same ]), acc)
       | BNeq | BBoolXor -> binary ctx acc "<>" left right
       | BMod when float ->
           let pieces, sequence, acc = in_order ctx acc [ left; right ] in
-          (sequence (OApp (OVar "Float.rem", pieces)), acc)
+          (sequence (OApp (OVar "Stdlib.Float.rem", pieces)), acc)
       (* `mod` truncates toward zero, as Pyking's `%` does. *)
       | BMod -> binary ctx acc "mod" left right
       | BPow when float -> binary ctx acc "**" left right
@@ -2775,10 +2884,12 @@ let rec expr ctx acc e =
         (sequence (OApp (OVar dynarray_get_helper, pieces)), need acc dynarray_get_helper)
       else if slice_element (type_of ctx list) <> None then
         (sequence (OApp (OVar view_get_helper, pieces)), need acc view_get_helper)
-      else if mutmap_parts (type_of ctx list) <> None then
+      else if table_parts (type_of ctx list) <> None then
+        (* The helper says which kind of map has no such key. *)
+        let helper = if map_parts (type_of ctx list) <> None then map_get_helper else mutmap_get_helper in
         let show, acc = key_printer ctx acc (type_of ctx index) in
-        (sequence (OApp (OVar mutmap_get_helper, show :: pieces)), need acc mutmap_get_helper)
-      else (sequence (OApp (OVar "List.nth", pieces)), acc)
+        (sequence (OApp (OVar helper, show :: pieces)), need acc helper)
+      else (sequence (OApp (OVar "Stdlib.List.nth", pieces)), acc)
   | EConstruct (_, _, name, args, _) -> (
       let canonical =
         match type_of ctx e with TCon (_, c, _, _) -> c | _ -> name
@@ -2936,6 +3047,19 @@ and object_value ctx acc info cls args =
     it is written inside a value, a String quoted.
     ctx -> acc -> typ -> (oexpr, acc) *)
 and key_printer ctx acc key_type =
+  (* What string_of cannot print, a type variable no printer was handed
+     for, is written as it is held (docs/target_ocaml.md, "Maps"). *)
+  let rec printable t =
+    match t with
+    | TVar (_, variable, _, true) -> List.mem_assoc variable ctx.shows
+    | TList (_, element, _) -> printable element
+    | TTuple (_, elements, _) -> List.for_all printable elements
+    | TCon (_, _, args, _) -> List.for_all printable args
+    | _ -> true
+  in
+  if not (printable key_type) then
+    (OVar show_key_helper, need { acc with needs_quote = true } show_key_helper)
+  else
   let name, acc = fresh_name ctx acc in
   let shown, acc = string_of { ctx with path = OList [] } acc key_type (OVar name) no_info false in
   (OFun [ (name, shown) ], acc)
@@ -2953,7 +3077,7 @@ and walked_chars ctx acc sequence o_sequence =
     (oexpr, acc) *)
 and equality ctx acc left right =
   let t = type_of ctx left in
-  if not (holds_pointer ctx t) then binary ctx acc "=" left right
+  if not (compared_by_helper ctx t) then binary ctx acc "=" left right
   else
     let helper = if ptr_target t <> None then ptr_same_helper else equal_helper in
     let pieces, sequence, acc = in_order ctx acc [ left; right ] in
@@ -3176,12 +3300,13 @@ and string_of ctx acc type_ translated info top =
               OLet ([ { bound = OPatName name; params = []; value = translated } ], made, false)),
           acc )
     | TCon _ when held_element type_ <> None ->
-        (* What makes one: `array([`, `dynarray([` or `mutmap([`, and the
-           elements -- a MutMap's entries, as `(key, value)` tuples -- as a
-           list writes them. *)
+        (* What makes one: `array([`, `dynarray([`, `map([` or `mutmap([`,
+           and the elements -- a map's entries, as `(key, value)` tuples --
+           as a list writes them. *)
         let element = Option.get (held_element type_) in
         let opening, lister, acc =
           if dynarray_element type_ <> None then ("dynarray([", dynarray_to_list_helper, need acc dynarray_to_list_helper)
+          else if map_parts type_ <> None then ("map([", mutmap_items_helper, need acc mutmap_items_helper)
           else if mutmap_parts type_ <> None then
             ("mutmap([", mutmap_items_helper, need acc mutmap_items_helper)
           else if slice_element type_ <> None then
@@ -3195,8 +3320,8 @@ and string_of ctx acc type_ translated info top =
         in
         let written array =
           let listed = OApp (OVar lister, [ array ]) in
-          let mapped = OApp (OVar "List.map", [ OFun [ (name, shown) ]; listed ]) in
-          let joined = OApp (OVar "String.concat", [ OStr ", "; mapped ]) in
+          let mapped = OApp (OVar "Stdlib.List.map", [ OFun [ (name, shown) ]; listed ]) in
+          let joined = OApp (OVar "Stdlib.String.concat", [ OStr ", "; mapped ]) in
           OBin ("^", OStr opening, OBin ("^", joined, OStr "])"))
         in
         if not (StringSet.mem "path" (free shown)) then (written translated, acc)
@@ -3260,8 +3385,8 @@ and string_of ctx acc type_ translated info top =
 and list_string ctx acc element_type translated info =
   let name, acc = fresh_name ctx acc in
   let element, acc = string_of ctx acc element_type (OVar name) info false in
-  let mapped = OApp (OVar "List.map", [ OFun [ (name, element) ]; translated ]) in
-  let joined = OApp (OVar "String.concat", [ OStr ", "; mapped ]) in
+  let mapped = OApp (OVar "Stdlib.List.map", [ OFun [ (name, element) ]; translated ]) in
+  let joined = OApp (OVar "Stdlib.String.concat", [ OStr ", "; mapped ]) in
   (OBin ("^", OStr "[", OBin ("^", joined, OStr "]")), acc)
 
 (** A tuple as a string, in Pyking's own notation. OCaml has no printer
@@ -3346,12 +3471,12 @@ and builtin_call ctx acc call name args =
       if is_string type_ then
         (OApp (OVar char_length_helper, [ o_value ]), need acc char_length_helper)
       else if is_list type_ then
-        (OApp (OVar "List.length", [ o_value ]), acc)
+        (OApp (OVar "Stdlib.List.length", [ o_value ]), acc)
       else if Typesystem.array_element type_ <> None then
         (OApp (OVar "Stdlib.Array.length", [ o_value ]), acc)
       else if dynarray_element type_ <> None then
         (OApp (OVar dynarray_length_helper, [ o_value ]), need acc dynarray_length_helper)
-      else if mutmap_parts type_ <> None then
+      else if table_parts type_ <> None then
         (OApp (OVar mutmap_length_helper, [ o_value ]), need acc mutmap_length_helper)
       else if slice_element type_ <> None then
         (OApp (OVar view_length_helper, [ o_value ]), need acc view_length_helper)
@@ -3400,10 +3525,11 @@ and builtin_call ctx acc call name args =
       let o_dst, acc = run dst o_dst acc in
       let o_src, acc = run src o_src acc in
       (pin (OApp (OVar copy_into_helper, [ o_dst; o_src ])), need acc copy_into_helper)
-  (* What reads or changes a MutMap (docs/target_ocaml.md, "MutMaps"). *)
+  (* What reads or changes a MutMap, and what reads a Map
+     (docs/target_ocaml.md, "MutMaps"). *)
   | ("remove" | "discard" | "clear" | "get" | "has" | "keys" | "values" | "items"), first :: _
-    when mutmap_parts (type_of ctx first) <> None -> (
-      let key_type = fst (Option.get (mutmap_parts (type_of ctx first))) in
+    when table_parts (type_of ctx first) <> None -> (
+      let key_type = fst (Option.get (table_parts (type_of ctx first))) in
       let pieces, pin, acc = in_order ctx acc args in
       match (name, pieces) with
       | "remove", _ ->
@@ -3415,12 +3541,17 @@ and builtin_call ctx acc call name args =
       | _ ->
           let helper = "pyk_mutmap_" ^ name in
           (pin (OApp (OVar helper, pieces)), need acc helper))
+  (* A runtime error, as an index outside an array is; pyk_array_fail
+     answers any type, as `panic` does. *)
+  | "panic", [ message ] ->
+      let o_message, acc = expr ctx acc message in
+      (OApp (OVar array_fail_helper, [ o_message ]), need acc array_fail_helper)
   | "range", [ count ] ->
       (* `List.init` refuses a negative length where `range` answers with
          nothing, so the count is floored here. *)
       let o_count, acc = expr ctx acc count in
       ( OApp
-          (OVar "List.init", [ OApp (OVar "max", [ OInt 0; o_count ]); OVar "Fun.id" ]),
+          (OVar "Stdlib.List.init", [ OApp (OVar "max", [ OInt 0; o_count ]); OVar "Stdlib.Fun.id" ]),
         acc )
   | "range", ([ _; _ ] | [ _; _; _ ]) ->
       let ordered, pin, acc = in_order ctx acc args in
@@ -3456,13 +3587,13 @@ and matcher ctx acc p used =
     let k = Option.get (Classes.find ctx.classes cls) in
     let found =
       OApp
-        ( OVar "List.find_map",
+        ( OVar "Stdlib.List.find_map",
           [ OFun [ (up_constructor cls ^ " x", OApp (OVar "Some", [ OVar "x" ])); ("_", OVar "None") ]; OSend (subject, "pyk_up") ] )
     in
     let test =
-      OApp (OVar "List.exists", [ OFun [ (up_constructor cls ^ " _", OBool true); ("_", OBool false) ]; OSend (subject, "pyk_up") ])
+      OApp (OVar "Stdlib.List.exists", [ OFun [ (up_constructor cls ^ " _", OBool true); ("_", OBool false) ]; OSend (subject, "pyk_up") ])
     in
-    let viewed = OApp (OVar "Option.get", [ found ]) in
+    let viewed = OApp (OVar "Stdlib.Option.get", [ found ]) in
     let viewed = if k.Classes.params = [] then viewed else OApp (OVar "Obj.obj", [ viewed ]) in
     (test, viewed)
   in
@@ -3523,7 +3654,7 @@ and matcher ctx acc p used =
          it safe. *)
       let name, acc = fresh_name ctx acc in
       let subject = OVar name in
-      let length = OApp (OVar "String.length", [ subject ]) in
+      let length = OApp (OVar "Stdlib.String.length", [ subject ]) in
       let front = String.length prefix and back = String.length suffix in
       let guards =
         [ OBin (">=", length, OInt (front + back)) ]
@@ -3531,7 +3662,7 @@ and matcher ctx acc p used =
            else
              [ OBin
                  ( "=",
-                   OApp (OVar "String.sub", [ subject; OInt 0; OInt front ]),
+                   OApp (OVar "Stdlib.String.sub", [ subject; OInt 0; OInt front ]),
                    OStr prefix ) ])
         @
         if back = 0 then []
@@ -3539,7 +3670,7 @@ and matcher ctx acc p used =
           [ OBin
               ( "=",
                 OApp
-                  ( OVar "String.sub",
+                  ( OVar "Stdlib.String.sub",
                     [ subject; OBin ("-", length, OInt back); OInt back ] ),
                 OStr suffix ) ]
       in
@@ -3549,7 +3680,7 @@ and matcher ctx acc p used =
         | Some middle ->
             [ ( unread (mangle ctx middle) used,
                 OApp
-                  ( OVar "String.sub",
+                  ( OVar "Stdlib.String.sub",
                     [
                       subject;
                       OInt front;
@@ -3620,7 +3751,7 @@ and matcher ctx acc p used =
             (prefix @ suffix);
           let name, acc = fresh_name ctx acc in
           let subject = OVar name in
-          let count = OApp (OVar "List.length", [ subject ]) in
+          let count = OApp (OVar "Stdlib.List.length", [ subject ]) in
           let front = List.length prefix and back = List.length suffix in
           let at index element extracts =
             match element with
@@ -3628,7 +3759,7 @@ and matcher ctx acc p used =
                 extracts
                 @ [
                     ( unread (mangle ctx bound) used,
-                      OApp (OVar "List.nth", [ subject; index ]) );
+                      OApp (OVar "Stdlib.List.nth", [ subject; index ]) );
                   ]
             | _ -> extracts
           in
@@ -3656,16 +3787,16 @@ and matcher ctx acc p used =
                     ( unread (mangle ctx bound) used,
                       if ctx.slices then
                         OApp
-                          ( OVar "List.take",
+                          ( OVar "Stdlib.List.take",
                             [
                               OBin ("-", OBin ("-", count, OInt front), OInt back);
-                              OApp (OVar "List.drop", [ OInt front; subject ]);
+                              OApp (OVar "Stdlib.List.drop", [ OInt front; subject ]);
                             ] )
                       else
                         (* The elements from `front` up to `back` from the
                            end, with what OCaml 4.14 has. *)
                         OApp
-                          ( OVar "List.filteri",
+                          ( OVar "Stdlib.List.filteri",
                             [
                               OLambda
                                 ( [ OPatName "i"; OPatName "_" ],
@@ -3812,7 +3943,7 @@ and clauses ctx acc clause_list element =
           (OApp (OVar dynarray_to_list_helper, [ o_sequence ]), need acc dynarray_to_list_helper)
         else if slice_element (type_of ctx sequence) <> None then
           (OApp (OVar view_to_list_helper, [ o_sequence ]), need acc view_to_list_helper)
-        else if mutmap_parts (type_of ctx sequence) <> None then
+        else if table_parts (type_of ctx sequence) <> None then
           (* A MutMap's keys as they are. *)
           (OApp (OVar mutmap_keys_helper, [ o_sequence ]), need acc mutmap_keys_helper)
         else (o_sequence, acc)
@@ -3828,7 +3959,7 @@ and clauses ctx acc clause_list element =
             let name, acc = fresh_name ctx acc in
             ([ (name, OMatch (OVar name, arms)) ], acc)
       in
-      (OApp (OVar "List.concat_map", [ OFun taking; o_sequence ]), acc)
+      (OApp (OVar "Stdlib.List.concat_map", [ OFun taking; o_sequence ]), acc)
   | CompIf (_, condition, _) :: rest ->
       let o_condition, acc = expr ctx acc condition in
       let inner, acc = clauses ctx acc rest element in
@@ -4113,7 +4244,7 @@ and loop ctx acc s returning =
             let o, acc = walked_chars ctx acc sequence o in
             (* A MutMap is walked through its keys as the walk begins and
                the counter it had then (docs/target_ocaml.md, "MutMaps"). *)
-            if mutmap_parts (type_of ctx sequence) <> None then
+            if table_parts (type_of ctx sequence) <> None then
               (Some (OApp (OVar mutmap_walk_helper, [ o ])), need acc mutmap_walk_helper)
             else (Some o, acc)
         | _ -> (o_sequence, acc)
@@ -4126,7 +4257,7 @@ and loop ctx acc s returning =
         match walked with
         | [ sequence ]
           when store_element (type_of ctx sequence) <> None
-               || mutmap_parts (type_of ctx sequence) <> None -> (
+               || table_parts (type_of ctx sequence) <> None -> (
             (* One a plain name holds is read through that name, unless
                the loop binds the same name over it. *)
             let shadowed plain =
@@ -4197,7 +4328,7 @@ and loop ctx acc s returning =
                 (dynarray_length_helper, dynarray_item_helper, need (need acc dynarray_length_helper) dynarray_item_helper)
               else if is walked_type slice_element then
                 (view_length_helper, view_item_helper, need (need acc view_length_helper) view_item_helper)
-              else if is walked_type mutmap_parts then
+              else if is walked_type table_parts then
                 (* The counter is asked at every advance. *)
                 ( mutmap_walk_length_helper,
                   mutmap_walk_key_helper,

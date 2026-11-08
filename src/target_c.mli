@@ -46,9 +46,12 @@ val header_extension : string
     standard. `context` says what is true of it only as part of a program
     -- its name, whether it is the program's own module, and what the
     modules it imports export.
+    `foreign` is every module's datatypes by their `module.Name`, for
+    the instances other modules ask of this one.
     [stmt] -> typ IntMap.t -> Module.context -> string -> cprogram *)
 val translate_program :
   ?requested:(string * (string * Syntax.typ) list) list ->
+  ?foreign:Syntax.datatype list ->
   Syntax.stmt list -> Syntax.typ Syntax.IntMap.t -> Module.context -> string -> cprogram
 
 (** Every module of a program, each compiling the instances of its

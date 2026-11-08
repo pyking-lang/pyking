@@ -73,16 +73,19 @@ hash agreeing with it), the conversions, `PykChar`, the stores --
 `PykStore` and its `PykArray`, `PykDynArray` and `PykView` -- with their
 factories (`arrayOfList`, `arrayFill`, `arrayInit`, `arrayUnfold`,
 `dynarrayEmpty`, `dynarrayOfList`), `PykMutMap` with `mutmapEmpty` and `mutmapOfList`,
+its subclass `PykMap` with `mapEmpty` and `mapOfList`,
 `copyInto`, the list and String `slice`, and `fail`, which ends the
-program with a runtime error.
+program with a runtime error, and `panic`, the builtin, which throws it.
 
 ## Stores and MutMaps
 
 `store_of` tells an array, a DynArray and a view (`Slice(T)`) apart, and
-`jt` writes each as its runtime class, and a MutMap (`mutmap_parts`) as
-`PykMutMap<K, V>`, before the general `TCon` case, which would take them
-for datatypes. `make_array` compiles the members of `array`, `dynarray` and
-`mutmap` the elaborator leaves as calls, with the element type (a MutMap's
+`jt` writes each as its runtime class, a MutMap (`mutmap_parts`) as
+`PykMutMap<K, V>` and a Map (the local `map_parts`; `table_parts` is
+either, what the reading builtins, `listed` and `item_type` ask) as
+`PykMap<K, V>`, before the general `TCon` case, which would take them
+for datatypes. `make_array` compiles the members of `array`, `dynarray`,
+`mutmap` and `map` the elaborator leaves as calls, with the element type (a MutMap's
 key and value types) as explicit type arguments where `settled` says
 Java can be told them; `typed_value` casts a lambda argument to its
 interface. `a[i]`, `d[k]` and `len` need nothing of their own: each

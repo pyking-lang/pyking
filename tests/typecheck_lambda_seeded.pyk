@@ -1,0 +1,25 @@
+# A lambda argument is checked after the arguments that are not lambdas,
+# against what its parameter became: the list below says what `p` is,
+# although the lambda is written first. The arguments still run in the
+# order they are written.
+
+struct Point(x: Int, y: Int)
+
+def apply_all(f: (a) -> b, xs: [a]) -> [b]:
+    [f(x) for x in xs]
+
+def fold(f: (b, a) -> b, init: b, xs: [a]) -> b:
+    match xs:
+        case []: init
+        case [first, ..others]: fold(f, f(init, first), others)
+
+points = [Point(1, 2), Point(3, 4)]
+print(apply_all(lam p. p.x + p.y, points))
+print(fold(lam (total, p). total + p.x * p.y, 0, points))
+print(fmap(lam p. Point(p.y, p.x), points))
+print(foldl(lam (best, p). if p.x > best.x then p else best, Point(0, 0), points))
+
+def trace(label: String, value: Int) -> Int:
+    print(label)
+    value
+print(apply_all(lam n. n + trace("in the lambda", 0), [trace("the list", 1)]))

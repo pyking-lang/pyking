@@ -1,0 +1,264 @@
+## MutMaps: changing an entry in place, keeping a count, and the rest of
+## what a MutMap is asked.
+##
+## A MutMap is made by `mutmap(...)` or `mutmap_init(...)`, read with
+## `d[k]`, `get`, `has`, `keys`, `values`, `items` and `len`, and changed
+## with `d[k] := v`, `remove`, `discard` and `clear`, all builtins
+## (PYKING.md, "MutMaps"). This module is the rest. `update`,
+## `insert_with`, `extend` and `retain` change the MutMap they are given,
+## which everyone holding it sees, and need `use mutation` in the calling
+## module as every change does.
+#
+# Written in Pyking alone, so every target runs the same code.
+
+use mutation
+
+
+## Applies `f` to the value of `key`, in place, where `d` has one.
+##
+## # Parameters
+## - `f`: makes the new value from the old.
+## - `d`: the MutMap.
+## - `key`: the key.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import mutmap
+## d = mutmap([("ann", 31), ("bo", 5)])
+## mutmap.update(lam age. age + 1, d, "bo")
+## mutmap.update(lam age. age + 1, d, "zed")
+## print(d)
+## ```
+## ```stdout
+## mutmap([("ann", 31), ("bo", 6)])
+## ```
+public def update(f: (v) -> v, d: MutMap(k, v), key: k) -> ():
+    if has(d, key):
+        d[key] := f(d[key])
+
+
+## Puts `value` in for `key`, or, where `key` has a value already, `f(old,
+## value)`: how a count is kept.
+##
+## # Parameters
+## - `f`: combines the value there with the new one.
+## - `d`: the MutMap.
+## - `key`: the key.
+## - `value`: the new value.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import mutmap
+## counts: MutMap(String, Int) = mutmap()
+## for word in ["a", "b", "a"]:
+##     mutmap.insert_with(lam (old, new). old + new, counts, word, 1)
+## print(counts)
+## ```
+## ```stdout
+## mutmap([("a", 2), ("b", 1)])
+## ```
+public def insert_with(f: (v, v) -> v, d: MutMap(k, v), key: k, value: v) -> ():
+    d[key] := if has(d, key) then f(d[key], value) else value
+
+
+## Puts every (key, value) pair in, in order.
+##
+## # Parameters
+## - `d`: the MutMap.
+## - `pairs`: the entries to put in.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import mutmap
+## d = mutmap([("ann", 31), ("bo", 5)])
+## mutmap.extend(d, [("cy", 40), ("ann", 32)])
+## print(d)
+## ```
+## ```stdout
+## mutmap([("ann", 32), ("bo", 5), ("cy", 40)])
+## ```
+public def extend(d: MutMap(k, v), pairs: [(k, v)]) -> ():
+    for entry in pairs:
+        (key, value) = entry
+        d[key] := value
+
+
+## Takes out every entry whose value `p` is false of, in place: `filter`
+## without a copy (Rust's `retain`).
+##
+## # Parameters
+## - `p`: the test, given a value.
+## - `d`: the MutMap.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import mutmap
+## d = mutmap([("ann", 31), ("bo", 5)])
+## mutmap.retain(lam age. age > 18, d)
+## print(d)
+## ```
+## ```stdout
+## mutmap([("ann", 31)])
+## ```
+public def retain(p: (v) -> Bool, d: MutMap(k, v)) -> ():
+    gone = [key for (key, value) in items(d) if not p(value)]
+    for key in gone:
+        discard(d, key)
+
+
+## The value of `key` as an Option: `d[key]` that does not fail.
+##
+## # Parameters
+## - `d`: the MutMap.
+## - `key`: the key.
+##
+## # Returns
+## `Some` of its value, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import mutmap
+## d = mutmap([("ann", 31), ("bo", 5)])
+## print(mutmap.lookup(d, "bo"), mutmap.lookup(d, "zed"))
+## ```
+## ```stdout
+## Some(5) None
+## ```
+public def lookup(d: MutMap(k, v), key: k) -> Option(v):
+    if has(d, key) then Some(d[key]) else None
+
+
+## `foldl` given each key as well as its value, in order.
+##
+## # Parameters
+## - `f`: takes what is gathered so far, a key and its value.
+## - `init`: what is gathered before any entry.
+## - `d`: the MutMap.
+##
+## # Returns
+## What `f` gathered.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import mutmap
+## d = mutmap([("ann", 31), ("bo", 5)])
+## print(mutmap.fold_with_key(lam (acc, name, age). acc + age, 0, d))
+## ```
+## ```stdout
+## 36
+## ```
+public def fold_with_key(f: (b, k, v) -> b, init: b, d: MutMap(k, v)) -> b:
+    var acc = init
+    for entry in items(d):
+        (key, value) = entry
+        acc := f(acc, key, value)
+    acc
+
+
+## The first key whose value `p` is true of.
+##
+## # Parameters
+## - `p`: the test, given a value.
+## - `d`: the MutMap.
+##
+## # Returns
+## `Some` of the key, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import mutmap
+## d = mutmap([("ann", 31), ("bo", 5)])
+## print(mutmap.find_key(lam age. age > 18, d))
+## ```
+## ```stdout
+## Some("ann")
+## ```
+public def find_key(p: (v) -> Bool, d: MutMap(k, v)) -> Option(k):
+    for entry in items(d):
+        (key, value) = entry
+        if p(value):
+            return Some(key)
+    None
+
+
+## Whether the MutMap has no entries.
+##
+## # Parameters
+## - `d`: the MutMap.
+##
+## # Returns
+## `true` for an empty one.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import mutmap
+## d = mutmap([("ann", 31), ("bo", 5)])
+## print(mutmap.is_empty(d))
+## ```
+## ```stdout
+## false
+## ```
+public def is_empty(d: MutMap(k, v)) -> Bool:
+    len(d) == 0
+
+
+## Whether two MutMaps have the same keys, the values of each alike by
+## `alike`, in whatever order.
+##
+## # Parameters
+## - `alike`: whether two values count as the same.
+## - `d1`: the first MutMap.
+## - `d2`: the second.
+##
+## # Returns
+## `true` where they are.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import mutmap
+## print(mutmap.equal_by(lam (a, b). a == b, mutmap([(1, "a"), (2, "b")]), mutmap([(2, "b"), (1, "a")])))
+## ```
+## ```stdout
+## true
+## ```
+public def equal_by(alike: (v, v) -> Bool, d1: MutMap(k, v), d2: MutMap(k, v)) -> Bool:
+    if len(d1) != len(d2):
+        return false
+    for entry in items(d1):
+        (key, value) = entry
+        if not has(d2, key) or not alike(value, d2[key]):
+            return false
+    true
+
+
+## A new MutMap of the same entries, in the same order: `mutmap(d)`.
+##
+## # Parameters
+## - `d`: the MutMap.
+##
+## # Returns
+## A new MutMap; changing one does not change the other.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import mutmap
+## d = mutmap([("ann", 31), ("bo", 5)])
+## e = mutmap.copy(d)
+## e["cy"] := 1
+## print(d, e)
+## ```
+## ```stdout
+## mutmap([("ann", 31), ("bo", 5)]) mutmap([("ann", 31), ("bo", 5), ("cy", 1)])
+## ```
+public def copy(d: MutMap(k, v)) -> MutMap(k, v):
+    mutmap(d)

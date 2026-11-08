@@ -143,8 +143,18 @@ MutMap's helpers on demand (`find`, `put`, `at`, `take`, `remove`, ...;
 `slot` and `index` keep c23-gc's hash index), and `walk_of` is how a
 `for` walks any store, a MutMap's with its version check. `run_helper`
 writes `slice`, `view` and a view's `at`; `copy_helper` copy_into's
-`memmove`. `is_store` covers Array, DynArray, Slice and MutMap -- the TCons
-that are not datatypes.
+`memmove`. `is_store` covers Array, DynArray, Slice, MutMap, Map and Ptr --
+the TCons that are not datatypes. `mutmap_parts` answers for a Map too, so
+every MutMap helper serves one under its own code (`N`); `is_map` picks out
+what differs: `map([` in `shower_at`, `the Map has no key`, and
+`structural`'s order-free `pyk_eq_N...`. `panic` is a `builtin` case over
+`pyk_panic`, a `void *` function that never returns, read through as the
+call's C type.
+
+`translate_all` hands each module `foreign`, every module's datatypes as
+`module.Name` with their fields qualified (`qualify`), and `instance`
+qualifies the sigma it asks another module for, so an instance at the
+asker's datatype is compiled where the template is.
 
 ## Pointers
 

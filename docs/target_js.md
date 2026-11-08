@@ -302,7 +302,13 @@ tests `pykTag` and takes the fields by position. `pykFormat` prints the
 value as Pyking does. A JavaScript number cannot say whether it is a
 Float, so a construction whose arguments hold one is wrapped in
 `pykWithShape`, which records the descriptor `pykShaped` reads (see
-"Floats"). The datatype's own name is bound to its name as a string,
+"Floats"). A value built where a field's type is a type variable -- `Some(x)`
+inside a generic function -- has no such descriptor, so a constructor
+whose fields can hold a Float or a Char through a type parameter passes
+`pykData` a template of them too (`'($0)'` for `Some(a)`, `'($0,d($0))'`
+for `Cons(a, L(a))`), and a value printed with the type `Option(Char)`
+goes through `pykShaped` with `d(c)`, which reads the fields through the
+template with `$0` as `c`: `Some('a')`, not `Some(97)`. The datatype's own name is bound to its name as a string,
 which is what an import of it imports. The functions hoist, so a
 constructor may be used above its declaration, as Pyking allows. A
 `var struct` is built by `pykStruct` instead, and its value is shared
@@ -1087,7 +1093,8 @@ p != Point(0, 0)                   !pykEqual(p, Point(0, 0))
 ```
 
 `pykEqual` walks both values: arrays (lists and tuples) by length, then
-element by element; pointers by `store` and `slot` (see "Pointers");
+element by element; Maps by size, then each key's value in the other,
+whatever the order; pointers by `store` and `slot` (see "Pointers");
 datatype and struct values by `pykTag`, then their `pykValues`;
 anything else with `===`. It never takes a value's
 identity as its equality, so `xs == xs` is false where `xs` holds a
@@ -1149,6 +1156,29 @@ tuples. A MutMap holding Floats or Chars goes through `pykShaped` with
 `@(k,v)`, and is handed to `print` as `pykLater` when it is not the last
 argument, as an array is. A MutMap is on `pykFormat`'s path like any
 value holding others, so one reached again inside itself prints `...`.
+
+## Maps
+
+**A Map is a MutMap's `Map` marked `pykMap` too** (`pykMapEmpty()`, and
+`pykMapOfList(pairs)` for `map(pairs)`, which keeps a repeated key's first
+place and last value). No write on a Map reaches the backend, so every
+MutMap helper that reads -- `d[k]`, `get`, `has`, `keys`, `values`,
+`items`, `len`, `for`, a comprehension -- serves a Map as it is, and the
+conversions arrive rewritten into those (`list__mutmap(items(m))`). The
+marker is what prints it as `map([...])`, and names it in a missing
+key's error, `the Map has no key "zed"`. `==` on two Maps compares their
+entries whatever their order (see "Equality"). `Map` is a reserved name
+(with `Error` and `process`, which the runtime calls too), so a Pyking
+constructor or binding called `Map` is renamed rather than shadowing the
+global class the runtime builds with.
+
+## `panic`
+
+`panic(message)` is `pykFail(message)`, the call every runtime error is:
+`error: <message>` on stderr and exit status 1 under node, an `Error`
+in a browser. It is an expression that never answers, so it stands for
+a value of any type: `x = if c then 5 else panic("never")` is
+`c ? 5 : pykFail("never")`.
 
 ## Modules
 

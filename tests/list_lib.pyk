@@ -1,0 +1,34 @@
+# lib/list: every function answers a new list.
+
+import list
+
+xs = [3, 1, 4, 1, 5, 9, 2, 6]
+empty: [Int] = []
+print(list.first(xs), list.first(empty), list.last(xs), list.last(empty))
+print(list.nth(xs, 2), list.nth(xs, 8), list.nth(xs, -1), list.rest(xs), list.rest(empty))
+print(list.is_empty(empty), list.is_empty(xs), list.reverse(xs), list.reverse(empty))
+print(list.flatten([[1], [], [2, 3]]), list.flat_map(lam x. list(x, x), [1, 2, 3]))
+print(list.zip(xs, list("abc")), list.unzip([(1, 'a'), (2, 'b')]), list.zip_with(lam (a, b). a * b, [1, 2], [3, 4, 5]))
+print(list.enumerate(["a", "b"]), list.intersperse(", ", ["x", "y", "z"]))
+print(list.chunks(3, xs), list.windows(3, [1, 2, 3, 4]), list.windows(5, [1]))
+print(list.scanl(lam (a, x). a + x, 0, [1, 2, 3]), list.scanr(lam (x, a). x + a, 0, [1, 2, 3]))
+print(list.unfold(10, lam n. if n == 0 then None else Some((n, n / 2))))
+print(list.take(3, xs), list.take(-1, xs), list.drop(6, xs), list.drop(99, xs))
+print(list.take_while(lam x. x < 4, xs), list.drop_while(lam x. x < 4, xs))
+print(list.split_at(2, xs), list.span(lam x. x != 4, xs), list.partition(lam x. x > 3, xs))
+print(list.find(lam x. x > 4, xs), list.find(lam x. x > 9, xs), list.find_index(lam x. x == 1, xs))
+print(list.count(lam x. x == 1, xs), list.reduce(lam (a, b). a + b, xs), list.reduce(lam (a, b). a + b, empty))
+print(list.contains(9, xs), list.contains(7, xs), list.contains("b", ["a", "b"]), list.contains(2.5, [2.5]), list.contains('x', ['y']), list.contains(false, [true]))
+print(list.contains_by(lam (a, b). a % 5 == b % 5, 10, xs), list.index_of(1, xs), list.index_of("z", ["a"]), list.index_of_by(lam (a, b). a == b + 1, 3, xs))
+print(list.unique(xs), list.unique(["b", "a", "b"]), list.unique_by(lam (a, b). a % 3 == b % 3, xs))
+print(list.group([1, 1, 2, 3, 3, 3]), list.group_by(lam (a, b). a <= b, xs))
+print(list.sum(xs), list.sum([0.5, 0.25]), list.product([1, 2, 3, 4]), list.product([2.0, 0.5]))
+print(list.maximum(xs), list.minimum(xs), list.maximum(empty), list.maximum(["pear", "apple"]), list.minimum(['b', 'a']), list.minimum([2.5, -0.5]))
+print(list.maximum_by(lam (a, b). len(a) < len(b), ["ab", "cde", "fgh"]), list.minimum_by(lam (a, b). len(a) < len(b), ["ab", "c", "d"]))
+print(list.sort(xs), xs, list.sort(["b", "B", "a", "ab"]), list.sort([2.5, float("nan"), -1.0, 0.0]), list.sort(['z', 'a']))
+print(list.sort_by(lam (a, b). a > b, xs), list.sort_by(lam (a, b). len(a) < len(b), ["ccc", "a", "bb", "d"]))
+struct Person(name: String, age: Int)
+people = [Person("cy", 40), Person("ann", 31), Person("bo", 5)]
+print(fmap(lam p. p.name, list.sort_on(lam p. p.age, people)), fmap(lam p. p.name, list.sort_on(lam p. p.name, people)))
+print(list.sort_on(lam x. 0.0 - x, [1.5, 3.5]), list.sort_on(lam s. s[0], ["b1", "a2"]))
+print(list.equal_by(lam (a, b). a == b, [1, 2], [1, 2]), list.equal_by(lam (a, b). a == b, [1], [1, 2]))

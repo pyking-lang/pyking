@@ -2225,9 +2225,9 @@ type command = { op : string; fields : (string * value) list }
 
 (* A string as JSON writes it, which is also how a log line quotes one. *)
 let quote text =
-  let buffer = Buffer.create (String.length text + 2) in
+  let buffer = Buffer.create (Stdlib.String.length text + 2) in
   Buffer.add_char buffer '"';
-  String.iter
+  Stdlib.String.iter
     (fun c ->
       match c with
       | '"' -> Buffer.add_string buffer "\\\""
@@ -2249,31 +2249,31 @@ let rec json_of_value v =
   | I n -> string_of_int n
   | F x ->
       let text = Printf.sprintf "%.17g" x in
-      if Float.is_integer x && not (String.contains text 'e') then text ^ ".0" else text
+      if Float.is_integer x && not (Stdlib.String.contains text 'e') then text ^ ".0" else text
   | S s -> quote s
   | B b -> string_of_bool b
-  | L ns -> "[" ^ String.concat "," (List.map string_of_int ns) ^ "]"
-  | FL xs -> "[" ^ String.concat "," (List.map (fun x -> json_of_value (F x)) xs) ^ "]"
+  | L ns -> "[" ^ Stdlib.String.concat "," (Stdlib.List.map string_of_int ns) ^ "]"
+  | FL xs -> "[" ^ Stdlib.String.concat "," (Stdlib.List.map (fun x -> json_of_value (F x)) xs) ^ "]"
 
 let json_of_command command =
   "{"
-  ^ String.concat ","
+  ^ Stdlib.String.concat ","
       ((quote "op" ^ ":" ^ quote command.op)
-      :: List.map (fun (k, v) -> quote k ^ ":" ^ json_of_value v) command.fields)
+      :: Stdlib.List.map (fun (k, v) -> quote k ^ ":" ^ json_of_value v) command.fields)
   ^ "}"
 
 let field command name =
-  match List.assoc_opt name command.fields with
+  match Stdlib.List.assoc_opt name command.fields with
   | Some (I n) -> string_of_int n
   | Some (F x) -> Printf.sprintf "%.3f" x
   | Some (S s) -> s
   | Some (B b) -> string_of_bool b
-  | Some (L ns) -> String.concat " " (List.map string_of_int ns)
-  | Some (FL xs) -> String.concat " " (List.map (Printf.sprintf "%.3f") xs)
+  | Some (L ns) -> Stdlib.String.concat " " (Stdlib.List.map string_of_int ns)
+  | Some (FL xs) -> Stdlib.String.concat " " (Stdlib.List.map (Printf.sprintf "%.3f") xs)
   | None -> ""
 
 let quoted command name =
-  match List.assoc_opt name command.fields with
+  match Stdlib.List.assoc_opt name command.fields with
   | Some (S s) -> quote s
   | Some (I _) | Some (F _) | Some (B _) | Some (L _) | Some (FL _) | None -> "\"\""
 
@@ -2327,7 +2327,7 @@ let log_line command =
     | "sdelay" -> [ "sdelay"; f "seconds" ]
     | op -> [ op ]
   in
-  String.concat " " words
+  Stdlib.String.concat " " words
 
 (* Whether the log is printed on standard error too, as the page runs:
    what `pyk --tinyweb-log` asks for. *)
@@ -2335,8 +2335,8 @@ let trace = Stdlib.Sys.getenv_opt "PYKING_TINYWEB_TRACE" <> None
 
 (* An event as the line an events file holds for it. *)
 let event_line event =
-  let text name = Option.value ~default:"" (List.assoc_opt name event) in
-  match List.assoc_opt "ev" event with
+  let text name = Stdlib.Option.value ~default:"" (Stdlib.List.assoc_opt name event) in
+  match Stdlib.List.assoc_opt "ev" event with
   | Some "click" -> "click " ^ quote (text "id")
   | Some "slide" -> "slide " ^ quote (text "id") ^ " " ^ text "value"
   | Some "check" -> "check " ^ quote (text "id") ^ " " ^ text "checked"
@@ -2366,16 +2366,16 @@ let until =
       let rec lines acc =
         match Stdlib.input_line channel with
         | line -> lines (line :: acc)
-        | exception End_of_file -> List.rev acc
+        | exception End_of_file -> Stdlib.List.rev acc
       in
       let all = lines [] in
       Stdlib.close_in channel;
-      let trim line = String.trim line in
+      let trim line = Stdlib.String.trim line in
       match all with
       | first :: patterns -> (
           match int_of_string_opt (trim first) with
           | Some n when n >= 1 ->
-              Some (n, List.filter (fun p -> p <> "") (List.map trim patterns))
+              Some (n, Stdlib.List.filter (fun p -> p <> "") (Stdlib.List.map trim patterns))
           | _ -> None)
       | [] -> None)
   | _ -> None
@@ -2383,7 +2383,7 @@ let until =
 (* Whether a line is what a pattern says, `*` standing for any text.
    string -> string -> bool *)
 let star_match pattern line =
-  let p = String.length pattern and l = String.length line in
+  let p = Stdlib.String.length pattern and l = Stdlib.String.length line in
   let rec go i j =
     if i = p then j = l
     else if pattern.[i] = '*' then go (i + 1) j || (j < l && go i (j + 1))
@@ -2424,9 +2424,9 @@ let delivered = ref false
    less what a later command has made invisible. *)
 let kept history command =
   let drawing = [ "clear"; "shape"; "text"; "state"; "image"; "bitmap" ] in
-  let same name h = List.assoc_opt name h.fields = List.assoc_opt name command.fields in
+  let same name h = Stdlib.List.assoc_opt name h.fields = Stdlib.List.assoc_opt name command.fields in
   let mode =
-    match List.assoc_opt "mode" command.fields with
+    match Stdlib.List.assoc_opt "mode" command.fields with
     | Some (I m) -> m
     | Some (F _ | S _ | B _ | L _ | FL _) | None -> 0
   in
@@ -2434,12 +2434,12 @@ let kept history command =
   | "cmd" when mode = 2 && !delivered -> history
   | "cmd" when mode = 3 -> history
   | "cmd" when mode = 1 ->
-      List.filter (fun h -> not (h.op = "cmd" && same "kind" h && same "id" h)) history @ [ command ]
+      Stdlib.List.filter (fun h -> not (h.op = "cmd" && same "kind" h && same "id" h)) history @ [ command ]
   | "frame_done" | "event_done" -> history
   | "clear" ->
-      List.filter (fun h -> not (List.mem h.op drawing && same "c" h)) history @ [ command ]
+      Stdlib.List.filter (fun h -> not (Stdlib.List.mem h.op drawing && same "c" h)) history @ [ command ]
   | ("set_label" | "set_checked" | "set_value") as op ->
-      List.filter (fun h -> not (h.op = op && same "id" h)) history @ [ command ]
+      Stdlib.List.filter (fun h -> not (h.op = op && same "id" h)) history @ [ command ]
   | _ -> history @ [ command ]
 
 let write_all socket text =
@@ -2454,7 +2454,7 @@ let close_quietly socket = try Unix.close socket with Unix.Unix_error _ -> ()
 
 (* Sends a batch to one page, answering whether it is still there. *)
 let send_to client batch =
-  let text = "data: [" ^ String.concat "," (List.map json_of_command batch) ^ "]\n\n" in
+  let text = "data: [" ^ Stdlib.String.concat "," (Stdlib.List.map json_of_command batch) ^ "]\n\n" in
   try
     write_all client.socket text;
     true
@@ -2462,7 +2462,7 @@ let send_to client batch =
     close_quietly client.socket;
     false
 
-let send_batch batch = clients := List.filter (fun client -> send_to client batch) !clients
+let send_batch batch = clients := Stdlib.List.filter (fun client -> send_to client batch) !clients
 
 let flush_pending () =
   let batch = !pending in
@@ -2470,7 +2470,7 @@ let flush_pending () =
   if batch <> [] then send_batch batch
 
 let content_type path =
-  match String.lowercase_ascii (Filename.extension path) with
+  match Stdlib.String.lowercase_ascii (Filename.extension path) with
   | ".html" -> "text/html; charset=utf-8"
   | ".js" -> "text/javascript; charset=utf-8"
   | ".css" -> "text/css; charset=utf-8"
@@ -2489,7 +2489,7 @@ let reply socket status kind body =
      write_all socket
        (Printf.sprintf
           "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n%s"
-          status reason kind (String.length body) body)
+          status reason kind (Stdlib.String.length body) body)
    with Unix.Unix_error _ -> ());
   close_quietly socket
 
@@ -2503,15 +2503,15 @@ let read_file path =
    and a library sample from tinyweb_assets/ beside the program or the
    library. *)
 let static path =
-  let parts = List.filter (fun p -> p <> "" && p <> ".") (String.split_on_char '/' path) in
-  if parts = [] || List.mem ".." parts then None
+  let parts = Stdlib.List.filter (fun p -> p <> "" && p <> ".") (Stdlib.String.split_on_char '/' path) in
+  if parts = [] || Stdlib.List.mem ".." parts then None
   else
-    let relative = String.concat Filename.dir_sep parts in
+    let relative = Stdlib.String.concat Filename.dir_sep parts in
     let places =
       Stdlib.Sys.getcwd ()
-      :: (if List.hd parts = "tinyweb_assets" then List.map Filename.dirname !assets else [])
+      :: (if Stdlib.List.hd parts = "tinyweb_assets" then Stdlib.List.map Filename.dirname !assets else [])
     in
-    List.find_map
+    Stdlib.List.find_map
       (fun place ->
         let candidate = Filename.concat place relative in
         if Stdlib.Sys.file_exists candidate && not (Stdlib.Sys.is_directory candidate) then Some candidate
@@ -2523,7 +2523,7 @@ let static path =
 (* The JSON string starting just after the opening quote at `i` of
    `text`, decoded, and where it ends. *)
 let string_at text i =
-  let n = String.length text in
+  let n = Stdlib.String.length text in
   let buffer = Buffer.create 16 in
   let rec go i =
     if i >= n then (Buffer.contents buffer, i)
@@ -2538,7 +2538,7 @@ let string_at text i =
           | 'b' -> Buffer.add_char buffer '\b'; go (i + 2)
           | 'f' -> Buffer.add_char buffer '\012'; go (i + 2)
           | 'u' when i + 5 < n ->
-              let code = int_of_string ("0x" ^ String.sub text (i + 2) 4) in
+              let code = int_of_string ("0x" ^ Stdlib.String.sub text (i + 2) 4) in
               Buffer.add_utf_8_uchar buffer
                 (if Uchar.is_valid code then Uchar.of_int code else Uchar.rep);
               go (i + 6)
@@ -2550,7 +2550,7 @@ let string_at text i =
 (* Where the object or array starting at `i` ends: just past its closing
    bracket, strings inside it skipped. string -> int -> int *)
 let nested_end text i =
-  let n = String.length text in
+  let n = Stdlib.String.length text in
   let rec go i depth in_string =
     if i >= n then n
     else
@@ -2569,12 +2569,12 @@ let nested_end text i =
 (* The fields of one JSON object, each as its text: a string decoded, an
    object or array kept whole, anything else as written. *)
 let parse_object text =
-  let n = String.length text in
-  let rec space i = if i < n && String.contains " \t\r\n" text.[i] then space (i + 1) else i in
+  let n = Stdlib.String.length text in
+  let rec space i = if i < n && Stdlib.String.contains " \t\r\n" text.[i] then space (i + 1) else i in
   let string_at = string_at text in
   let rec fields i acc =
     let i = space i in
-    if i >= n || text.[i] = '}' then List.rev acc
+    if i >= n || text.[i] = '}' then Stdlib.List.rev acc
     else if text.[i] = ',' || text.[i] = '{' then fields (i + 1) acc
     else if text.[i] = '"' then
       let key, i = string_at (i + 1) in
@@ -2585,12 +2585,12 @@ let parse_object text =
         fields i ((key, value) :: acc)
       else if i < n && (text.[i] = '{' || text.[i] = '[') then
         let stop = nested_end text i in
-        fields stop ((key, String.sub text i (stop - i)) :: acc)
+        fields stop ((key, Stdlib.String.sub text i (stop - i)) :: acc)
       else
         let stop = ref i in
-        while !stop < n && not (String.contains ",} \t\r\n" text.[!stop]) do incr stop done;
-        fields !stop ((key, String.sub text i (!stop - i)) :: acc)
-    else List.rev acc
+        while !stop < n && not (Stdlib.String.contains ",} \t\r\n" text.[!stop]) do incr stop done;
+        fields !stop ((key, Stdlib.String.sub text i (!stop - i)) :: acc)
+    else Stdlib.List.rev acc
   in
   fields 0 []
 
@@ -2602,8 +2602,8 @@ let read_request socket =
   let header_end () =
     let text = Buffer.contents buffer in
     let rec find i =
-      if i + 3 >= String.length text then None
-      else if String.sub text i 4 = "\r\n\r\n" then Some i
+      if i + 3 >= Stdlib.String.length text then None
+      else if Stdlib.String.sub text i 4 = "\r\n\r\n" then Some i
       else find (i + 1)
     in
     find 0
@@ -2622,18 +2622,18 @@ let read_request socket =
   | None -> None
   | Some at ->
       let text = Buffer.contents buffer in
-      let head = String.sub text 0 at in
-      let lines = String.split_on_char '\n' head in
+      let head = Stdlib.String.sub text 0 at in
+      let lines = Stdlib.String.split_on_char '\n' head in
       let length =
-        List.fold_left
+        Stdlib.List.fold_left
           (fun found line ->
-            match String.index_opt line ':' with
+            match Stdlib.String.index_opt line ':' with
             | Some colon
-              when String.lowercase_ascii (String.trim (String.sub line 0 colon))
+              when Stdlib.String.lowercase_ascii (Stdlib.String.trim (Stdlib.String.sub line 0 colon))
                    = "content-length" ->
                 int_of_string_opt
-                  (String.trim (String.sub line (colon + 1) (String.length line - colon - 1)))
-                |> Option.value ~default:found
+                  (Stdlib.String.trim (Stdlib.String.sub line (colon + 1) (Stdlib.String.length line - colon - 1)))
+                |> Stdlib.Option.value ~default:found
             | _ -> found)
           0 lines
       in
@@ -2647,10 +2647,10 @@ let read_request socket =
             Buffer.add_subbytes buffer chunk 0 got;
             body ())
       in
-      let request_line = String.trim (List.hd lines) in
-      match String.split_on_char ' ' request_line with
+      let request_line = Stdlib.String.trim (Stdlib.List.hd lines) in
+      match Stdlib.String.split_on_char ' ' request_line with
       | meth :: target :: _ ->
-          let path = match String.index_opt target '?' with Some q -> String.sub target 0 q | None -> target in
+          let path = match Stdlib.String.index_opt target '?' with Some q -> Stdlib.String.sub target 0 q | None -> target in
           Some (meth, path, body ())
       | _ -> None
 
@@ -2687,11 +2687,11 @@ let poll timeout =
   match !listener with
   | None -> ()
   | Some server -> (
-      let watched = server :: List.map (fun c -> c.socket) !clients in
+      let watched = server :: Stdlib.List.map (fun c -> c.socket) !clients in
       match Unix.select watched [] [] timeout with
       | exception Unix.Unix_error (Unix.EINTR, _, _) -> ()
       | ready, _, _ ->
-          List.iter
+          Stdlib.List.iter
             (fun socket ->
               if socket == server then (
                 match Unix.accept ~cloexec:true server with
@@ -2708,7 +2708,7 @@ let poll timeout =
                 in
                 if gone then (
                   close_quietly socket;
-                  clients := List.filter (fun c -> c.socket != socket) !clients))
+                  clients := Stdlib.List.filter (fun c -> c.socket != socket) !clients))
             ready)
 
 (* --- the program's side --- *)
@@ -2752,8 +2752,8 @@ let reports : (string, reported) Hashtbl.t = Hashtbl.create 16
 (* The entries of a `reports` object, as the page sends them: each name
    with an array of numbers, a number, or a string. string -> unit *)
 let merge_reports text =
-  let n = String.length text in
-  let rec space i = if i < n && String.contains " \t\r\n,:{" text.[i] then space (i + 1) else i in
+  let n = Stdlib.String.length text in
+  let rec space i = if i < n && Stdlib.String.contains " \t\r\n,:{" text.[i] then space (i + 1) else i in
   let rec entries i =
     let i = space i in
     if i < n && text.[i] = '"' then (
@@ -2766,18 +2766,18 @@ let merge_reports text =
         entries i)
       else if text.[i] = '[' then (
         let stop = nested_end text i in
-        let inner = String.sub text (i + 1) (max 0 (stop - i - 2)) in
+        let inner = Stdlib.String.sub text (i + 1) (max 0 (stop - i - 2)) in
         let numbers =
-          List.filter_map
-            (fun w -> float_of_string_opt (String.trim w))
-            (String.split_on_char ',' inner)
+          Stdlib.List.filter_map
+            (fun w -> float_of_string_opt (Stdlib.String.trim w))
+            (Stdlib.String.split_on_char ',' inner)
         in
-        Hashtbl.replace reports name (Numbers (Array.of_list numbers));
+        Hashtbl.replace reports name (Numbers (Stdlib.Array.of_list numbers));
         entries stop)
       else
         let stop = ref i in
-        while !stop < n && not (String.contains ",} \t\r\n" text.[!stop]) do incr stop done;
-        (match float_of_string_opt (String.sub text i (!stop - i)) with
+        while !stop < n && not (Stdlib.String.contains ",} \t\r\n" text.[!stop]) do incr stop done;
+        (match float_of_string_opt (Stdlib.String.sub text i (!stop - i)) with
         | Some x -> Hashtbl.replace reports name (Numbers [| x |])
         | None -> ());
         entries !stop)
@@ -2791,7 +2791,7 @@ let running_after = ref false
    with status 0 and nothing delivered after it. string -> unit *)
 let count_until line =
   match until with
-  | Some (most, patterns) when List.exists (fun p -> star_match p line) patterns ->
+  | Some (most, patterns) when Stdlib.List.exists (fun p -> star_match p line) patterns ->
       incr until_seen;
       if !until_seen >= most then (
         running_after := true;
@@ -2824,16 +2824,16 @@ and deliver_queued () =
 and deliver event =
   delivered := true;
   if trace then prerr_endline ("> " ^ event_line event);
-  let text name = Option.value ~default:"" (List.assoc_opt name event) in
-  let number name = Option.bind (List.assoc_opt name event) float_of_string_opt in
-  let int name = Option.value ~default:0 (Option.map int_of_float (number name)) in
+  let text name = Stdlib.Option.value ~default:"" (Stdlib.List.assoc_opt name event) in
+  let number name = Stdlib.Option.bind (Stdlib.List.assoc_opt name event) float_of_string_opt in
+  let int name = Stdlib.Option.value ~default:0 (Stdlib.Option.map int_of_float (number name)) in
   (match number "t" with Some t -> clock := t | None -> ());
-  (match List.assoc_opt "reports" event with Some r -> merge_reports r | None -> ());
-  let each table id f = List.iter (fun (key, g) -> if key = id then f g) table in
-  match List.assoc_opt "ev" event with
+  (match Stdlib.List.assoc_opt "reports" event with Some r -> merge_reports r | None -> ());
+  let each table id f = Stdlib.List.iter (fun (key, g) -> if key = id then f g) table in
+  match Stdlib.List.assoc_opt "ev" event with
   | Some "cb" ->
       let key = (text "id", text "kind") in
-      List.iter (fun (k, f) -> if k = key then f ()) !watchers
+      Stdlib.List.iter (fun (k, f) -> if k = key then f ()) !watchers
   | Some "click" -> each !buttons (text "id") (fun f -> f ())
   | Some "slide" -> each !sliders (text "id") (fun f -> f (int "value"))
   | Some "check" -> each !checks (text "id") (fun f -> f (text "checked" = "true"))
@@ -2841,19 +2841,19 @@ and deliver event =
   | Some "choose" -> each !choices (text "id") (fun f -> f (int "value"))
   | Some "enter" -> each !texts (text "id") (fun f -> f (text "text"))
   | Some "frame" ->
-      List.iter (fun f -> f !clock) !frames;
+      Stdlib.List.iter (fun f -> f !clock) !frames;
       send { op = "frame_done"; fields = [] }
   | Some "mouse" -> each !mice (text "c") (fun f -> f (int "x") (int "y"))
   | Some "key" ->
-      let key = Option.value ~default:"" (List.assoc_opt "key" event) in
-      if not (List.mem key !down) then down := key :: !down;
-      List.iter (fun f -> f key) !keys
+      let key = Stdlib.Option.value ~default:"" (Stdlib.List.assoc_opt "key" event) in
+      if not (Stdlib.List.mem key !down) then down := key :: !down;
+      Stdlib.List.iter (fun f -> f key) !keys
   | Some "key_up" ->
-      let key = Option.value ~default:"" (List.assoc_opt "key" event) in
-      down := List.filter (fun k -> k <> key) !down;
-      List.iter (fun f -> f key) !key_ups
+      let key = Stdlib.Option.value ~default:"" (Stdlib.List.assoc_opt "key" event) in
+      down := Stdlib.List.filter (fun k -> k <> key) !down;
+      Stdlib.List.iter (fun f -> f key) !key_ups
   | Some (("press" | "release" | "move") as kind) -> (
-      match List.assoc_opt (text "c") !pointers with
+      match Stdlib.List.assoc_opt (text "c") !pointers with
       | None -> ()
       | Some seen ->
           seen.x <- int "x";
@@ -2861,17 +2861,17 @@ and deliver event =
           if kind = "press" then seen.held <- true;
           if kind = "release" then seen.held <- false;
           let kinds = if kind = "move" && seen.held then [ "move"; "drag" ] else [ kind ] in
-          List.iter
+          Stdlib.List.iter
             (fun k ->
-              List.iter (fun (w, f) -> if w = k then f seen.x seen.y) seen.watchers)
+              Stdlib.List.iter (fun (w, f) -> if w = k then f seen.x seen.y) seen.watchers)
             kinds)
   | Some "measured" -> (
       let id = text "id" in
-      match List.assoc_opt id !measures with
+      match Stdlib.List.assoc_opt id !measures with
       | None -> ()
       | Some answer ->
-          measures := List.remove_assoc id !measures;
-          answer (Option.value ~default:0.0 (number "width")))
+          measures := Stdlib.List.remove_assoc id !measures;
+          answer (Stdlib.Option.value ~default:0.0 (number "width")))
   | _ -> ()
 
 (* The events file, once the top level has ended: each line logged as
@@ -2879,17 +2879,17 @@ and deliver event =
 and deliver_file () =
   match events_file with
   | Some path when Stdlib.Sys.file_exists path ->
-      let lines = String.split_on_char '\n' (read_file path) in
-      List.iter
+      let lines = Stdlib.String.split_on_char '\n' (read_file path) in
+      Stdlib.List.iter
         (fun line ->
-          if String.trim line <> "" then (
+          if Stdlib.String.trim line <> "" then (
             write_log ("> " ^ line);
             let event =
-              if String.length line > 4 && String.sub line 0 4 = "key " then
-                Some [ ("ev", "key"); ("key", String.sub line 4 (String.length line - 4)) ]
-              else if String.length line > 7 && String.sub line 0 7 = "key_up " then
-                Some [ ("ev", "key_up"); ("key", String.sub line 7 (String.length line - 7)) ]
-              else event_of_line (String.trim line)
+              if Stdlib.String.length line > 4 && Stdlib.String.sub line 0 4 = "key " then
+                Some [ ("ev", "key"); ("key", Stdlib.String.sub line 4 (Stdlib.String.length line - 4)) ]
+              else if Stdlib.String.length line > 7 && Stdlib.String.sub line 0 7 = "key_up " then
+                Some [ ("ev", "key_up"); ("key", Stdlib.String.sub line 7 (Stdlib.String.length line - 7)) ]
+              else event_of_line (Stdlib.String.trim line)
             in
             match event with
             | Some event -> deliver event
@@ -2901,44 +2901,44 @@ and deliver_file () =
    would send: a frame's time, or the element it is on as a quoted string
    and the numbers after it. *)
 and event_of_line line =
-  let words s = List.filter (fun w -> w <> "") (String.split_on_char ' ' s) in
-  match String.index_opt line ' ' with
+  let words s = Stdlib.List.filter (fun w -> w <> "") (Stdlib.String.split_on_char ' ' s) in
+  match Stdlib.String.index_opt line ' ' with
   | None -> None
   | Some space -> (
-      let kind = String.sub line 0 space in
-      let after = String.trim (String.sub line space (String.length line - space)) in
+      let kind = Stdlib.String.sub line 0 space in
+      let after = Stdlib.String.trim (Stdlib.String.sub line space (Stdlib.String.length line - space)) in
       if kind = "frame" then
         match words after with [ t ] -> Some [ ("ev", "frame"); ("t", t) ] | _ -> None
       else if (kind = "cb" || kind = "report" || kind = "report_text") && after <> ""
               && after.[0] = '"' then (
         let first, stop = string_at after 1 in
-        let tail = String.trim (String.sub after stop (String.length after - stop)) in
+        let tail = Stdlib.String.trim (Stdlib.String.sub after stop (Stdlib.String.length after - stop)) in
         match kind with
         | "report" ->
             let numbers = words tail in
-            if List.for_all (fun w -> float_of_string_opt w <> None) numbers then
+            if Stdlib.List.for_all (fun w -> float_of_string_opt w <> None) numbers then
               Some
                 [ ("ev", "report");
-                  ("reports", "{" ^ quote first ^ ":[" ^ String.concat "," numbers ^ "]}") ]
+                  ("reports", "{" ^ quote first ^ ":[" ^ Stdlib.String.concat "," numbers ^ "]}") ]
             else None
         | _ ->
             if tail = "" || tail.[0] <> '"' then None
             else
               let second, stop = string_at tail 1 in
-              if String.trim (String.sub tail stop (String.length tail - stop)) <> "" then None
+              if Stdlib.String.trim (Stdlib.String.sub tail stop (Stdlib.String.length tail - stop)) <> "" then None
               else if kind = "cb" then Some [ ("ev", "cb"); ("id", first); ("kind", second) ]
               else Some [ ("ev", "report"); ("reports", "{" ^ quote first ^ ":" ^ quote second ^ "}") ])
       else if after = "" || after.[0] <> '"' then None
       else
         let id, stop = string_at after 1 in
-        let tail = String.trim (String.sub after stop (String.length after - stop)) in
+        let tail = Stdlib.String.trim (Stdlib.String.sub after stop (Stdlib.String.length after - stop)) in
         let rest = words tail in
         match (kind, rest) with
         | "enter", _ ->
             if tail = "" || tail.[0] <> '"' then None
             else
               let typed, stop = string_at tail 1 in
-              if String.trim (String.sub tail stop (String.length tail - stop)) = "" then
+              if Stdlib.String.trim (Stdlib.String.sub tail stop (Stdlib.String.length tail - stop)) = "" then
                 Some [ ("ev", "enter"); ("id", id); ("text", typed) ]
               else None
         | "check", [ ("true" | "false") as on ] ->
@@ -3018,7 +3018,7 @@ let fresh name =
   let name = if name = "" then "element" else name in
   let rec pick n =
     let found = if n = 0 then name else name ^ string_of_int n in
-    if List.mem found !names then pick (n + 1) else found
+    if Stdlib.List.mem found !names then pick (n + 1) else found
   in
   let found = pick 0 in
   names := found :: !names;
@@ -3051,13 +3051,13 @@ let draw_floats c kind numbers color outline width alpha =
     }
 
 let draw_pairs c kind items =
-  draw_floats c kind (List.concat_map (fun (x, y) -> [ x; y ]) items)
+  draw_floats c kind (Stdlib.List.concat_map (fun (x, y) -> [ x; y ]) items)
 
 let draw_triples c kind items =
-  draw_floats c kind (List.concat_map (fun (x, y, r) -> [ x; y; r ]) items)
+  draw_floats c kind (Stdlib.List.concat_map (fun (x, y, r) -> [ x; y; r ]) items)
 
 let draw_quads c kind items =
-  draw_floats c kind (List.concat_map (fun (a, b, c, d) -> [ a; b; c; d ]) items)
+  draw_floats c kind (Stdlib.List.concat_map (fun (a, b, c, d) -> [ a; b; c; d ]) items)
 
 let draw_text c x y words color size font align baseline bold outline outline_width alpha =
   send
@@ -3084,7 +3084,7 @@ let measure words size font bold answer =
 let watch_pointer c kind f =
   ready ();
   let seen =
-    match List.assoc_opt c !pointers with
+    match Stdlib.List.assoc_opt c !pointers with
     | Some seen -> seen
     | None ->
         let seen = { watchers = []; x = 0; y = 0; held = false } in
@@ -3092,12 +3092,12 @@ let watch_pointer c kind f =
         send { op = "on_pointer"; fields = [ ("c", S c) ] };
         seen
   in
-  if List.mem kind [ "press"; "release"; "move"; "drag" ] then
+  if Stdlib.List.mem kind [ "press"; "release"; "move"; "drag" ] then
     seen.watchers <- seen.watchers @ [ (kind, f) ]
 
 let pointer c which =
   ready ();
-  match List.assoc_opt c !pointers with
+  match Stdlib.List.assoc_opt c !pointers with
   | None -> 0
   | Some seen -> (
       match which with "x" -> seen.x | "y" -> seen.y | _ -> if seen.held then 1 else 0)
@@ -3361,7 +3361,7 @@ let watch id kind f =
 
 let report_number name k =
   match Hashtbl.find_opt reports name with
-  | Some (Numbers xs) -> if k >= 0 && k < Array.length xs then xs.(k) else 0.0
+  | Some (Numbers xs) -> if k >= 0 && k < Stdlib.Array.length xs then xs.(k) else 0.0
   | Some (Text _) | None -> 0.0
 
 let report_text name =
@@ -3369,7 +3369,7 @@ let report_text name =
 
 let report_count name =
   match Hashtbl.find_opt reports name with
-  | Some (Numbers xs) -> Array.length xs
+  | Some (Numbers xs) -> Stdlib.Array.length xs
   | Some (Text _) | None -> 0
 
 let watch_text id kind name f = watch id kind (fun () -> f (report_text name))
@@ -3424,10 +3424,10 @@ let sdelay seconds =
       let was = !batching in
       let answered = ref false in
       let is_answer event =
-        List.assoc_opt "ev" event = Some "sdelay"
+        Stdlib.List.assoc_opt "ev" event = Some "sdelay"
       in
       let ours event =
-        match Option.bind (List.assoc_opt "id" event) float_of_string_opt with
+        match Stdlib.Option.bind (Stdlib.List.assoc_opt "id" event) float_of_string_opt with
         | Some n -> int_of_float n = id
         | None -> false
       in
@@ -3442,8 +3442,8 @@ let sdelay seconds =
                 if ours event then (
                   deliver event;
                   history :=
-                    List.filter
-                      (fun h -> not (h.op = "sdelay" && List.assoc_opt "id" h.fields = Some (I id)))
+                    Stdlib.List.filter
+                      (fun h -> not (h.op = "sdelay" && Stdlib.List.assoc_opt "id" h.fields = Some (I id)))
                       !history;
                   answered := true))
               else (
@@ -3481,7 +3481,7 @@ let key_down key =
   if not (!keys_on || !keys <> [] || !key_ups <> []) then (
     keys_on := true;
     send { op = "on_key"; fields = [] });
-  List.mem key !down
+  Stdlib.List.mem key !down
 
 (* --- for the REPL --- *)
 
@@ -3489,7 +3489,7 @@ let key_down key =
 let descriptors () =
   match !listener with
   | None -> []
-  | Some server -> server :: List.map (fun c -> c.socket) !clients
+  | Some server -> server :: Stdlib.List.map (fun c -> c.socket) !clients
 
 (* Answers what is waiting and delivers what the page posted, without
    waiting for anything more. *)

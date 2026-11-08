@@ -1,9 +1,49 @@
 # Plan: collections, conversions, `fmap` and folds, Map, Option and Result
 
-> **Status (November 2026): a plan, not implemented.** Nothing here is in
-> the compiler yet. Section 2 lists the decisions already taken with the
-> user; every other choice is a recommendation, with its alternatives
-> written out where the choice is not obvious (section 12).
+> **Status (November 2026): implemented**, on every target, with the
+> recommendations of §16. Where the implementation differs from what is
+> written below, it says so here:
+>
+> - **The builtins written in Pyking** (§7, §11): `fmap`, `filter`,
+>   `foldl`, `foldr`, `any`, `all`, `list`, `list_init`,
+>   `dynarray(n, v)`, `dynarray_init`, `map_init` and `mutmap_init` are
+>   overload sets in a new lib/prelude (`list::fmap`, `array::fmap`,
+>   ...), which the parser imports, under the `::` names only, into a
+>   module that calls one of them -- as Option arrives. A module's own
+>   `map` or `filter` means itself. A call is resolved by the
+>   collection's type; a parameter nothing has decided is refused with
+>   the annotation to write, as D3's answer says, rather than fixed by
+>   its first call (§7.3).
+> - **Conversions** (§6) of `array`, `dynarray`, `mutmap` and `map` are
+>   typed members of the builtin sets that elaborate.ml rewrites into
+>   the list form (`list::array([x for x in v])`, `items(m)` for a map),
+>   so no backend has a conversion of its own. An Option converts to a
+>   list only.
+> - **The Map** (§8.6, §12.7) is each runtime's MutMap representation,
+>   printed as `map(...)` and compared by its entries; lib/map changes
+>   one by copying it through a MutMap, so a change takes time in
+>   proportion to the Map's size (alternative B, not the HAMT). A Map is
+>   not a key (§8.5's last point).
+> - **`panic(message)`** is a new builtin, which `unwrap` and `expect`
+>   need; their messages do not show the error value, since `string` of
+>   a type variable is refused. `ok_or` is `result.ok_or`, not
+>   `option.ok_or`, so that lib/option needs no Result. `sort_by` and
+>   `sort_on` exist, on the one merge sort written in Pyking, so the
+>   comparisons are the same on every target. `random.shuffle` stays a
+>   list's.
+> - **The checker** gained what the calls need: a lambda argument is
+>   checked after a call's other arguments and seeded with its
+>   parameter's type; a lambda's body may settle which overloaded
+>   definition is meant; a binding's annotation inside a generic body may
+>   name the body's type variables; a map's key type that is a type
+>   variable is checked where a call decides it; a comprehension's
+>   condition is unified with Bool. elaborate.ml numbers the nodes it
+>   builds past every module's, which a library's rewritten conversions
+>   first showed to be needed.
+>
+> Section 2 lists the decisions taken with the user; every other choice
+> is a recommendation, with its alternatives written out where the
+> choice is not obvious (section 12).
 
 ## Contents
 

@@ -283,6 +283,14 @@ inside a class body, where Python would mangle a `__name`; `__PykKey`'s
 methods ask for the class by its name instead, which also makes a key
 held in one module compare with one held in another.
 
+**Maps.** `is_mutmap_expr` answers true for a `TCon "Map"` as well, so
+a Map takes every MutMap path that reads; `is_map_expr` tells the two
+apart only where they differ, `EIndex` choosing `__pyk_map_get` (whose
+message names a Map, and which records the walker like
+`__pyk_mutmap_get`). `empty__map` and `list__map` are `EVar` cases beside
+the MutMap makers. `panic` is an `ECall` case of its own, a call of
+`__pyk_fail`.
+
 **Slices and views.** `ESlice` is always `__pyk_slice`, which decides
 by the class at run time: the kind names the error, and the class
 rebuilds the copy. A view is told by its type, `is_view_expr` asking

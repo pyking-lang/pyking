@@ -1,0 +1,11 @@
+Ok(31) Error("not an age: x") true true
+problem: not an age: x
+true false Some(31) None Some("not an age: x")
+0 13 31 31
+Ok(31) Error("too big: 31") Error("not an age: x")
+Ok(0) Error(13) Ok(31)
+not an age: x Ok(31) Ok(1) Error("none")
+Ok([31, 2]) Error("not an age: x") ([31, 7], ["not an age: x"])
+Ok(32) 131 true true
+[42]
+Ok(20) Error("odd") Error("too big: 400") Error("not an age: forty")

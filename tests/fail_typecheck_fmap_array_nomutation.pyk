@@ -1,0 +1,7 @@
+# `fmap` of an array makes an array, which needs `use mutation`.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def bump(a: Array(Int)) -> Array(Int):
+    fmap(lam x. x + 1, a)

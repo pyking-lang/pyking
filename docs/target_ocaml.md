@@ -135,6 +135,10 @@ and is_odd n = if n = 0 then false else is_even (n - 1)
 A statement between them does not break the group: `regroup` moves the
 earlier `def`s down to join the last of their group before anything is
 translated, so the `let rec` is written where the group ends. A `def`
+naming one that moves moves too, to just below it, so a library can
+define `sort_by` above the `merge_sort` it calls and `sort` between
+them; the `def`s that land together are written callees first, each
+group naming each other one `let rec`. A `def`
 binds no value and runs nothing, so moving one changes nothing — which
 is why only `def`s move and every other statement keeps its place.
 
@@ -163,8 +167,9 @@ Two things stop a `def` from moving, and both are refused rather than
 compiled wrongly. One is a name its own body reads being bound again in
 between — moving it would give it the later binding, where Pyking's
 capture is positional (see [../PYKING.md](../PYKING.md), "Names and
-scoping"). The other is the `def`'s own name being used in between —
-moving it would leave that use reading a name OCaml has not bound yet.
+scoping"). The other is the `def`'s own name being used in between by
+anything but a `def` — moving it would leave that use reading a name
+OCaml has not bound yet.
 
 ```
 'program.pyk' 3:0-4:7 Unsupported by target 'ocaml4.14': `f` names a
@@ -939,10 +944,33 @@ Listing the entries sorts them, so `keys`, `items`, printing and the
 start of a walk take `n log n`; reading, writing, `has`, `remove` and
 `len` take constant time on average.
 
+### Maps
+
+A `Map(K, V)` is a MutMap's pair, made once by `pyk_map_of_list pairs`
+(`map()` is `pyk_map_of_list []`) and never written after, so every
+reading helper is a MutMap's: `get`, `has`, `len`, `keys`, `values`,
+`items`, `for k in m` and comprehensions. Two things differ. `m[k]` is
+`pyk_map_get show m k`, whose error is `the Map has no key "zed"`, and
+a Map prints as `map([...])`. A key of a type variable -- `m[key]` in a
+generic function, as lib/map has -- has no printer to hand `show`, so
+`pyk_show_key` writes it as it is held: right for an Int, a String and
+a tuple of those, the number it is held as for a Char or a Bool.
+
+The pair is in a block of tag 200, which no datatype reaches, so
+`pyk_equal` tells a Map in any value, made in any module, and compares
+two by their entries in any order (see "Equality").
+
+### `panic`
+
+`panic(message)` is `pyk_array_fail message`, the helper every runtime
+error goes through: `error: ` and the message on standard error, exit
+status 1. It answers any type, as `exit` does in OCaml.
+
 ### Equality
 
 `==` and `!=` are OCaml's structural `=` and `<>` (but see "Pointers"
-for values holding a pointer), which compare exactly
+for values holding a pointer, and "Maps" for values holding a Map,
+which are compared by `pyk_equal`), which compare exactly
 what Pyking does on every type the checker lets them compare: scalars
 by value (a Float by IEEE, so `nan = nan` is false and `-0.0 = 0.0`
 true), lists and tuples element by element, datatypes by constructor
@@ -995,9 +1023,9 @@ builtin, which is how a program's own `debug` is told from the builtin.
 |---|---|
 | `string(n)` | `string_of_int n` (or `string_of_bool`, or nothing at all for a `String`) |
 | `len(s)` | `pyk_char_length s` (code points; see "Chars") |
-| `len(xs)` | `List.length xs` |
+| `len(xs)` | `Stdlib.List.length xs` |
 | `len(a)`, `same(a, b)` | `Stdlib.Array.length a`; `a == b` (see "Arrays") |
-| `range(n)` | `List.init (max 0 n) Fun.id` |
+| `range(n)` | `Stdlib.List.init (max 0 n) Stdlib.Fun.id` |
 | `range(a, b)`, `range(a, b, s)` | `pyk_range a b s`, a generated helper |
 | `float(n)`, `float(b)` | `float_of_int n`; `if b then 1.0 else 0.0` |
 | `float(s)` | `pyk_float_of_string s`, a generated helper |
@@ -1011,7 +1039,7 @@ The helper exists because a Pyking list prints the way Python prints one
 
 ```ocaml
 let pyk_string_of_int_list xs =
-  "[" ^ String.concat ", " (List.map string_of_int xs) ^ "]"
+  "[" ^ Stdlib.String.concat ", " (Stdlib.List.map string_of_int xs) ^ "]"
 ```
 
 It is emitted only into programs that print a list.
@@ -1202,6 +1230,12 @@ are refused.
 binds no new name here: `bump` simply *means* `Helper.inc`, which is one
 fewer binding than the source has and reads better than a `let bump =
 Helper.inc` nothing would use twice.
+
+**Stdlib is named in full.** lib/list, lib/option, lib/map, lib/result
+and lib/array compile to the modules `List`, `Option`, `Map`, `Result`
+and `Array`, which hide Stdlib's in every file linked after them, so the
+code this backend writes says `Stdlib.List.map`, `Stdlib.String.concat`,
+and so on, everywhere.
 
 **Order is the link order.** OCaml runs a module's top level when the
 program is linked, in the order the files are given, so

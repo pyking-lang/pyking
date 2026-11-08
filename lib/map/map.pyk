@@ -1,0 +1,474 @@
+## Maps: a new Map with an entry put in, taken out or changed, and the
+## rest of what a Map is asked.
+##
+## A Map is made by `map(...)` or `map_init(...)`, read with `m[k]`,
+## `get`, `has`, `keys`, `values`, `items` and `len`, which are builtins,
+## as `fmap`, `filter` and the folds on its values are (PYKING.md,
+## "Maps"). A Map is never changed: each function here that changes one
+## answers a **new** Map and leaves the one it was given as it was. A new
+## key goes at the end, a key already there keeps its place, and one
+## taken out and put back goes to the end, as in a MutMap.
+##
+## Each change copies the Map, so it takes time in proportion to its
+## size: a Map built one entry at a time in a loop is better built as a
+## list of pairs, or as a MutMap, and then made one with `map(...)`.
+#
+# Written in Pyking alone, so every target runs the same code: a change
+# is a MutMap made from the Map, changed, and made a Map again.
+
+use mutation
+
+
+## `m` with `key` mapped to `value`: a new key at the end, or a key already
+## there given the new value in its place (Haskell's and Rust's `insert`).
+##
+## # Parameters
+## - `m`: the Map.
+## - `key`: the key.
+## - `value`: its value.
+##
+## # Returns
+## A new Map; `m` is as it was.
+##
+## # Examples
+## ```pyking
+## import map
+## m = map([("ann", 31), ("bo", 5)])
+## print(map.insert(m, "cy", 40), map.insert(m, "ann", 32), m)
+## ```
+## ```stdout
+## map([("ann", 31), ("bo", 5), ("cy", 40)]) map([("ann", 32), ("bo", 5)]) map([("ann", 31), ("bo", 5)])
+## ```
+public def insert(m: Map(k, v), key: k, value: v) -> Map(k, v):
+    d = mutmap(m)
+    d[key] := value
+    map(d)
+
+
+## `m` without an entry for `key`; the same entries where it has none.
+##
+## # Parameters
+## - `m`: the Map.
+## - `key`: the key to take out.
+##
+## # Returns
+## A new Map.
+##
+## # Examples
+## ```pyking
+## import map
+## m = map([("ann", 31), ("bo", 5)])
+## print(map.remove(m, "ann"), map.remove(m, "zed"))
+## ```
+## ```stdout
+## map([("bo", 5)]) map([("ann", 31), ("bo", 5)])
+## ```
+public def remove(m: Map(k, v), key: k) -> Map(k, v):
+    d = mutmap(m)
+    discard(d, key)
+    map(d)
+
+
+## `m` with `value` put in for `key`, or, where `key` has a value already,
+## `f(old, value)` (Haskell's `insertWith`): how a count is kept.
+##
+## # Parameters
+## - `f`: combines the value there with the new one.
+## - `m`: the Map.
+## - `key`: the key.
+## - `value`: the new value.
+##
+## # Returns
+## A new Map.
+##
+## # Examples
+## ```pyking
+## import map
+## counts = map([("a", 1)])
+## print(map.insert_with(lam (old, new). old + new, counts, "a", 1), map.insert_with(lam (old, new). old + new, counts, "b", 1))
+## ```
+## ```stdout
+## map([("a", 2)]) map([("a", 1), ("b", 1)])
+## ```
+public def insert_with(f: (v, v) -> v, m: Map(k, v), key: k, value: v) -> Map(k, v):
+    d = mutmap(m)
+    d[key] := if has(d, key) then f(d[key], value) else value
+    map(d)
+
+
+## `m` with `f` applied to the value of `key`, where it has one.
+##
+## # Parameters
+## - `f`: makes the new value from the old.
+## - `m`: the Map.
+## - `key`: the key.
+##
+## # Returns
+## A new Map, or `m` where `key` is not in it.
+##
+## # Examples
+## ```pyking
+## import map
+## m = map([("ann", 31), ("bo", 5)])
+## print(map.adjust(lam age. age + 1, m, "bo"), map.adjust(lam age. age + 1, m, "zed"))
+## ```
+## ```stdout
+## map([("ann", 31), ("bo", 6)]) map([("ann", 31), ("bo", 5)])
+## ```
+public def adjust(f: (v) -> v, m: Map(k, v), key: k) -> Map(k, v):
+    if not has(m, key):
+        return m
+    d = mutmap(m)
+    d[key] := f(d[key])
+    map(d)
+
+
+## `m` with the entry for `key` as `f` says: `f` is given its value or
+## `None`, and answers the new value or `None` to take the entry out
+## (Haskell's `alter`).
+##
+## # Parameters
+## - `f`: the old value, if any, to the new, if any.
+## - `m`: the Map.
+## - `key`: the key.
+##
+## # Returns
+## A new Map.
+##
+## # Examples
+## ```pyking
+## import map
+## m = map([("ann", 31), ("bo", 5)])
+## print(map.alter(lam o. None, m, "ann"), map.alter(lam o. Some(1), m, "cy"))
+## ```
+## ```stdout
+## map([("bo", 5)]) map([("ann", 31), ("bo", 5), ("cy", 1)])
+## ```
+public def alter(f: (Option(v)) -> Option(v), m: Map(k, v), key: k) -> Map(k, v):
+    d = mutmap(m)
+    before = if has(d, key) then Some(d[key]) else None
+    match f(before):
+        case Some(value):
+            d[key] := value
+        case None:
+            discard(d, key)
+    map(d)
+
+
+## Every entry of both Maps, `m1`'s value where both have a key; `m2`'s
+## entries first, then `m1`'s new keys (Haskell's `union`, which prefers
+## the left).
+##
+## # Parameters
+## - `m1`: the Map whose values win.
+## - `m2`: the other.
+##
+## # Returns
+## A new Map.
+##
+## # Examples
+## ```pyking
+## import map
+## print(map.union(map([(1, "a")]), map([(1, "x"), (2, "b")])))
+## ```
+## ```stdout
+## map([(1, "a"), (2, "b")])
+## ```
+public def union(m1: Map(k, v), m2: Map(k, v)) -> Map(k, v):
+    d = mutmap(m2)
+    for entry in items(m1):
+        (key, value) = entry
+        d[key] := value
+    map(d)
+
+
+## Every entry of both Maps, `f(v1, v2)` where both have a key; `m1`'s
+## entries first.
+##
+## # Parameters
+## - `f`: combines the two values of a key both have.
+## - `m1`: the first Map.
+## - `m2`: the second.
+##
+## # Returns
+## A new Map.
+##
+## # Examples
+## ```pyking
+## import map
+## print(map.union_with(lam (a, b). a + b, map([("x", 1)]), map([("x", 10), ("y", 2)])))
+## ```
+## ```stdout
+## map([("x", 11), ("y", 2)])
+## ```
+public def union_with(f: (v, v) -> v, m1: Map(k, v), m2: Map(k, v)) -> Map(k, v):
+    d = mutmap(m1)
+    for entry in items(m2):
+        (key, value) = entry
+        d[key] := if has(d, key) then f(d[key], value) else value
+    map(d)
+
+
+## `m1`'s entries whose key `m2` has too.
+##
+## # Parameters
+## - `m1`: the Map whose entries are kept.
+## - `m2`: the Map whose keys say which.
+##
+## # Returns
+## A new Map.
+##
+## # Examples
+## ```pyking
+## import map
+## print(map.intersection(map([(1, "a"), (2, "b")]), map([(2, true)])))
+## ```
+## ```stdout
+## map([(2, "b")])
+## ```
+public def intersection(m1: Map(k, v), m2: Map(k, w)) -> Map(k, v):
+    map([(key, value) for (key, value) in items(m1) if has(m2, key)])
+
+
+## `m1`'s entries whose key `m2` does not have.
+##
+## # Parameters
+## - `m1`: the Map whose entries are kept.
+## - `m2`: the Map whose keys are left out.
+##
+## # Returns
+## A new Map.
+##
+## # Examples
+## ```pyking
+## import map
+## print(map.difference(map([(1, "a"), (2, "b")]), map([(2, true)])))
+## ```
+## ```stdout
+## map([(1, "a")])
+## ```
+public def difference(m1: Map(k, v), m2: Map(k, w)) -> Map(k, v):
+    map([(key, value) for (key, value) in items(m1) if not has(m2, key)])
+
+
+## `fmap` given each key as well as its value (Haskell's `mapWithKey`).
+##
+## # Parameters
+## - `f`: makes the new value from a key and its value.
+## - `m`: the Map.
+##
+## # Returns
+## A new Map of the same keys.
+##
+## # Examples
+## ```pyking
+## import map
+## m = map([("ann", 31), ("bo", 5)])
+## print(map.map_with_key(lam (name, age). name + string(age), m))
+## ```
+## ```stdout
+## map([("ann", "ann31"), ("bo", "bo5")])
+## ```
+public def map_with_key(f: (k, v) -> w, m: Map(k, v)) -> Map(k, w):
+    map([(key, f(key, value)) for (key, value) in items(m)])
+
+
+## `filter` given each key as well as its value.
+##
+## # Parameters
+## - `p`: the test, given a key and its value.
+## - `m`: the Map.
+##
+## # Returns
+## A new Map of the entries `p` is true of.
+##
+## # Examples
+## ```pyking
+## import map
+## m = map([("ann", 31), ("bo", 5)])
+## print(map.filter_with_key(lam (name, age). len(name) > 2, m))
+## ```
+## ```stdout
+## map([("ann", 31)])
+## ```
+public def filter_with_key(p: (k, v) -> Bool, m: Map(k, v)) -> Map(k, v):
+    map([(key, value) for (key, value) in items(m) if p(key, value)])
+
+
+## The entries whose value `p` is true of, and the others, `p` called once
+## per entry.
+##
+## # Parameters
+## - `p`: the test, given a value.
+## - `m`: the Map.
+##
+## # Returns
+## A pair of new Maps.
+##
+## # Examples
+## ```pyking
+## import map
+## m = map([("ann", 31), ("bo", 5)])
+## print(map.partition(lam age. age > 18, m))
+## ```
+## ```stdout
+## (map([("ann", 31)]), map([("bo", 5)]))
+## ```
+public def partition(p: (v) -> Bool, m: Map(k, v)) -> (Map(k, v), Map(k, v)):
+    yes = mutmap()
+    no = mutmap()
+    for entry in items(m):
+        (key, value) = entry
+        if p(value):
+            yes[key] := value
+        else:
+            no[key] := value
+    (map(yes), map(no))
+
+
+## A Map of one entry.
+##
+## # Parameters
+## - `key`: the key.
+## - `value`: its value.
+##
+## # Returns
+## A new Map.
+##
+## # Examples
+## ```pyking
+## import map
+## print(map.singleton("one", 1))
+## ```
+## ```stdout
+## map([("one", 1)])
+## ```
+public def singleton(key: k, value: v) -> Map(k, v):
+    map([(key, value)])
+
+
+## The value of `key` as an Option: `m[key]` that does not fail (Haskell's
+## `lookup`, Rust's `get`).
+##
+## # Parameters
+## - `m`: the Map.
+## - `key`: the key.
+##
+## # Returns
+## `Some` of its value, or `None`.
+##
+## # Examples
+## ```pyking
+## import map
+## m = map([("ann", 31), ("bo", 5)])
+## print(map.lookup(m, "bo"), map.lookup(m, "zed"))
+## ```
+## ```stdout
+## Some(5) None
+## ```
+public def lookup(m: Map(k, v), key: k) -> Option(v):
+    if has(m, key) then Some(m[key]) else None
+
+
+## `foldl` given each key as well as its value, in order.
+##
+## # Parameters
+## - `f`: takes what is gathered so far, a key and its value.
+## - `init`: what is gathered before any entry.
+## - `m`: the Map.
+##
+## # Returns
+## What `f` gathered.
+##
+## # Examples
+## ```pyking
+## import map
+## m = map([("ann", 31), ("bo", 5)])
+## print(map.fold_with_key(lam (acc, name, age). acc + "[" + name + "=" + string(age) + "]", "", m))
+## ```
+## ```stdout
+## [ann=31][bo=5]
+## ```
+public def fold_with_key(f: (b, k, v) -> b, init: b, m: Map(k, v)) -> b:
+    var acc = init
+    for entry in items(m):
+        (key, value) = entry
+        acc := f(acc, key, value)
+    acc
+
+
+## The first key whose value `p` is true of.
+##
+## # Parameters
+## - `p`: the test, given a value.
+## - `m`: the Map.
+##
+## # Returns
+## `Some` of the key, or `None`.
+##
+## # Examples
+## ```pyking
+## import map
+## m = map([("ann", 31), ("bo", 5)])
+## print(map.find_key(lam age. age < 10, m))
+## ```
+## ```stdout
+## Some("bo")
+## ```
+public def find_key(p: (v) -> Bool, m: Map(k, v)) -> Option(k):
+    for entry in items(m):
+        (key, value) = entry
+        if p(value):
+            return Some(key)
+    None
+
+
+## Whether the Map has no entries.
+##
+## # Parameters
+## - `m`: the Map.
+##
+## # Returns
+## `true` for an empty Map.
+##
+## # Examples
+## ```pyking
+## import map
+## empty: Map(Int, Int) = map()
+## print(map.is_empty(empty), map.is_empty(map([(1, 1)])))
+## ```
+## ```stdout
+## true false
+## ```
+public def is_empty(m: Map(k, v)) -> Bool:
+    len(m) == 0
+
+
+## Whether two Maps have the same keys, the values of each alike by
+## `alike`, in whatever order: what `==` asks where the values have no
+## `==`.
+##
+## # Parameters
+## - `alike`: whether two values count as the same.
+## - `m1`: the first Map.
+## - `m2`: the second.
+##
+## # Returns
+## `true` where they are.
+##
+## # Examples
+## ```pyking
+## import map
+## print(map.equal_by(lam (a, b). a * a == b * b, map([(1, 2), (2, 3)]), map([(2, -3), (1, -2)])))
+## ```
+## ```stdout
+## true
+## ```
+public def equal_by(alike: (v, v) -> Bool, m1: Map(k, v), m2: Map(k, v)) -> Bool:
+    if len(m1) != len(m2):
+        return false
+    for entry in items(m1):
+        (key, value) = entry
+        if not has(m2, key) or not alike(value, m2[key]):
+            return false
+    true

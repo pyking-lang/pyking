@@ -155,6 +155,25 @@ let t_mutmap info key value = TCon (info, mutmap_name, [ key; value ], 0)
 let mutmap_parts type_ =
   match type_ with TCon (_, name, [ key; value ], _) when name = mutmap_name -> Some (key, value) | _ -> None
 
+(* `Map(K, V)`: an immutable map, insertion-ordered, made by `map(...)`
+   alone (PYKING.md, "Maps"). It is read as a MutMap is and never
+   written: lib/map's functions answer a new one. *)
+let map_name = "Map"
+let t_map info key value = TCon (info, map_name, [ key; value ], 0)
+
+(** The key and value types of a Map type, or None for anything else.
+    typ -> (typ * typ) option *)
+let map_parts type_ =
+  match type_ with TCon (_, name, [ key; value ], _) when name = map_name -> Some (key, value) | _ -> None
+
+(** The key and value types of a Map or a MutMap type, or None for
+    anything else: what the builtins that read one accept.
+    typ -> (typ * typ) option *)
+let table_parts type_ = match mutmap_parts type_ with Some parts -> Some parts | None -> map_parts type_
+
+(** "Map" or "MutMap", as a message names a settled map type. typ -> string *)
+let table_word type_ = if map_parts type_ <> None then "Map" else "MutMap"
+
 (* `Ptr(T)`: a pointer to a place holding a T -- a `var`, an array's or a
    view's element, a var struct's field -- made by `&` alone (PYKING.md,
    "Pointers"). *)
@@ -456,7 +475,7 @@ let empty_store sigmaps =
     tmap = IntMap.empty;
     qmap = IntMap.empty;
     types =
-      List.fold_left (fun m n -> SMap.add n n m) SMap.empty [ array_name; dynarray_name; mutmap_name; slice_name; ptr_name ];
+      List.fold_left (fun m n -> SMap.add n n m) SMap.empty [ array_name; dynarray_name; mutmap_name; map_name; slice_name; ptr_name ];
     datatypes = SMap.empty;
     constructors = SMap.empty;
     field_defaults = SMap.empty;
@@ -1316,7 +1335,7 @@ let demand_sequence actual info what store =
   match prune actual store with
   | TString _ -> (TChar (info, 0), store)
   | settled when store_element settled <> None -> (Option.get (store_element settled), store)
-  | settled when mutmap_parts settled <> None -> (fst (Option.get (mutmap_parts settled)), store)
+  | settled when table_parts settled <> None -> (fst (Option.get (table_parts settled)), store)
   | settled when is_meta settled || kind_var_parts settled <> None -> (
       (* Nothing has said what is walked: its first call will. *)
       match indexed_kind settled info all_containers store with
@@ -1412,7 +1431,7 @@ let record store sym type_ =
 (* --- ground types, and the tables that name them --- *)
 
 (** The ground types the operator and builtin tables name. *)
-type kind = KInt | KFloat | KString | KChar | KBool | KList | KTuple | KData | KArray | KDynArray | KMutMap | KSlice
+type kind = KInt | KFloat | KString | KChar | KBool | KList | KTuple | KData | KArray | KDynArray | KMutMap | KMap | KSlice
 
 (** Whether a type is of this kind, deciding nothing.
     kind -> typ -> bool *)
@@ -1439,6 +1458,7 @@ let kind_matches kind type_ =
   | KArray, TCon (_, name, _, _) -> name = array_name
   | KDynArray, TCon (_, name, _, _) -> name = dynarray_name
   | KMutMap, TCon (_, name, _, _) -> name = mutmap_name
+  | KMap, TCon (_, name, _, _) -> name = map_name
   | KSlice, TCon (_, name, _, _) -> name = slice_name
   | _ -> false
 
@@ -1458,6 +1478,7 @@ let kind_type kind info =
   | KArray -> t_array info (t_unknown info)
   | KDynArray -> t_dynarray info (t_unknown info)
   | KMutMap -> t_mutmap info (t_unknown info) (t_unknown info)
+  | KMap -> t_map info (t_unknown info) (t_unknown info)
   | KSlice -> t_slice info (t_unknown info)
 
 (** Whether type_ is one of kinds. A flexible variable counts as any of
@@ -1884,7 +1905,7 @@ let rec resolved ?params store type_ =
             match SMap.find_opt canonical store.datatypes with
             | Some (Datatype (_, wanted, _, _)) -> List.length wanted
             | None when List.mem canonical [ array_name; dynarray_name; slice_name; ptr_name ] -> 1
-            | None when canonical = mutmap_name -> 2
+            | None when canonical = mutmap_name || canonical = map_name -> 2
             | None -> (
                 match SMap.find_opt canonical store.classes with
                 | Some c -> List.length c.cl_params
@@ -2689,7 +2710,7 @@ let field_named constructor position label =
     Builtin.names, at its TBuiltin type. Its own function so
     src/repl.ml can reuse it when checking a session one entry at a
     time. () -> env *)
-let builtin_env () =
+let rec builtin_env () =
   let env =
     List.fold_left
       (fun env name -> bind env name (t_builtin builtin_info name))
@@ -2705,7 +2726,7 @@ let builtin_env () =
     (fun env (name, vars, params, result) ->
       bind env name (t_forall i vars (t_function i params result)))
     env
-    [
+    ([
       ("list::array", [ "a" ], [ t_list i a ], t_array i a);
       ("fill::array", [ "a" ], [ t_int i; a ], t_array i a);
       ("init::array_init", [ "a" ], [ t_int i; t_function i [ t_int i ] a ], t_array i a);
@@ -2714,7 +2735,33 @@ let builtin_env () =
       ("list::dynarray", [ "a" ], [ t_list i a ], t_dynarray i a);
       ("empty::mutmap", [ "k"; "v" ], [], t_mutmap i (t_var i "k") (t_var i "v"));
       ("list::mutmap", [ "k"; "v" ], [ t_list i (t_tuple i [ t_var i "k"; t_var i "v" ]) ], t_mutmap i (t_var i "k") (t_var i "v"));
+      ("empty::map", [ "k"; "v" ], [], t_map i (t_var i "k") (t_var i "v"));
+      ("list::map", [ "k"; "v" ], [ t_list i (t_tuple i [ t_var i "k"; t_var i "v" ]) ], t_map i (t_var i "k") (t_var i "v"));
     ]
+    @ conversions i)
+
+(** The types of the builtin sets' conversion members (PYKING.md, "Making
+    and converting collections"): `array`, `dynarray`, `mutmap` and `map`
+    of another collection. elaborate.ml rewrites each into the set's list
+    form. info -> [(string, [string], [typ], typ)] *)
+and conversions i =
+  let a = t_var i "a" and k = t_var i "k" and v = t_var i "v" in
+  let pair = t_tuple i [ k; v ] in
+  let sequences made =
+    [
+      ("array", [ "a" ], t_array i a, made a);
+      ("dynarray", [ "a" ], t_dynarray i a, made a);
+      ("slice", [ "a" ], t_slice i a, made a);
+      ("string", [], t_string i, made (t_char i));
+      ("map", [ "k"; "v" ], t_map i k v, made pair);
+      ("mutmap", [ "k"; "v" ], t_mutmap i k v, made pair);
+    ]
+  in
+  let named target rows = List.map (fun (from, vars, param, result) -> (from ^ "::" ^ target, vars, [ param ], result)) rows in
+  named "array" (sequences (t_array i))
+  @ named "dynarray" (sequences (t_dynarray i))
+  @ named "mutmap" [ ("map", [ "k"; "v" ], t_map i k v, t_mutmap i k v); ("mutmap", [ "k"; "v" ], t_mutmap i k v, t_mutmap i k v) ]
+  @ named "map" [ ("map", [ "k"; "v" ], t_map i k v, t_map i k v); ("mutmap", [ "k"; "v" ], t_mutmap i k v, t_map i k v) ]
 
 (** What a module exports, or a refusal saying it cannot be reached from
     here at all -- which is what a file checked on its own gets, since no
@@ -3586,16 +3633,36 @@ let param_sym (Param (_, _, _, _, sym)) = sym
     quantified first, since a written type is quantified wherever one is
     written. Raises Type_error at the annotation on a mismatch.
     typ option -> typ -> store -> store *)
-let check_annotation annotation actual store =
+let check_annotation ?(env = SMap.empty) annotation actual store =
   match annotation with
   | None -> store
-  | Some annotation -> (
-      let annotation = generalize (resolved store annotation) in
+  | Some written -> (
+      let annotation = generalize (resolved store written) in
+      (* A type variable the enclosing definition's own types hold is
+         that definition's, not quantified anew: `out: [a] = []` in a
+         body over `xs: [a]` says what the empty list holds, as `-t
+         pyking` writes it. *)
+      let enclosing =
+        SMap.fold
+          (fun _ binding found ->
+            List.filter (fun v -> not (List.mem v found)) (free_vars (zonk binding.btype store)) @ found)
+          env []
+      in
+      let scoped () =
+        let plain = resolved store written in
+        let vars = free_vars plain in
+        if vars <> [] && List.for_all (fun v -> List.mem v enclosing) vars then
+          unify plain (zonk actual store) store
+        else None
+      in
       match unify annotation (zonk actual store) store with
       | Some answer -> answer
       | None ->
           if accepts annotation (zonk actual store) then store
           else
+            match scoped () with
+            | Some answer -> answer
+            | None ->
             raise
               (Type_error
                  ( type_info annotation,
@@ -3658,6 +3725,7 @@ let equality_problem store t =
     | TCon (_, name, _, _) when name = array_name -> Some ("an array", same_hint)
     | TCon (_, name, _, _) when name = dynarray_name -> Some ("a DynArray", same_hint)
     | TCon (_, name, _, _) when name = mutmap_name -> Some ("a MutMap", same_hint)
+    | TCon (_, name, args, _) when name = map_name -> List.find_map (go seen) args
     | TCon (_, name, _, _) when name = slice_name -> Some ("a view", same_hint)
     | TCon (_, name, _, _) when SMap.mem name store.classes ->
         Some
@@ -3698,6 +3766,7 @@ let key_problem store t =
     | TCon (_, name, _, _) when name = ptr_name -> Some "a pointer, whose target changes"
     | TCon (_, name, _, _) when List.mem name [ array_name; dynarray_name; mutmap_name; slice_name ] ->
         Some (Printf.sprintf "%s, which changes" (if name = array_name then "an array" else "a " ^ name))
+    | TCon (_, name, _, _) when name = map_name -> Some "a Map, which is not hashed"
     | TCon (_, name, _, _) when SMap.mem name store.classes ->
         Some (Printf.sprintf "an object, a %s, which has an identity of its own" (base_name name))
     | TCon (_, name, args, _) -> (
@@ -3712,14 +3781,17 @@ let key_problem store t =
                 constructors
         | None -> None)
     | settled when is_meta settled -> None
-    | TVar (_, name, _, _) -> Some (Printf.sprintf "the type variable '%s', which may be anything" name)
+    (* A type variable is a key where whatever stands for it is: a
+       generic definition may make a map of its `k`, and a call is
+       checked where it says what `k` is (`demand_keys_within`). *)
+    | TVar _ -> None
     | _ -> Some "a function"
   in
   go [] t
 
 (** Raises Type_error where a MutMap's key type is settled enough to say it
     cannot be one. info -> typ -> store -> () *)
-let demand_key info key store =
+let demand_key ?(whose = "a MutMap's") info key store =
   match key_problem store key with
   | None -> ()
   | Some part ->
@@ -3727,10 +3799,31 @@ let demand_key info key store =
         (Type_error
            ( info,
              Printf.sprintf
-               "a MutMap's keys are compared and hashed, so a key is an Int, a \
+               "%s keys are compared and hashed, so a key is an Int, a \
                 Char, a String, a Bool, or a tuple, list or datatype of \
                 those; the key type here, %s, is or holds %s"
-               (shown key store) part ))
+               whose (shown key store) part ))
+
+(** Raises Type_error where a Map's or a MutMap's key type anywhere in
+    type_ is settled enough to say it cannot be one: what a call checks
+    of its result, since a generic definition's key type is decided by
+    the call. info -> typ -> store -> () *)
+let demand_keys_within info type_ store =
+  let rec walk t =
+    match prune t store with
+    | TCon (_, name, [ key; value ], _) when name = mutmap_name ->
+        demand_key info key store;
+        walk key;
+        walk value
+    | TCon (_, name, [ key; value ], _) when name = map_name ->
+        demand_key ~whose:"a Map's" info key store;
+        walk key;
+        walk value
+    | TCon (_, _, args, _) | TTuple (_, args, _) -> List.iter walk args
+    | TList (_, element, _) -> walk element
+    | _ -> ()
+  in
+  walk type_
 
 (** What an operator is worth over two operands of type `common`, and the
     store that says so -- (None, store) where the operator does not
@@ -3870,7 +3963,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
             (zonk wanted store, record store (expr_sym e) (zonk wanted store))
         | _ -> check_expr e env store
       in
-      let store = check_annotation annotation expr_type_ store in
+      let store = check_annotation ~env annotation expr_type_ store in
       let expr_type_ = zonk expr_type_ store in
       let store = record store sym expr_type_ in
       let env, store = check_target ~implicit target expr_type_ env store in
@@ -3892,7 +3985,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
            particular type. *)
         | None -> fresh_meta info store
       in
-      let store = check_annotation annotation bound_type store in
+      let store = check_annotation ~env annotation bound_type store in
       let bound_type = zonk bound_type store in
       let store = record store sym bound_type in
       let env, store = check_target target bound_type env store in
@@ -3928,6 +4021,12 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
         if o.row1 = o.row2 && o.col1 = o.col2 then info else o
       in
       (match prune owner_type store with
+      | settled when map_parts settled <> None ->
+          raise
+            (Type_error
+               ( owner_info,
+                 "a Map is never changed: 'map.insert(m, k, v)' from lib/map gives a new one, and a MutMap \
+                  is the map written in place" ))
       | settled when mutmap_parts settled <> None ->
           (* `d[k] := v` puts an entry in a MutMap, or replaces the value of
              the one it has (PYKING.md, "MutMaps"). *)
@@ -4265,7 +4364,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
               match init with Some init -> init | None -> unsupported info
             in
             let accumulator, store = check_expr init env store in
-            let store = check_annotation annotation accumulator store in
+            let store = check_annotation ~env annotation accumulator store in
             let accumulator = zonk accumulator store in
             let body_env, store = check_target target accumulator env store in
             (accumulator, body_env, store)
@@ -4702,7 +4801,7 @@ and expr_type e env store =
       (* As an `=` binding: the value is checked where the `let` is
          written, and only the body sees what it binds. *)
       let value_type, store = check_expr value env store in
-      let store = check_annotation annotation value_type store in
+      let store = check_annotation ~env annotation value_type store in
       let value_type = zonk value_type store in
       let inner, store = check_target target value_type env store in
       check_expr body inner store
@@ -4949,8 +5048,9 @@ and expr_type e env store =
          its key, and its element is a value (PYKING.md, "MutMaps"). *)
       let list_type, store = check_expr list env store in
       match prune list_type store with
-      | settled when mutmap_parts settled <> None ->
-          let key, value = Option.get (mutmap_parts settled) in
+      | settled when table_parts settled <> None ->
+          let key, value = Option.get (table_parts settled) in
+          let word = table_word settled in
           let key_type, store = check_expr index env store in
           let store =
             match unify key key_type store with
@@ -4959,10 +5059,10 @@ and expr_type e env store =
                 raise
                   (Type_error
                      ( expr_info index,
-                       Printf.sprintf "this MutMap's keys are %s, and this one is %s"
+                       Printf.sprintf "this %s's keys are %s, and this one is %s" word
                          (shown key store) (shown key_type store) ))
           in
-          demand_key (expr_info index) key store;
+          demand_key ~whose:(Printf.sprintf "a %s's" word) (expr_info index) key store;
           (zonk value store, store)
       | _ ->
       let indexed =
@@ -5021,7 +5121,7 @@ and expr_type e env store =
     stands in, extended with the parameters -- what it captures is what
     is bound where it is written.
     info -> [param] -> expr -> env -> store -> (typ, store) *)
-and check_lambda info params body env store =
+and check_lambda ?(seed = []) info params body env store =
   let written =
     List.filter_map
       (fun (Param (_, _, type_, _, _)) -> resolved_option store type_)
@@ -5042,9 +5142,14 @@ and check_lambda info params body env store =
       (fun (types, store) (Param (param_info, _, type_, _, _)) ->
         match resolved_option store type_ with
         | Some written -> (types @ [ substitute written mapping ], store)
-        | None ->
-            let meta, store = fresh_meta param_info store in
-            (types @ [ meta ], store))
+        | None -> (
+            (* A parameter with no type takes the one the call expects
+               there, where it expects one (`seeded_lambda`). *)
+            match List.nth_opt seed (List.length types) with
+            | Some expected when not (is_meta (prune expected store)) -> (types @ [ expected ], store)
+            | _ ->
+                let meta, store = fresh_meta param_info store in
+                (types @ [ meta ], store)))
       ([], store) params
   in
   let store =
@@ -5606,7 +5711,41 @@ and imported bound = String.contains bound '.'
     -> (typ, store) *)
 and resolve_overload call spelling candidates args env store =
   let info = expr_info call in
-  let given, store = check_each args env store in
+  (* A lambda is checked once a candidate is chosen, against that
+     candidate's parameter: until then it stands as a function of its
+     arity, which is all it says about which candidate is meant. *)
+  let given, store =
+    List.fold_left
+      (fun (types, store) arg ->
+        match arg with
+        | ELambda (linfo, params, _, _) when List.for_all (fun (Param (_, _, t, _, _)) -> t = None) params ->
+            let made, store = fresh_metas (List.length params + 1) linfo store in
+            let rec split seen = function
+              | [ last ] -> (List.rev seen, last)
+              | one :: rest -> split (one :: seen) rest
+              | [] -> ([], t_unknown linfo)
+            in
+            let ps, r = split [] made in
+            (types @ [ t_function linfo ps r ], store)
+        | _ ->
+            let t, store = check_expr arg env store in
+            (types @ [ t ], store))
+      ([], store) args
+  in
+  let check_lambdas store =
+    List.fold_left2
+      (fun store (position, arg) placeholder ->
+        match arg with
+        | ELambda (_, params, _, _) when List.for_all (fun (Param (_, _, t, _, _)) -> t = None) params -> (
+            let actual, store = seeded_lambda arg placeholder env store in
+            match unify placeholder actual store with
+            | Some store -> store
+            | None -> raise (argument_error position actual placeholder arg store))
+        | _ -> store)
+      store
+      (List.mapi (fun i a -> (i + 1, a)) args)
+      given
+  in
   let fitting =
     List.filter_map
       (fun (name, scheme) ->
@@ -5620,8 +5759,37 @@ and resolve_overload call spelling candidates args env store =
         | _ -> None)
       candidates
   in
+  (* Where several fit and a lambda is among the arguments, its body may
+     decide: `sort_on(lam p. p.age, people)` fits every key type until
+     the body says it gives an Int. A candidate the body does not check
+     against is dropped. *)
+  let fitting =
+    match fitting with
+    | _ :: _ :: _ when List.exists (function ELambda _ -> true | _ -> false) args ->
+        let checked =
+          List.filter
+            (fun (_, _, _, trial) -> match check_lambdas trial with _ -> true | exception Type_error _ -> false)
+            fitting
+        in
+        if checked = [] then fitting else checked
+    | _ -> fitting
+  in
   match fitting with
   | [ (name, result, implicits, trial) ] ->
+      let trial = check_lambdas trial in
+      demand_keys_within info result trial;
+      (match prune result trial with
+      | TCon (_, made, _, _)
+        when (not trial.mutation)
+             && List.mem made [ array_name; dynarray_name; mutmap_name ]
+             && List.exists (fun (_, members) -> List.mem name members) Builtin.prelude_sets ->
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf "'%s' makes %s here, which needs 'use mutation' at the top of this module"
+                   (Names.base name)
+                   (if made = array_name then "an array" else if made = dynarray_name then "a DynArray" else "a MutMap") ))
+      | _ -> ());
       let implicits = map_implicits (fun t -> prune t trial) implicits in
       let supplied, store = discharge info implicits env trial 0 in
       let store =
@@ -5630,7 +5798,7 @@ and resolve_overload call spelling candidates args env store =
       in
       (result, store)
   | [] -> raise (no_candidate info spelling candidates given store)
-  | several -> raise (several_candidates info spelling several given store)
+  | several -> raise (several_candidates ~args info spelling several given store)
 
 (** The type of the field `field` of a value of type record_type: every
     constructor of its datatype has the field, at one type. Raises
@@ -5708,6 +5876,27 @@ and field_type info record_type field store =
 (** Why no definition of an overloaded name fits these arguments.
     info -> string -> [(string, typ)] -> [typ] -> store -> exn *)
 and no_candidate info spelling candidates given store =
+  let collection = match List.rev given with last :: _ -> Some (prune last store) | [] -> None in
+  match collection with
+  | Some last when List.mem spelling [ "fmap"; "filter"; "foldl"; "foldr"; "any"; "all" ] ->
+      (* What every collection builtin takes, and the way out for the
+         two that look like collections and are not taken (PYKING.md,
+         "fmap and the folds"). *)
+      let hint =
+        match last with
+        | TString _ -> Printf.sprintf "; a String's Chars are 'list(s)', which '%s' takes" spelling
+        | TCon (_, name, _, _) when spelling = "filter" && Names.field name = "Result" ->
+            "; a Result has no 'filter', since where the test is false there is no error to give: \
+             'result.and_then' decides which"
+        | _ -> ""
+      in
+      Type_error
+        ( info,
+          Printf.sprintf "'%s' takes a list, an array, a DynArray, a view, a Map, a MutMap%s, not %s%s"
+            spelling
+            (if spelling = "filter" then " or an Option" else ", an Option or a Result")
+            (shown last store) hint )
+  | _ ->
   Type_error
     ( info,
       Printf.sprintf
@@ -5725,7 +5914,7 @@ and no_candidate info spelling candidates given store =
     more than listing them (docs/overloading.md).
     info -> string -> [(string, typ, [implicit_param], store)] -> [typ]
     -> store -> exn *)
-and several_candidates info spelling fitting given store =
+and several_candidates ?(args = []) info spelling fitting given store =
   let named =
     String.concat " and "
       (List.map (fun (name, _, _, _) -> Printf.sprintf "'%s'" name) fitting)
@@ -5733,8 +5922,32 @@ and several_candidates info spelling fitting given store =
   let undecided =
     List.exists (fun type_ -> is_meta (prune type_ store)) given
   in
+  (* A collection builtin given something nothing has decided: which
+     kind of collection it is, is what to write (PYKING.md, "fmap and the
+     folds"). *)
+  let open_collection =
+    if not (List.mem spelling Builtin.prelude_names) || List.length args <> List.length given then None
+    else
+      List.find_map
+        (fun (arg, type_) ->
+          match arg with
+          | ELambda _ -> None
+          | _ when is_meta (prune type_ store) -> Some arg
+          | _ -> None)
+        (List.combine args given)
+  in
   Type_error
     ( info,
+      match open_collection with
+      | Some arg ->
+          let subject, name =
+            match arg with EVar (_, n, _) -> (Printf.sprintf "'%s'" n, n) | _ -> ("this argument", "xs")
+          in
+          Printf.sprintf
+            "nothing here says what kind of collection %s is, so there is no telling which '%s' is meant; \
+             annotate it, as in '%s: [Int]' or '%s: Array(Int)'"
+            subject spelling name name
+      | None ->
       if undecided then
         Printf.sprintf
           "nothing here decides which '%s' is meant: %s all take these \
@@ -5856,6 +6069,12 @@ and check_builtin_call name call env store =
   let given = List.length args in
   match (name, types) with
   | ("print" | "debug"), _ -> (unit_type info, store)
+  | "panic", [ message ] ->
+      (* `panic(message)` never answers, so it answers whatever is wanted
+         where it stands. *)
+      check_builtin_arity name info given;
+      if not (every message [ KString ]) then raise (builtin_argument_error name (List.hd args) message "a String");
+      fresh_meta info store
   | "string", [ value ] ->
       check_builtin_arity name info given;
       if not (every value [ KInt; KFloat; KString; KChar; KBool; KList; KTuple; KData ])
@@ -5883,20 +6102,29 @@ and check_builtin_call name call env store =
       (t_char info, store)
   | "len", [ value ] ->
       check_builtin_arity name info given;
-      if not (every value [ KList; KString; KArray; KDynArray; KMutMap; KSlice ]) then
+      if not (every value [ KList; KString; KArray; KDynArray; KMutMap; KMap; KSlice ]) then
         raise
           (builtin_argument_error name (List.hd args) value
-             "a list, an array, a DynArray, a MutMap, a view or a String");
+             "a list, an array, a DynArray, a Map, a MutMap, a view or a String");
       (t_int info, store)
+  | ("remove" | "clear" | "discard"), first :: _ when map_parts (prune first store) <> None ->
+      raise
+        (Type_error
+           ( expr_info (List.hd args),
+             Printf.sprintf "a Map is never changed: %s, and a MutMap is the map written in place"
+               (if name = "clear" then "'map()' is an empty one"
+                else "'map.remove(m, k)' from lib/map gives a new one without the key") ))
   | ("remove" | "clear" | "discard" | "get" | "has" | "keys" | "values" | "items"), first :: _
-    when mutmap_parts (prune first store) <> None
+    when table_parts (prune first store) <> None
          || List.mem name [ "discard"; "get"; "has"; "keys"; "values"; "items" ] ->
-      (* A MutMap's builtins (PYKING.md, "MutMaps"): the first argument is
-         one, a key is its key type, a default its value type. One
-         nothing has decided is a MutMap. *)
+      (* A MutMap's builtins (PYKING.md, "MutMaps"), and the reading ones a
+         Map's too ("Maps"): the first argument is one, a key is its key
+         type, a default its value type. One nothing has decided is a
+         MutMap. *)
       check_builtin_arity name info given;
+      let word = match prune first store with settled when map_parts settled <> None -> "Map" | _ -> "MutMap" in
       let key, value, store =
-        match mutmap_parts (prune first store) with
+        match table_parts (prune first store) with
         | Some (key, value) -> (key, value, store)
         | None -> (
             let key, store = fresh_meta info store in
@@ -5912,13 +6140,13 @@ and check_builtin_call name call env store =
       in
       let store =
         if List.mem name [ "remove"; "discard"; "get"; "has" ] then (
-          let store = expect store 1 key (Printf.sprintf "%s, the MutMap's key type" (shown key store)) in
-          demand_key (expr_info (List.nth args 1)) key store;
+          let store = expect store 1 key (Printf.sprintf "%s, the %s's key type" (shown key store) word) in
+          demand_key ~whose:(Printf.sprintf "a %s's" word) (expr_info (List.nth args 1)) key store;
           store)
         else store
       in
       let store =
-        if name = "get" then expect store 2 value (Printf.sprintf "%s, the MutMap's value type" (shown value store))
+        if name = "get" then expect store 2 value (Printf.sprintf "%s, the %s's value type" (shown value store) word)
         else store
       in
       ( (match name with
@@ -6112,6 +6340,7 @@ and called_at ?about scheme call args env store =
                  (List.length args)
                  (if List.length args = 1 then "was" else "were") ));
       let store = check_arguments ?about args params env store 1 in
+      demand_keys_within info result store;
       (* Whatever was called -- a definition, a parameter holding one,
          a binding -- its implicit parameters are resolved here, where
          the call is written. That is what lets a function carrying one
@@ -6135,19 +6364,51 @@ and called_at ?about scheme call args env store =
     first mistake is the one reported), and answers the store in which
     they fit. [expr] -> [typ] -> env -> store -> int -> store *)
 and check_arguments ?about args declared env store position =
-  match (args, declared) with
-  | [], _ -> store
-  | arg :: rest, expected :: rest_declared ->
-      let store =
-        match arg with
-        | (EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EIf _) when mentions_object store expected ->
-            check_wanted arg expected (Printf.sprintf "argument %d" position) env store
-        | _ ->
-            let actual, store = check_expr arg env store in
-            fitted ?about expected actual arg position env store
+  (* A lambda is checked after every other argument, against what its
+     parameter has become by then: in `fmap(lam p. p.name, people)` the
+     list says what `p` is. Only the checking waits; the arguments are
+     still worked out left to right when the program runs. *)
+  let rec pass lambdas args declared store position =
+    match (args, declared) with
+    | [], _ -> store
+    | arg :: rest, expected :: rest_declared ->
+        let store =
+          match arg with
+          | ELambda _ when not lambdas -> store
+          | ELambda _ -> check_seeded_argument ?about arg expected position env store
+          | _ when lambdas -> store
+          | (EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EIf _) when mentions_object store expected ->
+              check_wanted arg expected (Printf.sprintf "argument %d" position) env store
+          | _ ->
+              let actual, store = check_expr arg env store in
+              fitted ?about expected actual arg position env store
+        in
+        pass lambdas rest rest_declared store (position + 1)
+    | _ :: _, [] -> store
+  in
+  pass true args declared (pass false args declared store position) position
+
+(** One lambda argument checked against its parameter: its parameters
+    with no type written take the ones the parameter's function type
+    has. expr -> typ -> int -> env -> store -> store *)
+and check_seeded_argument ?about arg expected position env store =
+  let actual, store = seeded_lambda arg expected env store in
+  fitted ?about expected actual arg position env store
+
+(** A lambda's type, its unwritten parameter types taken from `expected`
+    where that is a function type of as many parameters, and recorded as
+    `check_expr` records. expr -> typ -> env -> store -> (typ, store) *)
+and seeded_lambda arg expected env store =
+  match arg with
+  | ELambda (info, params, body, sym) ->
+      let seed =
+        match prune expected store with
+        | TFunction (_, ps, _, _, _, _, _) when List.length ps = List.length params -> List.map (fun t -> prune t store) ps
+        | _ -> []
       in
-      check_arguments ?about rest rest_declared env store (position + 1)
-  | _ :: _, [] -> store
+      let type_, store = check_lambda ~seed info params body env store in
+      (type_, record store sym type_)
+  | _ -> check_expr arg env store
 
 (** The store in which one argument fits one parameter, or a Type_error
     naming both.
@@ -6185,10 +6446,19 @@ and fitted ?about expected actual arg position env store =
       match adapted arg actual settled env store with
       | Some answer -> answer
       | None ->
-          raise
-            (argument_error
-               ~note:(if key = "" then "" else kind_note key subject actual settled store)
-               position actual settled arg store))
+          let note = if key = "" then "" else kind_note key subject actual settled store in
+          (* lib/option's `or_else` took the value itself until it took
+             Rust's meaning (PYKING.md, "Option"). *)
+          let note =
+            match (about, prune settled store, prune actual store) with
+            | Some (name, _), TFunction _, actual
+              when Names.base (Names.field name) = "or_else" && position = 2
+                   && (match actual with TFunction _ -> false | _ -> true) ->
+                ": 'or_else' takes a function that answers an Option, as Rust's does; the value itself is \
+                 'option.unwrap_or(o, value)'"
+            | _ -> note
+          in
+          raise (argument_error ~note position actual settled arg store))
 
 (** The store in which an argument carrying implicit parameters fits a
     parameter that has none, by supplying them *here*.
@@ -6289,6 +6559,7 @@ and definition_named env func =
         (TFunction (_, _, _, _, _, Some (SFunctionDef (_, _, params, _, _, _, _, _, _)), _)) ->
           Some (name, Some (List.map (fun (Param (_, p, _, _, _)) -> p) params))
       | _ -> Some (name, None))
+  | EQualified (_, module_, name, _) -> Some (module_ ^ "." ^ name, None)
   | _ -> None
 
 (** The type this call is worth, working the definition out first.
@@ -6711,16 +6982,17 @@ and check_clauses clauses env store =
           check_pattern pattern element env store
       | CompIf (info, condition, _) ->
           let condition_type, store = check_expr condition env store in
-          (match condition_type with
-          | TBool _ -> ()
-          | _ ->
+          (* Unified, as an `if`'s condition is: one still open -- what an
+             unannotated parameter's call gives -- becomes a Bool. *)
+          (match unify (t_bool info) condition_type store with
+          | Some store -> (env, store)
+          | None ->
               raise
                 (Type_error
                    ( info,
                      Printf.sprintf
                        "the condition of a comprehension must be Bool, not %s"
-                       (printed condition_type) )));
-          (env, store))
+                       (printed (zonk condition_type store)) ))))
     (env, store) clauses
 
 (** The environment a pattern binds and the store in which the value it
@@ -6967,7 +7239,7 @@ let check_open_arrays stmts store =
     match type_ with
     | TCon (_, name, [ element ], _) when name = array_name || name = dynarray_name || name = slice_name ->
         metas_in element store <> [] || open_array element
-    | TCon (_, name, args, _) when name = mutmap_name ->
+    | TCon (_, name, args, _) when name = mutmap_name || name = map_name ->
         List.exists (fun arg -> metas_in arg store <> []) args || List.exists open_array args
     | TCon (_, name, args, _) when writable name ->
         List.exists (fun arg -> metas_in arg store <> []) args || List.exists open_array args
@@ -6981,6 +7253,7 @@ let check_open_arrays stmts store =
   let rec keys_fit info type_ =
     match type_ with
     | TCon (_, name, [ key; _ ], _) when name = mutmap_name -> demand_key info key store
+    | TCon (_, name, [ key; _ ], _) when name = map_name -> demand_key ~whose:"a Map's" info key store
     | TCon (_, _, args, _) | TTuple (_, args, _) -> List.iter (keys_fit info) args
     | TList (_, element, _) -> keys_fit info element
     | _ -> ()

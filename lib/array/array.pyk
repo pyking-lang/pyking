@@ -19,6 +19,7 @@
 # comparisons the overloads pass to `merge_sort` are this module's own.
 
 use mutation
+import list
 
 
 ## A new array holding the same elements as `a`, in the same order.
@@ -191,7 +192,7 @@ public def resize(a: Array(t), n: Int, v: t) -> Array(t):
 
 # Whether two arrays have the same length and, position by position,
 # elements `alike` says are the same.
-def equal_by(a: Array(t), b: Array(t), alike: (t, t) -> Bool) -> Bool:
+def equal_with(a: Array(t), b: Array(t), alike: (t, t) -> Bool) -> Bool:
     var same_so_far = len(a) == len(b)
     var k = 0
     while same_so_far and k < len(a):
@@ -221,7 +222,7 @@ def equal_by(a: Array(t), b: Array(t), alike: (t, t) -> Bool) -> Bool:
 ## true false
 ## ```
 public def int::equal(a: Array(Int), b: Array(Int)) -> Bool:
-    equal_by(a, b, lam (x, y). x == y)
+    equal_with(a, b, lam (x, y). x == y)
 
 
 ## Whether two arrays of Floats hold the same elements in the same
@@ -244,7 +245,7 @@ public def int::equal(a: Array(Int), b: Array(Int)) -> Bool:
 ## true
 ## ```
 public def float::equal(a: Array(Float), b: Array(Float)) -> Bool:
-    equal_by(a, b, lam (x, y). x == y)
+    equal_with(a, b, lam (x, y). x == y)
 
 
 ## Whether two arrays of Strings hold the same elements in the same order.
@@ -266,7 +267,7 @@ public def float::equal(a: Array(Float), b: Array(Float)) -> Bool:
 ## true
 ## ```
 public def string::equal(a: Array(String), b: Array(String)) -> Bool:
-    equal_by(a, b, lam (x, y). x == y)
+    equal_with(a, b, lam (x, y). x == y)
 
 
 ## Whether two arrays of Chars hold the same elements in the same order.
@@ -288,7 +289,7 @@ public def string::equal(a: Array(String), b: Array(String)) -> Bool:
 ## false
 ## ```
 public def char::equal(a: Array(Char), b: Array(Char)) -> Bool:
-    equal_by(a, b, lam (x, y). x == y)
+    equal_with(a, b, lam (x, y). x == y)
 
 
 ## Whether two arrays of Bools hold the same elements in the same order.
@@ -310,7 +311,7 @@ public def char::equal(a: Array(Char), b: Array(Char)) -> Bool:
 ## true
 ## ```
 public def bool::equal(a: Array(Bool), b: Array(Bool)) -> Bool:
-    equal_by(a, b, lam (x, y). x == y)
+    equal_with(a, b, lam (x, y). x == y)
 
 
 # --- sorting ---
@@ -454,3 +455,1122 @@ public def string::sort(a: Array(String)) -> ():
 ## ```
 public def char::sort(a: Array(Char)) -> ():
     merge_sort(a, lam (x, y). x < y)
+
+
+# --- what lib/list has too ---
+
+
+## The first element of an array, where there is one.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([4, 5])
+## print(array.first(a))
+## ```
+## ```stdout
+## Some(4)
+## ```
+public def first(a: Array(t)) -> Option(t):
+    list.first(list(a))
+
+
+## The last element of an array, where there is one.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([4, 5])
+## print(array.last(a))
+## ```
+## ```stdout
+## Some(5)
+## ```
+public def last(a: Array(t)) -> Option(t):
+    list.last(list(a))
+
+
+## Element `i`, where there is one: `a[i]` that does not fail.
+##
+## # Parameters
+## - `a`: an array.
+## - `i`: the index.
+##
+## # Returns
+## `Some` of it, or `None` where `i` is outside.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([4, 5])
+## print(array.nth(a, 1), array.nth(a, 2))
+## ```
+## ```stdout
+## Some(5) None
+## ```
+public def nth(a: Array(t), i: Int) -> Option(t):
+    if i < 0 or i >= len(a) then None else Some(a[i])
+
+
+## Whether an array has no elements.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## `true` where it has none.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([0])
+## print(array.is_empty(a))
+## ```
+## ```stdout
+## false
+## ```
+public def is_empty(a: Array(t)) -> Bool:
+    len(a) == 0
+
+
+## The first element `p` is true of.
+##
+## # Parameters
+## - `p`: the test.
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2, 3])
+## print(array.find(lam x. x > 1, a))
+## ```
+## ```stdout
+## Some(2)
+## ```
+public def find(p: (t) -> Bool, a: Array(t)) -> Option(t):
+    list.find(p, list(a))
+
+
+## The index of the first element `p` is true of.
+##
+## # Parameters
+## - `p`: the test.
+## - `a`: an array.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2, 3])
+## print(array.find_index(lam x. x > 1, a))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def find_index(p: (t) -> Bool, a: Array(t)) -> Option(Int):
+    list.find_index(p, list(a))
+
+
+## How many elements `p` is true of.
+##
+## # Parameters
+## - `p`: the test.
+## - `a`: an array.
+##
+## # Returns
+## The count.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2, 3, 4])
+## print(array.count(lam x. x % 2 == 0, a))
+## ```
+## ```stdout
+## 2
+## ```
+public def count(p: (t) -> Bool, a: Array(t)) -> Int:
+    list.count(p, list(a))
+
+
+## The elements gathered by `f` from the first, with no starting value.
+##
+## # Parameters
+## - `f`: combines what is gathered with the next element.
+## - `a`: an array.
+##
+## # Returns
+## `Some` of the result, or `None` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([2, 3, 4])
+## print(array.reduce(lam (x, y). x * y, a))
+## ```
+## ```stdout
+## Some(24)
+## ```
+public def reduce(f: (t, t) -> t, a: Array(t)) -> Option(t):
+    list.reduce(f, list(a))
+
+
+## Whether some element is alike to `x`, by `alike`.
+##
+## # Parameters
+## - `alike`: whether two elements count as the same.
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `true` where one is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([10, 21])
+## print(array.contains_by(lam (p, q). p % 10 == q % 10, 1, a))
+## ```
+## ```stdout
+## true
+## ```
+public def contains_by(alike: (t, t) -> Bool, x: t, a: Array(t)) -> Bool:
+    list.contains_by(alike, x, list(a))
+
+
+## Whether `x` is an element of an array of Ints.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([3, 1])
+## print(array.contains(1, a))
+## ```
+## ```stdout
+## true
+## ```
+public def int::contains(x: Int, a: Array(Int)) -> Bool:
+    list.contains(x, list(a))
+
+
+## Whether `x` is an element of an array of Floats.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1.5])
+## print(array.contains(1.5, a))
+## ```
+## ```stdout
+## true
+## ```
+public def float::contains(x: Float, a: Array(Float)) -> Bool:
+    list.contains(x, list(a))
+
+
+## Whether `x` is an element of an array of Strings.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["a"])
+## print(array.contains("b", a))
+## ```
+## ```stdout
+## false
+## ```
+public def string::contains(x: String, a: Array(String)) -> Bool:
+    list.contains(x, list(a))
+
+
+## Whether `x` is an element of an array of Chars.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(['a'])
+## print(array.contains('a', a))
+## ```
+## ```stdout
+## true
+## ```
+public def char::contains(x: Char, a: Array(Char)) -> Bool:
+    list.contains(x, list(a))
+
+
+## Whether `x` is an element of an array of Bools.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([true])
+## print(array.contains(true, a))
+## ```
+## ```stdout
+## true
+## ```
+public def bool::contains(x: Bool, a: Array(Bool)) -> Bool:
+    list.contains(x, list(a))
+
+
+## The index of the first element alike to `x`, by `alike`.
+##
+## # Parameters
+## - `alike`: whether two elements count as the same.
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([10, 21])
+## print(array.index_of_by(lam (p, q). p % 10 == q % 10, 1, a))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def index_of_by(alike: (t, t) -> Bool, x: t, a: Array(t)) -> Option(Int):
+    list.index_of_by(alike, x, list(a))
+
+
+## The index of the first `x` in an array of Ints.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([3, 1])
+## print(array.index_of(1, a))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def int::index_of(x: Int, a: Array(Int)) -> Option(Int):
+    list.index_of(x, list(a))
+
+
+## The index of the first `x` in an array of Floats.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1.5])
+## print(array.index_of(1.5, a))
+## ```
+## ```stdout
+## Some(0)
+## ```
+public def float::index_of(x: Float, a: Array(Float)) -> Option(Int):
+    list.index_of(x, list(a))
+
+
+## The index of the first `x` in an array of Strings.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["a"])
+## print(array.index_of("b", a))
+## ```
+## ```stdout
+## None
+## ```
+public def string::index_of(x: String, a: Array(String)) -> Option(Int):
+    list.index_of(x, list(a))
+
+
+## The index of the first `x` in an array of Chars.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(['a'])
+## print(array.index_of('a', a))
+## ```
+## ```stdout
+## Some(0)
+## ```
+public def char::index_of(x: Char, a: Array(Char)) -> Option(Int):
+    list.index_of(x, list(a))
+
+
+## The index of the first `x` in an array of Bools.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `a`: an array.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([true])
+## print(array.index_of(true, a))
+## ```
+## ```stdout
+## Some(0)
+## ```
+public def bool::index_of(x: Bool, a: Array(Bool)) -> Option(Int):
+    list.index_of(x, list(a))
+
+
+## The Ints added up.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## The sum.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2, 3])
+## print(array.sum(a))
+## ```
+## ```stdout
+## 6
+## ```
+public def int::sum(a: Array(Int)) -> Int:
+    list.sum(list(a))
+
+
+## The Ints multiplied.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## The product.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2, 3])
+## print(array.product(a))
+## ```
+## ```stdout
+## 6
+## ```
+public def int::product(a: Array(Int)) -> Int:
+    list.product(list(a))
+
+
+## The Floats added up.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## The sum.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([0.5, 1.5])
+## print(array.sum(a))
+## ```
+## ```stdout
+## 2.0
+## ```
+public def float::sum(a: Array(Float)) -> Float:
+    list.sum(list(a))
+
+
+## The Floats multiplied.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## The product.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([0.5, 1.5])
+## print(array.product(a))
+## ```
+## ```stdout
+## 0.75
+## ```
+public def float::product(a: Array(Float)) -> Float:
+    list.product(list(a))
+
+
+## The greatest element, `before(x, y)` saying `x` is smaller; the first of
+## several equal ones.
+##
+## # Parameters
+## - `before`: whether its first argument is smaller.
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["ab", "c"])
+## print(array.maximum_by(lam (x, y). len(x) < len(y), a))
+## ```
+## ```stdout
+## Some("ab")
+## ```
+public def maximum_by(before: (t, t) -> Bool, a: Array(t)) -> Option(t):
+    list.maximum_by(before, list(a))
+
+
+## The smallest element, `before(x, y)` saying `x` is smaller; the first of
+## several equal ones.
+##
+## # Parameters
+## - `before`: whether its first argument is smaller.
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["ab", "c"])
+## print(array.minimum_by(lam (x, y). len(x) < len(y), a))
+## ```
+## ```stdout
+## Some("c")
+## ```
+public def minimum_by(before: (t, t) -> Bool, a: Array(t)) -> Option(t):
+    list.minimum_by(before, list(a))
+
+
+## The greatest Int.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([3, 1, 2])
+## print(array.maximum(a))
+## ```
+## ```stdout
+## Some(3)
+## ```
+public def int::maximum(a: Array(Int)) -> Option(Int):
+    list.maximum(list(a))
+
+
+## The smallest Int.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([3, 1, 2])
+## print(array.minimum(a))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def int::minimum(a: Array(Int)) -> Option(Int):
+    list.minimum(list(a))
+
+
+## The greatest Float.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([2.5, -1.0])
+## print(array.maximum(a))
+## ```
+## ```stdout
+## Some(2.5)
+## ```
+public def float::maximum(a: Array(Float)) -> Option(Float):
+    list.maximum(list(a))
+
+
+## The smallest Float.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([2.5, -1.0])
+## print(array.minimum(a))
+## ```
+## ```stdout
+## Some(-1.0)
+## ```
+public def float::minimum(a: Array(Float)) -> Option(Float):
+    list.minimum(list(a))
+
+
+## The greatest String.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["b", "a"])
+## print(array.maximum(a))
+## ```
+## ```stdout
+## Some("b")
+## ```
+public def string::maximum(a: Array(String)) -> Option(String):
+    list.maximum(list(a))
+
+
+## The smallest String.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["b", "a"])
+## print(array.minimum(a))
+## ```
+## ```stdout
+## Some("a")
+## ```
+public def string::minimum(a: Array(String)) -> Option(String):
+    list.minimum(list(a))
+
+
+## The greatest Char.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(['b', 'a'])
+## print(array.maximum(a))
+## ```
+## ```stdout
+## Some('b')
+## ```
+public def char::maximum(a: Array(Char)) -> Option(Char):
+    list.maximum(list(a))
+
+
+## The smallest Char.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(['b', 'a'])
+## print(array.minimum(a))
+## ```
+## ```stdout
+## Some('a')
+## ```
+public def char::minimum(a: Array(Char)) -> Option(Char):
+    list.minimum(list(a))
+
+
+## A new Array of the Ints from smallest to largest; `a` is as it was
+## (`sort` sorts in place).
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## A new Array.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([3, 1, 2])
+## print(array.sorted(a), a)
+## ```
+## ```stdout
+## array([1, 2, 3]) array([3, 1, 2])
+## ```
+public def int::sorted(a: Array(Int)) -> Array(Int):
+    array(list.sort(list(a)))
+
+
+## A new Array of the Floats from smallest to largest; `a` is as it was
+## (`sort` sorts in place).
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## A new Array.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([2.5, -1.0])
+## print(array.sorted(a), a)
+## ```
+## ```stdout
+## array([-1.0, 2.5]) array([2.5, -1.0])
+## ```
+public def float::sorted(a: Array(Float)) -> Array(Float):
+    array(list.sort(list(a)))
+
+
+## A new Array of the Strings from smallest to largest; `a` is as it was
+## (`sort` sorts in place).
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## A new Array.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["b", "a"])
+## print(array.sorted(a), a)
+## ```
+## ```stdout
+## array(["a", "b"]) array(["b", "a"])
+## ```
+public def string::sorted(a: Array(String)) -> Array(String):
+    array(list.sort(list(a)))
+
+
+## A new Array of the Chars from smallest to largest; `a` is as it was
+## (`sort` sorts in place).
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## A new Array.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(['b', 'a'])
+## print(array.sorted(a), a)
+## ```
+## ```stdout
+## array(['a', 'b']) array(['b', 'a'])
+## ```
+public def char::sorted(a: Array(Char)) -> Array(Char):
+    array(list.sort(list(a)))
+
+
+## A new Array of the elements in the other order; `a` is as it was.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## A new Array.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2, 3])
+## print(array.reversed(a), a)
+## ```
+## ```stdout
+## array([3, 2, 1]) array([1, 2, 3])
+## ```
+public def reversed(a: Array(t)) -> Array(t):
+    array(list.reverse(list(a)))
+
+
+## Sorts in place, `before(x, y)` saying `x` goes before `y`; equal ones
+## keep their order (one merge sort, the same on every target).
+##
+## # Parameters
+## - `before`: whether its first argument goes first.
+## - `a`: an array to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["ccc", "a", "bb"])
+## array.sort_by(lam (x, y). len(x) < len(y), a)
+## print(a)
+## ```
+## ```stdout
+## array(["a", "bb", "ccc"])
+## ```
+public def sort_by(before: (t, t) -> Bool, a: Array(t)) -> ():
+    merge_sort(a, before)
+
+
+## Sorts in place by each element's Int key, `key` called once per element;
+## equal keys keep their order.
+##
+## # Parameters
+## - `key`: the Int an element is sorted by.
+## - `a`: an array to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["ccc", "a", "bb"])
+## array.sort_on(lam s. len(s), a)
+## print(a)
+## ```
+## ```stdout
+## array(["a", "bb", "ccc"])
+## ```
+public def int::sort_on(key: (t) -> Int, a: Array(t)) -> ():
+    in_order = array(list.sort_on(key, list(a)))
+    for i in range(len(in_order)):
+        a[i] := in_order[i]
+
+
+## Sorts in place by each element's Float key, `key` called once per element;
+## equal keys keep their order.
+##
+## # Parameters
+## - `key`: the Float an element is sorted by.
+## - `a`: an array to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1.0, 3.0])
+## array.sort_on(lam x. 0.0 - x, a)
+## print(a)
+## ```
+## ```stdout
+## array([3.0, 1.0])
+## ```
+public def float::sort_on(key: (t) -> Float, a: Array(t)) -> ():
+    in_order = array(list.sort_on(key, list(a)))
+    for i in range(len(in_order)):
+        a[i] := in_order[i]
+
+
+## Sorts in place by each element's String key, `key` called once per element;
+## equal keys keep their order.
+##
+## # Parameters
+## - `key`: the String an element is sorted by.
+## - `a`: an array to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([(2, "b"), (1, "a")])
+## array.sort_on(lam p. let (_, s) = p in s, a)
+## print(a)
+## ```
+## ```stdout
+## array([(1, "a"), (2, "b")])
+## ```
+public def string::sort_on(key: (t) -> String, a: Array(t)) -> ():
+    in_order = array(list.sort_on(key, list(a)))
+    for i in range(len(in_order)):
+        a[i] := in_order[i]
+
+
+## Sorts in place by each element's Char key, `key` called once per element;
+## equal keys keep their order.
+##
+## # Parameters
+## - `key`: the Char an element is sorted by.
+## - `a`: an array to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["b1", "a2"])
+## array.sort_on(lam s. s[0], a)
+## print(a)
+## ```
+## ```stdout
+## array(["a2", "b1"])
+## ```
+public def char::sort_on(key: (t) -> Char, a: Array(t)) -> ():
+    in_order = array(list.sort_on(key, list(a)))
+    for i in range(len(in_order)):
+        a[i] := in_order[i]
+
+
+## Replaces each element `x` by `f(x)`, in place, in index order: `fmap`
+## without a copy.
+##
+## # Parameters
+## - `f`: makes the new element from the old.
+## - `a`: an array.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2, 3])
+## array.map_in_place(lam x. x * x, a)
+## print(a)
+## ```
+## ```stdout
+## array([1, 4, 9])
+## ```
+public def map_in_place(f: (t) -> t, a: Array(t)) -> ():
+    for i in range(len(a)):
+        a[i] := f(a[i])
+
+
+## The elements of two Arrays in pairs, as long as the shorter one.
+##
+## # Parameters
+## - `a`: the first Array.
+## - `other`: the second.
+##
+## # Returns
+## A new Array of pairs.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## print(array.zip(array([1, 2]), array(["a", "b", "c"])))
+## ```
+## ```stdout
+## array([(1, "a"), (2, "b")])
+## ```
+public def zip(a: Array(t), other: Array(u)) -> Array((t, u)):
+    array(list.zip(list(a), list(other)))
+
+
+## Each element with its index.
+##
+## # Parameters
+## - `a`: an array.
+##
+## # Returns
+## A new Array of (index, element) pairs.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array(["a", "b"])
+## print(array.enumerate(a))
+## ```
+## ```stdout
+## array([(0, "a"), (1, "b")])
+## ```
+public def enumerate(a: Array(t)) -> Array((Int, t)):
+    array(list.enumerate(list(a)))
+
+
+## The lists `f` makes of each element, joined.
+##
+## # Parameters
+## - `f`: makes a list of one element.
+## - `a`: an array.
+##
+## # Returns
+## A new Array.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## a = array([1, 2])
+## print(array.flat_map(lam x. [x, x], a))
+## ```
+## ```stdout
+## array([1, 1, 2, 2])
+## ```
+public def flat_map(f: (t) -> [u], a: Array(t)) -> Array(u):
+    array(list.flat_map(f, list(a)))
+
+
+## Whether two Arrays are as long and alike element by element, by `alike`.
+##
+## # Parameters
+## - `alike`: whether two elements count as the same.
+## - `a`: one Array.
+## - `other`: the other.
+##
+## # Returns
+## `true` where they are.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import array
+## print(array.equal_by(lam (x, y). x % 2 == y % 2, array([1, 2]), array([3, 4])))
+## ```
+## ```stdout
+## true
+## ```
+public def equal_by(alike: (t, t) -> Bool, a: Array(t), other: Array(t)) -> Bool:
+    equal_with(a, other, alike)

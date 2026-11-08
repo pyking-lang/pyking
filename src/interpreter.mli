@@ -110,6 +110,9 @@ type value =
       (* a DynArray: an array that grows, shared by every name holding it *)
   | VMutMap of mutmap
       (* a MutMap: a map that keeps the order its keys were put in *)
+  | VMap of mutmap
+      (* a Map: a MutMap's storage that nothing writes once it is made
+         (PYKING.md, "Maps") *)
   | VView of view
       (* a view of a run of an array's elements, which it shares *)
   | VPtr of location

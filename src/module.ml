@@ -1270,7 +1270,7 @@ and qualified name type_ =
     match t with
     | TCon (i, n, args, s) ->
         (* `Array` is the builtin's, every module's alike. *)
-        let n = if String.contains n '.' || List.mem n [ "Array"; "DynArray"; "MutMap"; "Slice" ] then n else name ^ "." ^ n in
+        let n = if String.contains n '.' || List.mem n [ "Array"; "DynArray"; "MutMap"; "Map"; "Slice" ] then n else name ^ "." ^ n in
         TCon (i, n, List.map go args, s)
     | TData (i, Datatype (n, params, constructors, writable), s) ->
         let n = if String.contains n '.' then n else name ^ "." ^ n in

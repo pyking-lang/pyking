@@ -153,8 +153,12 @@ them while `sys.args` does not.
 
 ## Failure, where the language has none
 
-Pyking has no exceptions, no option type and no result type, so a
-library cannot report that something went wrong. Two rules follow:
+Pyking has no exceptions. Where a library function's failure is part of
+its answer, it answers an `Option` (`list.first`, `map.lookup`) or a
+`Result` (lib/result), and where the caller broke its promise --
+`result.unwrap` of an `Error`, `list.chunks` of a size of 0 -- it calls
+`panic`, which stops the program with a runtime error on every target.
+The libraries that predate Option and Result keep two rules:
 
 - **Make the failure avoidable.** `fs.exists(name)` and
   `sys.env_has(name)` exist so a program can ask before it acts.
@@ -727,6 +731,10 @@ cannot provide").
 | `time` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
 | `tinyweb` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
 | `dynarray` | yes | yes | yes | yes | yes, but not `to_list` or `extend`, which take or answer a list | yes | yes | yes | yes |
+| `prelude` | yes | yes | yes | yes | no: every function takes or answers a list, a Map or an Option | yes | yes | yes | yes |
+| `list` | yes | yes | yes | yes | no: a list needs a heap that is freed | yes | yes | yes | yes |
+| `map`, `mutmap` | yes | yes | yes | yes | no: their functions answer lists | yes | yes | yes | yes |
+| `option`, `result` | yes | yes | yes | yes | yes, but not the functions that take or answer a list | yes | yes | yes | yes |
 
 "Not supported" and "output only" are the browser implementations above:
 the import compiles and a function the page cannot provide says so.
@@ -734,6 +742,15 @@ the import compiles and a function the page cannot provide says so.
 `array` is written in Pyking alone too, over the builtin arrays, so
 `sort` is one merge sort with the same comparisons everywhere. So is
 `dynarray`, over the builtin DynArrays and `array`, whose `sort` it uses.
+Both reach lib/list for what they share with it (`find`, `count`,
+`maximum`, ...), which reaches lib/prelude.
+
+`prelude` holds the collection builtins written in Pyking -- `fmap`,
+`filter`, `foldl`, `foldr`, `any`, `all` and the function-calling
+constructors -- and is never imported by name: the parser imports it
+into a module that calls one of them (docs/builtin.md). `list`, `map`,
+`mutmap`, `option` and `result` are written in Pyking alone; `map`
+changes a Map by making a MutMap of it and a Map of that again.
 
 `random` is written in Pyking alone, a Park--Miller generator kept in
 32 bits, so a seed gives the same numbers on every target; without one it

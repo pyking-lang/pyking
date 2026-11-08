@@ -1,0 +1,7 @@
+# A Map is not hashed, so no Map is a key.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+inner = map([(1, 1)])
+print(map([(inner, "x")]))

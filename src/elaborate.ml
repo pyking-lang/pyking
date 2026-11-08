@@ -565,6 +565,8 @@ and expression_body e qmap work =
       let names = List.map fst args in
       let given, work = each (arg_exprs args) work in
       match IntMap.find_opt s qmap with
+      | Some (Call (Some (name, type_), [])) when List.mem name Builtin.conversion_members ->
+          converted i name (folded type_) (List.hd given) s work
       | Some (Call (target, appended)) ->
           (* The checker settled what this call means: the name overload
              resolution chose for it, and one argument per implicit
@@ -604,6 +606,40 @@ and expression_body e qmap work =
       | _ ->
           let func, work = go func work in
           (ECall (i, func, List.combine names given, s), work))
+
+(** A conversion member of a builtin set -- `dynarray::array(v)`, which
+    `array(v)` of a DynArray resolved to -- as the set's list form
+    applied to the collection's elements: `list::array([x for x in v])`,
+    or `list::mutmap(items(m))` for a map. So no backend has a
+    conversion of its own to write (PYKING.md, "Making and converting
+    collections"). info -> string -> typ -> expr -> int -> work -> (expr, work) *)
+and converted i name type_ arg s work =
+  let from = Option.value (Names.qualifier name) ~default:"" and target = Names.base name in
+  let param, result =
+    match type_ with TFunction (_, [ p ], r, _, _, _, _) -> (p, r) | _ -> invalid_arg "Elaborate.converted"
+  in
+  let element =
+    match param with
+    | TString _ -> TChar (i, 0)
+    | TCon (_, _, [ e ], _) -> e
+    | TCon (_, _, [ k; v ], _) -> TTuple (i, [ k; v ], 0)
+    | _ -> invalid_arg "Elaborate.converted"
+  in
+  let listed = TList (i, element, 0) in
+  let as_list, work =
+    if from = "map" || from = "mutmap" then
+      let fs, work = node work (TBuiltin (i, "items", 0)) in
+      let cs, work = node work listed in
+      (ECall (i, EVar (i, "items", fs), [ (None, arg) ], cs), work)
+    else
+      let ps, work = node work element in
+      let vs, work = node work element in
+      let clause, work = node work element in
+      let ls, work = node work listed in
+      (EListComp (i, EVar (i, "conv__x", vs), [ CompFor (i, PCapture (i, "conv__x", ps), arg, clause) ], ls), work)
+  in
+  let fs, work = node work (TFunction (i, [ listed ], result, 0, 0, None, [])) in
+  (ECall (i, EVar (i, plain ("list::" ^ target), fs), [ (None, as_list) ], s), work)
 
 (** One parameter with its own expressions rewritten.
     param -> resolution IntMap.t -> work -> (param, work) *)
@@ -814,8 +850,11 @@ and statements stmts qmap work =
     again: every type recorded here is one it worked out and carried in
     `qmap` (docs/implicits.md, "Why one check is enough").
     resolution IntMap.t -> typ IntMap.t -> [stmt] -> ([stmt], typ IntMap.t) *)
-let program qmap tmap stmts =
+let program ?(start = 0) qmap tmap stmts =
   check_no_rename_clash stmts;
-  let work = { next = Analyses.highest_sym stmts + 1; tmap } in
+  (* Past `start` too: one numbering spans every module of a program,
+     so a node built here must not take a symbol another module's node
+     already has. *)
+  let work = { next = max (Analyses.highest_sym stmts) start + 1; tmap } in
   let stmts, work = statements stmts qmap work in
   (stmts, work.tmap)

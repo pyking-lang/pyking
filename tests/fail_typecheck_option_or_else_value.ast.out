@@ -1,0 +1,4 @@
+'tests/fail_typecheck_option_or_else_value.pyk' 8:30-8:31 Type error:
+  argument 2 has type Int, but () -> Option(Int) was expected:
+  'or_else' takes a function that answers an Option, as Rust's does;
+  the value itself is 'option.unwrap_or(o, value)'

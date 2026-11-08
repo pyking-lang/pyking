@@ -1,0 +1,6 @@
+# Maps have no order.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(map([(1, 1)]) < map([(2, 2)]))

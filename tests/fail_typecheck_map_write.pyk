@@ -1,0 +1,9 @@
+# A Map is never changed: `m[k] := v` is a MutMap's.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+m = map([("a", 1)])
+m["b"] := 2

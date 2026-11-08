@@ -123,7 +123,7 @@ let prepare ?(release = false) ?(warnings = Warnings.default) ?(own = fun (_ : M
                     | None -> name)
                   warnings unit.tokens unit.stmts;
           let sigmap = Module.module_sigmap unit.name unit.stmts unit.declarations tmap in
-          let elaborated, running_types = Elaborate.program qmap tmap unit.stmts in
+          let elaborated, running_types = Elaborate.program ~start:highest qmap tmap unit.stmts in
           let elaborated =
             if release then Release.program running_types elaborated else elaborated
           in
@@ -959,7 +959,7 @@ let has_parts v =
   | Interpreter.VData (_, fields) -> Array.length fields > 0
   | Interpreter.VArray elements -> Array.length elements > 0
   | Interpreter.VDynArray v -> v.size > 0
-  | Interpreter.VMutMap d -> d.live > 0
+  | Interpreter.VMutMap d | Interpreter.VMap d -> d.live > 0
   | Interpreter.VView v -> v.length > 0
   | Interpreter.VPtr _ -> true
   | _ -> false
@@ -1047,8 +1047,8 @@ let variables t reference =
         | Interpreter.VPtr location ->
             (* A pointer opens to what it points at, now. *)
             [ ("*", Interpreter.read_location location) ]
-        | Interpreter.VMutMap d ->
-            (* A MutMap is shown entry by entry, each under its key. *)
+        | Interpreter.VMutMap d | Interpreter.VMap d ->
+            (* A MutMap or a Map is shown entry by entry, each under its key. *)
             List.filter_map
               (Option.map (fun (k, x) -> ("[" ^ Interpreter.display_value k ^ "]", x)))
               (Array.to_list (Array.sub d.entries 0 d.used))

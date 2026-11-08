@@ -1,0 +1,4 @@
+'tests/fail_typecheck_collection_undecided.pyk' 7:4-7:25 Type error:
+  nothing here says what kind of collection 'c' is, so there is no
+  telling which 'fmap' is meant; annotate it, as in 'c: [Int]' or 'c:
+  Array(Int)'

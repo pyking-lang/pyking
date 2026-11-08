@@ -370,6 +370,14 @@ let store_of t =
     typ -> typ option *)
 let ptr_target t = match t with TCon (_, "Ptr", [ e ], _) -> Some e | _ -> None
 
+(** The key and value types of a Map type (map_parts, which
+    its interface keeps to itself), or None. typ -> (typ * typ) option *)
+let map_parts t = match t with TCon (_, "Map", [ k; v ], _) -> Some (k, v) | _ -> None
+
+(** The key and value types of a Map or a MutMap type: what the
+    builtins reading one take. typ -> (typ * typ) option *)
+let table_parts t = match Typesystem.mutmap_parts t with Some parts -> Some parts | None -> map_parts t
+
 (** The runtime class of a store. store -> string *)
 let store_class = function SArray -> "PykArray" | SDynArray -> "PykDynArray" | SView -> "PykView"
 
@@ -398,6 +406,9 @@ let rec jt ctx ?(boxed = false) ?(erase = false) t =
   | TCon _ when Typesystem.mutmap_parts t <> None ->
       let k, v = Option.get (Typesystem.mutmap_parts t) in
       runtime_class ^ ".PykMutMap<" ^ jt ctx ~boxed:true k ^ ", " ^ jt ctx ~boxed:true v ^ ">"
+  | TCon _ when map_parts t <> None ->
+      let k, v = Option.get (map_parts t) in
+      runtime_class ^ ".PykMap<" ^ jt ctx ~boxed:true k ^ ", " ^ jt ctx ~boxed:true v ^ ">"
   | TCon (_, canonical, args, _) when Classes.find ctx.classes canonical <> None ->
       ctor_class ctx.own_class canonical ^ if args = [] then "" else "<" ^ targs ctx args ^ ">"
   | TCon (_, canonical, args, _) ->
@@ -704,8 +715,8 @@ let char_code (v : jexpr) =
   else atom (at p_atom v ^ ".code")
 
 (** A sequence a `for` walks: a String's Chars as a list of them, a
-    list, a store or a MutMap as itself -- a store is an Iterable whose
-    iterator reads each element as it is reached, a MutMap one over its
+    list, a store or a map as itself -- a store is an Iterable whose
+    iterator reads each element as it is reached, a map one over its
     keys. typ -> jexpr -> jexpr *)
 let walked t (seq : jexpr) =
   match t with
@@ -713,11 +724,11 @@ let walked t (seq : jexpr) =
   | _ -> seq
 
 (** A sequence a comprehension walks: as `walked`, but a store's
-    elements and a MutMap's keys as a list of them as they are when it
+    elements and a map's keys as a list of them as they are when it
     starts. typ -> jexpr -> jexpr *)
 let listed t (seq : jexpr) =
   if store_of t <> None then atom (at p_atom seq ^ ".toList()")
-  else if Typesystem.mutmap_parts t <> None then atom (at p_atom seq ^ ".keys()")
+  else if table_parts t <> None then atom (at p_atom seq ^ ".keys()")
   else walked t seq
 
 (** The type of a sequence's items: a String's are Chars. typ -> typ *)
@@ -725,7 +736,7 @@ let item_type t =
   match t with
   | TList (_, el, _) -> el
   | TCon _ when store_of t <> None -> snd (Option.get (store_of t))
-  | TCon _ when Typesystem.mutmap_parts t <> None -> fst (Option.get (Typesystem.mutmap_parts t))
+  | TCon _ when table_parts t <> None -> fst (Option.get (table_parts t))
   | TString (i, _) -> TChar (i, 0)
   | _ -> TUnknown (no_info, 0)
 
@@ -1666,13 +1677,20 @@ and builtin ctx st scope e name args =
   | ("push" | "insert" | "get"), first :: rest ->
       let last = List.length rest - 1 in
       let element = item_type (arg_type 0) in
-      let element = match Typesystem.mutmap_parts (arg_type 0) with Some (_, value) -> value | None -> element in
+      let element = match table_parts (arg_type 0) with Some (_, value) -> value | None -> element in
       let rest = List.mapi (fun i v -> if i = last then typed_value ctx element v else v) rest in
       (method_call first name rest, st)
   | "has", [ d; k ] -> (atom (Printf.sprintf "%s.has(%s)" (at p_atom d) k.text), st)
   | ("pop" | "remove" | "clear" | "view" | "discard" | "keys" | "values"), first :: rest ->
       (method_call first name rest, st)
   | "items", [ d ] -> (method_call d name [], need_tuple st 2)
+  | "panic", [ m ] ->
+      (* Never answers: a generic method that throws, told the type
+         wanted where the checker settled it to one without variables,
+         which a statement's may be out of scope. *)
+      let t = type_of ctx scope e in
+      let explicit = if settled ctx t && type_vars t = [] && not (is_unit t) then "<" ^ jt ctx ~boxed:true t ^ ">" else "" in
+      (atom ~boxed:true (Printf.sprintf "%s.%spanic(%s)" runtime_class explicit m.text), st)
   | "copy_into", [ dst; src ] -> (atom (Printf.sprintf "%s(%s, %s)" (rt "copyInto") dst.text src.text), st)
   | "same", [ a; b ] ->
       (* Two arrays, or two var structs, are the same when they are one
@@ -1786,7 +1804,8 @@ and method_call receiver name args =
 (** A call making an array, a DynArray or a MutMap -- `list__array`,
     `fill__array`, `init__array_init` or `unfold__array_init`, the members
     of the builtin `array`, `empty__dynarray` or `list__dynarray`, `dynarray`'s, and
-    `empty__mutmap` or `list__mutmap`, `mutmap`'s -- as the runtime's factory
+    `empty__mutmap` or `list__mutmap`, `mutmap`'s, and `empty__map` or
+    `list__map`, `map`'s -- as the runtime's factory
     for it. The element type (a MutMap's key and value types) is
     given explicitly where the checker settled it, which also gives a
     lambda argument its interface; a lambda is cast to its own type
@@ -1806,13 +1825,15 @@ and make_array ctx st scope e name args =
     | "list__dynarray" -> "dynarrayOfList"
     | "empty__mutmap" -> "mutmapEmpty"
     | "list__mutmap" -> "mutmapOfList"
+    | "empty__map" -> "mapEmpty"
+    | "list__map" -> "mapOfList"
     | _ -> unsupported info (Printf.sprintf "the builtin `%s`" name)
   in
   let t = type_of ctx scope e in
   let st = need_type st t in
-  let st = if name = "unfold__array_init" || name = "list__mutmap" then need_tuple st 2 else st in
+  let st = if List.mem name [ "unfold__array_init"; "list__mutmap"; "list__map" ] then need_tuple st 2 else st in
   let explicit =
-    match (Option.map snd (store_of t), Typesystem.mutmap_parts t) with
+    match (Option.map snd (store_of t), table_parts t) with
     | _, Some (k, v) when settled ctx k && settled ctx v -> Printf.sprintf "<%s, %s>" (jt ctx ~boxed:true k) (jt ctx ~boxed:true v)
     | Some el, _ when settled ctx el ->
         if name = "unfold__array_init" then
@@ -3992,17 +4013,22 @@ let runtime_source programs version =
         "    // Pyking's `==` for every type a key can have. Shared by every name";
         "    // holding it. `version` counts the keys put and taken, which a walk";
         "    // over the keys watches.";
-        "    public static final class PykMutMap<K, V> implements Iterable<K> {";
-        "        private final java.util.LinkedHashMap<Object, Object> entries = new java.util.LinkedHashMap<Object, Object>();";
+        "    public static class PykMutMap<K, V> implements Iterable<K> {";
+        "        final java.util.LinkedHashMap<Object, Object> entries = new java.util.LinkedHashMap<Object, Object>();";
         "        private int version = 0;";
         "";
         "        public int size() {";
         "            return entries.size();";
         "        }";
         "";
+        "        // What a message calls it.";
+        "        String word() {";
+        "            return \"MutMap\";";
+        "        }";
+        "";
         "        @SuppressWarnings(\"unchecked\")";
         "        public V get(Object key) {";
-        "            if (!entries.containsKey(key)) throw fail(\"the MutMap has no key \" + show(key));";
+        "            if (!entries.containsKey(key)) throw fail(\"the \" + word() + \" has no key \" + show(key));";
         "            return (V) entries.get(key);";
         "        }";
         "";
@@ -4085,6 +4111,35 @@ let runtime_source programs version =
       ]
     @ [
         "";
+        "    // A Map: a MutMap nothing writes once it is made, `==` to another";
+        "    // with the same keys, each with an equal value, in whatever order.";
+        "    public static final class PykMap<K, V> extends PykMutMap<K, V> {";
+        "        @Override";
+        "        String word() {";
+        "            return \"Map\";";
+        "        }";
+        "    }";
+        "";
+        "    // map(): no entries.";
+        "    public static <K, V> PykMap<K, V> mapEmpty() {";
+        "        return new PykMap<K, V>();";
+        "    }";
+        "";
+        "    // map(pairs): as mutmap(pairs).";
+        "    public static <K, V> PykMap<K, V> mapOfList(java.util.List<T2<K, V>> pairs) {";
+        "        PykMap<K, V> out = new PykMap<K, V>();";
+        "        for (T2<K, V> pair : pairs) {";
+        "            Object[] kv = pair.pykItems();";
+        "            out.put(kv[0], kv[1]);";
+        "        }";
+        "        return out;";
+        "    }";
+        "";
+        "    // panic(message): a runtime error, answering whatever type is wanted.";
+        "    public static <T> T panic(String message) {";
+        "        throw fail(message);";
+        "    }";
+        "";
         "    // mutmap(): no entries.";
         "    public static <K, V> PykMutMap<K, V> mutmapEmpty() {";
         "        return new PykMutMap<K, V>();";
@@ -4102,9 +4157,9 @@ let runtime_source programs version =
         "    }";
         "";
         "    // Pyking's `==` on two values of one type: lists and tuples part by";
-        "    // part, datatypes by constructor and then field by field, a Float by";
-        "    // IEEE's == (nan is not itself; -0.0 is 0.0), anything else by its";
-        "    // own equals.";
+        "    // part, datatypes by constructor and then field by field, Maps by";
+        "    // their entries in whatever order, a Float by IEEE's == (nan is not";
+        "    // itself; -0.0 is 0.0), anything else by its own equals.";
         "    public static boolean equal(Object a, Object b) {";
         "        if (a == null || b == null) return a == b;";
         "        if (a instanceof Double && b instanceof Double) return ((Double) a).doubleValue() == ((Double) b).doubleValue();";
@@ -4115,6 +4170,14 @@ let runtime_source programs version =
         "            java.util.Iterator<?> i = x.iterator();";
         "            java.util.Iterator<?> j = y.iterator();";
         "            while (i.hasNext()) if (!equal(i.next(), j.next())) return false;";
+        "            return true;";
+        "        }";
+        "        if (a instanceof PykMap && b instanceof PykMap) {";
+        "            java.util.LinkedHashMap<Object, Object> x = ((PykMap<?, ?>) a).entries;";
+        "            java.util.LinkedHashMap<Object, Object> y = ((PykMap<?, ?>) b).entries;";
+        "            if (x.size() != y.size()) return false;";
+        "            for (java.util.Map.Entry<Object, Object> e : x.entrySet())";
+        "                if (!y.containsKey(e.getKey()) || !equal(e.getValue(), y.get(e.getKey()))) return false;";
         "            return true;";
         "        }";
         "        if (a instanceof Tuple && b instanceof Tuple) return equalAll(((Tuple) a).pykItems(), ((Tuple) b).pykItems());";
@@ -4350,7 +4413,7 @@ let runtime_source programs version =
         "                out.append(\"...\");";
         "                return;";
         "            }";
-        "            out.append(\"mutmap([\");";
+        "            out.append(value instanceof PykMap ? \"map([\" : \"mutmap([\");";
         "            boolean first = true;";
         "            for (java.util.Map.Entry<Object, Object> entry : ((PykMutMap<?, ?>) value).entries.entrySet()) {";
         "                if (!first) out.append(\", \");";

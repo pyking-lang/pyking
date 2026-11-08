@@ -992,7 +992,36 @@ let builtin_signatures name =
       ]
   | "len" -> [ ("len(items) -> Int", [ "items" ]) ]
   | "same" -> [ ("same(a: t, b: t) -> Bool", [ "a: t"; "b: t" ]) ]
-  | "dynarray" -> [ ("dynarray() -> DynArray(t)", []); ("dynarray(xs: [t]) -> DynArray(t)", [ "xs: [t]" ]) ]
+  | "dynarray" ->
+      [
+        ("dynarray() -> DynArray(t)", []);
+        ("dynarray(xs: [t]) -> DynArray(t)", [ "xs: [t]" ]);
+        ("dynarray(n: Int, v: t) -> DynArray(t)", [ "n: Int"; "v: t" ]);
+      ]
+  | "dynarray_init" ->
+      [
+        ("dynarray_init(n: Int, f: (Int) -> t) -> DynArray(t)", [ "n: Int"; "f: (Int) -> t" ]);
+        ("dynarray_init(n: Int, seed: s, f: (s) -> (t, s)) -> DynArray(t)", [ "n: Int"; "seed: s"; "f: (s) -> (t, s)" ]);
+      ]
+  | "list" -> [ ("list(c) -> [t]", [ "c" ]); ("list(n: Int, v: t) -> [t]", [ "n: Int"; "v: t" ]) ]
+  | "list_init" ->
+      [
+        ("list_init(n: Int, f: (Int) -> t) -> [t]", [ "n: Int"; "f: (Int) -> t" ]);
+        ("list_init(n: Int, seed: s, f: (s) -> (t, s)) -> [t]", [ "n: Int"; "seed: s"; "f: (s) -> (t, s)" ]);
+      ]
+  | "map" -> [ ("map() -> Map(k, v)", []); ("map(pairs: [(k, v)]) -> Map(k, v)", [ "pairs: [(k, v)]" ]) ]
+  | ("map_init" | "mutmap_init") as made ->
+      let t = if made = "map_init" then "Map(k, v)" else "MutMap(k, v)" in
+      [
+        (Printf.sprintf "%s(keys: [k], f: (k) -> v) -> %s" made t, [ "keys: [k]"; "f: (k) -> v" ]);
+        (Printf.sprintf "%s(n: Int, seed: s, f: (s) -> ((k, v), s)) -> %s" made t, [ "n: Int"; "seed: s"; "f: (s) -> ((k, v), s)" ]);
+      ]
+  | "fmap" -> [ ("fmap(f: (a) -> b, c: C(a)) -> C(b)", [ "f: (a) -> b"; "c: C(a)" ]) ]
+  | "filter" -> [ ("filter(p: (a) -> Bool, c: C(a)) -> C(a)", [ "p: (a) -> Bool"; "c: C(a)" ]) ]
+  | "foldl" -> [ ("foldl(f: (b, a) -> b, init: b, c: C(a)) -> b", [ "f: (b, a) -> b"; "init: b"; "c: C(a)" ]) ]
+  | "foldr" -> [ ("foldr(f: (a, b) -> b, init: b, c: C(a)) -> b", [ "f: (a, b) -> b"; "init: b"; "c: C(a)" ]) ]
+  | ("any" | "all") as which -> [ (which ^ "(p: (a) -> Bool, c: C(a)) -> Bool", [ "p: (a) -> Bool"; "c: C(a)" ]) ]
+  | "panic" -> [ ("panic(message: String) -> a", [ "message: String" ]) ]
   | "push" -> [ ("push(v: DynArray(t), x: t) -> ()", [ "v: DynArray(t)"; "x: t" ]) ]
   | "pop" -> [ ("pop(v: DynArray(t)) -> t", [ "v: DynArray(t)" ]) ]
   | "insert" -> [ ("insert(v: DynArray(t), i: Int, x: t) -> ()", [ "v: DynArray(t)"; "i: Int"; "x: t" ]) ]
@@ -1002,7 +1031,12 @@ let builtin_signatures name =
         ("remove(d: MutMap(k, v), key: k) -> v", [ "d: MutMap(k, v)"; "key: k" ]);
       ]
   | "clear" -> [ ("clear(v: DynArray(t)) -> ()", [ "v: DynArray(t)" ]); ("clear(d: MutMap(k, v)) -> ()", [ "d: MutMap(k, v)" ]) ]
-  | "mutmap" -> [ ("mutmap() -> MutMap(k, v)", []); ("mutmap(pairs: [(k, v)]) -> MutMap(k, v)", [ "pairs: [(k, v)]" ]) ]
+  | "mutmap" ->
+      [
+        ("mutmap() -> MutMap(k, v)", []);
+        ("mutmap(pairs: [(k, v)]) -> MutMap(k, v)", [ "pairs: [(k, v)]" ]);
+        ("mutmap(m: Map(k, v)) -> MutMap(k, v)", [ "m: Map(k, v)" ]);
+      ]
   | "get" -> [ ("get(d: MutMap(k, v), key: k, default: v) -> v", [ "d: MutMap(k, v)"; "key: k"; "default: v" ]) ]
   | "has" -> [ ("has(d: MutMap(k, v), key: k) -> Bool", [ "d: MutMap(k, v)"; "key: k" ]) ]
   | "discard" -> [ ("discard(d: MutMap(k, v), key: k) -> ()", [ "d: MutMap(k, v)"; "key: k" ]) ]
@@ -1013,6 +1047,7 @@ let builtin_signatures name =
       [
         ("array(xs: [t]) -> Array(t)", [ "xs: [t]" ]);
         ("array(n: Int, v: t) -> Array(t)", [ "n: Int"; "v: t" ]);
+        ("array(c) -> Array(t)", [ "c" ]);
       ]
   | "array_init" ->
       [

@@ -1,0 +1,21 @@
+xs = [3, 1, 2]
+fmap(lam x. x * 10, xs)
+filter(lam x. x > 1, xs)
+foldl(lam (acc, x). acc + x, 0, xs)
+m = map([("a", 1), ("b", 2)])
+m
+m["b"]
+fmap(lam v. v + 1, m)
+list(m)
+list(3, 'z')
+r: Result(Int, String) = Ok(4)
+r
+fmap(lam n. n * n, r)
+import map
+map.insert(m, "c", 3)
+m == map([("b", 2), ("a", 1)])
+def double_all(c):
+    fmap(lam x. x * 2, c)
+
+panic("stop")
+"after"

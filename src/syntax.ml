@@ -954,8 +954,10 @@ let quote_string s = Builtin.quote_string s
 let local_name cfg name =
   match List.assoc_opt name cfg.local_names with
   | Some local -> local
-  (* The builtin option is every module's, so it is written as one. *)
+  (* The builtin option and result are every module's, so each is
+     written as one. *)
   | None when name = "option.Option" -> "Option"
+  | None when name = "result.Result" -> "Result"
   | None -> name
 
 let rec pprint_type cfg t =

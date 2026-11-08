@@ -1,0 +1,439 @@
+## Result: a value, or the error that stopped it. `Result(t, e)` is
+## `Ok(value)` or `Error(error)`, as Rust's is (with `Error` for Rust's
+## `Err`).
+##
+## Every module that uses `Result`, `Ok` or `Error` without declaring
+## its own has them as if it began `from result import Result`
+## (PYKING.md, "Result"); a module declaring its own Result, or its own
+## `Ok` or `Error`, means its own. `import result` reaches the functions
+## below. `fmap`, `foldl`, `foldr`, `any` and `all` take a Result too,
+## acting on its `Ok` value.
+#
+# Written in Pyking alone, so every target runs the same code. The names
+# are Rust's, as lib/option's are.
+
+
+## A value, or the error that stopped it: what a function answers when
+## it may fail and should say why.
+##
+## # Parameters
+## - `value`: what an `Ok` holds.
+## - `error`: what an `Error` holds -- a String saying what went wrong,
+##   or a datatype of the ways it can.
+##
+## # Examples
+## ```pyking
+## def half(n: Int) -> Result(Int, String):
+##     if n % 2 == 0 then Ok(n / 2) else Error(string(n) + " is odd")
+## print(half(10), half(7))
+## match half(8):
+##     case Ok(n): print("half is", n)
+##     case Error(e): print(e)
+## ```
+## ```stdout
+## Ok(5) Error("7 is odd")
+## half is 4
+## ```
+public datatype Result(t, e):
+    Ok(value: t)
+    Error(error: e)
+
+
+## Whether `r` is an `Ok`.
+##
+## # Parameters
+## - `r`: the result.
+##
+## # Returns
+## `true` for an `Ok`, `false` for an `Error`.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.is_ok(Ok(1)), result.is_ok(Error("no")))
+## ```
+## ```stdout
+## true false
+## ```
+public def is_ok(r: Result(t, e)) -> Bool:
+    match r:
+        case Ok(_):
+            true
+        case Error(_):
+            false
+
+
+## Whether `r` is an `Error`.
+##
+## # Parameters
+## - `r`: the result.
+##
+## # Returns
+## `true` for an `Error`, `false` for an `Ok`.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.is_error(Ok(1)), result.is_error(Error("no")))
+## ```
+## ```stdout
+## false true
+## ```
+public def is_error(r: Result(t, e)) -> Bool:
+    match r:
+        case Ok(_):
+            false
+        case Error(_):
+            true
+
+
+## The value of an `Ok` as an Option, the error dropped.
+##
+## # Parameters
+## - `r`: the result.
+##
+## # Returns
+## `Some(value)` for an `Ok`, `None` for an `Error`.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.ok(Ok(1)), result.ok(Error("no")))
+## ```
+## ```stdout
+## Some(1) None
+## ```
+public def ok(r: Result(t, e)) -> Option(t):
+    match r:
+        case Ok(v):
+            Some(v)
+        case Error(_):
+            None
+
+
+## The error of an `Error` as an Option.
+##
+## # Parameters
+## - `r`: the result.
+##
+## # Returns
+## `Some(error)` for an `Error`, `None` for an `Ok`.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.error(Ok(1)), result.error(Error("no")))
+## ```
+## ```stdout
+## None Some("no")
+## ```
+public def error(r: Result(t, e)) -> Option(e):
+    match r:
+        case Ok(_):
+            None
+        case Error(problem):
+            Some(problem)
+
+
+## The value of an `Ok`, or `default` for an `Error`.
+##
+## # Parameters
+## - `r`: the result.
+## - `default`: what to answer for an `Error`.
+##
+## # Returns
+## The `Ok` value, or `default`.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.unwrap_or(Ok(3), 0), result.unwrap_or(Error("no"), 0))
+## ```
+## ```stdout
+## 3 0
+## ```
+public def unwrap_or(r: Result(t, e), default: t) -> t:
+    match r:
+        case Ok(v):
+            v
+        case Error(_):
+            default
+
+
+## The value of an `Ok`, or what `f` makes of the error.
+##
+## # Parameters
+## - `r`: the result.
+## - `f`: called with the error of an `Error` only.
+##
+## # Returns
+## The `Ok` value, or `f(error)`.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.unwrap_or_else(Error("four"), lam e. len(e)))
+## ```
+## ```stdout
+## 4
+## ```
+public def unwrap_or_else(r: Result(t, e), f: (e) -> t) -> t:
+    match r:
+        case Ok(v):
+            v
+        case Error(problem):
+            f(problem)
+
+
+## Goes on with `f` where `r` is an `Ok`: the next step of a computation
+## that stops at the first error (Haskell's `>>=`, OCaml's `bind`).
+##
+## # Parameters
+## - `r`: the result so far.
+## - `f`: the next step, given the `Ok` value.
+##
+## # Returns
+## What `f` answers, or the same `Error`.
+##
+## # Examples
+## ```pyking
+## import result
+## def positive(n: Int) -> Result(Int, String):
+##     if n > 0 then Ok(n) else Error("not positive")
+## print(result.and_then(Ok(5), positive), result.and_then(Ok(-1), positive))
+## print(result.and_then(Error("earlier"), positive))
+## ```
+## ```stdout
+## Ok(5) Error("not positive")
+## Error("earlier")
+## ```
+public def and_then(r: Result(t, e), f: (t) -> Result(u, e)) -> Result(u, e):
+    match r:
+        case Ok(v):
+            f(v)
+        case Error(problem):
+            Error(problem)
+
+
+## Tries `f` where `r` is an `Error`: a way to recover from one.
+##
+## # Parameters
+## - `r`: the result.
+## - `f`: given the error, answers another result.
+##
+## # Returns
+## The same `Ok`, or what `f` answers.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.or_else(Error("no"), lam e. Ok(len(e))), result.or_else(Ok(1), lam e. Ok(0)))
+## ```
+## ```stdout
+## Ok(2) Ok(1)
+## ```
+public def or_else(r: Result(t, e), f: (e) -> Result(t, g)) -> Result(t, g):
+    match r:
+        case Ok(v):
+            Ok(v)
+        case Error(problem):
+            f(problem)
+
+
+## `r` with `f` applied to its error: what `fmap` is to the `Ok` value
+## (Rust's `map_err`). The function comes first, as `fmap`'s does.
+##
+## # Parameters
+## - `f`: applied to the error.
+## - `r`: the result.
+##
+## # Returns
+## The same `Ok`, or `Error(f(error))`.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.map_error(lam e. "bad: " + e, Error("input")), result.map_error(lam e. e + "!", Ok(2)))
+## ```
+## ```stdout
+## Error("bad: input") Ok(2)
+## ```
+public def map_error(f: (e) -> g, r: Result(t, e)) -> Result(t, g):
+    match r:
+        case Ok(v):
+            Ok(v)
+        case Error(problem):
+            Error(f(problem))
+
+
+## The value of an `Ok`; for an `Error` the program stops with a runtime
+## error.
+##
+## # Parameters
+## - `r`: the result, which should be an `Ok`.
+##
+## # Returns
+## The `Ok` value.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.unwrap(Ok(42)))
+## ```
+## ```stdout
+## 42
+## ```
+public def unwrap(r: Result(t, e)) -> t:
+    match r:
+        case Ok(v):
+            v
+        case Error(problem):
+            panic("result.unwrap of an Error")
+
+
+## The value of an `Ok`; for an `Error` the program stops with the runtime
+## error `message`.
+##
+## # Parameters
+## - `r`: the result, which should be an `Ok`.
+## - `message`: what the runtime error says.
+##
+## # Returns
+## The `Ok` value.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.expect(Ok("ready"), "the file should open"))
+## ```
+## ```stdout
+## ready
+## ```
+public def expect(r: Result(t, e), message: String) -> t:
+    match r:
+        case Ok(v):
+            v
+        case Error(problem):
+            panic(message)
+
+
+## The error of an `Error`; for an `Ok` the program stops with a runtime
+## error.
+##
+## # Parameters
+## - `r`: the result, which should be an `Error`.
+##
+## # Returns
+## The error.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.unwrap_error(Error("too big")))
+## ```
+## ```stdout
+## too big
+## ```
+public def unwrap_error(r: Result(t, e)) -> e:
+    match r:
+        case Ok(v):
+            panic("result.unwrap_error of an Ok")
+        case Error(problem):
+            problem
+
+
+## A result holding a result, as one.
+##
+## # Parameters
+## - `rr`: the result of a result.
+##
+## # Returns
+## The inner result, or the outer `Error`.
+##
+## # Examples
+## ```pyking
+## import result
+## ok: Result(Result(Int, String), String) = Ok(Ok(1))
+## print(result.flatten(ok))
+## ```
+## ```stdout
+## Ok(1)
+## ```
+public def flatten(rr: Result(Result(t, e), e)) -> Result(t, e):
+    match rr:
+        case Ok(inner):
+            inner
+        case Error(problem):
+            Error(problem)
+
+
+## Every value, where every result is an `Ok`; otherwise the first error
+## (Rust's `collect` into a Result, Haskell's `sequence`).
+##
+## # Parameters
+## - `rs`: the results.
+##
+## # Returns
+## `Ok` of every value in order, or the first `Error`.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.all_ok([Ok(1), Ok(2)]), result.all_ok([Ok(1), Error("two"), Error("three")]))
+## ```
+## ```stdout
+## Ok([1, 2]) Error("two")
+## ```
+public def all_ok(rs: [Result(t, e)]) -> Result([t], e):
+    match [problem for Error(problem) in rs]:
+        case []:
+            Ok([v for Ok(v) in rs])
+        case [first, ..]:
+            Error(first)
+
+
+## The values of the `Ok`s and the errors of the `Error`s, each in order
+## (Haskell's `partitionEithers`).
+##
+## # Parameters
+## - `rs`: the results.
+##
+## # Returns
+## A pair: every value, and every error.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.partition_results([Ok(1), Error("b"), Ok(3)]))
+## ```
+## ```stdout
+## ([1, 3], ["b"])
+## ```
+public def partition_results(rs: [Result(t, e)]) -> ([t], [e]):
+    ([v for Ok(v) in rs], [problem for Error(problem) in rs])
+
+
+## An Option as a Result: `None` becomes `Error(problem)` (Rust's
+## `Option::ok_or`; it lives here so that lib/option needs no Result).
+##
+## # Parameters
+## - `o`: the option.
+## - `problem`: the error to give for `None`.
+##
+## # Returns
+## `Ok(value)` for a `Some`, `Error(problem)` for `None`.
+##
+## # Examples
+## ```pyking
+## import result
+## print(result.ok_or(Some(1), "missing"), result.ok_or(None, "missing"))
+## ```
+## ```stdout
+## Ok(1) Error("missing")
+## ```
+public def ok_or(o: Option(t), problem: e) -> Result(t, e):
+    match o:
+        case Some(v):
+            Ok(v)
+        case None:
+            Error(problem)

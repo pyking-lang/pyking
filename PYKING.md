@@ -328,10 +328,23 @@ Statements:
   `remove` and `clear` — Pyking extension (see "DynArrays")
 - **MutMaps** (`MutMap(K, V)`), maps that keep their keys' order, read with
   `d[k]` and written with `d[k] := v` — Pyking extension (see "MutMaps")
+- **Maps** (`Map(K, V)`), immutable maps that keep their keys' order,
+  made by `map(...)`; lib/map's changes answer a new one — Pyking
+  extension (see "Maps")
+- **One way to make and convert every collection**: `list(...)`,
+  `array(...)`, `dynarray(...)`, `map(...)` and `mutmap(...)` of a list,
+  of one value repeated, or of another collection, and `list_init`,
+  `array_init`, `dynarray_init`, `map_init` and `mutmap_init` calling a
+  function — Pyking extension (see "Making and converting collections")
+- **`fmap`, `filter`, `foldl`, `foldr`, `any` and `all`** on every
+  collection, an Option and a Result — Pyking extension (see "fmap and
+  the folds")
 - **Slices** (`xs[i:j]`, a copy) and **views** (`view(a, i, j)`, sharing
   an array's elements) — Pyking extension (see "Slices and views")
 - **Option** (`Some(x)`, `None`), builtin from lib/option — Pyking
   extension (see "Option")
+- **Result** (`Ok(x)`, `Error(e)`), builtin from lib/result, as Rust's
+  with `Error` for `Err` — Pyking extension (see "Result")
 - **Pointers** (`&x`, `*p`, `*p := v`, `Ptr(T)`) under `use mutation,
   pointers` — Pyking extension (see "Pointers")
 - **Mutable structs** (`var struct Point(x: Int, y: Int)`), whose fields
@@ -2053,6 +2066,7 @@ apart by how many arguments they take:
 | call | form | makes |
 |---|---|---|
 | `array(xs)` | `list::array` | the elements of the list `xs` |
+| `array(c)` | `dynarray::array`, ... | the elements of another collection: an array, a DynArray, a view, a String's Chars, a Map's or a MutMap's (key, value) pairs (see "Making and converting collections") |
 | `array(n, v)` | `fill::array` | `n` elements, each the one value `v`, worked out once |
 | `array_init(n, f)`, `f: (Int) -> T` | `init::array_init` | element `i` is `f(i)` |
 | `array_init(n, seed, f)`, `f: (S) -> (T, S)` | `unfold::array_init` | each element and the next `seed` from `f` |
@@ -2172,7 +2186,10 @@ The rest -- copying, filling, comparing, sorting, joining -- is the
 library `lib/array` (see "Modules", and its help page): `copy`,
 `to_list`, `fill`, `swap`, `reverse`, `concat`, `resize`, `equal` and
 `sort`, which is stable and orders Floats with NaN last and Strings by
-code point, alike on every target.
+code point, alike on every target; `sort_by`, `sort_on` and
+`map_in_place`, which change the array too; and lib/list's searching
+and counting functions over an array (`first`, `find`, `count`,
+`contains`, `maximum`, `sum`, `sorted`, `reversed`, ...).
 
 ### DynArrays (`DynArray(T)`) — Pyking extension
 
@@ -2193,9 +2210,11 @@ print(squares, len(squares), squares[4])      # dynarray([0, 1, 4, 9, 16]) 5 16
 ```
 
 **Making one.** `dynarray()` makes one with no elements, whose element type
-its use or an annotation decides, and `dynarray(xs)` one holding a list's
-elements; `dynarray` is a builtin overload set of the two (`empty::dynarray`,
-`list::dynarray`).
+its use or an annotation decides, `dynarray(xs)` one holding a list's
+elements -- or another collection's (see "Making and converting
+collections") -- and `dynarray(n, v)` one of `n` copies of `v`;
+`dynarray_init(n, f)` and `dynarray_init(n, seed, f)` generate one as
+`array_init` does.
 
 **Growing and shrinking.** Five builtins change a DynArray:
 
@@ -2240,7 +2259,8 @@ importing tinyweb's `push`, means its own.
 
 The rest is the library `lib/dynarray`: `copy`, `to_list`, `to_array`,
 `from_array`, `extend`, `reverse`, `equal` and `sort` (lib/array's, the
-same on every target).
+same on every target), `truncate`, `retain` and `append`, and the
+functions lib/array has too.
 
 ### MutMaps (`MutMap(K, V)`) — Pyking extension
 
@@ -2262,7 +2282,9 @@ print(counts, counts["the"], len(counts))
 **Making one.** `mutmap()` makes one with no entries, whose types its use
 or an annotation decides, and `mutmap(pairs)` one from a list of `(key,
 value)` pairs; a key written twice keeps its first place and its last
-value. There is no literal syntax.
+value. `mutmap(m)` copies a Map or another MutMap, and
+`mutmap_init(keys, f)` maps each key to `f(key)` (see "Making and
+converting collections"). There is no literal syntax.
 
 **Reading and writing.** `d[k]` reads the value of the key `k` -- one
 the MutMap has no entry for is a runtime error, `the MutMap has no key
@@ -2314,6 +2336,60 @@ as what makes one, `mutmap([(1, "a")])`.
 and `clear` are builtins, but a module's own definition or import of
 one of those names wins there.
 
+The rest is the library `lib/mutmap`: `update`, `insert_with` (for a
+count), `extend` and `retain`, which change the MutMap, and `lookup`,
+`fold_with_key`, `find_key`, `is_empty`, `equal_by` and `copy`.
+
+### Maps (`Map(K, V)`) — Pyking extension
+
+A **Map** maps keys to values as a MutMap does, and remembers the order
+its keys were put in, but it is a value that never changes, like a list:
+making one needs no `use mutation`, and a change answers a new Map,
+leaving the old one as it was. Its type is `Map(K, V)`.
+
+```pyking
+import map
+
+ages = map([("ann", 31), ("bo", 5)])
+older = map.insert(ages, "cy", 40)
+print(ages, older["cy"], get(ages, "zed", 0), len(older))
+# map([("ann", 31), ("bo", 5)]) 40 0 3
+```
+
+**Making one.** `map()` makes one with no entries, whose types its use
+or an annotation decides, `map(pairs)` one from a list of `(key,
+value)` pairs -- a key written twice keeps its first place and its last
+value -- and `map(d)` one holding a MutMap's entries as they are now
+(see "Making and converting collections").
+
+**Reading** is a MutMap's: `m[k]` (a runtime error, `the Map has no key
+"zed"`, where there is none), `get(m, k, default)`, `has(m, k)`,
+`keys(m)`, `values(m)`, `items(m)` and `len(m)`, and `for k in m` and a
+comprehension walk the keys in order. A Map is never written: `m[k] :=
+v`, `remove`, `discard` and `clear` are refused, each saying what makes
+a new Map instead.
+
+**Changing one** is lib/map's: `map.insert(m, k, v)`, `map.remove(m, k)`,
+`map.insert_with(f, m, k, v)`, `map.adjust(f, m, k)` and `map.alter(f,
+m, k)`, and `union`, `intersection`, `difference`, `map_with_key`,
+`filter_with_key`, `partition`, `lookup` and `fold_with_key`. A new key
+goes at the end, a key already there keeps its place, and one taken out
+and put back goes to the end, as in a MutMap. Each change copies the
+Map, so it takes time in proportion to its size: a Map built one entry
+at a time is better built as a list of pairs, or as a MutMap, and made
+a Map at the end.
+
+**Keys** are a MutMap's: Int, Char, String, Bool, (), and tuples, lists,
+structs and datatypes of those -- not a Float, a function, anything that
+changes, or a Map.
+
+**Equality and printing.** `==` and `!=` compare two Maps by their
+entries, in whatever order: the same keys, each with an equal value,
+which is Python's rule for a dict. A Map prints as what makes one,
+`map([("ann", 31)])`, in its order -- so two equal Maps may print
+differently. A Map has no identity for `same` to ask about, and no
+order for `<`.
+
 ### Slices and views — Pyking extension
 
 **A slice copies.** `s[i:j]` is a new value holding elements `i` up to
@@ -2359,13 +2435,123 @@ copy_into(view(b, 2, 6), view(b, 0, 4))
 print(b)             # array([1, 2, 1, 2, 3, 4])
 ```
 
+### Making and converting collections — Pyking extension
+
+Every collection is made the same way: by a call named for its kind of
+a list, of one value repeated, or of another collection, and by a call
+named with `_init` that calls a function for each element.
+
+| collection | of a list | of one value | of another collection | calling a function |
+|---|---|---|---|---|
+| list | `list(xs)` (itself) | `list(n, v)` | `list(c)` | `list_init(n, f)`, `list_init(n, seed, f)` |
+| array | `array(xs)` | `array(n, v)` | `array(c)` | `array_init(n, f)`, `array_init(n, seed, f)` |
+| DynArray | `dynarray(xs)` | `dynarray(n, v)` | `dynarray(c)` | `dynarray_init(n, f)`, `dynarray_init(n, seed, f)` |
+| Map | `map(pairs)` | -- | `map(m)`, `map(d)` | `map_init(keys, f)`, `map_init(n, seed, f)` |
+| MutMap | `mutmap(pairs)` | -- | `mutmap(m)`, `mutmap(d)` | `mutmap_init(keys, f)`, `mutmap_init(n, seed, f)` |
+
+```pyking
+use mutation
+
+print(list(3, 'a'), list_init(4, lam i. i * i), dynarray(2, 0))
+print(list(array(3, "x")), array("abc"), map_init(["ann", "bo"], lam name. len(name)))
+# ['a', 'a', 'a'] [0, 1, 4, 9] dynarray([0, 0])
+# ["x", "x", "x"] array(['a', 'b', 'c']) map([("ann", 3), ("bo", 2)])
+```
+
+- **Converting copies.** `list(c)`, `array(c)` and `dynarray(c)` take the
+  elements of a list, an array, a DynArray or a view, a String's Chars,
+  or a Map's or a MutMap's `(key, value)` pairs in order, and `list` an
+  Option's value, if any; `map(c)` and `mutmap(c)` take a Map or a
+  MutMap. What comes back shares nothing with what went in, so `array(a)`
+  is a new array.
+- **Making a store needs `use mutation`**: an array, a DynArray or a
+  MutMap, by any of these calls. A list and a Map need none.
+- **`_init` calls `f` in order**, once per element, and the unfolding
+  form drops the last seed; `map_init(keys, f)` maps each key to `f(key)`
+  in the order of `keys`. The one-value forms work `v` out once, so
+  `list(3, f())` calls `f` once and `list_init(3, lam i. f())` three
+  times. A negative `n` is a runtime error.
+- **The kind of collection is the argument's type**, which has to be
+  known where the call is, written or worked out: `list(c)` of a
+  parameter nothing has said anything about is refused with the
+  annotation to write.
+
+### fmap and the folds — Pyking extension
+
+Six builtins work on every collection, an Option and a Result, each by
+one name -- Haskell's for the first four:
+
+| call | gives |
+|---|---|
+| `fmap(f, c)` | a new collection of the same kind, `f(x)` for each element `x` |
+| `filter(p, c)` | a new collection of the same kind, of the elements `p` is true of |
+| `foldl(f, init, c)` | `f(...f(f(init, x1), x2)..., xn)`, from the first element |
+| `foldr(f, init, c)` | `f(x1, f(x2, ...f(xn, init)))`, from the last |
+| `any(p, c)` | whether `p` is true of some element |
+| `all(p, c)` | whether `p` is true of every element |
+
+```pyking
+struct Person(name: String, age: Int)
+
+people = [Person("ann", 31), Person("bo", 5)]
+print(fmap(lam p. p.name, people), filter(lam p. p.age > 18, people))
+print(foldl(lam (total, p). total + p.age, 0, people), any(lam p. p.age < 10, people))
+print(fmap(lam n. n * 2, Some(21)), foldr(lam (x, acc). acc + string(x), "", [1, 2, 3]))
+# ["ann", "bo"] [Person("ann", 31)]
+# 36 true
+# Some(42) 321
+```
+
+- **Each answers a new collection of the kind it was given**: a list
+  for a list, an array for an array or a view, a DynArray for a
+  DynArray, a Map or a MutMap for one. Making an array, a DynArray or a
+  MutMap this way needs `use mutation`, as every making of one does.
+- **A Map's and a MutMap's elements are its values.** `fmap` keeps the
+  keys, in their order, and `filter` keeps the entries whose value
+  passes; `for k in m` walks the keys, as Python's does. lib/map's
+  `map_with_key`, `filter_with_key` and `fold_with_key` see the keys too.
+- **An Option and a Result hold none or one value.** `fmap(f, Some(x))`
+  is `Some(f(x))` and `fmap(f, Ok(x))` is `Ok(f(x))`, an `Error` staying
+  as it is. A Result has no `filter`: where the test is false there is
+  no error to give.
+- **A String is not one of them**: `fmap` and the folds refuse it, and
+  `list(s)` makes its Chars a list they take.
+- **The calls run in order.** `f` and `p` are called once per element,
+  from the first -- `foldr` from the last -- and `any` and `all` stop at
+  the first element that decides. `foldr` walks the elements without
+  recursing, so a long list does not overflow the stack.
+- **The function comes first, the collection last**, and the collection
+  says what the function's parameters are: in `fmap(lam p. p.name,
+  people)` the list says `p` is a Person. A lambda argument is checked
+  after the other arguments of any call for this reason -- the arguments
+  still run in the order written.
+- **The kind of collection is known where the call is.** A parameter
+  nothing has said anything about is refused with the annotation to
+  write (`'c: [Int]'`): one definition serves one kind of collection,
+  of any element type.
+- **The names are yours to take.** These builtins are written in Pyking,
+  in lib/prelude, and a module calling one of them, and binding none of
+  them itself, has them all, as Option arrives. A module that defines
+  its own `map`, `filter` or `list` means its own.
+
+lib/list is the rest of what a list is asked -- `first`, `nth`, `take`,
+`drop`, `zip`, `enumerate`, `chunks`, `find`, `count`, `partition`,
+`unique`, `group`, `sum`, `maximum`, `sort`, `sort_by`, `sort_on`, ... --
+named as Haskell names them where Haskell, OCaml and Rust differ, with a
+function first and the list last. A function comparing elements is
+written once per scalar type and once more as `..._by`, taking the
+comparison.
+
 ### Option — Pyking extension
 
 `Option(a)` is a value or none: `Some(value)` or `None`. It is builtin
 in the way a library is: a module that uses `Option`, `Some` or `None`,
 and declares and imports none of them, has lib/option's -- as if it
 began `from option import Option` -- and `import option` reaches its
-functions, `is_some`, `is_none` and `or_else`.
+functions, named as Rust's are: `is_some`, `is_none`, `unwrap_or`,
+`unwrap_or_else`, `and_then`, `or_else`, `zip`, `flatten`, `unwrap`,
+`expect`, `all_some` and `values`. `fmap`, `filter`, the folds and
+`list(o)` take an Option too (see "fmap and the folds").
 
 ```pyking
 import option
@@ -2375,7 +2561,7 @@ def first_even(xs: [Int]) -> Option(Int):
         case []: None
         case [x, ..rest]: if x % 2 == 0 then Some(x) else first_even(rest)
 
-print(first_even([1, 4, 5]), first_even([1]), option.or_else(first_even([3]), 0))
+print(first_even([1, 4, 5]), first_even([1]), option.unwrap_or(first_even([3]), 0))
 # Some(4) None 0
 ```
 
@@ -2383,6 +2569,40 @@ A module declaring a datatype `Option`, or one with a constructor `Some`
 or `None`, means its own, as programs written before Option was builtin
 do. A pointer that may point nowhere is an `Option(Ptr(T))` (see
 "Pointers"): Pyking has no null.
+
+`option.or_else(o, f)` takes a function answering an Option, as Rust's
+does; until November 2026 it took the default value, which is now
+`option.unwrap_or(o, value)`, and an old call is refused with that
+named.
+
+### Result — Pyking extension
+
+`Result(t, e)` is a value or the error that stopped it: `Ok(value)` or
+`Error(error)`, as Rust's is, with `Error` for Rust's `Err`. It is
+builtin as Option is: a module that uses `Result`, `Ok` or `Error`, and
+declares and imports none of them, has lib/result's, and `import
+result` reaches its functions.
+
+```pyking
+import result
+
+def parse_age(s: String) -> Result(Int, String):
+    n = int(s)
+    if string(n) == s and n >= 0 then Ok(n) else Error("not an age: " + s)
+
+print(parse_age("31"), parse_age("x"), fmap(lam n. n + 1, parse_age("31")))
+print(result.unwrap_or(parse_age("x"), 0), result.and_then(parse_age("31"), lam n. if n < 150 then Ok(n) else Error("too old")))
+# Ok(31) Error("not an age: x") Ok(32)
+# 0 Ok(31)
+```
+
+lib/result has `is_ok`, `is_error`, `ok`, `error`, `unwrap_or`,
+`unwrap_or_else`, `and_then` (the next step, which stops at the first
+error), `or_else`, `map_error`, `unwrap`, `expect`, `unwrap_error`,
+`flatten`, `all_ok`, `partition_results`, and `ok_or`, which makes an
+Option a Result. `unwrap` of an `Error` stops the program with a runtime
+error, as `panic` does. A module declaring its own `Result`, `Ok` or
+`Error` means its own.
 
 ### Pointers — Pyking extension
 
@@ -3473,6 +3693,13 @@ definition. A lambda parameter may not have a default value, since a
 default belongs to the scope a definition is written in. And a lambda
 parameter is a binding like any other, so it may not shadow a `var`.
 
+**A lambda argument is checked last.** In a call, every other argument
+is checked first, and a lambda's parameters with no type written take
+the ones its parameter has by then: in `apply(lam p. p.x, points)` the
+list says `p` is a Point, although the lambda is written first. Only the
+checking waits; the arguments still run in the order written (see
+"Evaluation order").
+
 ### Let expressions — Pyking extension
 
 `let target = value in body` is an expression: `value` is evaluated
@@ -3537,11 +3764,15 @@ Three rules follow, and each is refused where it is written:
   `twice` with no qualifier, `twice(...)` means that one and is a type
   error if it does not fit.
 - **A builtin's name is never part of a set.** `string(1)` is the builtin
-  whatever `q::string` definitions are in scope. The two exceptions are
-  `array`, which *is* a set -- `list::array` and `fill::array` -- and
-  `array_init`, another -- `init::array_init` and `unfold::array_init`
-  (see "Arrays"). Each set's members take different numbers of
-  arguments, so a call to one is never ambiguous.
+  whatever `q::string` definitions are in scope. The exceptions are the
+  collection builtins, which *are* sets: `array` (`list::array`,
+  `fill::array`, and a conversion per collection, `dynarray::array`,
+  ...), `array_init`, `dynarray`, `mutmap` and `map` (see "Making and
+  converting collections"), and the ones written in lib/prelude,
+  `fmap`, `filter`, `foldl`, `foldr`, `any`, `all`, `list`, `list_init`,
+  `dynarray_init`, `map_init` and `mutmap_init` (see "fmap and the
+  folds"), whose members a module calling one has under their `::`
+  names. Members of one arity are told apart by their arguments' types.
 
 Resolution needs the argument types to be decided. Inside a function
 whose parameter could be anything, they are not, and the call is
@@ -3554,7 +3785,10 @@ refused with the way out named:
 ```
 
 Two definitions that both fit is an error too. There is no ordering
-between them: write the one that is meant.
+between them: write the one that is meant. Where a lambda is among the
+arguments, its body may decide: `list.sort_on(lam p. p.age, people)`
+fits every key type until the body says it gives an Int, so a
+definition the lambda's body does not check against is set aside.
 
 **A default parameter counts.** It lets a definition take fewer
 arguments, so it is part of what says whether a call could mean that
@@ -5307,7 +5541,7 @@ Nothing is taken on faith: the declared type is what the body is checked
 applies to nested functions, per block.
 
 **Builtins.** `print`, `debug`, `range`, `string`, `len`, `int`,
-`float`, `bool` and `char` are checked at the call, each by its own rule,
+`float`, `bool`, `char` and `panic` are checked at the call, each by its own rule,
 because none of them is a function *value*: a builtin is a host operation (see "Names
 and scoping"), it has no type that can be written down, and it may be
 called and nothing else.
@@ -5317,7 +5551,8 @@ called and nothing else.
 | `print(…)` | any number of arguments, of any type | `()` |
 | `debug(…)` | any number of arguments, of any type | `()` |
 | `string(x)` | one `Int`, `Float`, `String`, `Char`, `Bool`, list or tuple | `String` |
-| `len(x)` | one list or `String` (counted in characters) | `Int` |
+| `len(x)` | one list, array, DynArray, view, Map, MutMap or `String` (counted in characters) | `Int` |
+| `panic(m)` | one `String`: stops the program with it as a runtime error | any type, since it never answers |
 | `range(n)` | one to three `Int`s | `[Int]` |
 | `int(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Int` |
 | `float(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Float` |
@@ -5467,6 +5702,13 @@ ones are refused. And a variable is **rigid inside the body that
 declares it** — the body knows nothing about `a` beyond its being some
 type, so `x + 1` on an `a` is an error where it is written rather than
 at whichever call turned out to be wrong.
+
+**Inside that body, an annotation's `a` is the definition's `a`.** A
+binding annotated with one of the type variables the enclosing
+definition's own types hold means that one, not a new one: in `def
+f(xs: [a]) -> [a]`, `out: DynArray(a) = dynarray()` is a DynArray of
+whatever `xs` holds. This is how `-t pyking` writes the types it worked
+out back into a generic body.
 
 **A type may be written on a line of its own.** `def name : type` gives
 the type of the `def name(...)` in the same block; the two need not be

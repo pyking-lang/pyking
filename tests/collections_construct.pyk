@@ -1,0 +1,38 @@
+# The constructors of every collection: from a list, of one value
+# repeated, from a function of the index, and unfolded from a seed
+# (PYKING.md, "Making and converting collections").
+
+use mutation
+
+# list
+print(list([1, 2]), list(3, 'a'), list(0, "x"))
+print(list_init(4, lam i. i * i), list_init(5, 1, lam n. (n, n * 2)))
+empty: [Int] = list_init(0, lam i. i)
+print(empty)
+
+# array
+print(array([1, 2]), array(2, 0.5), array_init(3, lam i. -i), array_init(3, "a", lam s. (s, s + "b")))
+
+# dynarray
+d = dynarray(3, 7)
+push(d, 8)
+print(d, dynarray(), dynarray([1]), dynarray_init(3, lam i. i + 10), dynarray_init(3, 2, lam n. (n, n * n)))
+print(len(dynarray(0, 'z')))
+
+# map and mutmap
+print(map([("a", 1), ("b", 2), ("a", 3)]))
+nothing: Map(String, Int) = map()
+print(nothing, len(nothing))
+print(map_init(["x", "yy"], lam k. len(k)), map_init(3, 0, lam n. ((n, n * 10), n + 1)))
+print(map_init([1, 2, 1], lam k. k))
+counts = mutmap_init(["a", "b"], lam _. 0)
+counts["a"] += 2
+print(counts, mutmap_init(2, 'a', lam c. ((c, int(c)), char(int(c) + 1))))
+
+# `list(n, v)` and the rest work `v` out once.
+var calls = 0
+def made() -> [Int]:
+    calls += 1
+    [calls]
+print(list(3, made()), calls)
+print(list_init(3, lam i. i + made()[0]), calls)

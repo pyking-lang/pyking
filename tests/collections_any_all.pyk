@@ -1,0 +1,26 @@
+# `any` and `all`, on every kind of collection, stopping at the first
+# answer that decides.
+
+use mutation
+
+xs = [1, 2, 3]
+print(any(lam x. x > 2, xs), any(lam x. x > 3, xs), all(lam x. x > 0, xs), all(lam x. x > 1, xs))
+print(any(lam x. x == 2, array(xs)), all(lam x. x < 4, dynarray(xs)), any(lam x. x == 1, view(array(xs), 1, 3)))
+m = map([("a", 1), ("b", -1)])
+print(any(lam v. v < 0, m), all(lam v. v < 0, mutmap(m)))
+none: Option(Int) = None
+print(any(lam x. x > 0, Some(1)), any(lam x. x > 0, none), all(lam x. x > 5, Some(1)), all(lam x. x > 5, none))
+ok: Result(Int, String) = Ok(5)
+bad: Result(Int, String) = Error("no")
+print(any(lam x. x == 5, ok), any(lam x. x == 5, bad), all(lam x. x == 4, ok), all(lam x. x == 4, bad))
+empty: [Int] = []
+print(any(lam x. true, empty), all(lam x. false, empty))
+
+# they stop at the first element that decides
+var looked = 0
+def big(x: Int) -> Bool:
+    looked += 1
+    x > 1
+print(any(big, [0, 5, 9, 9]), looked)
+looked := 0
+print(all(big, [5, 0, 9, 9]), looked)

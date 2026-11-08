@@ -1,0 +1,25 @@
+# `filter` on every kind that has one: what `p` is true of, in order, in
+# a new collection of the same kind. A Map's entries are kept by value.
+
+use mutation
+
+xs = [5, 1, 4, 2, 3]
+print(filter(lam x. x > 2, xs), filter(lam x. x > 9, xs))
+print(filter(lam x. x % 2 == 0, array(xs)), filter(lam x. x % 2 == 1, dynarray(xs)))
+print(filter(lam x. x != 4, view(array(xs), 1, 4)))
+words = map([("one", 1), ("two", 2), ("three", 3)])
+print(filter(lam n. n != 2, words), filter(lam n. n > 1, mutmap(words)))
+print(filter(lam s. len(s) > 0, ["", "a", "", "bc"]))
+none: Option(Int) = None
+print(filter(lam n. n > 0, Some(1)), filter(lam n. n > 0, Some(-1)), filter(lam n. n > 0, none))
+
+struct Item(label: String, price: Float)
+cart = [Item("tea", 2.5), Item("cake", 4.0), Item("jam", 3.0)]
+print(fmap(lam i. i.label, filter(lam i. i.price < 3.5, cart)))
+
+# `p` is called once per element, in order
+var seen = []
+def watch(x: Int) -> Bool:
+    seen := seen + [x]
+    x > 1
+print(filter(watch, [3, 1, 2]), seen)

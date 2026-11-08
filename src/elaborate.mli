@@ -8,6 +8,7 @@
       generated_name name -- whether the pass made this name up. *)
 
 val program :
+  ?start:int ->
   Typesystem.resolution Syntax.IntMap.t ->
   Syntax.typ Syntax.IntMap.t ->
   Syntax.stmt list ->
@@ -17,6 +18,8 @@ val program :
     an ordinary one. Answers the rewritten module and `tmap` extended
     with the nodes it built. Raises Analyses.Analysis_error where a
     qualified name and the plain name it compiles to are both bound.
+    The nodes it builds take symbols past `start` as well as past the
+    module's own: the highest symbol anywhere in the program.
     resolution IntMap.t -> typ IntMap.t -> [stmt] -> ([stmt], typ IntMap.t) *)
 
 val generated_name : string -> bool

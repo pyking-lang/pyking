@@ -579,7 +579,7 @@ let checked_modules ?(natively = false) ?(warn = false) main release =
           if warn && unit.path = main then
             warn_module ~public:(List.map fst unit.publics) ~dotted:unit.dotted qmap unit.tokens unit.stmts;
           let sigmap = Module.module_sigmap unit.name unit.stmts unit.declarations tmap in
-          let elaborated, tmap = Elaborate.program qmap tmap unit.stmts in
+          let elaborated, tmap = Elaborate.program ~start:highest qmap tmap unit.stmts in
           let elaborated =
             if release then Release.program tmap elaborated else elaborated
           in

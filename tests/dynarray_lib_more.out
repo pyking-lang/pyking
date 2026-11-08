@@ -1,0 +1,12 @@
+Some(3) Some(5) None false
+Some(4) 2 true Some(2)
+14 Some(5) Some(1) dynarray([1, 1, 3, 4, 5]) dynarray([5, 1, 4, 1, 3]) dynarray([3, 1, 4, 1, 5])
+dynarray([1, 1, 3, 4, 5])
+dynarray([5, 4, 3, 1, 1])
+dynarray([6, 5, 4, 2, 2])
+dynarray([6, 4, 2, 2])
+dynarray([6, 4, 2, 2, 6, 4, 2, 2])
+dynarray([6, 4, 2]) 3
+dynarray([6, 4, 2])
+dynarray([(6, true), (4, false)]) dynarray([(0, 'q')]) dynarray([6, 4, 2])
+false Some(12)

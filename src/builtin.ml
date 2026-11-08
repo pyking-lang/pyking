@@ -65,6 +65,17 @@ let all =
          JavaScript ones.";
     };
     {
+      name = "panic";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc =
+        "Stop the program with a runtime error: `panic(message)` writes \
+         `error: ` and the message to standard error and exits with status \
+         1, as an index outside an array does. It answers any type, since \
+         it never answers: what `result.unwrap` and `option.expect` call.";
+    };
+    {
       name = "debug";
       min_args = 0;
       max_args = None;
@@ -298,15 +309,66 @@ let names = List.map (fun builtin -> builtin.name) all
     and that is what the interpreter and every backend implement.
     `array` makes an array from a list or of one value, and `array_init`
     generates one, from the index or from an accumulator (PYKING.md,
-    "Arrays"). Each set's members differ in how many arguments they take.
-    [(string, [string])] *)
+    "Arrays"). Members of one arity are told apart by their argument's
+    type: `array(xs)` from a list, and the conversions from another
+    collection, `array(v)` of a DynArray (PYKING.md, "Making and
+    converting collections"), which elaborate.ml rewrites into the list
+    form, so no backend sees them. [(string, [string])] *)
 let overload_sets =
   [
-    ("array", [ "list::array"; "fill::array" ]);
+    ("array", [ "list::array"; "fill::array"; "array::array"; "dynarray::array"; "slice::array"; "string::array";
+                "map::array"; "mutmap::array" ]);
     ("array_init", [ "init::array_init"; "unfold::array_init" ]);
-    ("dynarray", [ "empty::dynarray"; "list::dynarray" ]);
-    ("mutmap", [ "empty::mutmap"; "list::mutmap" ]);
+    ("dynarray", [ "empty::dynarray"; "list::dynarray"; "array::dynarray"; "dynarray::dynarray"; "slice::dynarray";
+                   "string::dynarray"; "map::dynarray"; "mutmap::dynarray" ]);
+    ("mutmap", [ "empty::mutmap"; "list::mutmap"; "map::mutmap"; "mutmap::mutmap" ]);
+    ("map", [ "empty::map"; "list::map"; "map::map"; "mutmap::map" ]);
   ]
+
+(** The members of the builtin sets that convert from another
+    collection: elaborate.ml rewrites `dynarray::array(v)` into
+    `list::array([x for x in v])`, or `items(d)` for a map, so only the
+    list forms reach the interpreter and the backends. [string] *)
+let conversion_members =
+  List.concat_map
+    (fun (_, members) ->
+      List.filter
+        (fun m -> not (List.mem (Option.value (Names.qualifier m) ~default:"") [ "list"; "fill"; "empty"; "init"; "unfold" ]))
+        members)
+    overload_sets
+
+(** The builtin sets whose result is not a store: making a Map needs no
+    `use mutation`. [string] *)
+let immutable_sets = [ "map" ]
+
+(** The overload sets lib/prelude defines in Pyking, imported into a
+    module that calls one of these names and binds none of its own --
+    as lib/option's Option is (PYKING.md, "fmap and the folds"). Each set
+    names its members; a module calling `fmap` has every member of
+    every set, under its `::` name, so its own `fmap` or `list` wins
+    there. [(string, [string])] *)
+let prelude_sets =
+  let kinds = [ "list"; "array"; "dynarray"; "slice"; "map"; "mutmap"; "option"; "result" ] in
+  let over name = List.map (fun k -> k ^ "::" ^ name) kinds in
+  [
+    ("fmap", over "fmap");
+    ("filter", List.filter (fun m -> m <> "result::filter") (over "filter"));
+    ("foldl", over "foldl");
+    ("foldr", over "foldr");
+    ("any", over "any");
+    ("all", over "all");
+    ( "list",
+      [ "list::list"; "array::list"; "dynarray::list"; "slice::list"; "string::list"; "map::list"; "mutmap::list";
+        "option::list"; "fill::list" ] );
+    ("list_init", [ "init::list_init"; "unfold::list_init" ]);
+    ("dynarray", [ "fill::dynarray" ]);
+    ("dynarray_init", [ "init::dynarray_init"; "unfold::dynarray_init" ]);
+    ("map_init", [ "keys::map_init"; "unfold::map_init" ]);
+    ("mutmap_init", [ "keys::mutmap_init"; "unfold::mutmap_init" ]);
+  ]
+
+(** Every name a prelude set is called by. [string] *)
+let prelude_names = List.map fst prelude_sets
 
 (** The builtins that change a mutable collection in place, which need
     `use mutation` to call (PYKING.md, "DynArrays", "MutMaps"). [string] *)
@@ -316,7 +378,7 @@ let writers = [ "push"; "pop"; "insert"; "remove"; "clear"; "discard"; "view"; "
     name for something of their own -- tinyweb's `push` and `remove`,
     `color.same` -- so a module's own definition or import of the name
     is allowed, and then means itself there. [string] *)
-let yielding = [ "same"; "get"; "has"; "keys"; "values"; "items" ] @ writers
+let yielding = [ "same"; "get"; "has"; "keys"; "values"; "items"; "panic" ] @ writers
 
 (** The plain names the members of the builtin overload sets compile to.
     [string] *)
@@ -325,7 +387,9 @@ let member_names =
 
 (** What a reader sees as builtin words: every builtin and every builtin
     overload set's name, for highlighting and completion. [string] *)
-let words = names @ List.map fst overload_sets
+let words =
+  names @ List.map fst overload_sets
+  @ List.filter (fun n -> not (List.mem_assoc n overload_sets)) prelude_names
 
 (** What a builtin overload set does, for the editor's hover. string ->
     string option *)
@@ -348,9 +412,57 @@ let overload_doc name =
          `d[k] := v` writes. Needs `use mutation`."
   | "dynarray" ->
       Some
-        "Make a DynArray, an array that grows: `dynarray()` with no elements, and \
-         `dynarray(xs)` from a list. `push`, `pop`, `insert`, `remove` and \
-         `clear` change it. Needs `use mutation`."
+        "Make a DynArray, an array that grows: `dynarray()` with no elements, \
+         `dynarray(xs)` from a list or another collection, and `dynarray(n, v)` \
+         of n copies of v. `push`, `pop`, `insert`, `remove` and `clear` change \
+         it. Needs `use mutation`."
+  | "map" ->
+      Some
+        "Make a Map, an immutable map from keys to values that remembers the \
+         order its keys were put in: `map()` with no entries, `map(pairs)` from \
+         a list of (key, value) pairs, `map(d)` from a MutMap. `m[k]` reads; \
+         lib/map's `map.insert(m, k, v)` gives a new Map."
+  | "list" ->
+      Some
+        "Make a list: `list(c)` of the elements of any collection (a Map's or \
+         a MutMap's (key, value) pairs, a String's Chars, an Option's value), \
+         and `list(n, v)` of n copies of v. `list_init` generates one."
+  | "list_init" ->
+      Some
+        "Generate a list: `list_init(n, f)` with element i being f(i), and \
+         `list_init(n, seed, f)` unfolding an accumulator."
+  | "dynarray_init" ->
+      Some
+        "Generate a DynArray: `dynarray_init(n, f)` and `dynarray_init(n, seed, \
+         f)`, as `array_init`. Needs `use mutation`."
+  | "map_init" ->
+      Some
+        "Make a Map by calling a function: `map_init(keys, f)` maps each key k \
+         to f(k), and `map_init(n, seed, f)` unfolds n (key, value) entries."
+  | "mutmap_init" ->
+      Some
+        "Make a MutMap by calling a function: `mutmap_init(keys, f)` and \
+         `mutmap_init(n, seed, f)`, as `map_init`. Needs `use mutation`."
+  | "fmap" ->
+      Some
+        "`fmap(f, c)`: a new collection of the same kind with f applied to \
+         each element -- a list, an array, a DynArray, a view (giving an \
+         array), a Map or MutMap (its values), an Option or a Result (its Ok)."
+  | "filter" ->
+      Some
+        "`filter(p, c)`: a new collection of the same kind with the elements \
+         p is true of -- a Map's or a MutMap's entries by their value; an \
+         Option keeps its value where p holds."
+  | "foldl" ->
+      Some
+        "`foldl(f, init, c)`: f(...f(f(init, x1), x2)..., xn), the elements \
+         from the first -- a map's values, an Option's or a Result's value."
+  | "foldr" ->
+      Some
+        "`foldr(f, init, c)`: f(x1, f(x2, ...f(xn, init))), the elements from \
+         the last -- a map's values, an Option's or a Result's value."
+  | "any" -> Some "`any(p, c)`: whether p is true of some element of c, stopping at the first."
+  | "all" -> Some "`all(p, c)`: whether p is true of every element of c, stopping at the first that is not."
   | _ -> None
 
 (** The builtin a name denotes, or None if it is an ordinary Pyking

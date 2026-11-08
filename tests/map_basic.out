@@ -1,0 +1,19 @@
+map([("ann", 31), ("bo", 5), ("cy", 40)]) 3 5
+5 0 true false
+["ann", "bo", "cy"] [31, 5, 40] [("ann", 31), ("bo", 5), ("cy", 40)]
+ann 31
+bo 5
+cy 40
+["ann!", "bo!", "cy!"] [62, 10, 80]
+map([(1, "c"), (2, "b")])
+true
+false true
+true map([])
+o false [Pos(0, 0), Pos(1, 1)]
+other true map([('c', 1)]) map([(true, 0), (false, 1)])
+map([("outer", map([("inner", 1)]))]) 1
+[map([(1, 1)]), map([(2, 2)])] (map([("t", 1)]), 1)
+true true
+map([("ann", 32), ("bo", 6), ("cy", 41)]) map([("ann", 31), ("bo", 5), ("cy", 40)])
+cy
+[0, 2, 1] map([("pi", 3.14)])

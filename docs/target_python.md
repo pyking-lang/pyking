@@ -596,6 +596,15 @@ the same in every module, so that a public name -- a constructor called
 under; where that is taken too, `lambda2`, `lambda3`, … — skipping any
 that is itself taken or reserved.
 
+The Python builtins the output and its prelude helpers call by name --
+`list`, `len`, `isinstance`, `str`, `map`, `print`, `SystemExit` and
+the rest of the list in `reserved` -- are renamed the same way. A
+Pyking binding of one at a module's top level would otherwise replace
+it for every helper in that file: `lib/array` writes `import list`, and
+a bare `import list` there would leave `list(...)` in the generated
+code calling the module. It is `import list as list_` instead, and a
+program's own `def map(...)` is `def map_(...)`.
+
 ### Module names Python has already taken
 
 A *module* name can collide too, and worse: `sys`, `time`, `math`,
@@ -1027,6 +1036,38 @@ tuple. A MutMap is a container on the printing path like an array or a
 DynArray, so one holding itself prints `...` there. `tests/mutmap_basic.pyk`,
 `tests/mutmap_changed.pyk`, `tests/mutmap_missing.pyk` and
 `tests/typecheck_mutmap.pyk` are the cases.
+
+### Maps
+
+A Map is a dict of a class of its own too, `__PykMap`, shaped like
+`__PykMutMap` (its `changes` stays 0). Nothing ever writes one, so the
+MutMap helpers that only read -- `__pyk_mutmap_has`, `_keys`, `_items`,
+`_walk`, `get` as `d.get(__pyk_key(k), x)` -- serve a Map unchanged,
+and so do comprehensions, `len` and `for`. Only what makes one and a
+missing key are its own:
+
+| Pyking | generated Python |
+|---|---|
+| `map()` | `__PykMap()` |
+| `map(pairs)` | `__pyk_map_list(pairs)`: a key written twice keeps its first place, its last value |
+| `m[k]` | `__pyk_map_get(m, k)`: `the Map has no key "zed"` where it has none |
+
+The conversions (`array(m)`, `mutmap(m)`, `map(d)`) arrive already
+rewritten into these list forms by elaboration. A Map prints as
+`map([("a", 1)])`, the walker telling it from a MutMap by its class.
+`==` on Maps is the same keys, each with an equal value, in any order:
+Python's own dict `==` already says so, and since `float_inside` cannot
+look into a Map it goes through `__pyk_eq`, which compares a dict that
+way part by part, so a Map nested in a list, tuple or datatype compares
+the same. `tests/map_basic.pyk` and `tests/map_lib.pyk` are the cases.
+
+### `panic`
+
+`panic(message)` is `__pyk_fail(message)`, the helper every runtime
+error here goes through: it flushes standard output, writes `error: `
+and the message to standard error and raises `SystemExit(1)`. A call
+in value position, `5 if c else __pyk_fail('never')`, never answers, so
+it fits any type. `tests/panic_builtin.pyk` is the case.
 
 ### Statement forms that Python spells differently
 

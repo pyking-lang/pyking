@@ -1,5 +1,2 @@
-'tests/fail_typecheck_array_unfold.pyk' 9:4-9:34 Type error: no
-  definition of 'array_init' takes (Int, Int, (Int) -> Int); the ones
-  in scope are 'init::array_init' of type (Int, (Int) -> a) ->
-  Array(a), 'unfold::array_init' of type (Int, s, (s) -> (a, s)) ->
-  Array(a)
+'tests/fail_typecheck_array_unfold.pyk' 9:21-9:33 Type error: argument
+  3 has type (Int) -> Int, but (Int) -> (a, Int) was expected

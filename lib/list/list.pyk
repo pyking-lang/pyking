@@ -1,0 +1,1798 @@
+## Lists: taking parts, searching, combining, counting and sorting them.
+##
+## A list is made by a literal, a comprehension, `list(...)` or
+## `list_init(...)`, and `len`, `fmap`, `filter`, `foldl`, `foldr`, `any`
+## and `all` are builtins (PYKING.md, "Lists", "fmap and the folds").
+## This module is the rest, named as Haskell names them where Haskell,
+## OCaml and Rust differ. A list is never changed: every function
+## answers a new one. Where a function is given a function, it comes
+## first, and the list comes last.
+##
+## A function that compares elements -- `contains`, `unique`, `sort`,
+## `maximum` -- is written once for each of Int, Float, String, Char and
+## Bool where it can be, and once more as `..._by`, taking the comparison
+## as a function, for every other element type. Floats sort with every
+## NaN last, and Strings by code point, the same on every target.
+#
+# Written in Pyking alone, so every target runs the same code: `sort_by`
+# is one merge sort, so the comparisons it makes are the same everywhere.
+
+use mutation
+
+
+## The first element, where there is one (Rust's `first`; Haskell's `head`
+## fails on `[]`, and this does not).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of the first element, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.first([3, 4]), list.first([]))
+## ```
+## ```stdout
+## Some(3) None
+## ```
+public def first(xs: [a]) -> Option(a):
+    match xs:
+        case [x, ..]:
+            Some(x)
+        case []:
+            None
+
+
+## The last element, where there is one.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of the last element, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.last([3, 4]), list.last([]))
+## ```
+## ```stdout
+## Some(4) None
+## ```
+public def last(xs: [a]) -> Option(a):
+    match xs:
+        case [.., x]:
+            Some(x)
+        case []:
+            None
+
+
+## Element `i`, counting from 0, where there is one: `xs[i]` that does not
+## fail (Rust's `get`).
+##
+## # Parameters
+## - `xs`: the list.
+## - `i`: the index.
+##
+## # Returns
+## `Some(xs[i])`, or `None` where `i` is outside the list.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.nth([5, 6, 7], 1), list.nth([5, 6, 7], 3))
+## ```
+## ```stdout
+## Some(6) None
+## ```
+public def nth(xs: [a], i: Int) -> Option(a):
+    if i < 0 or i >= len(xs) then None else Some(xs[i])
+
+
+## Every element but the first; `[]` for `[]` (Haskell's `tail` fails there).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## The list without its first element.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.rest([1, 2, 3]), list.rest([]))
+## ```
+## ```stdout
+## [2, 3] []
+## ```
+public def rest(xs: [a]) -> [a]:
+    match xs:
+        case [_, ..others]:
+            others
+        case []:
+            []
+
+
+## Whether the list has no elements (Haskell's `null`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## `true` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.is_empty([]), list.is_empty([0]))
+## ```
+## ```stdout
+## true false
+## ```
+public def is_empty(xs: [a]) -> Bool:
+    len(xs) == 0
+
+
+## The elements in the other order.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A new list, last element first.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.reverse([1, 2, 3]))
+## ```
+## ```stdout
+## [3, 2, 1]
+## ```
+public def reverse(xs: [a]) -> [a]:
+    items = array(xs)
+    n = len(items)
+    [items[n - 1 - i] for i in range(n)]
+
+
+## The lists of a list joined into one, in order (Haskell's `concat`).
+##
+## # Parameters
+## - `xss`: the lists.
+##
+## # Returns
+## One list of every element.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.flatten([[1, 2], [], [3]]))
+## ```
+## ```stdout
+## [1, 2, 3]
+## ```
+public def flatten(xss: [[a]]) -> [a]:
+    [x for xs in xss for x in xs]
+
+
+## The lists `f` makes of each element, joined (Haskell's `concatMap`).
+##
+## # Parameters
+## - `f`: makes a list of one element.
+## - `xs`: the list.
+##
+## # Returns
+## One list of everything `f` made, in order.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.flat_map(lam x. [x, x * 10], [1, 2]))
+## ```
+## ```stdout
+## [1, 10, 2, 20]
+## ```
+public def flat_map(f: (a) -> [b], xs: [a]) -> [b]:
+    [y for x in xs for y in f(x)]
+
+
+## The elements of two lists in pairs, as long as the shorter list.
+##
+## # Parameters
+## - `xs`: the first list.
+## - `ys`: the second.
+##
+## # Returns
+## A list of pairs.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.zip([1, 2, 3], ["a", "b"]))
+## ```
+## ```stdout
+## [(1, "a"), (2, "b")]
+## ```
+public def zip(xs: [a], ys: [b]) -> [(a, b)]:
+    left = array(xs)
+    right = array(ys)
+    n = if len(left) < len(right) then len(left) else len(right)
+    [(left[i], right[i]) for i in range(n)]
+
+
+## A list of pairs as a pair of lists.
+##
+## # Parameters
+## - `ps`: the pairs.
+##
+## # Returns
+## The first parts, and the second parts.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.unzip([(1, "a"), (2, "b")]))
+## ```
+## ```stdout
+## ([1, 2], ["a", "b"])
+## ```
+public def unzip(ps: [(a, b)]) -> ([a], [b]):
+    ([x for (x, _) in ps], [y for (_, y) in ps])
+
+
+## `f` of the elements of two lists, in pairs, as long as the shorter list
+## (Haskell's `zipWith`).
+##
+## # Parameters
+## - `f`: combines one element of each.
+## - `xs`: the first list.
+## - `ys`: the second.
+##
+## # Returns
+## A list of what `f` answered.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.zip_with(lam (x, y). x * y, [1, 2, 3], [4, 5, 6]))
+## ```
+## ```stdout
+## [4, 10, 18]
+## ```
+public def zip_with(f: (a, b) -> c, xs: [a], ys: [b]) -> [c]:
+    [f(x, y) for (x, y) in zip(xs, ys)]
+
+
+## Each element with its index (Rust's `enumerate`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A list of (index, element) pairs.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.enumerate(["a", "b"]))
+## ```
+## ```stdout
+## [(0, "a"), (1, "b")]
+## ```
+public def enumerate(xs: [a]) -> [(Int, a)]:
+    items = array(xs)
+    [(i, items[i]) for i in range(len(items))]
+
+
+## `x` put between every two elements.
+##
+## # Parameters
+## - `x`: what goes between.
+## - `xs`: the list.
+##
+## # Returns
+## A new list.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.intersperse(0, [1, 2, 3]))
+## ```
+## ```stdout
+## [1, 0, 2, 0, 3]
+## ```
+public def intersperse(x: a, xs: [a]) -> [a]:
+    [y for (i, v) in enumerate(xs) for y in (if i == 0 then [v] else [x, v])]
+
+
+## The list cut into pieces of `n` elements, the last perhaps shorter
+## (Rust's `chunks`). `n` must be above 0.
+##
+## # Parameters
+## - `n`: how long each piece is.
+## - `xs`: the list.
+##
+## # Returns
+## A list of the pieces, in order.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.chunks(2, [1, 2, 3, 4, 5]))
+## ```
+## ```stdout
+## [[1, 2], [3, 4], [5]]
+## ```
+public def chunks(n: Int, xs: [a]) -> [[a]]:
+    if n <= 0:
+        panic("list.chunks needs a size above 0, and this one is " + string(n))
+    count = (len(xs) + n - 1) / n
+    [xs[k * n:(if (k + 1) * n < len(xs) then (k + 1) * n else len(xs))] for k in range(count)]
+
+
+## Every run of `n` elements in a row, in order (Rust's `windows`). `n`
+## must be above 0.
+##
+## # Parameters
+## - `n`: how long each run is.
+## - `xs`: the list.
+##
+## # Returns
+## A list of the runs; none where the list is shorter than `n`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.windows(2, [1, 2, 3]))
+## ```
+## ```stdout
+## [[1, 2], [2, 3]]
+## ```
+public def windows(n: Int, xs: [a]) -> [[a]]:
+    if n <= 0:
+        panic("list.windows needs a size above 0, and this one is " + string(n))
+    [xs[i:i + n] for i in range(len(xs) - n + 1)]
+
+
+## Every value `foldl` gathers on the way, `init` first (Haskell's `scanl`).
+##
+## # Parameters
+## - `f`: as `foldl`'s.
+## - `init`: the first value.
+## - `xs`: the list.
+##
+## # Returns
+## A list one longer than `xs`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.scanl(lam (acc, x). acc + x, 0, [1, 2, 3]))
+## ```
+## ```stdout
+## [0, 1, 3, 6]
+## ```
+public def scanl(f: (b, a) -> b, init: b, xs: [a]) -> [b]:
+    out = dynarray([init])
+    var acc = init
+    for x in xs:
+        acc := f(acc, x)
+        push(out, acc)
+    list(out)
+
+
+## Every value `foldr` gathers on the way, `init` last (Haskell's `scanr`).
+##
+## # Parameters
+## - `f`: as `foldr`'s.
+## - `init`: the last value.
+## - `xs`: the list.
+##
+## # Returns
+## A list one longer than `xs`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.scanr(lam (x, acc). x + acc, 0, [1, 2, 3]))
+## ```
+## ```stdout
+## [6, 5, 3, 0]
+## ```
+public def scanr(f: (a, b) -> b, init: b, xs: [a]) -> [b]:
+    items = array(xs)
+    out = dynarray([init])
+    var acc = init
+    var i = len(items) - 1
+    while i >= 0:
+        acc := f(items[i], acc)
+        push(out, acc)
+        i -= 1
+    reverse(list(out))
+
+
+## The elements `f` makes from `seed`, one after another, until it answers
+## `None` (Haskell's `unfoldr`).
+##
+## # Parameters
+## - `seed`: what the first element is made from.
+## - `f`: answers an element and the next seed, or `None` to stop.
+##
+## # Returns
+## A list of what `f` made.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.unfold(1, lam n. if n > 100 then None else Some((n, n * 3))))
+## ```
+## ```stdout
+## [1, 3, 9, 27, 81]
+## ```
+public def unfold(seed: s, f: (s) -> Option((a, s))) -> [a]:
+    out = dynarray()
+    var state = f(seed)
+    var going = true
+    while going:
+        match state:
+            case Some((x, following)):
+                push(out, x)
+                state := f(following)
+            case None:
+                going := false
+    list(out)
+
+
+## The first `n` elements, or all of them where there are fewer.
+##
+## # Parameters
+## - `n`: how many.
+## - `xs`: the list.
+##
+## # Returns
+## A list of at most `n` elements.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.take(2, [1, 2, 3]), list.take(5, [1]))
+## ```
+## ```stdout
+## [1, 2] [1]
+## ```
+public def take(n: Int, xs: [a]) -> [a]:
+    if n <= 0 then [] else if n >= len(xs) then xs else xs[:n]
+
+
+## Every element after the first `n`.
+##
+## # Parameters
+## - `n`: how many to leave out.
+## - `xs`: the list.
+##
+## # Returns
+## The rest of the list.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.drop(2, [1, 2, 3]), list.drop(5, [1]))
+## ```
+## ```stdout
+## [3] []
+## ```
+public def drop(n: Int, xs: [a]) -> [a]:
+    if n <= 0 then xs else if n >= len(xs) then [] else xs[n:]
+
+
+## The elements from the start for as long as `p` is true of them.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: the list.
+##
+## # Returns
+## The longest start of `xs` that `p` is true of.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.take_while(lam x. x < 3, [1, 2, 3, 1]))
+## ```
+## ```stdout
+## [1, 2]
+## ```
+public def take_while(p: (a) -> Bool, xs: [a]) -> [a]:
+    xs[:prefix_length(p, xs)]
+
+
+## The list from the first element `p` is false of.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: the list.
+##
+## # Returns
+## What `take_while` leaves.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.drop_while(lam x. x < 3, [1, 2, 3, 1]))
+## ```
+## ```stdout
+## [3, 1]
+## ```
+public def drop_while(p: (a) -> Bool, xs: [a]) -> [a]:
+    xs[prefix_length(p, xs):]
+
+
+## The first `n` elements, and the rest.
+##
+## # Parameters
+## - `n`: where to split.
+## - `xs`: the list.
+##
+## # Returns
+## A pair of lists.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.split_at(1, [1, 2, 3]))
+## ```
+## ```stdout
+## ([1], [2, 3])
+## ```
+public def split_at(n: Int, xs: [a]) -> ([a], [a]):
+    (take(n, xs), drop(n, xs))
+
+
+## `take_while` and `drop_while` at once, `p` called once per element it
+## looks at.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: the list.
+##
+## # Returns
+## A pair of lists.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.span(lam x. x % 2 == 1, [1, 3, 4, 5]))
+## ```
+## ```stdout
+## ([1, 3], [4, 5])
+## ```
+public def span(p: (a) -> Bool, xs: [a]) -> ([a], [a]):
+    k = prefix_length(p, xs)
+    (xs[:k], xs[k:])
+
+
+## The elements `p` is true of, and the ones it is false of, each in order;
+## `p` is called once per element.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: the list.
+##
+## # Returns
+## A pair of lists.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.partition(lam x. x > 1, [3, 1, 2, 0]))
+## ```
+## ```stdout
+## ([3, 2], [1, 0])
+## ```
+public def partition(p: (a) -> Bool, xs: [a]) -> ([a], [a]):
+    yes = dynarray()
+    no = dynarray()
+    for x in xs:
+        if p(x):
+            push(yes, x)
+        else:
+            push(no, x)
+    (list(yes), list(no))
+
+
+## The first element `p` is true of.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.find(lam x. x > 1, [1, 2, 3]), list.find(lam x. x > 5, [1]))
+## ```
+## ```stdout
+## Some(2) None
+## ```
+public def find(p: (a) -> Bool, xs: [a]) -> Option(a):
+    for x in xs:
+        if p(x):
+            return Some(x)
+    None
+
+
+## The index of the first element `p` is true of (Rust's `position`).
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.find_index(lam x. x > 1, [1, 2, 3]))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def find_index(p: (a) -> Bool, xs: [a]) -> Option(Int):
+    var i = 0
+    for x in xs:
+        if p(x):
+            return Some(i)
+        i += 1
+    None
+
+
+## How many elements `p` is true of.
+##
+## # Parameters
+## - `p`: the test.
+## - `xs`: the list.
+##
+## # Returns
+## The count.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.count(lam x. x % 2 == 0, [1, 2, 3, 4]))
+## ```
+## ```stdout
+## 2
+## ```
+public def count(p: (a) -> Bool, xs: [a]) -> Int:
+    var n = 0
+    for x in xs:
+        if p(x):
+            n += 1
+    n
+
+
+## The elements gathered by `f` from the first, with no starting value
+## (Rust's `reduce`, Haskell's `foldl1`).
+##
+## # Parameters
+## - `f`: combines what is gathered with the next element.
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of the result, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.reduce(lam (a, b). a * b, [2, 3, 4]), list.reduce(lam (a, b). a + b, []))
+## ```
+## ```stdout
+## Some(24) None
+## ```
+public def reduce(f: (a, a) -> a, xs: [a]) -> Option(a):
+    match xs:
+        case [x, ..others]:
+            Some(foldl(f, x, others))
+        case []:
+            None
+
+
+## Whether some element is alike to `x`, by `alike`.
+##
+## # Parameters
+## - `alike`: whether two elements count as the same.
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `true` where one is.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.contains_by(lam (a, b). len(a) == len(b), "xyz", ["ab", "abc"]))
+## ```
+## ```stdout
+## true
+## ```
+public def contains_by(alike: (a, a) -> Bool, x: a, xs: [a]) -> Bool:
+    any(lam y. alike(x, y), xs)
+
+
+## Whether `x` is an element of a list of Ints (Haskell's `elem`).
+##
+## # Parameters
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.contains(2, [3, 1, 2]))
+## ```
+## ```stdout
+## true
+## ```
+public def int::contains(x: Int, xs: [Int]) -> Bool:
+    contains_by(lam (p, q). p == q, x, xs)
+
+
+## Whether `x` is an element of a list of Floats (Haskell's `elem`).
+##
+## # Parameters
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.contains(0.5, [1.5, 0.5]))
+## ```
+## ```stdout
+## true
+## ```
+public def float::contains(x: Float, xs: [Float]) -> Bool:
+    contains_by(lam (p, q). p == q, x, xs)
+
+
+## Whether `x` is an element of a list of Strings (Haskell's `elem`).
+##
+## # Parameters
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.contains("a", ["b", "a"]))
+## ```
+## ```stdout
+## true
+## ```
+public def string::contains(x: String, xs: [String]) -> Bool:
+    contains_by(lam (p, q). p == q, x, xs)
+
+
+## Whether `x` is an element of a list of Chars (Haskell's `elem`).
+##
+## # Parameters
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.contains('a', ['b', 'a']))
+## ```
+## ```stdout
+## true
+## ```
+public def char::contains(x: Char, xs: [Char]) -> Bool:
+    contains_by(lam (p, q). p == q, x, xs)
+
+
+## Whether `x` is an element of a list of Bools (Haskell's `elem`).
+##
+## # Parameters
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.contains(false, [true, true]))
+## ```
+## ```stdout
+## false
+## ```
+public def bool::contains(x: Bool, xs: [Bool]) -> Bool:
+    contains_by(lam (p, q). p == q, x, xs)
+
+
+## The index of the first element alike to `x`, by `alike`.
+##
+## # Parameters
+## - `alike`: whether two elements count as the same.
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.index_of_by(lam (a, b). a % 10 == b % 10, 3, [21, 13]))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def index_of_by(alike: (a, a) -> Bool, x: a, xs: [a]) -> Option(Int):
+    find_index(lam y. alike(x, y), xs)
+
+
+## The index of the first `x` in a list of Ints (Haskell's `elemIndex`).
+##
+## # Parameters
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.index_of(2, [3, 1, 2]))
+## ```
+## ```stdout
+## Some(2)
+## ```
+public def int::index_of(x: Int, xs: [Int]) -> Option(Int):
+    index_of_by(lam (p, q). p == q, x, xs)
+
+
+## The index of the first `x` in a list of Floats (Haskell's `elemIndex`).
+##
+## # Parameters
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.index_of(0.5, [1.5, 0.5]))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def float::index_of(x: Float, xs: [Float]) -> Option(Int):
+    index_of_by(lam (p, q). p == q, x, xs)
+
+
+## The index of the first `x` in a list of Strings (Haskell's `elemIndex`).
+##
+## # Parameters
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.index_of("a", ["b", "a"]))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def string::index_of(x: String, xs: [String]) -> Option(Int):
+    index_of_by(lam (p, q). p == q, x, xs)
+
+
+## The index of the first `x` in a list of Chars (Haskell's `elemIndex`).
+##
+## # Parameters
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.index_of('a', ['b', 'a']))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def char::index_of(x: Char, xs: [Char]) -> Option(Int):
+    index_of_by(lam (p, q). p == q, x, xs)
+
+
+## The index of the first `x` in a list of Bools (Haskell's `elemIndex`).
+##
+## # Parameters
+## - `x`: what to look for.
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.index_of(false, [true, true]))
+## ```
+## ```stdout
+## None
+## ```
+public def bool::index_of(x: Bool, xs: [Bool]) -> Option(Int):
+    index_of_by(lam (p, q). p == q, x, xs)
+
+
+## Each element once, by `alike`: the first of each, in order.
+##
+## # Parameters
+## - `alike`: whether two elements count as the same.
+## - `xs`: the list.
+##
+## # Returns
+## A new list with no two alike.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.unique_by(lam (a, b). a % 3 == b % 3, [1, 2, 4, 3, 5]))
+## ```
+## ```stdout
+## [1, 2, 3]
+## ```
+public def unique_by(alike: (a, a) -> Bool, xs: [a]) -> [a]:
+    out = dynarray()
+    for x in xs:
+        if not any(lam y. alike(x, y), out):
+            push(out, x)
+    list(out)
+
+
+## Each Int once, the first of each, in order (Haskell's `nub`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A new list with no element twice.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.unique([1, 2, 1, 3, 2]))
+## ```
+## ```stdout
+## [1, 2, 3]
+## ```
+public def int::unique(xs: [Int]) -> [Int]:
+    unique_by(lam (p, q). p == q, xs)
+
+
+## Each Float once, the first of each, in order (Haskell's `nub`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A new list with no element twice.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.unique([0.5, 0.5, 1.0]))
+## ```
+## ```stdout
+## [0.5, 1.0]
+## ```
+public def float::unique(xs: [Float]) -> [Float]:
+    unique_by(lam (p, q). p == q, xs)
+
+
+## Each String once, the first of each, in order (Haskell's `nub`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A new list with no element twice.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.unique(["a", "b", "a"]))
+## ```
+## ```stdout
+## ["a", "b"]
+## ```
+public def string::unique(xs: [String]) -> [String]:
+    unique_by(lam (p, q). p == q, xs)
+
+
+## Each Char once, the first of each, in order (Haskell's `nub`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A new list with no element twice.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.unique(['x', 'x']))
+## ```
+## ```stdout
+## ['x']
+## ```
+public def char::unique(xs: [Char]) -> [Char]:
+    unique_by(lam (p, q). p == q, xs)
+
+
+## Each Bool once, the first of each, in order (Haskell's `nub`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A new list with no element twice.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.unique([true, false, true]))
+## ```
+## ```stdout
+## [true, false]
+## ```
+public def bool::unique(xs: [Bool]) -> [Bool]:
+    unique_by(lam (p, q). p == q, xs)
+
+
+## The list cut into runs of elements next to each other that are alike, by
+## `alike` (Haskell's `groupBy`).
+##
+## # Parameters
+## - `alike`: whether two neighbours belong to one run.
+## - `xs`: the list.
+##
+## # Returns
+## A list of the runs, in order.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.group_by(lam (a, b). a < b, [1, 2, 3, 2, 5]))
+## ```
+## ```stdout
+## [[1, 2, 3], [2, 5]]
+## ```
+public def group_by(alike: (a, a) -> Bool, xs: [a]) -> [[a]]:
+    out = dynarray()
+    run = dynarray()
+    for x in xs:
+        if len(run) > 0 and not alike(run[len(run) - 1], x):
+            push(out, list(run))
+            clear(run)
+        push(run, x)
+    if len(run) > 0:
+        push(out, list(run))
+    list(out)
+
+
+## The list cut into runs of equal Ints next to each other (Haskell's
+## `group`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A list of the runs, in order.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.group([1, 1, 2, 1]))
+## ```
+## ```stdout
+## [[1, 1], [2], [1]]
+## ```
+public def int::group(xs: [Int]) -> [[Int]]:
+    group_by(lam (p, q). p == q, xs)
+
+
+## The list cut into runs of equal Floats next to each other (Haskell's
+## `group`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A list of the runs, in order.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.group([0.5, 0.5, 1.0]))
+## ```
+## ```stdout
+## [[0.5, 0.5], [1.0]]
+## ```
+public def float::group(xs: [Float]) -> [[Float]]:
+    group_by(lam (p, q). p == q, xs)
+
+
+## The list cut into runs of equal Strings next to each other (Haskell's
+## `group`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A list of the runs, in order.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.group(["a", "a", "b"]))
+## ```
+## ```stdout
+## [["a", "a"], ["b"]]
+## ```
+public def string::group(xs: [String]) -> [[String]]:
+    group_by(lam (p, q). p == q, xs)
+
+
+## The list cut into runs of equal Chars next to each other (Haskell's
+## `group`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A list of the runs, in order.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.group(['x', 'x', 'y']))
+## ```
+## ```stdout
+## [['x', 'x'], ['y']]
+## ```
+public def char::group(xs: [Char]) -> [[Char]]:
+    group_by(lam (p, q). p == q, xs)
+
+
+## The list cut into runs of equal Bools next to each other (Haskell's
+## `group`).
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A list of the runs, in order.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.group([true, false, false]))
+## ```
+## ```stdout
+## [[true], [false, false]]
+## ```
+public def bool::group(xs: [Bool]) -> [[Bool]]:
+    group_by(lam (p, q). p == q, xs)
+
+
+## The Ints added up; 0 for `[]`.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## The sum.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.sum([1, 2, 3, 4]), list.sum(list_init(0, lam i. 0)))
+## ```
+## ```stdout
+## 10 0
+## ```
+public def int::sum(xs: [Int]) -> Int:
+    foldl(lam (a, b). a + b, 0, xs)
+
+
+## The Ints multiplied; 1 for `[]`.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## The product.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.product([1, 2, 3, 4]))
+## ```
+## ```stdout
+## 24
+## ```
+public def int::product(xs: [Int]) -> Int:
+    foldl(lam (a, b). a * b, 1, xs)
+
+
+## The Floats added up; 0.0 for `[]`.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## The sum.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.sum([0.5, 1.5, 2.0]), list.sum(list_init(0, lam i. 0.0)))
+## ```
+## ```stdout
+## 4.0 0.0
+## ```
+public def float::sum(xs: [Float]) -> Float:
+    foldl(lam (a, b). a + b, 0.0, xs)
+
+
+## The Floats multiplied; 1.0 for `[]`.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## The product.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.product([0.5, 1.5, 2.0]))
+## ```
+## ```stdout
+## 1.5
+## ```
+public def float::product(xs: [Float]) -> Float:
+    foldl(lam (a, b). a * b, 1.0, xs)
+
+
+## The greatest element, `before(x, y)` saying `x` is smaller than `y`; the
+## first of several equal ones.
+##
+## # Parameters
+## - `before`: whether its first argument is smaller.
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of it, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.maximum_by(lam (a, b). len(a) < len(b), ["ab", "abcd", "efgh"]))
+## ```
+## ```stdout
+## Some("abcd")
+## ```
+public def maximum_by(before: (a, a) -> Bool, xs: [a]) -> Option(a):
+    match xs:
+        case [x, ..others]:
+            Some(foldl(lam (best, y). if before(best, y) then y else best, x, others))
+        case []:
+            None
+
+
+## The smallest element, `before(x, y)` saying `x` is smaller than `y`; the
+## first of several equal ones.
+##
+## # Parameters
+## - `before`: whether its first argument is smaller.
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of it, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.minimum_by(lam (a, b). len(a) < len(b), ["abc", "d", "e"]))
+## ```
+## ```stdout
+## Some("d")
+## ```
+public def minimum_by(before: (a, a) -> Bool, xs: [a]) -> Option(a):
+    match xs:
+        case [x, ..others]:
+            Some(foldl(lam (best, y). if before(y, best) then y else best, x, others))
+        case []:
+            None
+
+
+## The greatest Int.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of it, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.maximum([3, 1, 2]))
+## ```
+## ```stdout
+## Some(3)
+## ```
+public def int::maximum(xs: [Int]) -> Option(Int):
+    maximum_by(lam (x, y). x < y, xs)
+
+
+## The smallest Int.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of it, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.minimum([3, 1, 2]))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def int::minimum(xs: [Int]) -> Option(Int):
+    minimum_by(lam (x, y). x < y, xs)
+
+
+## The greatest Float, NaN counting as greater than every other Float.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of it, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.maximum([2.5, float("nan"), -1.0]))
+## ```
+## ```stdout
+## Some(nan)
+## ```
+public def float::maximum(xs: [Float]) -> Option(Float):
+    maximum_by(float_before, xs)
+
+
+## The smallest Float.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of it, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.minimum([2.5, float("nan"), -1.0]))
+## ```
+## ```stdout
+## Some(-1.0)
+## ```
+public def float::minimum(xs: [Float]) -> Option(Float):
+    minimum_by(float_before, xs)
+
+
+## The greatest String.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of it, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.maximum(["b", "ab", "a"]))
+## ```
+## ```stdout
+## Some("b")
+## ```
+public def string::maximum(xs: [String]) -> Option(String):
+    maximum_by(string_before, xs)
+
+
+## The smallest String.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of it, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.minimum(["b", "ab", "a"]))
+## ```
+## ```stdout
+## Some("a")
+## ```
+public def string::minimum(xs: [String]) -> Option(String):
+    minimum_by(string_before, xs)
+
+
+## The greatest Char.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of it, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.maximum(['c', 'a']))
+## ```
+## ```stdout
+## Some('c')
+## ```
+public def char::maximum(xs: [Char]) -> Option(Char):
+    maximum_by(lam (x, y). x < y, xs)
+
+
+## The smallest Char.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## `Some` of it, or `None` for `[]`.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.minimum(['c', 'a']))
+## ```
+## ```stdout
+## Some('a')
+## ```
+public def char::minimum(xs: [Char]) -> Option(Char):
+    minimum_by(lam (x, y). x < y, xs)
+
+
+## The elements in order, `before(x, y)` saying `x` goes before `y`; equal
+## ones keep their order (a stable merge sort, the same on every target).
+##
+## # Parameters
+## - `before`: whether its first argument goes first.
+## - `xs`: the list.
+##
+## # Returns
+## A new list, sorted.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.sort_by(lam (a, b). len(a) < len(b), ["ccc", "a", "bb", "d"]))
+## ```
+## ```stdout
+## ["a", "d", "bb", "ccc"]
+## ```
+public def sort_by(before: (a, a) -> Bool, xs: [a]) -> [a]:
+    items = array(xs)
+    merge_sort(items, before)
+    list(items)
+
+
+## The Ints from smallest to largest.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A new list, sorted.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.sort([3, 1, 2]))
+## ```
+## ```stdout
+## [1, 2, 3]
+## ```
+public def int::sort(xs: [Int]) -> [Int]:
+    sort_by(lam (x, y). x < y, xs)
+
+
+## The Floats from smallest to largest, every NaN last.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A new list, sorted.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.sort([2.5, float("nan"), -1.0]))
+## ```
+## ```stdout
+## [-1.0, 2.5, nan]
+## ```
+public def float::sort(xs: [Float]) -> [Float]:
+    sort_by(float_before, xs)
+
+
+## The Strings from smallest to largest, by code point.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A new list, sorted.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.sort(["b", "ab", "a"]))
+## ```
+## ```stdout
+## ["a", "ab", "b"]
+## ```
+public def string::sort(xs: [String]) -> [String]:
+    sort_by(string_before, xs)
+
+
+## The Chars from smallest to largest.
+##
+## # Parameters
+## - `xs`: the list.
+##
+## # Returns
+## A new list, sorted.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.sort(['c', 'a']))
+## ```
+## ```stdout
+## ['a', 'c']
+## ```
+public def char::sort(xs: [Char]) -> [Char]:
+    sort_by(lam (x, y). x < y, xs)
+
+
+## The elements in the order of their Int keys, `key` called once per
+## element; equal keys keep their order (Haskell's `sortOn`).
+##
+## # Parameters
+## - `key`: the Int an element is sorted by.
+## - `xs`: the list.
+##
+## # Returns
+## A new list, sorted.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.sort_on(lam s. len(s), ["ccc", "a", "bb"]))
+## ```
+## ```stdout
+## ["a", "bb", "ccc"]
+## ```
+public def int::sort_on(key: (a) -> Int, xs: [a]) -> [a]:
+    keyed = array([(key(x), x) for x in xs])
+    merge_sort(keyed, lam (p, r). let (kp, _) = p in let (kr, _) = r in (lam (x, y). x < y)(kp, kr))
+    [x for (_, x) in keyed]
+
+
+## The elements in the order of their Float keys, `key` called once per
+## element; equal keys keep their order (Haskell's `sortOn`).
+##
+## # Parameters
+## - `key`: the Float an element is sorted by.
+## - `xs`: the list.
+##
+## # Returns
+## A new list, sorted.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.sort_on(lam x. 0.0 - x, [1.0, 3.0, 2.0]))
+## ```
+## ```stdout
+## [3.0, 2.0, 1.0]
+## ```
+public def float::sort_on(key: (a) -> Float, xs: [a]) -> [a]:
+    keyed = array([(key(x), x) for x in xs])
+    merge_sort(keyed, lam (p, r). let (kp, _) = p in let (kr, _) = r in (float_before)(kp, kr))
+    [x for (_, x) in keyed]
+
+
+## The elements in the order of their String keys, `key` called once per
+## element; equal keys keep their order (Haskell's `sortOn`).
+##
+## # Parameters
+## - `key`: the String an element is sorted by.
+## - `xs`: the list.
+##
+## # Returns
+## A new list, sorted.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.sort_on(lam p. let (name, _) = p in name, [("bo", 1), ("ann", 2)]))
+## ```
+## ```stdout
+## [("ann", 2), ("bo", 1)]
+## ```
+public def string::sort_on(key: (a) -> String, xs: [a]) -> [a]:
+    keyed = array([(key(x), x) for x in xs])
+    merge_sort(keyed, lam (p, r). let (kp, _) = p in let (kr, _) = r in (string_before)(kp, kr))
+    [x for (_, x) in keyed]
+
+
+## The elements in the order of their Char keys, `key` called once per
+## element; equal keys keep their order (Haskell's `sortOn`).
+##
+## # Parameters
+## - `key`: the Char an element is sorted by.
+## - `xs`: the list.
+##
+## # Returns
+## A new list, sorted.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.sort_on(lam s. s[0], ["b1", "a2"]))
+## ```
+## ```stdout
+## ["a2", "b1"]
+## ```
+public def char::sort_on(key: (a) -> Char, xs: [a]) -> [a]:
+    keyed = array([(key(x), x) for x in xs])
+    merge_sort(keyed, lam (p, r). let (kp, _) = p in let (kr, _) = r in (lam (x, y). x < y)(kp, kr))
+    [x for (_, x) in keyed]
+
+
+## Whether two lists are as long and alike element by element, by `alike`.
+##
+## # Parameters
+## - `alike`: whether two elements count as the same.
+## - `xs`: the first list.
+## - `ys`: the second.
+##
+## # Returns
+## `true` where they are.
+##
+## # Examples
+## ```pyking
+## import list
+## print(list.equal_by(lam (a, b). a % 2 == b % 2, [1, 2], [3, 4]))
+## ```
+## ```stdout
+## true
+## ```
+public def equal_by(alike: (a, a) -> Bool, xs: [a], ys: [a]) -> Bool:
+    if len(xs) != len(ys) then false else all(lam p. let (x, y) = p in alike(x, y), zip(xs, ys))
+
+
+# How many elements from the start `p` is true of: where `take_while`
+# stops.
+def prefix_length(p: (a) -> Bool, xs: [a]) -> Int:
+    var n = 0
+    for x in xs:
+        if not p(x):
+            return n
+        n += 1
+    n
+
+
+# Sorts a[low..high) in place, stably, with `before(x, y)` saying x goes
+# strictly before y: lib/array's merge sort, so a list sorts as an array
+# does, with the same comparisons on every target.
+def sort_range(a: Array(t), buffer: Array(t), low: Int, high: Int, before: (t, t) -> Bool) -> ():
+    if high - low > 1:
+        middle = (low + high) / 2
+        sort_range(a, buffer, low, middle, before)
+        sort_range(a, buffer, middle, high, before)
+        var i = low
+        var j = middle
+        var k = low
+        while k < high:
+            # Equal elements keep their order: the left one goes first.
+            if j >= high or (i < middle and not before(a[j], a[i])):
+                buffer[k] := a[i]
+                i += 1
+            else:
+                buffer[k] := a[j]
+                j += 1
+            k += 1
+        k := low
+        while k < high:
+            a[k] := buffer[k]
+            k += 1
+
+
+def merge_sort(a: Array(t), before: (t, t) -> Bool) -> ():
+    if len(a) > 1:
+        sort_range(a, array(a), 0, len(a), before)
+
+
+# Floats in a total order: -inf first, -0.0 and 0.0 equal, inf, and every
+# NaN last, equal to each other.
+def float_before(x: Float, y: Float) -> Bool:
+    if x != x:
+        false
+    else if y != y:
+        true
+    else:
+        x < y
+
+
+# Strings by code point, a String before every longer one it starts.
+def string_before(x: String, y: String) -> Bool:
+    var answer = len(x) < len(y)
+    var decided = false
+    var k = 0
+    while not decided and k < len(x) and k < len(y):
+        if x[k] != y[k]:
+            answer := x[k] < y[k]
+            decided := true
+        k += 1
+    answer

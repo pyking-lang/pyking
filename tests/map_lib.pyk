@@ -1,0 +1,30 @@
+# lib/map: every change answers a new Map and leaves the old one as it was.
+
+import map
+
+m = map([("ann", 31), ("bo", 5)])
+print(map.insert(m, "cy", 40), map.insert(m, "ann", 32), m)
+print(map.remove(m, "ann"), map.remove(m, "zed"), m)
+counts = map([("a", 1)])
+add = lam (old, new). old + new
+print(map.insert_with(add, counts, "a", 1), map.insert_with(add, counts, "b", 1))
+print(map.adjust(lam v. v * 2, m, "bo"), map.adjust(lam v. v * 2, m, "zed"))
+print(map.alter(lam o. None, m, "ann"), map.alter(lam o. Some(1), m, "cy"))
+print(map.alter(lam o. fmap(lam v. v + 100, o), m, "bo"), map.alter(lam o. fmap(lam v. v + 100, o), m, "zed"))
+print(map.union(map([(1, "a")]), map([(1, "x"), (2, "b")])), map.union_with(add, map([("x", 1)]), map([("x", 10), ("y", 2)])))
+print(map.intersection(map([(1, "a"), (2, "b")]), map([(2, true)])), map.difference(map([(1, "a"), (2, "b")]), map([(2, true)])))
+print(map.map_with_key(lam (k, v). k + string(v), m), map.filter_with_key(lam (k, v). len(k) == 2, m))
+print(map.partition(lam v. v > 18, m), map.singleton("one", 1))
+print(map.lookup(m, "bo"), map.lookup(m, "zed"), map.find_key(lam v. v < 10, m), map.find_key(lam v. v > 99, m))
+print(map.fold_with_key(lam (acc, k, v). acc + k + string(v), "", m))
+nothing: Map(String, Int) = map()
+print(map.is_empty(nothing), map.is_empty(m))
+print(map.equal_by(lam (a, b). a == b, m, map([("bo", 5), ("ann", 31)])), map.equal_by(lam (a, b). true, m, nothing))
+
+# building a Map by steps, each a new one
+built = foldl(lam (acc, i). map.insert(acc, i % 3, i), map(), range(5))
+print(built)
+
+# word counts, with insert_with over a fold
+words = ["the", "cat", "the", "hat", "the"]
+print(foldl(lam (acc, w). map.insert_with(add, acc, w, 1), map(), words))

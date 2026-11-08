@@ -16,6 +16,7 @@
 
 use mutation
 import array
+import list
 
 
 ## A new DynArray holding the same elements as `v`, in the same order.
@@ -172,7 +173,7 @@ def write_back(v: DynArray(t), a: Array(t)) -> ():
 
 # Whether two DynArrays have the same length and, position by position,
 # elements `alike` says are the same.
-def equal_by(v: DynArray(t), w: DynArray(t), alike: (t, t) -> Bool) -> Bool:
+def equal_with(v: DynArray(t), w: DynArray(t), alike: (t, t) -> Bool) -> Bool:
     var same_so_far = len(v) == len(w)
     var k = 0
     while same_so_far and k < len(v):
@@ -201,7 +202,7 @@ def equal_by(v: DynArray(t), w: DynArray(t), alike: (t, t) -> Bool) -> Bool:
 ## true false
 ## ```
 public def int::equal(v: DynArray(Int), w: DynArray(Int)) -> Bool:
-    equal_by(v, w, lam (x, y). x == y)
+    equal_with(v, w, lam (x, y). x == y)
 
 
 ## Whether two DynArrays of Floats hold the same elements in the same order,
@@ -224,7 +225,7 @@ public def int::equal(v: DynArray(Int), w: DynArray(Int)) -> Bool:
 ## true
 ## ```
 public def float::equal(v: DynArray(Float), w: DynArray(Float)) -> Bool:
-    equal_by(v, w, lam (x, y). x == y)
+    equal_with(v, w, lam (x, y). x == y)
 
 
 ## Whether two DynArrays of Strings hold the same elements in the same order.
@@ -246,7 +247,7 @@ public def float::equal(v: DynArray(Float), w: DynArray(Float)) -> Bool:
 ## true
 ## ```
 public def string::equal(v: DynArray(String), w: DynArray(String)) -> Bool:
-    equal_by(v, w, lam (x, y). x == y)
+    equal_with(v, w, lam (x, y). x == y)
 
 
 ## Whether two DynArrays of Chars hold the same elements in the same order.
@@ -268,7 +269,7 @@ public def string::equal(v: DynArray(String), w: DynArray(String)) -> Bool:
 ## false
 ## ```
 public def char::equal(v: DynArray(Char), w: DynArray(Char)) -> Bool:
-    equal_by(v, w, lam (x, y). x == y)
+    equal_with(v, w, lam (x, y). x == y)
 
 
 ## Whether two DynArrays of Bools hold the same elements in the same order.
@@ -290,7 +291,7 @@ public def char::equal(v: DynArray(Char), w: DynArray(Char)) -> Bool:
 ## true
 ## ```
 public def bool::equal(v: DynArray(Bool), w: DynArray(Bool)) -> Bool:
-    equal_by(v, w, lam (x, y). x == y)
+    equal_with(v, w, lam (x, y). x == y)
 
 
 ## Sorts a DynArray of Ints from smallest to largest, in place, stably.
@@ -380,3 +381,1197 @@ public def char::sort(v: DynArray(Char)) -> ():
     a = to_array(v)
     array.sort(a)
     write_back(v, a)
+
+
+# --- what lib/list has too ---
+
+
+## The first element of a DynArray, where there is one.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([4, 5])
+## print(dynarray.first(v))
+## ```
+## ```stdout
+## Some(4)
+## ```
+public def first(v: DynArray(t)) -> Option(t):
+    list.first(list(v))
+
+
+## The last element of a DynArray, where there is one.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([4, 5])
+## print(dynarray.last(v))
+## ```
+## ```stdout
+## Some(5)
+## ```
+public def last(v: DynArray(t)) -> Option(t):
+    list.last(list(v))
+
+
+## Element `i`, where there is one: `v[i]` that does not fail.
+##
+## # Parameters
+## - `v`: a DynArray.
+## - `i`: the index.
+##
+## # Returns
+## `Some` of it, or `None` where `i` is outside.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([4, 5])
+## print(dynarray.nth(v, 1), dynarray.nth(v, 2))
+## ```
+## ```stdout
+## Some(5) None
+## ```
+public def nth(v: DynArray(t), i: Int) -> Option(t):
+    if i < 0 or i >= len(v) then None else Some(v[i])
+
+
+## Whether a DynArray has no elements.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## `true` where it has none.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([0])
+## print(dynarray.is_empty(v))
+## ```
+## ```stdout
+## false
+## ```
+public def is_empty(v: DynArray(t)) -> Bool:
+    len(v) == 0
+
+
+## The first element `p` is true of.
+##
+## # Parameters
+## - `p`: the test.
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1, 2, 3])
+## print(dynarray.find(lam x. x > 1, v))
+## ```
+## ```stdout
+## Some(2)
+## ```
+public def find(p: (t) -> Bool, v: DynArray(t)) -> Option(t):
+    list.find(p, list(v))
+
+
+## The index of the first element `p` is true of.
+##
+## # Parameters
+## - `p`: the test.
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1, 2, 3])
+## print(dynarray.find_index(lam x. x > 1, v))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def find_index(p: (t) -> Bool, v: DynArray(t)) -> Option(Int):
+    list.find_index(p, list(v))
+
+
+## How many elements `p` is true of.
+##
+## # Parameters
+## - `p`: the test.
+## - `v`: a DynArray.
+##
+## # Returns
+## The count.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1, 2, 3, 4])
+## print(dynarray.count(lam x. x % 2 == 0, v))
+## ```
+## ```stdout
+## 2
+## ```
+public def count(p: (t) -> Bool, v: DynArray(t)) -> Int:
+    list.count(p, list(v))
+
+
+## The elements gathered by `f` from the first, with no starting value.
+##
+## # Parameters
+## - `f`: combines what is gathered with the next element.
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of the result, or `None` where there are no elements.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([2, 3, 4])
+## print(dynarray.reduce(lam (x, y). x * y, v))
+## ```
+## ```stdout
+## Some(24)
+## ```
+public def reduce(f: (t, t) -> t, v: DynArray(t)) -> Option(t):
+    list.reduce(f, list(v))
+
+
+## Whether some element is alike to `x`, by `alike`.
+##
+## # Parameters
+## - `alike`: whether two elements count as the same.
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `true` where one is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([10, 21])
+## print(dynarray.contains_by(lam (p, q). p % 10 == q % 10, 1, v))
+## ```
+## ```stdout
+## true
+## ```
+public def contains_by(alike: (t, t) -> Bool, x: t, v: DynArray(t)) -> Bool:
+    list.contains_by(alike, x, list(v))
+
+
+## Whether `x` is an element of a DynArray of Ints.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([3, 1])
+## print(dynarray.contains(1, v))
+## ```
+## ```stdout
+## true
+## ```
+public def int::contains(x: Int, v: DynArray(Int)) -> Bool:
+    list.contains(x, list(v))
+
+
+## Whether `x` is an element of a DynArray of Floats.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1.5])
+## print(dynarray.contains(1.5, v))
+## ```
+## ```stdout
+## true
+## ```
+public def float::contains(x: Float, v: DynArray(Float)) -> Bool:
+    list.contains(x, list(v))
+
+
+## Whether `x` is an element of a DynArray of Strings.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(["a"])
+## print(dynarray.contains("b", v))
+## ```
+## ```stdout
+## false
+## ```
+public def string::contains(x: String, v: DynArray(String)) -> Bool:
+    list.contains(x, list(v))
+
+
+## Whether `x` is an element of a DynArray of Chars.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(['a'])
+## print(dynarray.contains('a', v))
+## ```
+## ```stdout
+## true
+## ```
+public def char::contains(x: Char, v: DynArray(Char)) -> Bool:
+    list.contains(x, list(v))
+
+
+## Whether `x` is an element of a DynArray of Bools.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `true` where it is.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([true])
+## print(dynarray.contains(true, v))
+## ```
+## ```stdout
+## true
+## ```
+public def bool::contains(x: Bool, v: DynArray(Bool)) -> Bool:
+    list.contains(x, list(v))
+
+
+## The index of the first element alike to `x`, by `alike`.
+##
+## # Parameters
+## - `alike`: whether two elements count as the same.
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([10, 21])
+## print(dynarray.index_of_by(lam (p, q). p % 10 == q % 10, 1, v))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def index_of_by(alike: (t, t) -> Bool, x: t, v: DynArray(t)) -> Option(Int):
+    list.index_of_by(alike, x, list(v))
+
+
+## The index of the first `x` in a DynArray of Ints.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([3, 1])
+## print(dynarray.index_of(1, v))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def int::index_of(x: Int, v: DynArray(Int)) -> Option(Int):
+    list.index_of(x, list(v))
+
+
+## The index of the first `x` in a DynArray of Floats.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1.5])
+## print(dynarray.index_of(1.5, v))
+## ```
+## ```stdout
+## Some(0)
+## ```
+public def float::index_of(x: Float, v: DynArray(Float)) -> Option(Int):
+    list.index_of(x, list(v))
+
+
+## The index of the first `x` in a DynArray of Strings.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(["a"])
+## print(dynarray.index_of("b", v))
+## ```
+## ```stdout
+## None
+## ```
+public def string::index_of(x: String, v: DynArray(String)) -> Option(Int):
+    list.index_of(x, list(v))
+
+
+## The index of the first `x` in a DynArray of Chars.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(['a'])
+## print(dynarray.index_of('a', v))
+## ```
+## ```stdout
+## Some(0)
+## ```
+public def char::index_of(x: Char, v: DynArray(Char)) -> Option(Int):
+    list.index_of(x, list(v))
+
+
+## The index of the first `x` in a DynArray of Bools.
+##
+## # Parameters
+## - `x`: what to look for.
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of the index, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([true])
+## print(dynarray.index_of(true, v))
+## ```
+## ```stdout
+## Some(0)
+## ```
+public def bool::index_of(x: Bool, v: DynArray(Bool)) -> Option(Int):
+    list.index_of(x, list(v))
+
+
+## The Ints added up.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## The sum.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1, 2, 3])
+## print(dynarray.sum(v))
+## ```
+## ```stdout
+## 6
+## ```
+public def int::sum(v: DynArray(Int)) -> Int:
+    list.sum(list(v))
+
+
+## The Ints multiplied.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## The product.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1, 2, 3])
+## print(dynarray.product(v))
+## ```
+## ```stdout
+## 6
+## ```
+public def int::product(v: DynArray(Int)) -> Int:
+    list.product(list(v))
+
+
+## The Floats added up.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## The sum.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([0.5, 1.5])
+## print(dynarray.sum(v))
+## ```
+## ```stdout
+## 2.0
+## ```
+public def float::sum(v: DynArray(Float)) -> Float:
+    list.sum(list(v))
+
+
+## The Floats multiplied.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## The product.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([0.5, 1.5])
+## print(dynarray.product(v))
+## ```
+## ```stdout
+## 0.75
+## ```
+public def float::product(v: DynArray(Float)) -> Float:
+    list.product(list(v))
+
+
+## The greatest element, `before(x, y)` saying `x` is smaller; the first of
+## several equal ones.
+##
+## # Parameters
+## - `before`: whether its first argument is smaller.
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(["ab", "c"])
+## print(dynarray.maximum_by(lam (x, y). len(x) < len(y), v))
+## ```
+## ```stdout
+## Some("ab")
+## ```
+public def maximum_by(before: (t, t) -> Bool, v: DynArray(t)) -> Option(t):
+    list.maximum_by(before, list(v))
+
+
+## The smallest element, `before(x, y)` saying `x` is smaller; the first of
+## several equal ones.
+##
+## # Parameters
+## - `before`: whether its first argument is smaller.
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(["ab", "c"])
+## print(dynarray.minimum_by(lam (x, y). len(x) < len(y), v))
+## ```
+## ```stdout
+## Some("c")
+## ```
+public def minimum_by(before: (t, t) -> Bool, v: DynArray(t)) -> Option(t):
+    list.minimum_by(before, list(v))
+
+
+## The greatest Int.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([3, 1, 2])
+## print(dynarray.maximum(v))
+## ```
+## ```stdout
+## Some(3)
+## ```
+public def int::maximum(v: DynArray(Int)) -> Option(Int):
+    list.maximum(list(v))
+
+
+## The smallest Int.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([3, 1, 2])
+## print(dynarray.minimum(v))
+## ```
+## ```stdout
+## Some(1)
+## ```
+public def int::minimum(v: DynArray(Int)) -> Option(Int):
+    list.minimum(list(v))
+
+
+## The greatest Float.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([2.5, -1.0])
+## print(dynarray.maximum(v))
+## ```
+## ```stdout
+## Some(2.5)
+## ```
+public def float::maximum(v: DynArray(Float)) -> Option(Float):
+    list.maximum(list(v))
+
+
+## The smallest Float.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([2.5, -1.0])
+## print(dynarray.minimum(v))
+## ```
+## ```stdout
+## Some(-1.0)
+## ```
+public def float::minimum(v: DynArray(Float)) -> Option(Float):
+    list.minimum(list(v))
+
+
+## The greatest String.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(["b", "a"])
+## print(dynarray.maximum(v))
+## ```
+## ```stdout
+## Some("b")
+## ```
+public def string::maximum(v: DynArray(String)) -> Option(String):
+    list.maximum(list(v))
+
+
+## The smallest String.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(["b", "a"])
+## print(dynarray.minimum(v))
+## ```
+## ```stdout
+## Some("a")
+## ```
+public def string::minimum(v: DynArray(String)) -> Option(String):
+    list.minimum(list(v))
+
+
+## The greatest Char.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(['b', 'a'])
+## print(dynarray.maximum(v))
+## ```
+## ```stdout
+## Some('b')
+## ```
+public def char::maximum(v: DynArray(Char)) -> Option(Char):
+    list.maximum(list(v))
+
+
+## The smallest Char.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## `Some` of it, or `None`.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(['b', 'a'])
+## print(dynarray.minimum(v))
+## ```
+## ```stdout
+## Some('a')
+## ```
+public def char::minimum(v: DynArray(Char)) -> Option(Char):
+    list.minimum(list(v))
+
+
+## A new DynArray of the Ints from smallest to largest; `v` is as it was
+## (`sort` sorts in place).
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## A new DynArray.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([3, 1, 2])
+## print(dynarray.sorted(v), v)
+## ```
+## ```stdout
+## dynarray([1, 2, 3]) dynarray([3, 1, 2])
+## ```
+public def int::sorted(v: DynArray(Int)) -> DynArray(Int):
+    dynarray(list.sort(list(v)))
+
+
+## A new DynArray of the Floats from smallest to largest; `v` is as it was
+## (`sort` sorts in place).
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## A new DynArray.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([2.5, -1.0])
+## print(dynarray.sorted(v), v)
+## ```
+## ```stdout
+## dynarray([-1.0, 2.5]) dynarray([2.5, -1.0])
+## ```
+public def float::sorted(v: DynArray(Float)) -> DynArray(Float):
+    dynarray(list.sort(list(v)))
+
+
+## A new DynArray of the Strings from smallest to largest; `v` is as it was
+## (`sort` sorts in place).
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## A new DynArray.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(["b", "a"])
+## print(dynarray.sorted(v), v)
+## ```
+## ```stdout
+## dynarray(["a", "b"]) dynarray(["b", "a"])
+## ```
+public def string::sorted(v: DynArray(String)) -> DynArray(String):
+    dynarray(list.sort(list(v)))
+
+
+## A new DynArray of the Chars from smallest to largest; `v` is as it was
+## (`sort` sorts in place).
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## A new DynArray.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(['b', 'a'])
+## print(dynarray.sorted(v), v)
+## ```
+## ```stdout
+## dynarray(['a', 'b']) dynarray(['b', 'a'])
+## ```
+public def char::sorted(v: DynArray(Char)) -> DynArray(Char):
+    dynarray(list.sort(list(v)))
+
+
+## A new DynArray of the elements in the other order; `v` is as it was.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## A new DynArray.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1, 2, 3])
+## print(dynarray.reversed(v), v)
+## ```
+## ```stdout
+## dynarray([3, 2, 1]) dynarray([1, 2, 3])
+## ```
+public def reversed(v: DynArray(t)) -> DynArray(t):
+    dynarray(list.reverse(list(v)))
+
+
+## Sorts in place, `before(x, y)` saying `x` goes before `y`; equal ones
+## keep their order (one merge sort, the same on every target).
+##
+## # Parameters
+## - `before`: whether its first argument goes first.
+## - `v`: a DynArray to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(["ccc", "a", "bb"])
+## dynarray.sort_by(lam (x, y). len(x) < len(y), v)
+## print(v)
+## ```
+## ```stdout
+## dynarray(["a", "bb", "ccc"])
+## ```
+public def sort_by(before: (t, t) -> Bool, v: DynArray(t)) -> ():
+    a = to_array(v)
+    array.sort_by(before, a)
+    write_back(v, a)
+
+
+## Sorts in place by each element's Int key, `key` called once per element;
+## equal keys keep their order.
+##
+## # Parameters
+## - `key`: the Int an element is sorted by.
+## - `v`: a DynArray to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(["ccc", "a", "bb"])
+## dynarray.sort_on(lam s. len(s), v)
+## print(v)
+## ```
+## ```stdout
+## dynarray(["a", "bb", "ccc"])
+## ```
+public def int::sort_on(key: (t) -> Int, v: DynArray(t)) -> ():
+    in_order = array(list.sort_on(key, list(v)))
+    for i in range(len(in_order)):
+        v[i] := in_order[i]
+
+
+## Sorts in place by each element's Float key, `key` called once per element;
+## equal keys keep their order.
+##
+## # Parameters
+## - `key`: the Float an element is sorted by.
+## - `v`: a DynArray to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1.0, 3.0])
+## dynarray.sort_on(lam x. 0.0 - x, v)
+## print(v)
+## ```
+## ```stdout
+## dynarray([3.0, 1.0])
+## ```
+public def float::sort_on(key: (t) -> Float, v: DynArray(t)) -> ():
+    in_order = array(list.sort_on(key, list(v)))
+    for i in range(len(in_order)):
+        v[i] := in_order[i]
+
+
+## Sorts in place by each element's String key, `key` called once per element;
+## equal keys keep their order.
+##
+## # Parameters
+## - `key`: the String an element is sorted by.
+## - `v`: a DynArray to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([(2, "b"), (1, "a")])
+## dynarray.sort_on(lam p. let (_, s) = p in s, v)
+## print(v)
+## ```
+## ```stdout
+## dynarray([(1, "a"), (2, "b")])
+## ```
+public def string::sort_on(key: (t) -> String, v: DynArray(t)) -> ():
+    in_order = array(list.sort_on(key, list(v)))
+    for i in range(len(in_order)):
+        v[i] := in_order[i]
+
+
+## Sorts in place by each element's Char key, `key` called once per element;
+## equal keys keep their order.
+##
+## # Parameters
+## - `key`: the Char an element is sorted by.
+## - `v`: a DynArray to sort.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(["b1", "a2"])
+## dynarray.sort_on(lam s. s[0], v)
+## print(v)
+## ```
+## ```stdout
+## dynarray(["a2", "b1"])
+## ```
+public def char::sort_on(key: (t) -> Char, v: DynArray(t)) -> ():
+    in_order = array(list.sort_on(key, list(v)))
+    for i in range(len(in_order)):
+        v[i] := in_order[i]
+
+
+## Replaces each element `x` by `f(x)`, in place, in index order: `fmap`
+## without a copy.
+##
+## # Parameters
+## - `f`: makes the new element from the old.
+## - `v`: a DynArray.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1, 2, 3])
+## dynarray.map_in_place(lam x. x * x, v)
+## print(v)
+## ```
+## ```stdout
+## dynarray([1, 4, 9])
+## ```
+public def map_in_place(f: (t) -> t, v: DynArray(t)) -> ():
+    for i in range(len(v)):
+        v[i] := f(v[i])
+
+
+## The elements of two DynArrays in pairs, as long as the shorter one.
+##
+## # Parameters
+## - `v`: the first DynArray.
+## - `other`: the second.
+##
+## # Returns
+## A new DynArray of pairs.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## print(dynarray.zip(dynarray([1, 2]), dynarray(["a", "b", "c"])))
+## ```
+## ```stdout
+## dynarray([(1, "a"), (2, "b")])
+## ```
+public def zip(v: DynArray(t), other: DynArray(u)) -> DynArray((t, u)):
+    dynarray(list.zip(list(v), list(other)))
+
+
+## Each element with its index.
+##
+## # Parameters
+## - `v`: a DynArray.
+##
+## # Returns
+## A new DynArray of (index, element) pairs.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray(["a", "b"])
+## print(dynarray.enumerate(v))
+## ```
+## ```stdout
+## dynarray([(0, "a"), (1, "b")])
+## ```
+public def enumerate(v: DynArray(t)) -> DynArray((Int, t)):
+    dynarray(list.enumerate(list(v)))
+
+
+## The lists `f` makes of each element, joined.
+##
+## # Parameters
+## - `f`: makes a list of one element.
+## - `v`: a DynArray.
+##
+## # Returns
+## A new DynArray.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1, 2])
+## print(dynarray.flat_map(lam x. [x, x], v))
+## ```
+## ```stdout
+## dynarray([1, 1, 2, 2])
+## ```
+public def flat_map(f: (t) -> [u], v: DynArray(t)) -> DynArray(u):
+    dynarray(list.flat_map(f, list(v)))
+
+
+## Whether two DynArrays are as long and alike element by element, by `alike`.
+##
+## # Parameters
+## - `alike`: whether two elements count as the same.
+## - `v`: one DynArray.
+## - `other`: the other.
+##
+## # Returns
+## `true` where they are.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## print(dynarray.equal_by(lam (x, y). x % 2 == y % 2, dynarray([1, 2]), dynarray([3, 4])))
+## ```
+## ```stdout
+## true
+## ```
+public def equal_by(alike: (t, t) -> Bool, v: DynArray(t), other: DynArray(t)) -> Bool:
+    equal_with(v, other, alike)
+
+
+## Takes elements off the end until at most `n` are left (Rust's
+## `truncate`).
+##
+## # Parameters
+## - `v`: the DynArray.
+## - `n`: how many to keep.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1, 2, 3])
+## dynarray.truncate(v, 1)
+## print(v)
+## ```
+## ```stdout
+## dynarray([1])
+## ```
+public def truncate(v: DynArray(t), n: Int) -> ():
+    if n < 0:
+        panic("dynarray.truncate needs a length of 0 or more, and this one is " + string(n))
+    while len(v) > n:
+        pop(v)
+
+
+## Keeps only the elements `p` is true of, in place and in order: `filter`
+## without a copy (Rust's `retain`).
+##
+## # Parameters
+## - `p`: the test.
+## - `v`: the DynArray.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1, 2, 3, 4])
+## dynarray.retain(lam x. x % 2 == 0, v)
+## print(v)
+## ```
+## ```stdout
+## dynarray([2, 4])
+## ```
+public def retain(p: (t) -> Bool, v: DynArray(t)) -> ():
+    kept = [x for x in v if p(x)]
+    clear(v)
+    for x in kept:
+        push(v, x)
+
+
+## Pushes every element of `w` onto `v`, in order; `w` is as it was, and
+## `append(v, v)` doubles `v`.
+##
+## # Parameters
+## - `v`: the DynArray that grows.
+## - `w`: what is pushed.
+##
+## # Examples
+## ```pyking
+## use mutation
+## import dynarray
+## v = dynarray([1, 2])
+## dynarray.append(v, v)
+## print(v)
+## ```
+## ```stdout
+## dynarray([1, 2, 1, 2])
+## ```
+public def append(v: DynArray(t), w: DynArray(t)) -> ():
+    for x in list(w):
+        push(v, x)

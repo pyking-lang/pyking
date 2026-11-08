@@ -194,29 +194,61 @@ let rec holds_float type_ =
   | TCon (_, "DynArray", [ element ], _) -> holds_float element
   | TCon (_, "Slice", [ element ], _) -> holds_float element
   | TCon (_, "Ptr", [ target ], _) -> holds_float target
-  | TCon (_, "MutMap", [ key; value ], _) -> holds_float key || holds_float value
+  | TCon (_, ("MutMap" | "Map"), [ key; value ], _) -> holds_float key || holds_float value
   | TTuple (_, elements, _) -> List.exists holds_float elements
+  (* A datatype's value whose type arguments hold one: built where the
+     argument was a type variable, it carries no descriptor of its own. *)
+  | TCon (_, _, args, _) -> List.exists holds_float args
   | _ -> false
 
 (** Which positions of a value are Floats or Chars, as the descriptor
     `pykShaped` reads: `f` a Float, `c` a Char, `.` anything else, `[s]`
     a list, `{s}` an array, `<s>` a DynArray, `v{s}` a view, `p(s)` a
-    pointer, `@(k,v)` a MutMap whose entries are (k, v), `(s,s)` a tuple.
-    typ -> string *)
-let rec float_shape type_ =
+    pointer, `@(k,v)` a MutMap or a Map whose entries are (k, v), `(s,s)`
+    a tuple, `d(s,s)` a datatype's value by its type arguments -- which
+    its fields' template (`field_template`) says how to read -- and `$i`
+    the datatype's i-th type parameter, in such a template.
+    string list -> typ -> string *)
+let rec type_shape params type_ =
+  let shape = type_shape params in
   match type_ with
   | TFloat _ -> "f"
   | TChar _ -> "c"
-  | TList (_, element, _) -> "[" ^ float_shape element ^ "]"
-  | TCon (_, "Array", [ element ], _) -> "{" ^ float_shape element ^ "}"
-  | TCon (_, "DynArray", [ element ], _) -> "<" ^ float_shape element ^ ">"
-  | TCon (_, "Slice", [ element ], _) -> "v{" ^ float_shape element ^ "}"
-  | TCon (_, "Ptr", [ target ], _) -> "p(" ^ float_shape target ^ ")"
-  | TCon (_, "MutMap", [ key; value ], _) ->
-      "@(" ^ float_shape key ^ "," ^ float_shape value ^ ")"
+  | TList (_, element, _) -> "[" ^ shape element ^ "]"
+  | TCon (_, "Array", [ element ], _) -> "{" ^ shape element ^ "}"
+  | TCon (_, "DynArray", [ element ], _) -> "<" ^ shape element ^ ">"
+  | TCon (_, "Slice", [ element ], _) -> "v{" ^ shape element ^ "}"
+  | TCon (_, "Ptr", [ target ], _) -> "p(" ^ shape target ^ ")"
+  | TCon (_, ("MutMap" | "Map"), [ key; value ], _) ->
+      "@(" ^ shape key ^ "," ^ shape value ^ ")"
   | TTuple (_, elements, _) ->
-      "(" ^ String.concat "," (List.map float_shape elements) ^ ")"
+      "(" ^ String.concat "," (List.map shape elements) ^ ")"
+  | (TVar (_, name, _, _) | TCon (_, name, [], _)) when List.mem name params ->
+      let rec index i = function
+        | [] -> "."
+        | p :: rest -> if p = name then "$" ^ string_of_int i else index (i + 1) rest
+      in
+      index 0 params
+  | TCon (_, _, args, _) ->
+      let parts = List.map shape args in
+      if List.for_all (( = ) ".") parts then "." else "d(" ^ String.concat "," parts ^ ")"
   | _ -> "."
+
+let float_shape type_ = type_shape [] type_
+
+(** How a constructor's fields print, in terms of its datatype's type
+    parameters: `($0,d($0))` for `Cons(a, MyList(a))`. None where no field
+    can hold a Float or a Char, which is every value's `pykFields` unless
+    said. string list -> field list -> string option *)
+let field_template params fields =
+  let parts =
+    List.map
+      (fun (Field (_, _, annotation, _, _)) ->
+        match annotation with Some t -> type_shape params t | None -> ".")
+      fields
+  in
+  if List.for_all (( = ) ".") parts then None
+  else Some ("(" ^ String.concat "," parts ^ ")")
 
 (** Whether the checker settled this expression's type as String, which
     is what makes an index or a `for` walk its code points.
@@ -249,11 +281,13 @@ let is_view_expr e scope =
   | Some (TCon (_, "Slice", [ _ ], _)) -> true
   | _ -> false
 
-(** Whether the checker settled this expression's type as a MutMap.
+(** Whether the checker settled this expression's type as a MutMap or a
+    Map: one runtime value, a Map told from a MutMap by its marker
+    (docs/target_js.md, "Maps"). No write on a Map reaches a backend.
     expr -> scope -> bool *)
 let is_mutmap_expr e scope =
   match type_of e scope with
-  | Some (TCon (_, "MutMap", [ _; _ ], _)) -> true
+  | Some (TCon (_, ("MutMap" | "Map"), [ _; _ ], _)) -> true
   | _ -> false
 
 (** Whether `==` on values of this type is JavaScript's `===`: a value
@@ -337,7 +371,7 @@ let reserved =
         implements import in instanceof interface let new null package \
         private protected public return static super switch this throw \
         true try typeof var void while with yield arguments eval \
-        undefined NaN Infinity console String Array document print \
+        undefined NaN Infinity console String Array Map Error process document print \
         pykConcat pykFormat pykList pykOutput pykQuote pykWrite require \
         pykData pykWithShape pykRange pykLen TextEncoder exports run runtime \
         init pykChars pykCharAt pykCharOfInt pykCharOfString pykFloatStr \
@@ -347,7 +381,7 @@ let reserved =
         pykDynArrayEmpty pykDynArrayOfList pykPush pykPop pykInsert pykRemove pykClear \
         pykSetAt pykEqual pykMutMap pykMutMapOfList pykKey pykKeyText pykMutMapPut \
         pykMutMapGet pykMutMapGetOr pykMutMapHas pykMutMapKeys pykMutMapValues pykMutMapItems \
-        pykMutMapRemove pykMutMapDiscard pykMutMapClear pykMutMapWalk pykMutMapChanged pykSlice pykView \
+        pykMutMapRemove pykMutMapDiscard pykMutMapClear pykMutMapWalk pykMutMapChanged pykMapEmpty pykMapOfList pykSlice pykView \
         pykViewAt pykViewSet pykViewItems pykViewWalk pykCopyInto pykVarPlace \
         pykElemPlace pykFieldPlace pykSlotPlace pykNew")
 
@@ -747,6 +781,11 @@ let rec translate_expr e scope =
     when (not (SMap.mem "len" scope.names)) && is_mutmap_expr argument scope ->
       (* A MutMap's is its Map's number of entries. *)
       JsMember (info, translate_expr argument scope, "size")
+  | ECall (info, EVar (_, "panic", _), [ (_, message) ], _)
+    when not (SMap.mem "panic" scope.names) ->
+      (* `panic(message)`: the runtime error any other is, as a call that
+         never answers, so it stands for a value of any type. *)
+      JsCall (info, JsVar (info, "pykFail"), [ translate_expr message scope ])
   | ECall (info, EVar (_, "same", _), [ (_, left); (_, right) ], _)
     when not (SMap.mem "same" scope.names) ->
       (* Two arrays (DynArrays, var structs) are the same when they are one
@@ -769,6 +808,8 @@ let rec translate_expr e scope =
         | "list__dynarray" -> "pykDynArrayOfList"
         | "empty__mutmap" -> "pykMutMap"
         | "list__mutmap" -> "pykMutMapOfList"
+        | "empty__map" -> "pykMapEmpty"
+        | "list__map" -> "pykMapOfList"
         | _ ->
             unsupported_because (expr_info e)
               (Printf.sprintf
@@ -1590,7 +1631,7 @@ and translate_stmt s scope =
       in
       ([ JsFunc (info, js_name, param_names, translate_tail_stmts body body_scope) ], scope)
   | SClass (info, c, _) -> ([ translate_class info c scope ], scope)
-  | SDatatype (info, name, _, constructors, _, _, writable) ->
+  | SDatatype (info, name, type_params, constructors, _, _, writable) ->
       (* One function per constructor, building the value; the type's
          own name is bound too, to its name, so that an import of it has
          something to import. A `var struct`'s one constructor builds
@@ -1622,7 +1663,11 @@ and translate_stmt s scope =
                                     | Some l -> JsStr (fi, l)
                                     | None -> JsVar (fi, "null"))
                                   fields );
-                          ] ) );
+                          ]
+                          @
+                          match field_template type_params fields with
+                          | Some template -> [ JsStr (ci, template) ]
+                          | None -> [] ) );
                 ] ))
           constructors
       in
@@ -2325,8 +2370,10 @@ let data_helper =
     [
       "// A value of a datatype: its constructor's name and its fields, in";
       "// order, with each field that has a name also a property by it.";
-      "function pykData(tag, values, names) {";
-      "  const value = { pykTag: tag, pykValues: values, pykShape: null };";
+      "// `fields` says how its fields print by its type's arguments, where";
+      "// one can hold a Float or a Char (a `d(...)` descriptor reads it).";
+      "function pykData(tag, values, names, fields = null) {";
+      "  const value = { pykTag: tag, pykValues: values, pykShape: null, pykFields: fields };";
       "  names.forEach((name, i) => { if (name !== null) value[name] = values[i]; });";
       "  return value;";
       "}";
@@ -2339,10 +2386,11 @@ let struct_helper =
       "// it, whose fields are its own properties and are written in place.";
       "// What pykFormat and a pattern read by position is worked out from";
       "// them when it is asked for, so it is never out of date.";
-      "function pykStruct(tag, values, names) {";
+      "function pykStruct(tag, values, names, fields = null) {";
       "  const value = {";
       "    pykTag: tag,";
       "    pykShape: null,";
+      "    pykFields: fields,";
       "    get pykValues() { return names.map((name) => this[name]); },";
       "  };";
       "  names.forEach((name, i) => { value[name] = values[i]; });";
@@ -2593,6 +2641,16 @@ let array_helpers =
           "// IEEE says, so NaN equals nothing, even itself.";
           "function pykEqual(a, b) {";
           "  if (Array.isArray(a)) return a.length === b.length && a.every((x, i) => pykEqual(x, b[i]));";
+          "  // Two Maps are equal when they have the same keys, each with an";
+          "  // equal value, in whatever order.";
+          "  if (a !== null && typeof a === 'object' && a.pykMutMap === true) {";
+          "    if (a.size !== b.size) return false;";
+          "    for (const [code, entry] of a) {";
+          "      const other = b.get(code);";
+          "      if (other === undefined || !pykEqual(entry[1], other[1])) return false;";
+          "    }";
+          "    return true;";
+          "  }";
           "  // Two pointers are equal when they name one place.";
           "  if (a !== null && typeof a === 'object' && a.pykPtr === true) {";
           "    return a.store === b.store && a.slot === b.slot;";
@@ -2666,6 +2724,29 @@ let array_helpers =
           "  return d;";
           "}";
         ] );
+    ( "pykMapEmpty",
+      [ "pykMutMap" ],
+      String.concat "\n"
+        [
+          "// A Pyking Map: a MutMap's Map, never written, marked `pykMap` so";
+          "// that it prints as `map(...)` and names itself in its errors.";
+          "function pykMapEmpty() {";
+          "  const d = pykMutMap();";
+          "  d.pykMap = true;";
+          "  return d;";
+          "}";
+        ] );
+    ( "pykMapOfList",
+      [ "pykMutMapOfList" ],
+      String.concat "\n"
+        [
+          "// `map(pairs)`, as `mutmap(pairs)` makes one.";
+          "function pykMapOfList(pairs) {";
+          "  const d = pykMutMapOfList(pairs);";
+          "  d.pykMap = true;";
+          "  return d;";
+          "}";
+        ] );
     ( "pykMutMapGet",
       [ "pykKey"; "pykFail" ],
       String.concat "\n"
@@ -2674,7 +2755,10 @@ let array_helpers =
           "// the key's descriptor where it holds a Char.";
           "function pykMutMapGet(d, key, shape = '.') {";
           "  const entry = d.get(pykKey(key));";
-          "  if (entry === undefined) pykFail(`the MutMap has no key ${pykShaped(key, shape, true)}`);";
+          "  if (entry === undefined) {";
+          "    const what = d.pykMap === true ? 'Map' : 'MutMap';";
+          "    pykFail(`the ${what} has no key ${pykShaped(key, shape, true)}`);";
+          "  }";
           "  return entry[1];";
           "}";
         ] );

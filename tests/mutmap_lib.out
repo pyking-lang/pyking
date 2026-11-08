@@ -1,0 +1,7 @@
+mutmap([("ann", 31), ("bo", 6)])
+mutmap([("a", 2), ("b", 1)])
+mutmap([("ann", 32), ("bo", 6), ("cy", 40)])
+mutmap([("ann", 32), ("cy", 40)]) Some(32) None
+72 Some("cy")
+false true
+mutmap([("ann", 32), ("cy", 40)]) mutmap([("ann", 32), ("cy", 40), ("dee", 1)]) false true

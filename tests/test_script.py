@@ -511,7 +511,7 @@ def run(cmd, cwd=None, stdin=None):
         )
     except subprocess.TimeoutExpired as expired:
         return subprocess.CompletedProcess(
-            cmd, 1, expired.stdout or "",
+            cmd, 1, (expired.stdout.decode(errors="replace") if isinstance(expired.stdout, bytes) else (expired.stdout or "")),
             f"timed out after {STEP_TIMEOUT} seconds",
         )
     except OSError as error:
@@ -907,7 +907,7 @@ def run_limited(cmd, cwd, stdin, megabytes):
                               cwd=cwd, input=stdin or "",
                               preexec_fn=limit if sys.platform.startswith("linux") else None)
     except subprocess.TimeoutExpired as expired:
-        return subprocess.CompletedProcess(cmd, 1, expired.stdout or "",
+        return subprocess.CompletedProcess(cmd, 1, (expired.stdout.decode(errors="replace") if isinstance(expired.stdout, bytes) else (expired.stdout or "")),
                                            f"timed out after {STEP_TIMEOUT} seconds")
 
 

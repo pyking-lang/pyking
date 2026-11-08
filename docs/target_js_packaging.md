@@ -57,13 +57,16 @@ print two ways; and a module that prints nothing imports nothing.
 JavaScript arrays -- by the marker the program put on it: `pykList` for
 a list, `pykArray` for an array (printed `array([...])`), `pykDynArray`
 for a DynArray (printed `dynarray([...])`), none for a tuple; a MutMap is a `Map`
-marked `pykMutMap`, printed `mutmap([...])` with its entries as tuples;
+marked `pykMutMap`, printed `mutmap([...])` with its entries as tuples
+(`map([...])` where it is also marked `pykMap`, a Pyking Map);
 a view is an object marked `pykView`, printed `view([...])` with its
 array's elements, and on the cycle path it stands for that array; a
 pointer (`pykPtr`) prints `Ptr(...)` with what it points at, and stands
 for its store on the path. `pykShaped`'s
 descriptor has `{s}` for an array, `<s>` for a DynArray, `v{s}` for a view,
-`p(s)` for a pointer and `@(k,v)` for a MutMap whose parts need their type to print, beside `[s]` for a list (target_js.md,
+`p(s)` for a pointer, `d(s,s)` for a datatype's value by its type
+arguments (its fields read through the constructor's `pykFields`
+template, `$i` the i-th argument) and `@(k,v)` for a MutMap or Map whose parts need their type to print, beside `[s]` for a list (target_js.md,
 "Arrays" and "DynArrays"). The checks an array makes, and `pykFail`, which reports a
 runtime error, are the program module's own helpers rather than this
 module's, written only where a program uses them.

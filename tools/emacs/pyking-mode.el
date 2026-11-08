@@ -157,7 +157,9 @@ much a literal value as `123' is, not a keyword like `if' or `return'.")
 (defconst pyking-mode-builtins
   '("print" "debug" "range" "string" "len" "float" "int" "bool" "char" "same"
     "array" "array_init" "dynarray" "push" "pop" "insert" "remove" "clear"
-    "mutmap" "get" "has" "discard" "keys" "values" "items")
+    "mutmap" "get" "has" "discard" "keys" "values" "items" "panic" "list"
+    "list_init" "dynarray_init" "map" "map_init" "mutmap_init" "fmap" "filter"
+    "foldl" "foldr" "any" "all")
   "Well-known Python builtin function names used in Pyking source.
 
 Pyking's own grammar has no notion of a builtin -- any identifier can be

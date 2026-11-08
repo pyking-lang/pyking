@@ -961,12 +961,12 @@ excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-
 
 [[cases]]
 file = "array_lib.pyk"
-libs = ["array"]
+libs = ["option", "result", "prelude", "list", "array"]
 excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it (array_nolist.pyk is this without them)" }
 
 [[cases]]
 file = "array_nolist.pyk"
-libs = ["array"]
+libs = ["option", "result", "prelude", "list", "array"]
 
 # An index outside an array, and a negative size, stop the program with
 # status 1 on every target, after what it printed before.
@@ -2424,7 +2424,7 @@ excluded = { c = "a comprehension over a DynArray makes a list, which needs a he
 
 [[cases]]
 file = "dynarray_lib.pyk"
-libs = ["array", "dynarray"]
+libs = ["option", "result", "prelude", "list", "array", "dynarray"]
 excluded = { c = "dynarray.extend and dynarray.to_list take and make lists: a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
@@ -2827,3 +2827,146 @@ file = "fail_typecheck_objects_list_eq.pyk"
 
 [[cases]]
 file = "fail_typecheck_objects_public.pyk"
+
+
+# Collections: the constructors and conversions of every collection,
+# fmap, filter, foldl, foldr, any and all (lib/prelude, imported where a
+# module calls one), the immutable Map, Result, and lib/list, lib/map,
+# lib/mutmap with the additions to lib/array, lib/dynarray and
+# lib/option (PYKING.md, "Making and converting collections", "fmap and
+# the folds", "Maps", "Result"). design/plan_collections.md.
+
+[[cases]]
+file = "collections_construct.pyk"
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "collections_convert.pyk"
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "collections_fmap.pyk"
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "collections_filter.pyk"
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "collections_folds.pyk"
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "collections_any_all.pyk"
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "collections_user_names.pyk"
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "map_basic.pyk"
+exit_code = 1
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "map_lib.pyk"
+libs = ["option", "result", "prelude", "map"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "mutmap_lib.pyk"
+libs = ["option", "result", "prelude", "mutmap"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "list_lib.pyk"
+libs = ["option", "result", "prelude", "list"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "array_lib_more.pyk"
+libs = ["option", "result", "prelude", "list", "array"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "dynarray_lib_more.pyk"
+libs = ["option", "result", "prelude", "list", "array", "dynarray"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "result_basic.pyk"
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "option_lib.pyk"
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "panic_builtin.pyk"
+exit_code = 1
+
+[[cases]]
+file = "typecheck_lambda_seeded.pyk"
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "collections_words.pyk"
+libs = ["option", "result", "prelude", "list", "map"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "fail_typecheck_map_write.pyk"
+
+[[cases]]
+file = "fail_typecheck_map_remove.pyk"
+
+[[cases]]
+file = "fail_typecheck_map_clear.pyk"
+
+[[cases]]
+file = "fail_typecheck_filter_result.pyk"
+
+[[cases]]
+file = "fail_typecheck_fmap_string.pyk"
+
+[[cases]]
+file = "fail_typecheck_map_not_pairs.pyk"
+
+[[cases]]
+file = "fail_typecheck_fmap_array_nomutation.pyk"
+
+[[cases]]
+file = "fail_typecheck_collection_undecided.pyk"
+
+[[cases]]
+file = "fail_typecheck_map_float_key.pyk"
+
+[[cases]]
+file = "fail_typecheck_option_or_else_value.pyk"
+
+[[cases]]
+file = "fail_typecheck_dynarray_init_nomutation.pyk"
+
+[[cases]]
+file = "fail_typecheck_map_same.pyk"
+
+[[cases]]
+file = "fail_typecheck_map_key_map.pyk"
+
+[[cases]]
+file = "fail_typecheck_panic_argument.pyk"
+
+[[cases]]
+file = "fail_typecheck_map_lt.pyk"

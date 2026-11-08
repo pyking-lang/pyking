@@ -328,7 +328,7 @@ let check_import sigmaps high (unit : Module.t) =
     in
     Analyses.analyze_mutability unit.stmts;
     let sigmap = Module.module_sigmap unit.name unit.stmts unit.declarations tmap in
-    let elaborated, tmap = Elaborate.program qmap tmap unit.stmts in
+    let elaborated, tmap = Elaborate.program ~start:high qmap tmap unit.stmts in
     let elaborated = Analyses.symbolize ~start:high elaborated in
     let high = max high (Analyses.highest_sym elaborated) in
     let optimized, _ = Opt_tailcall.optimize elaborated tmap in
@@ -536,8 +536,8 @@ let submit session stmts report source =
          as a file is: the checker's environment keeps `int::leq`, so a
          later entry may name it, while the machine's holds the plain
          name the rewrite gave it (docs/implicits.md). *)
-      let running, _ = Elaborate.program qmap tmap entry in
       let high = max session.high (Analyses.highest_sym seen) in
+      let running, _ = Elaborate.program ~start:high qmap tmap entry in
       let running = Analyses.symbolize ~start:high running in
       let high = max high (Analyses.highest_sym running) in
       let checked =
