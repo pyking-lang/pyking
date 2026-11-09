@@ -7,7 +7,8 @@
 // it. See tools/notebook/README.md, "Tasks and quizzes".
 //
 // Data structures:
-//   Notebook -- {rules, items, examples, problems}: what a document makes.
+//   Notebook -- {rules, items, examples, shows, problems}: what a document
+//     makes; `shows` its example blocks.
 //   Rules -- {line, max, pass, html}: the one ```rules block.
 //   Task -- {kind: "task", practice, id, name, number, key, line, part,
 //     cell, method, attempts, points, penalty, maxCalls, stdin, args,
@@ -35,6 +36,10 @@
 //     question, alternatives, multiple, onePointCorrect, answers, attempts,
 //     points, penalty, available}.
 //   Example -- {cell, line, tests}: input and output under an ordinary cell.
+//   Show -- {part, line, taskName, task, stdin, args, outputs}: an
+//     ```example block, the input it gives the solution of the named
+//     task `task` (null where there is none) and what it shows of its
+//     run: `outputs` is "stdout", "image" or both, in that order.
 //   Rule -- {kind, text, pattern, slots, chars}: one line of a block loosening
 //     the comparison, `pattern` the RegExp it matches a line with. Kind
 //     "number", a diff-allowed line: its literal text with a number
@@ -89,7 +94,11 @@ const KNOWN = {
   "any-order": [],
   "ignore-chars": ["chars"],
   "compare-until": ["events"],
+  example: ["task_name", "args", "output"],
 };
+
+/** What an example block may show of its solution's run. */
+const SHOWN_OUTPUTS = ["stdout", "image"];
 
 /** What the blocks of a document make, and the problems with them. Also
  *  fills in a cell's input from a ```stdin or ```args block right before
@@ -99,6 +108,7 @@ export function structure(parts, cells) {
   const problem = (part, message) => problems.push({ line: part.line, message });
   const items = [];
   const examples = [];
+  const shows = [];
   let rules = null;
   let tasks = 0;
   let practices = 0;
@@ -170,6 +180,10 @@ export function structure(parts, cells) {
           owner = null;
           break;
         }
+        case "example":
+          shows.push(readShow(part, problem));
+          owner = null;
+          break;
         case "answer":
           problem(part, "an answer block belongs right after its quiz");
           owner = null;
@@ -286,9 +300,60 @@ export function structure(parts, cells) {
     }
   }
   checkNames(items, problems);
+  for (const show of shows) findShown(show, items, problems);
   if (rules) checkPoints(rules, items, problems);
   problems.sort((a, b) => a.line - b.line);
-  return { rules, items, examples: examples.filter((e) => e.tests.length), problems };
+  return { rules, items, examples: examples.filter((e) => e.tests.length), shows, problems };
+}
+
+/** An example block: its text is the stdin, args = its arguments, and
+ *  output = what of the run it shows, stdout where it says nothing.
+ *  Part -> (..) -> Show */
+function readShow(part, problem) {
+  const { attrs } = part;
+  let taskName = null;
+  if (typeof attrs.task_name === "string" && attrs.task_name !== "") taskName = attrs.task_name;
+  else problem(part, "an example block names the task it shows with task_name = name");
+  if (attrs.args !== undefined && typeof attrs.args !== "string") {
+    problem(part, "args = is the example's arguments, as one line");
+  }
+  let outputs = ["stdout"];
+  if (attrs.output !== undefined) {
+    const said = typeof attrs.output === "string"
+      ? attrs.output.split(",").map((word) => word.trim()).filter(Boolean) : [];
+    const wrong = said.filter((word) => !SHOWN_OUTPUTS.includes(word));
+    if (!said.length || wrong.length) {
+      problem(part, `output is stdout, image or stdout,image, not '${
+        typeof attrs.output === "string" ? attrs.output : ""}'`);
+    } else {
+      outputs = SHOWN_OUTPUTS.filter((word) => said.includes(word));
+    }
+  }
+  return {
+    part, line: part.line, taskName, task: null,
+    stdin: inputLines(part.text),
+    args: typeof attrs.args === "string" ? attrs.args : "",
+    outputs,
+  };
+}
+
+/** Finds the task an example block names: a task or a practice of that
+ *  name, anywhere in the notebook, with a solution to run.
+ *  Show -> [Item] -> [Problem] -> () */
+function findShown(show, items, problems) {
+  if (show.taskName === null) return;
+  const task = items.find((item) => item.kind === "task" && item.name === show.taskName);
+  if (!task) {
+    const quiz = items.some((item) => item.name === show.taskName);
+    problems.push({ line: show.line, message: quiz
+      ? `an example shows a task, and '${show.taskName}' is a quiz`
+      : `an example names the task '${show.taskName}', and no task has that name` });
+  } else if (!task.solution) {
+    problems.push({ line: show.line, message: `an example shows what the solution of '${show.taskName}' `
+      + "does, and it has none: give it a ```pyking solution" });
+  } else {
+    show.task = task;
+  }
 }
 
 /** Complains about an attribute the block's kind does not take.

@@ -163,6 +163,11 @@ export class Activities {
         ? new TaskWidget(this, item, at, used) : new QuizWidget(this, item, at, used);
       this.widgets[item.id] = widget;
     }
+    for (const show of this.notebook.shows) {
+      if (!show.task) continue;
+      used.add(show.part.index);
+      at(show.part)?.replaceWith(this.showBox(show));
+    }
     if (this.checks) this.buildReports(at);
     // Whatever is left is an input block that filled in a cell, or one
     // tasks.js complained about: neither is shown.
@@ -189,6 +194,56 @@ export class Activities {
       else if (rules) rules.after(this.top);
       else prose.prepend(this.top);
       this.showChecks(null);
+    }
+  }
+
+  /** An example block: the arguments and stdin it gives the solution of
+   *  its task, each shown where it has any, and then what the solution
+   *  does with them -- what it printed, what it drew, or both, as its
+   *  output = says. The solution runs once the compiler is ready.
+   *  Show -> Element */
+  showBox(show) {
+    const box = element("section", "pkn-example");
+    box.innerHTML = `<div class="pkn-example-label">Example</div>`
+      + (show.args.trim() !== "" ? io("args", show.args) : "")
+      + (show.stdin !== "" ? io("stdin", show.stdin, "stdin") : "")
+      + `<div class="pkn-example-out" data-r="out"><span class="pkn-example-wait">Running the example…</span></div>`;
+    const out = box.querySelector('[data-r="out"]');
+    this.runShow(show, out);
+    return box;
+  }
+
+  async runShow(show, out) {
+    const { task } = show;
+    const result = await this.cells.capture(this.cell(task.solution.cell).spec.source, {
+      name: `${task.id}-example.pyk`,
+      stdin: show.stdin,
+      args: this.cells.web.splitArguments(show.args),
+      timeout: SUBMIT_TIMEOUT,
+      tinyweb: true,
+      until: untilLimit(task),
+    });
+    out.innerHTML = "";
+    if (!result.ok) {
+      out.append(element("div", "pkn-example-problem", result.text === "stopped"
+        ? "The example was stopped before it ran."
+        : `The solution did not run on this example: ${(result.text ?? "").trim()}`));
+      return;
+    }
+    if (show.outputs.includes("image")) {
+      if (drewSomething(result.page)) {
+        const shown = element("div", "pkn-io pkn-io-image");
+        shown.append(element("span", "pkn-input-label", "image"));
+        const page = element("div", "pkn-example-image");
+        shown.append(page);
+        out.append(shown);
+        await this.cells.drawPage(page, result.page ?? []);
+      } else {
+        out.append(element("div", "pkn-example-problem", "The solution drew nothing on this example."));
+      }
+    }
+    if (show.outputs.includes("stdout")) {
+      out.insertAdjacentHTML("beforeend", io("stdout", result.stdout ?? "", "stdout"));
     }
   }
 
@@ -763,8 +818,8 @@ function failureHTML(failed) {
   return `<div class="pkn-failure">${rows.join("")}</div>`;
 }
 
-function io(label, text) {
-  return `<div class="pkn-io"><span class="pkn-input-label">${label}</span>`
+function io(label, text, kind = null) {
+  return `<div class="pkn-io${kind ? ` pkn-io-${kind}` : ""}"><span class="pkn-input-label">${label}</span>`
     + `<div class="pkn-copyable"><pre class="pkn-io-text">${escapeHTML(text.replace(/\n$/, "")) || " "}</pre>`
     + `${COPY_BUTTON}</div></div>`;
 }

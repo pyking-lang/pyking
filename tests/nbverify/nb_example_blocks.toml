@@ -1,0 +1,23 @@
+# What tests/test_nbverify.py expects nbverify to say of each solution
+# to nb_example_blocks.md: whether it is accepted, and the reason the first
+# refused test gives. `--update` rewrites the reasons; read the diff.
+
+[[solution]]
+file = "nb_example_blocks_bars_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_example_blocks_bars_s2.pyk"
+accepted = false
+reason = "What it drew with tinyweb is not what it should be.\nstdin:\n4\nwhat it drew differs at line 1 of tinyweb's log:\nexpected: canvas \"canvas\" 90 60\ngot: (nothing)"
+
+[[solution]]
+file = "nb_example_blocks_greet_s1.pyk"
+accepted = true
+reason = ""
+
+[[solution]]
+file = "nb_example_blocks_greet_s2.pyk"
+accepted = false
+reason = "The output is not what it should be.\nstdin:\nLinus\nexpected:\nHello, Linus!\ngot:\nHi, Linus"

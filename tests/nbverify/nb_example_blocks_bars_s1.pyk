@@ -1,0 +1,7 @@
+import io
+import tinyweb as tw
+n = int(io.read_line())
+c = tw.canvas(20 * n + 10, 60)
+for i in range(n):
+    tw.rect(c, 10 + 20 * i, 10, 10, 40)
+print(n, "bars")

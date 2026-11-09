@@ -1,0 +1,11 @@
+import io
+import sys
+import text
+name = io.read_line()
+args = sys.args()
+loud = len(args) > 0 and args[0] == "--loud"
+plain = "Hello, " + name + "!"
+line = if loud then text.upper(plain) else plain
+print(line)
+for _ in range(1, len(args)):
+    print(line)

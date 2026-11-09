@@ -619,3 +619,20 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
 .pkn-cell-tags .pkn-copy { position: static; pointer-events: auto; width: 1.45rem; height: 1.45rem; }
 /* Room for it beside a field's text. */
 .pkn-copyable > .pkn-stdin { padding-right: 2.2rem; }
+
+/* --- an example block: the input it gives a task's solution, and what
+   the solution printed or drew with it --- */
+.pkn-example {
+  margin: 0 0 1.1rem; padding: .7rem .9rem .3rem; border-radius: .5rem;
+  border: 1px solid var(--pkn-edge); background: var(--pkn-surface);
+}
+.pkn-example-label {
+  font: 700 .68rem/1.4 var(--pkn-sans); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--pkn-faint); margin-bottom: .35rem;
+}
+.pkn-example-wait { font-size: .9em; color: var(--pkn-faint); }
+.pkn-example-problem { font-size: .9em; color: var(--pkn-bad); margin: 0 0 .5rem; white-space: pre-wrap; }
+.pkn-example-image {
+  padding: .55rem 1rem; border-left: 3px solid var(--pkn-accent);
+  border-radius: 0 .4rem .4rem 0; overflow-x: auto;
+}

@@ -148,7 +148,12 @@ to stderr
 ```
 
 Write a program that reads a line and prints it twice, then its
-arguments.
+arguments. For example:
+
+```example task_name = twice args = "my 123"
+Hello
+```
+
 
 ```pyking task name = "twice" attempts = 3 stdin = "123" args = "go for it" points = 5
 print("Add your code here")
@@ -323,7 +328,11 @@ print(int(io.read_line()) * 2)
 ```
 
 A practice that draws, whose solution's canvas is saved as a picture
-and shown here:
+and shown here, and whose example shows what it draws and prints:
+
+```example task_name = dot output = stdout,image
+5
+```
 
 ![A blue dot](dot.png)
 

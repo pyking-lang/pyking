@@ -40,7 +40,7 @@ type piece = Text of string | Fence of fence
 (** The languages of the blocks a notebook reads. *)
 let notebook_languages =
   [ "pyking"; "pyk"; "stdin"; "args"; "stdout"; "stderr"; "events"; "quiz"; "answer"; "rules";
-    "diff-allowed"; "optional-last"; "any-order"; "ignore-chars"; "compare-until" ]
+    "diff-allowed"; "optional-last"; "any-order"; "ignore-chars"; "compare-until"; "example" ]
 
 (** The blocks under a task that loosen how an answer is compared: each
     block's language and the field of the task's JSON that holds them, in
@@ -75,7 +75,9 @@ type word =
 (** A fence's info string as markdown.js's parseInfo reads it: the
     language, lowercased, and each attribute with its raw value (Some
     text, or None for a bare word); a value of (...) groups is them with
-    one space between. string -> (string, [(string, string?)]) *)
+    one space between. A word after `=` goes on over a comma with no
+    space after it, so `output = stdout,image` is one value.
+    string -> (string, [(string, string?)]) *)
 let parse_info info =
   let raw = trim_spaces info in
   let inner =
@@ -110,7 +112,12 @@ let parse_info info =
       let j = match String.index_from_opt inner i ')' with Some j -> j + 1 | None -> n in
       words j (Group (String.sub inner i (j - i)) :: acc)
     else
-      let rec stop j = if j < n && (not (separator inner.[j])) && inner.[j] <> '=' then stop (j + 1) else j in
+      let value = match acc with Equals :: _ -> true | _ -> false in
+      let goes_on j =
+        (not (separator inner.[j]))
+        || value && inner.[j] = ',' && j + 1 < n && (not (separator inner.[j + 1])) && inner.[j + 1] <> '='
+      in
+      let rec stop j = if j < n && inner.[j] <> '=' && goes_on j then stop (j + 1) else j in
       let j = stop i in
       let text = String.sub inner i (j - i) in
       let text = if String.length text > 0 && text.[0] = '.' then String.sub text 1 (String.length text - 1) else text in
@@ -713,6 +720,10 @@ let group_json fences =
             end_owner ();
             emit (Json.Object ([ ("type", Json.String "rules") ] @ fence_fields f "text" []));
             go rest
+        | "example" ->
+            end_owner ();
+            emit (Json.Object ([ ("type", Json.String "example") ] @ fence_fields f "text" []));
+            go rest
         | "solution" | "stdin" | "events" | "stdout" | "stderr" | "diff-allowed" | "optional-last" | "any-order" | "ignore-chars"
         | "compare-until" ->
             if not (attach kind) then (
@@ -906,6 +917,7 @@ let to_markdown value =
           Buffer.add_string out (required_string where "text" block);
           after_fence := false
       | Some "rules" -> put (io where block [ "rules" ])
+      | Some "example" -> put (io where block [ "example" ])
       | Some "cell" -> owner where block None
       | Some ("task" | "practice" as kind) -> owner where block (Some kind)
       | Some "quiz" ->
@@ -1077,7 +1089,7 @@ let schema =
                    [
                      ( "oneOf",
                        Json.List
-                         (List.map refer [ "markdown"; "rules"; "cell"; "task"; "practice"; "quiz"; "other" ]) );
+                         (List.map refer [ "markdown"; "rules"; "example"; "cell"; "task"; "practice"; "quiz"; "other" ]) );
                    ] );
                ( "markdown",
                  obj
@@ -1091,6 +1103,15 @@ let schema =
                  kind_def "rules" "A ```rules block: what the student is told, with the points." ~required:[ "text" ]
                    [ attributes [ ("max", number "The points every graded item gives together."); ("pass", number "The points that pass.") ];
                      ("text", text_of "Its Markdown, each line with its newline.") ] );
+               ( "example",
+                 kind_def "example" "An ```example block: the input it gives the solution of a named task, and what of the run it shows." ~required:[ "text" ]
+                   [ attributes
+                       [ ("task_name", text_of "The name of the task or practice whose solution it runs.");
+                         ("args", text_of "The arguments it gives the solution, as one line.");
+                         ( "output",
+                           obj [ ("enum", Json.List [ str "stdout"; str "image"; str "stdout,image"; str "image,stdout" ]);
+                                 ("description", str "What it shows: what the solution printed, what it drew, or both; stdout where it is not given.") ] ) ];
+                     ("text", text_of "The stdin it gives the solution, each line with its newline.") ] );
                ( "cell",
                  kind_def "cell" "A ```pyking cell, with the stdin, events, stdout and stderr blocks under it." ~required:[ "code" ]
                    [ attributes

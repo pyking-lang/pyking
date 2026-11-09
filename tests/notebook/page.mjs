@@ -140,6 +140,24 @@ const STUDENT = [`(async () => { ${HELPERS}
     && !$$(".pkn-io").some((b) => b.innerText.includes("echo me"))
     && $$(".pkn-io-stderr").some((b) => b.innerText.includes("to stderr")));
 
+  // Example blocks: the input each gives its task's solution, and what
+  // the solution printed and drew with it, once it has run.
+  for (let i = 0; i < 300 && $$(".pkn-example-wait").length; i++) await new Promise((r) => setTimeout(r, 100));
+  const shows = $$(".pkn-example");
+  const shownText = (box, kind) => $(".pkn-io-" + kind + " .pkn-io-text", box)?.textContent;
+  check("an example shows its args and stdin, and what the solution printed with them",
+    shows.length === 2 && $$(".pkn-io", shows[0])[0]?.innerText.includes("my 123")
+    && shownText(shows[0], "stdin") === "Hello"
+    && shownText(shows[0], "stdout") === 'Hello / Hello\\nargs: ["my", "123"]'
+    && !$(".pkn-io-image", shows[0]),
+    shows.map((b) => b.innerText).join(" | "));
+  check("output = stdout,image shows what it drew too, and no args where there are none",
+    shows[1] && $(".pkn-io-image canvas", shows[1]) !== null && $(".pkn-io-stdout", shows[1]) !== null
+    && !shows[1].innerText.includes("args"),
+    shows[1]?.innerHTML.slice(0, 300));
+  check("an example's stdin and stdout can be copied",
+    shows[0] && $(".pkn-io-stdin .pkn-copy", shows[0]) && $(".pkn-io-stdout .pkn-copy", shows[0]));
+
   let said = await submit(1);
   const asks = nb.cells.find((c) => c.spec.source.includes('print("hello", io.read_line(), sys.args())'));
   asks.setSource('import io\\nname = io.read_line("who? ")\\nprint("hi", name)\\n');

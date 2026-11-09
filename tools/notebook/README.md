@@ -414,6 +414,38 @@ print("Add your code here")
 ```
 ````
 
+### Examples of a task
+
+An ```` ```example ```` block shows what a named task's solution does
+with some input, typically in the prose before the task, so the reader
+sees what is asked before trying it. Its text is the stdin; the page
+runs the task's solution on it once the compiler is ready and shows
+the args (where it has any), the stdin (where it is not empty), and
+what the solution printed, drew, or both. Every field has a copy
+button.
+
+````markdown
+For example:
+
+```example task_name = mytask args = "myfile.hi" output = stdout
+Some input
+values
+```
+````
+
+| Example header | Means | Default |
+|---|---|---|
+| `task_name = name` | the task or practice whose solution runs: it must have a `name =` and a ```` ```pyking solution ```` | required |
+| `args = "…"` | the program's arguments, as one line | none |
+| `output = stdout`, `image` or `stdout,image` | what it shows: what the solution printed (labelled stdout), what it drew with tinyweb (labelled image), or both | `stdout` |
+
+`stdout,image` is one value: written with a space after the comma it
+would be two words. The solution's code is not shown, so an example
+works whether or not the solution is `available`. A name no task has,
+a task with no solution and an `output` other than these are notebook
+problems; test mode also checks that the solution runs on each
+example's input.
+
 ### Quizzes
 
 The question is the prose before a ```` ```quiz ```` block, or the

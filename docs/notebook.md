@@ -468,6 +468,38 @@ stdin, and the code runs with ▶, but in place of the Submit button it
 says "Please submit via your git account". Its tests and solution are still the
 notebook's, and `nbverify` grades the answer from them.
 
+### Examples
+
+An ```` ```example ```` block shows what a named task's solution does
+with some input, typically in the prose before the task, so the reader
+sees what is asked before trying it. Its text is the stdin; the page
+runs the task's solution on it once the compiler is ready and shows
+the args (where it has any), the stdin (where it is not empty), and
+what the solution printed, drew, or both. Every field has a copy
+button.
+
+````markdown
+For example:
+
+```example task_name = mytask args = "myfile.hi" output = stdout
+Some input
+values
+```
+````
+
+| Example header | Means | Default |
+|---|---|---|
+| `task_name = name` | the task or practice whose solution runs: it must have a `name =` and a ```` ```pyking solution ```` | required |
+| `args = "…"` | the program's arguments, as one line | none |
+| `output = stdout`, `image` or `stdout,image` | what it shows: what the solution printed (labelled stdout), what it drew with tinyweb (labelled image), or both | `stdout` |
+
+`stdout,image` is one value: written with a space after the comma it
+would be two words. The solution's code is not shown, so an example
+works whether or not the solution is `available`. A name no task has,
+a task with no solution and an `output` other than these are notebook
+problems; test mode also checks that the solution runs on each
+example's input.
+
 ### Quizzes
 
 The question is the prose before a ```` ```quiz ```` block, or the text
@@ -544,7 +576,10 @@ line:
   each diff-allowed line holds a `[+/-N]`; each any-order
   line is `BETWEEN:` or `ANY:` and a pattern, and the block has an
   `ANY:` line; an ignore-chars block has a `chars = "…"` that is not
-  empty.
+  empty;
+- each example block names a task with a solution, its `output` is
+  `stdout`, `image` or `stdout,image`, and the solution runs on its
+  input.
 
 ## JSON
 
@@ -576,6 +611,7 @@ line and no newline. `blocks` is the document in order, each one of:
 | `cell` | a ```` ```pyking ```` cell: `attributes`, `code`, and `tests` written under it |
 | `task` | `attributes`, `code` (the starting code), `solution` (`attributes`, `code`), `tests`, `diff_allowed`, `optional_last`, `any_order` and `ignore_chars` (each `text`; ignore-chars also `attributes.chars`) |
 | `practice` | as `task`, for a ```` ```pyking practice ```` |
+| `example` | an ```` ```example ```` block: `attributes` (`task_name`, `args`, `output`), `text` (its stdin) |
 | `quiz` | `attributes`, `question`, `alternatives` (each `marker`, `*` or `[]`, and `text`), `answer` (`entries`, each `correct` and `text`) |
 | `block` | any other notebook block where it stands, belonging to nothing: `language`, `attributes`, `text` (or `code` for pyking) |
 
@@ -706,7 +742,7 @@ The blocks are found and grouped as the page finds and groups them:
 - a notebook block is a fenced block at the left margin whose language
   is one of `pyking`, `pyk`, `stdin`, `args`, `stdout`, `stderr`,
   `events`, `quiz`, `answer`, `rules`, `diff-allowed`, `optional-last`,
-  `any-order` and `ignore-chars`, outside
+  `any-order`, `ignore-chars`, `compare-until` and `example`, outside
   another fenced block, an HTML block, display math and the front
   matter. Anything else, a block in a list item included, stays in a
   `markdown` block's text;

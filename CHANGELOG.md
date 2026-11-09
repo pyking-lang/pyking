@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Notebooks: an ```` ```example task_name = name ```` block shows what a
+  named task's solution does with the block's text as stdin, and
+  `args = "..."` as its arguments: the args and stdin, then what it
+  printed (`output = stdout`, the default), what it drew with tinyweb
+  (`output = image`), or both (`output = stdout,image`), each with a
+  copy button. Test mode checks the solution runs on it; `--to-json`
+  writes it as an `example` block (docs/notebook.md, "Examples").
+
 ### Changed
 
 - A struct whose fields are written in place is declared `mutable

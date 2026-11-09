@@ -49,7 +49,7 @@ export const INPUT_LANGUAGES = ["stdin", "args"];
  *  as code: what a program should print, the tinyweb events it is sent,
  *  the quizzes, the rules, and the differences a task allows. */
 export const PART_LANGUAGES = ["stdout", "stderr", "events", "quiz", "answer", "rules", "diff-allowed",
-  "optional-last", "any-order", "ignore-chars", "compare-until"];
+  "optional-last", "any-order", "ignore-chars", "compare-until", "example"];
 
 const CALLOUTS = {
   note: "Note", tip: "Tip", important: "Important",
@@ -545,7 +545,9 @@ function parseTable(lines, start) {
 /** A fence's info string: the language, and every attribute after it --
  *  a word, which is `true`, or `name = value`, whose value is a word or
  *  a quoted string with `\n`, `\t`, `\"` and `\\` escapes, or one or
- *  more `(...)` groups, kept as written with one space between them.
+ *  more `(...)` groups, kept as written with one space between them. A
+ *  word after `=` goes on over a comma with no space after it, so
+ *  `output = stdout,image` is one value.
  *  `pyking norun` and `{.pyking .norun}` read the same. A name is
  *  lowercased.
  *  String -> {language, attrs, raw} */
@@ -582,7 +584,10 @@ export function parseInfo(info) {
       continue;
     }
     let text = "";
-    while (i < inner.length && !separator.test(inner[i]) && inner[i] !== "=") text += inner[i++];
+    const value = words[words.length - 1]?.equals === true;
+    const goesOn = () => !separator.test(inner[i])
+      || (value && inner[i] === "," && i + 1 < inner.length && !separator.test(inner[i + 1]) && inner[i + 1] !== "=");
+    while (i < inner.length && inner[i] !== "=" && goesOn()) text += inner[i++];
     words.push({ text: text.replace(/^\./, ""), quoted: false });
   }
   const language = (words[0]?.text ?? "").toLowerCase();

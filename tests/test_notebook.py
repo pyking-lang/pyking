@@ -223,6 +223,16 @@ check("a practice compared as far as its compare-until says",
 check("a read-only task submitted with git",
       git.method === "git" && features.cells[git.cell].attrs.readonly === true,
       JSON.stringify(git).slice(0, 300));
+check("two example blocks: each names a task, gives it input, and says what it shows",
+      nb.shows.length === 2 && nb.shows[0].task === ex1 && nb.shows[0].stdin === "Hello\n"
+      && nb.shows[0].args === "my 123" && nb.shows[0].outputs.join() === "stdout"
+      && nb.shows[1].task === dot && nb.shows[1].args === "" && nb.shows[1].outputs.join() === "stdout,image",
+      JSON.stringify(nb.shows.map((s) => [s.taskName, s.stdin, s.args, s.outputs])));
+const readInfo = (await import(pathToFileURL(plan.markdown).href)).parseInfo;
+check("output = stdout,image is one value; with a space it is two words",
+      readInfo("example output = stdout,image").attrs.output === "stdout,image"
+      && readInfo("example output = stdout, image").attrs.output === "stdout"
+      && readInfo("{.pyking .norun, readonly}").attrs.readonly === true);
 check("an args block before a cell, and the other header form",
       features.cells[7].args === 'one "two three"' && features.html.includes("def g(x)"),
       JSON.stringify(features.cells[7]));
@@ -329,6 +339,13 @@ for (const [header, problem] of [
   ["```pyking task name = \"a\"\n```\n```stdout\n\n```\n\nText.\n\n```quiz name = \"a\"\n* x\n```\n```answer\n-> y\n```\n",
    "the name 'a' is given to the item on line 1 too"],
   ["```events\nclick \"go\"\n```\n", "an events block belongs under a cell or a task"],
+  ["```example\n1\n```\n", "names the task it shows with task_name"],
+  ["```example task_name = nothing\n1\n```\n", "no task has that name"],
+  ["```example task_name = q\n1\n```\n\n```quiz name = \"q\"\n* x\n```\n```answer\n-> y\n```\n", "'q' is a quiz"],
+  ["```example task_name = t\n1\n```\n\n```pyking task name = \"t\"\n```\n```stdout\n1\n```\n",
+   "it has none: give it a ```pyking solution"],
+  ["```example task_name = t output = sound\n```\n\n```pyking task name = \"t\"\n```\n```pyking solution\nprint(1)\n```\n",
+   "output is stdout, image or stdout,image, not 'sound'"],
   ["```pyking task\n```\n```pyking solution\nprint(1)\n```\n```stdin lines_per_multi_input = 1\n1\n```\n```events\nclick \"go\"\n```\n```stdout\n1\n```\n",
    "compared with the solution"],
   ["```pyking task\n```\n```pyking solution save_canvas = \"c\"\nprint(1)\n```\n",

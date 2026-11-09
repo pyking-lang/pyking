@@ -8,8 +8,9 @@
 // every cell runs, and every `error` cell is refused; that each
 // task's starting code runs; that each solution runs on every input
 // it is tested with and prints what any stdout or stderr block after it
-// says, and keeps to its task's max_calls; and the same of an ordinary
-// cell's stdout and stderr blocks.
+// says, and keeps to its task's max_calls; the same of an ordinary
+// cell's stdout and stderr blocks; and that the solution an example
+// block shows runs on the example's input.
 //
 // Data structures:
 //   Run -- (source, name, stdin, args, events, until) -> Promise<{ok,
@@ -100,6 +101,15 @@ export async function checkNotebook(doc, run) {
       await compare(cell.source, `cell-${cell.index + 1}.pyk`, test.line, test,
         test.stdin ?? cell.stdin ?? "", test.args ?? cell.args ?? "");
     }
+  }
+
+  for (const show of notebook.shows) {
+    if (!show.task) continue;
+    const { task } = show;
+    const result = await run(doc.cells[task.solution.cell].source, `${task.id}-example.pyk`,
+      show.stdin, show.args, "", untilLimit(task));
+    check(result.ok, show.line,
+      `the solution of '${show.taskName}' does not run on this example's input:\n  ${result.text}`);
   }
 
   problems.sort((a, b) => a.line - b.line);
