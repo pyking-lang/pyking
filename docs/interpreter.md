@@ -407,10 +407,10 @@ function back in a machine of their own, as a host's callback is
 called.
 
 A datatype's value, `VData`, holds its fields in an array too, since a
-`var struct`'s are written in place: `KSetOwner` (the struct has
+`mutable struct`'s are written in place: `KSetOwner` (the struct has
 arrived) and `KSetField` (the value has, and is written) are its write.
 No other datatype's fields are ever written, so for them the sharing is
-never seen. `same` compares two structs' field arrays with `==`; a `var
+never seen. `same` compares two structs' field arrays with `==`; a `mutable
 struct` always has a field, so two never share the one empty array.
 `display_value` prints a value that holds itself with `...` at the
 repetition: it keeps the arrays and structs it is inside on a path,

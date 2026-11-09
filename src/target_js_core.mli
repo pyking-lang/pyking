@@ -99,7 +99,7 @@ and jsstmt =
       (* target[index] = value; -- an element write into a Pyking
          array, whose index was checked by the statement before it. *)
   | JsSetField of info * jsexpr * string * jsexpr
-      (* target.name = value; -- a field write into a `var struct`. *)
+      (* target.name = value; -- a field write into a `mutable struct`. *)
   | JsClass of info * string * string option * jsstmt list
       (* class Name [extends Parent] { members } -- a Pyking class or
          interface; each member a JsFunc, printed as a method. *)

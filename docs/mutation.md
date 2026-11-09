@@ -23,7 +23,7 @@ Remarks"), whose decisions are named `FCR-...` below.
    5. [DynArrays](#dynarrays)
    6. [MutMaps](#mutmaps)
    7. [Slices and views](#slices-and-views)
-   8. [Mutable structs: `var struct`](#mutable-structs-var-struct)
+   8. [Mutable structs: `mutable struct`](#mutable-structs-mutable-struct)
    9. [Sharing, identity and equality](#sharing-identity-and-equality)
    10. [Printing what holds itself](#printing-what-holds-itself)
    11. [Order of evaluation](#order-of-evaluation)
@@ -48,12 +48,12 @@ everything on this page. Without it, each construct is parsed as usual
 and then refused, naming the line that would allow it:
 
 ```
-'prog.pyk' 3:0-3:8 Parsing error: ':=' writes the field 'x' of a var
+'prog.pyk' 3:0-3:8 Parsing error: ':=' writes the field 'x' of a mutable
   struct, which needs 'use mutation' at the top of this module
 ```
 
 The switch gates **making and writing**, never holding (FCR-A1). A
-module without it may receive an array or a `var struct` from one with
+module without it may receive an array or a `mutable struct` from one with
 it, read it, pass it on and return it.
 
 ### Variables: `var`, `:=` and compound assignment
@@ -67,7 +67,7 @@ forms read and write it in one statement:
 | `n &= e`, `n \|= e`, `n xor= e`, `n <<= e`, `n >>= e` | the same, bitwise |
 
 A compound assignment is a statement, never a value, and works on a
-`var`, an array's element (`a[i] += 1`) and a `var struct`'s field
+`var`, an array's element (`a[i] += 1`) and a `mutable struct`'s field
 (`p.x += 1`). `+=` joins Strings as `+` does.
 
 ### Several variables at once: tuple `:=`
@@ -186,14 +186,14 @@ print(a)                       # array([0, 4, 5, 4, 5])
 
 PYKING.md, "Slices and views", has every rule.
 
-### Mutable structs: `var struct`
+### Mutable structs: `mutable struct`
 
 A struct whose fields are written in place, and whose values are shared:
 
 ```pyking
 use mutation
 
-var struct Account(owner: String, balance: Int = 0)
+mutable struct Account(owner: String, balance: Int = 0)
 
 def deposit(a: Account, amount: Int) -> ():
     a.balance += amount
@@ -203,30 +203,30 @@ deposit(acct, 100)
 print(acct)                  # Account("ada", 100)
 ```
 
-- `var struct` makes every field writable; a plain `struct` and every
+- `mutable struct` makes every field writable; a plain `struct` and every
   `datatype` stay values that never change (FCR-D1, D2).
 - `p.x := e` and the compound forms write a field of any expression
-  giving a `var struct`: `ps[i].x := 0`, `get().n += 1`.
+  giving a `mutable struct`: `ps[i].x := 0`, `get().n += 1`.
 - Whether a field may be written is its type's question, not the
   name's: `p = Account(...)` binds `p` once and `p.balance := 1` still
   writes (FCR-D3). `var` is for rebinding.
 - `Account(owner = "b", ..acct)` makes a new struct; a pattern reads the
   fields as they are when it is matched.
-- A `var struct` holding its own type through a datatype builds linked
+- A `mutable struct` holding its own type through a datatype builds linked
   lists, trees and graphs, cycles included (FCR-D6).
-- A generic one, `var struct Cell(value: a)`, is one type once made.
+- A generic one, `mutable struct Cell(value: a)`, is one type once made.
 
 PYKING.md, "Mutable structs", has every rule.
 
 ### Sharing, identity and equality
 
-An array, a DynArray, a MutMap and a `var struct` are *shared*: `b = a`, `f(a)`, `[a, a]` and
+An array, a DynArray, a MutMap and a `mutable struct` are *shared*: `b = a`, `f(a)`, `[a, a]` and
 a field holding `a` are all the one value, and a write through any of
 them is seen through every other. This is Java's and Python's model,
 and there are no reference parameters: a function changes what it is
 given by writing into it (FCR-E, section 8 of the plan).
 
-`same(a, b)` asks whether two arrays, DynArrays, MutMaps or `var struct`s are
+`same(a, b)` asks whether two arrays, DynArrays, MutMaps or `mutable struct`s are
 one.
 `==` compares neither: equal contents are a question the program asks
 explicitly -- `array.equal(a, b)` for arrays, a function of its own for
@@ -240,7 +240,7 @@ function, is refused by `==`, naming what it holds.
 
 ### Printing what holds itself
 
-A value that holds itself -- a `var struct` whose field leads back to
+A value that holds itself -- a `mutable struct` whose field leads back to
 it, an array holding an array that holds the first -- prints `...` where
 it would repeat. Only a value already being printed, on the path from
 the outermost one, is cut; a value merely shared prints in full each
@@ -278,7 +278,7 @@ Every write has one order, on every target (FCR-C3):
 | DynArray | `__PykDynArray`, a `list` subclass | a JS array marked `pykDynArray` | (see target_java.md) | `(T option array * int) ref` | (see target_c.md) | (see target_c.md) |
 | MutMap | (see target_python.md) | (see target_js.md) | (see target_java.md) | (see target_ocaml.md) | (see target_c.md) | (see target_c.md) |
 | index check | yes | yes | yes | yes | **no** | yes |
-| `var struct` | a class with writable fields | an object | a final class | a record with `mutable` fields | a pointer to a malloc'd struct | a pointer to a collected struct |
+| `mutable struct` | a class with writable fields | an object | a final class | a record with `mutable` fields | a pointer to a malloc'd struct | a pointer to a collected struct |
 | freed | by Python | by JS | by the JVM | by OCaml | **never** | by bdwgc |
 
 Plain C (`c89`, `c99`, `c23`) is kept as C a course would write by
@@ -292,12 +292,12 @@ bounded amount; `c23-gc` runs the rest.
 
 | piece | files |
 |---|---|
-| `use` gates | `parser.ml` (`check_features`), `typesystem.ml` (`store.mutation`, for an imported `var struct`'s constructor) |
+| `use` gates | `parser.ml` (`check_features`), `typesystem.ml` (`store.mutation`, for an imported `mutable struct`'s constructor) |
 | builtins | `builtin.ml`: `overload_sets` (`array`, `array_init`, `dynarray`, `mutmap`), `writers` (`push`, `pop`, `insert`, `remove`, `clear`, `discard`), `yielding` (those, `same`, `get`, `has`, `keys`, `values`, `items`) |
 | equality and keys | `typesystem.ml`: `equality_problem`, `key_problem`, `demand_key`; `interpreter.ml`: `equal_parts` |
 | compound tokens | `lexer.ml` (`TokCompound`) |
 | statements | `syntax.ml`: `SVar`, `SMutate`, `SMutateTuple`, `SSetIndex`, `SSetField` |
-| `var struct` | `syntax.ml`: the last flag of `SDatatype` and of `Datatype` |
+| `mutable struct` | `syntax.ml`: the last flag of `SDatatype` and of `Datatype` |
 | sugar | `desugar_args.ml`: tuple `:=`, compound element and field writes |
 | types | `typesystem.ml`: `Array(T)`, `array`/`array_init`, `same`, element and field writes, `check_open_arrays` |
 | the `var` rule | `analyses.ml` (`analyze_mutability`) |
@@ -321,12 +321,12 @@ bounded amount; `c23-gc` runs the rest.
   read starting where the statement does. `Syntax.compound_parts` and
   `index_compound_parts` recognise it again, so `-t pyking` prints
   `x += e`.
-- `var struct` is `parse_struct ~writable:true`, at the top level and
+- `mutable struct` is `parse_struct ~writable:true`, at the top level and
   after `public`; inside a block, and in front of `datatype`, it is
   refused. One with no fields is refused.
 - `check_features` refuses every construct of the section when the
   module has no `use mutation`, including a call making an array and
-  a constructor of this module's own `var struct`.
+  a constructor of this module's own `mutable struct`.
 
 ### Desugaring
 
@@ -347,19 +347,19 @@ a write's errors at the statement.
   `builtin_env` binds the members of `array` and `array_init`; `EIndex`,
   `len` and `for` take arrays; `SSetIndex` checks the owner, the index
   and the value in the order they run.
-- **`var struct`**: the declaration's flag goes into `store.datatypes`
+- **`mutable struct`**: the declaration's flag goes into `store.datatypes`
   with the datatype, and into a module's signature with it, so an
-  importer knows. `SSetField` checks that the owner is a `var struct`
+  importer knows. `SSetField` checks that the owner is a `mutable struct`
   (a plain struct's write is refused with how to build a copy), finds
   the field with `field_type` -- the function `EField` reads one with --
   and checks the value against it.
 - **Making one**: the parser refuses a constructor of this module's own
-  `var struct` without `use mutation`; `check_expr`'s `EConstruct`
+  `mutable struct` without `use mutation`; `check_expr`'s `EConstruct`
   refuses one another module declares, from `store.mutation`, which
   `type_check ~mutation` sets from the module's `use` lines
   (`Module.uses_mutation`).
 - **`same`** takes two values of one type that has an identity: an
-  array, a DynArray or a `var struct`. One nothing has decided is an array.
+  array, a DynArray or a `mutable struct`. One nothing has decided is an array.
 - **Equality**: `check_binary` accepts `==` and `!=` on a list, a tuple
   or an immutable datatype when `equality_problem` finds no part without
   equality -- a function, an identity type, a type variable -- and
@@ -381,7 +381,7 @@ a write's errors at the statement.
   writers: the first argument is unified with a DynArray, an index with Int,
   a value with the element type.
 - **Open types** (FCR-H2): `check_open_arrays` refuses a binding whose
-  type holds an array of undecided elements, or a `var struct` of an
+  type holds an array of undecided elements, or a `mutable struct` of an
   undecided parameter, at the end of the module.
 
 ### The interpreter
@@ -399,9 +399,9 @@ a write's errors at the statement.
 - A view is `VView of view`, the array, an offset and a length; a slice
   is `slice_value`, evaluated as a list of its sequence and bounds is.
 - Every datatype's value is `VData (constructor, fields)`, the fields a
-  `(label, value) array`. Only a `var struct`'s are ever written, so the
+  `(label, value) array`. Only a `mutable struct`'s are ever written, so the
   sharing is unobservable for the rest; `same` compares the arrays with
-  `==`. A `var struct` always has a field, so two never share an empty
+  `==`. A `mutable struct` always has a field, so two never share an empty
   array.
 - Writes are continuations: `KSetArray`, `KSetIndex` (the check),
   `KSetValue` for an element; `KSetOwner`, `KSetField` for a field.
@@ -438,4 +438,4 @@ docs/target_c.md. All share the rules above: the order of evaluation,
 | slices and views | `slices`, `slice_bounds`, `view_bounds`, `typecheck_slices`, `fail_typecheck_slice_*`, `fail_typecheck_view_*`, `fail_typecheck_copy_into_type` |
 | all of them on every C | `mutable_values` |
 | order | `eval_order_calls` |
-| `var struct` | `var_struct`, `var_struct_import`, `typecheck_var_struct`, `fail_typecheck_var_struct_*`, `fail_typecheck_struct_write`, `fail_typecheck_var_datatype` |
+| `mutable struct` | `var_struct`, `var_struct_import`, `typecheck_var_struct`, `fail_typecheck_var_struct_*`, `fail_typecheck_struct_write`, `fail_typecheck_var_datatype` |

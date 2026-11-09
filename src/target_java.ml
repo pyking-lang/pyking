@@ -903,7 +903,7 @@ let sole_constructor ctx info t =
       List.length ctors = 1
   | _ -> false
 
-(** Whether a type is a `var struct`'s: a class of its own with fields
+(** Whether a type is a `mutable struct`'s: a class of its own with fields
     written in place, read as `s.field` rather than through a record's
     accessor. ctx -> typ -> bool *)
 let writable ctx t =
@@ -912,7 +912,7 @@ let writable ctx t =
       match SMap.find_opt canonical ctx.datatypes with Some (Datatype (_, _, _, w)) -> w | None -> false)
   | _ -> false
 
-(** A var struct's field, read where it is: a public field of its class.
+(** A mutable struct's field, read where it is: a public field of its class.
     jexpr -> string -> jexpr *)
 let struct_field (s : jexpr) name = atom ~boxed:true (Printf.sprintf "%s.%s" (at p_atom s) name)
 
@@ -1693,7 +1693,7 @@ and builtin ctx st scope e name args =
       (atom ~boxed:true (Printf.sprintf "%s.%spanic(%s)" runtime_class explicit m.text), st)
   | "copy_into", [ dst; src ] -> (atom (Printf.sprintf "%s(%s, %s)" (rt "copyInto") dst.text src.text), st)
   | "same", [ a; b ] ->
-      (* Two arrays, or two var structs, are the same when they are one
+      (* Two arrays, or two mutable structs, are the same when they are one
          object. *)
       (binary p_eq "==" (mk p_unary ("(Object) " ^ at p_unary a)) (mk p_unary ("(Object) " ^ at p_unary b)), st)
   | "int", [ v ] -> (
@@ -1729,7 +1729,7 @@ and builtin ctx st scope e name args =
   | _ -> unsupported info (Printf.sprintf "the builtin `%s` with these arguments" name)
 
 (** `&place`: a pointer to a `var`'s cell, to an array's or a view's
-    element (its index checked now), or to a var struct's field; `&*p`
+    element (its index checked now), or to a mutable struct's field; `&*p`
     is p. The pointed-at type is given where Java cannot infer it.
     ctx -> state -> scope -> expr -> info -> expr -> (jexpr, state) *)
 and address ctx st scope e info place =
@@ -1761,7 +1761,7 @@ and address ctx st scope e info place =
               | [] -> unsupported info (Printf.sprintf "no field %s" field)
             in
             find 0 fields
-        | _ -> unsupported info "the address of a field of a value that is no var struct"
+        | _ -> unsupported info "the address of a field of a value that is no mutable struct"
       in
       (atom (Printf.sprintf "%s.%spointer(%s, %d)" runtime_class explicit o.text slot), st)
   | _ -> unsupported info "the address of this expression"
@@ -1866,7 +1866,7 @@ and settled ctx t =
 
 (** The line a print writes: its arguments' texts, a space between.
     Every argument is worked out before any is written, so a call among
-    them that changes an array or a var struct an earlier one holds is
+    them that changes an array or a mutable struct an earlier one holds is
     seen in what is printed: where that can happen, the arguments go to
     the runtime's `line`, which Java hands them evaluated.
     ctx -> state -> scope -> [expr] -> (jexpr, state) *)
@@ -2479,7 +2479,7 @@ and is_type_pattern label = not (String.contains label '(')
     -> (string, [jexpr], [(string, jexpr, typ)], state) *)
 and switch_pattern ctx st p s t top =
   match p with
-  (* A var struct is a class, not a record: no record pattern takes it
+  (* A mutable struct is a class, not a record: no record pattern takes it
      apart, so its case is a type pattern whose fields the `when` and the
      body read. *)
   | PConstructor (_, _, name, fields, _, _) when not (writable ctx t) ->
@@ -2502,14 +2502,14 @@ and switch_pattern ctx st p s t top =
       (jt ctx ~boxed:true t ^ " " ^ held, conds, binds, st)
 
 (** The components of a record pattern: a nested record pattern where a
-    sub-pattern takes a constructor (but a var struct's) or a tuple apart,
+    sub-pattern takes a constructor (but a mutable struct's) or a tuple apart,
     `var` with its tests in the `when` otherwise.
     ctx -> state -> [pattern] -> [typ]
     -> ([string], [jexpr], [(string, jexpr, typ)], state) *)
 and switch_parts ctx st ps types =
   List.fold_left
     (fun (subs, conds, binds, st) (p, ty) ->
-      (* A var struct's fields are read off a `var`, as switch_pattern
+      (* A mutable struct's fields are read off a `var`, as switch_pattern
          says. *)
       let nested = match p with PConstructor _ -> not (writable ctx ty) | PTuple _ -> true | _ -> false in
       match p with
@@ -2781,7 +2781,7 @@ type jdatatype = {
   d_params : string list;
   d_shared : (string * string) list; (* field, type *)
   d_ctors : (string * string * (string * string) list) list; (* class, Pyking name, fields *)
-  d_writable : bool; (* a var struct: one constructor, fields written in place *)
+  d_writable : bool; (* a mutable struct: one constructor, fields written in place *)
   d_public : bool;
 }
 
@@ -3413,7 +3413,7 @@ let pprint_datatype shape d =
   in
   match (shape, d.d_ctors) with
   | _, [ (cls, name, fields) ] when d.d_writable ->
-      (* A var struct, on every version: a class whose objects are shared
+      (* A mutable struct, on every version: a class whose objects are shared
          and whose fields are written in place, which a record's never
          are. Identity is the object's own, which is what `same` asks. *)
       let boxed t = match t with "int" -> "Integer" | "double" -> "Double" | "boolean" -> "Boolean" | t -> t in
@@ -3591,7 +3591,7 @@ let runtime_source programs version =
        "        default String pykShow() { return null; }";
        "    }";
        "";
-       "    // A var struct, whose field i a pointer reads and writes.";
+       "    // A mutable struct, whose field i a pointer reads and writes.";
        "    public interface Struct extends Data {";
        "        void pykSet(int i, Object value);";
        "    }";
@@ -3916,7 +3916,7 @@ let runtime_source programs version =
         "    }";
         "";
         "    // A pointer: a place -- slot 0 of a `var`'s cell, an element of an";
-        "    // array, a field of a var struct -- read and written where it is. Two";
+        "    // array, a field of a mutable struct -- read and written where it is. Two";
         "    // are equal when they name one place: the same store, the same slot.";
         "    public static final class PykPtr<T> {";
         "        final Object store;";
@@ -3957,7 +3957,7 @@ let runtime_source programs version =
         "        return new PykPtr<T>(cell, slot);";
         "    }";
         "";
-        "    // &s.f: field `slot` of a var struct.";
+        "    // &s.f: field `slot` of a mutable struct.";
         "    public static <T> PykPtr<T> pointer(Struct struct, int slot) {";
         "        return new PykPtr<T>(struct, slot);";
         "    }";
@@ -4361,7 +4361,7 @@ let runtime_source programs version =
         "";
         "    // path: the stores, MutMaps and datatype values writing is inside";
         "    // of. One met again inside itself -- a cycle, which only a store, a";
-        "    // MutMap or a var struct can make -- is written `...`; one that is";
+        "    // MutMap or a mutable struct can make -- is written `...`; one that is";
         "    // only shared is written in full wherever it is.";
         "    private static void write(StringBuilder out, Object value, java.util.Set<Object> path) {";
         "        if (value == null) {";

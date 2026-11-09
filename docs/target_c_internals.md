@@ -117,7 +117,7 @@ a closure captures is a collected cell on c23-gc (`stmt`, `SVar`).
 `var_struct` reads a datatype's `writable` flag. `boxed` is true for
 one on every target, so `ctype` declares it ahead and its makers
 allocate through the allocator markers (malloc on plain C), and
-`member_of` reads it through `->`. `holds_itself` stops at a var
+`member_of` reads it through `->`. `holds_itself` stops at a mutable
 struct, an array and a DynArray -- each holds a pointer -- and `ctype`
 declares ahead any datatype that reaches itself through one
 (`type_children`, `reaches_type`), so it stays a value. `SSetField`
@@ -186,7 +186,7 @@ passes it on. Every other printer keeps its one parameter.
 
 `in_order` pins an operand that may print before a later one that
 prints, and also an operand `stable` says a call could change -- a
-captured or top-level `var` (`var$` in `st.taken`), a var struct's
+captured or top-level `var` (`var$` in `st.taken`), a mutable struct's
 field, an element, a DynArray's length, a call -- before a later operand
 with a call that can change something (`has_call`, reading
 `ctx.changing`, which `changes` works out per module by a fixed point

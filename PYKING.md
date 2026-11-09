@@ -168,7 +168,7 @@ restriction of it, but these are genuinely new.
 - **Structs**: `struct Point(x: Int, y = 78)` is a datatype of one
   constructor, and `Point(x = 5, ..p)` builds a copy of `p` with `x`
   changed. Python's nearest is a frozen dataclass and
-  `dataclasses.replace`. See "Structs". Under `use mutation`, a `var
+  `dataclasses.replace`. See "Structs". Under `use mutation`, a `mutable
   struct` is one whose fields are written in place (`p.x := 1`), shared
   by every name that holds it, as a Python object is. See "Mutable
   structs".
@@ -347,7 +347,7 @@ Statements:
   with `Error` for `Err` — Pyking extension (see "Result")
 - **Pointers** (`&x`, `*p`, `*p := v`, `Ptr(T)`) under `use mutation,
   pointers` — Pyking extension (see "Pointers")
-- **Mutable structs** (`var struct Point(x: Int, y: Int)`), whose fields
+- **Mutable structs** (`mutable struct Point(x: Int, y: Int)`), whose fields
   are written with `:=` and the compound operators and whose values are
   shared; `same(p, q)` asks whether two are one — Pyking extension (see
   "Mutable structs")
@@ -454,10 +454,10 @@ upper_ident = ? an ident beginning with an uppercase letter ? ;
    fields are in parentheses on its own line -- every type variable they
    name is then a parameter -- or on indented lines under its ':', a
    line holding one or more separated by commas, after the parameters
-   written in parentheses. With neither it has no fields. "var" makes
-   it a var struct, whose fields are written in place: it has at least
-   one field, and needs `use mutation`. *)
-struct_stmt = [ "var" ] , "struct" , [ sub_path , "." ] , upper_ident ,
+   written in parentheses. With neither it has no fields. "mutable"
+   makes it a mutable struct, whose fields are written in place: it has
+   at least one field, and needs `use mutation`. *)
+struct_stmt = [ "mutable" ] , "struct" , [ sub_path , "." ] , upper_ident ,
               [ "(" , [ field , { "," , field } ] , ")"
               | [ "(" , type_var , { "," , type_var } , ")" ] , ":" ,
                 INDENT , field_line , { field_line } , DEDENT ] ;
@@ -606,7 +606,7 @@ mutation    = ident , ":=" , bound_expr
             | ident , compound_op , bound_expr
             | atom , ( ":=" | compound_op ) , bound_expr
                        (* an array's element, an atom ending in an
-                          index_tail, or a var struct's field, an atom
+                          index_tail, or a mutable struct's field, an atom
                           ending in "." ident *)
             | "*" , unary , ( ":=" | compound_op ) , bound_expr ;
                        (* what a pointer points at *)
@@ -974,7 +974,7 @@ Notes that don't fall out of the grammar alone:
   `True`, or `False` as an identifier (the first two because they're
   keywords, the last two because they're simply unbound: Pyking has no
   binding for Python's capitalised spelling). `use`, `lam`, `and`, `or`,
-  `not` and `xor` are keywords too, and `class`, `interface`, `extends`,
+  `not`, `xor` and `mutable` (of `mutable struct`) are keywords too, and `class`, `interface`, `extends`,
   `self` and `super` are reserved for a later part of the language:
   nothing uses them yet, and no program may bind one (`'class' is
   reserved for a later part of the language, so it cannot be used as a
@@ -1580,7 +1580,7 @@ print([1, 2] == [1, 2], (1, "a") != (1, "b"), Point(1, 2) == Point(1, 2), Circle
 ```
 
 A value compared this way holds only what `==` compares: a function
-has no equality, and an array, a DynArray, a MutMap and a `var struct` have
+has no equality, and an array, a DynArray, a MutMap and a `mutable struct` have
 an identity instead, which `same(a, b)` asks about -- so `==` on a list
 of functions or a tuple holding an array is refused, naming what it
 holds. So is `==` on a type variable, `def f(x: a, y: a)`, which could
@@ -1913,7 +1913,7 @@ print(count)
 
 | Feature | Turns on |
 |---|---|
-| `mutation` | `var`, `:=` and compound assignment such as `+=` (see "Mutable variables"), making and writing arrays (see "Arrays"), DynArrays (see "DynArrays"), MutMaps (see "MutMaps") and views (see "Slices and views"), and declaring, making and writing `var struct`s (see "Mutable structs") |
+| `mutation` | `var`, `:=` and compound assignment such as `+=` (see "Mutable variables"), making and writing arrays (see "Arrays"), DynArrays (see "DynArrays"), MutMaps (see "MutMaps") and views (see "Slices and views"), and declaring, making and writing `mutable struct`s (see "Mutable structs") |
 | `pointers` | `&`, `*` and `*p := v` (see "Pointers"); needs `mutation` too |
 | `objects` | declaring classes, abstract classes and interfaces (see "Classes and interfaces") |
 
@@ -2314,7 +2314,7 @@ makes a list of its keys.
 never change and always equal themselves: Int, Char, String, Bool, (),
 and tuples, lists, structs and datatypes of those. A Float is not a key
 -- NaN equals nothing, itself included -- nor is a function, nor an
-array, a DynArray, a MutMap or a `var struct`, nor anything holding one; the
+array, a DynArray, a MutMap or a `mutable struct`, nor anything holding one; the
 checker says which part of the key type is not.
 
 ```pyking
@@ -2398,7 +2398,7 @@ same kind -- with either bound left out for the start or the end. The
 bounds satisfy `0 <= i <= j <= len(s)`; anything else is a runtime
 error, `the slice 2:4 is outside an array of 3 elements`, on every
 target but plain C. There are no negative bounds and no step. A copy is
-shallow: an element that is itself an array or a `var struct` is shared
+shallow: an element that is itself an array or a `mutable struct` is shared
 by both.
 
 ```pyking
@@ -2626,7 +2626,7 @@ print(x, y)            # 2 1
 
 - **`&place`** is a pointer to a place something may write: a `var`, an
   element of an array or of a view (`&a[i]`, which is the array's), a
-  field of a `var struct` (`&p.x`), or what a pointer points at (`&*p`
+  field of a `mutable struct` (`&p.x`), or what a pointer points at (`&*p`
   is `p`). Its type is `Ptr(T)`. An `=` binding, a list's or a DynArray's
   element, a plain struct's field, a call's result and a literal have
   no address, and `&` of one is refused with the reason.
@@ -4348,7 +4348,7 @@ print(Pair(1, "one"), Box(true).label)
 
 A struct's value never changes: there is no assignment to its field. A
 changed copy is built instead, with `..` below. A struct whose fields
-are written in place is a `var struct` (see "Mutable structs").
+are written in place is a `mutable struct` (see "Mutable structs").
 
 **`..base`** as the last argument of a constructor gives every field
 not written before it from `base`, a value of the same datatype, by
@@ -4374,20 +4374,20 @@ field, and in a call to a `def`, which has no fields to fill. Where the
 datatype has parameters, the fields written may change them:
 `Pair(first = true, ..Pair(1, "one"))` is a `Pair(Bool, String)`.
 
-### Mutable structs (`var struct`) — Pyking extension
+### Mutable structs (`mutable struct`) — Pyking extension
 
-A **`var struct`** is a struct whose fields are written in place. Its
+A **`mutable struct`** is a struct whose fields are written in place. Its
 values are *shared*: every name, parameter, element and field holding
 one holds the same struct, so a write through any of them is seen
 through all -- Java's objects and Python's class instances work this
 way. A plain `struct` stays a value that never changes. Declaring,
-making and writing a `var struct` need `use mutation`; reading, passing,
+making and writing a `mutable struct` need `use mutation`; reading, passing,
 returning and holding one do not.
 
 ```pyking
 use mutation
 
-var struct Point(x: Int, y: Int = 0)
+mutable struct Point(x: Int, y: Int = 0)
 
 p = Point(5)
 p.x := 10
@@ -4397,19 +4397,20 @@ q.x *= 3
 print(p, same(p, q))        # Point(30, 1) true
 ```
 
-**Declaring one.** `var` goes in front of `struct`, and makes every
-field writable; the rest is as "Structs" says -- fields in parentheses
-or on indented lines, defaults, type parameters, `public`. A `var
+**Declaring one.** `mutable` goes in front of `struct`, and makes every
+field writable. `mutable` is a keyword, and the old spelling, `var
+struct`, is refused with a hint; the rest is as "Structs" says -- fields in parentheses
+or on indented lines, defaults, type parameters, `public`. A `mutable
 struct` has at least one field, since one with none has nothing to
-write. Only a struct is written in place: `var datatype` is refused, and
+write. Only a struct is written in place: `mutable datatype` is refused, and
 a datatype's or a plain struct's field is never written.
 
 **Writing a field.** `p.x := e` writes the field `x` of the struct `p`
 holds, and the compound forms (`p.x += 1`, every one "Mutable variables"
 lists) read it and write it back. The left side is any expression
-giving a `var struct`, followed by a field: `points[i].x := 0`,
+giving a `mutable struct`, followed by a field: `points[i].x := 0`,
 `player().score += 1`, `box.inner.y := 8` -- the last needs `inner` to
-be a `var struct` too.
+be a `mutable struct` too.
 
 - **`var` is for rebinding, not for writing.** `p = Point(1, 2)` binds
   `p` once, and `p.x := 3` still writes the struct: whether a field may
@@ -4422,13 +4423,13 @@ be a `var struct` too.
   another one. A compound form reads the field between the two.
 - **`=` does not write.** `p.x = 1` is refused with "did you mean `p.x
   := v`?". Writing a plain struct's field is refused with how to build a
-  changed copy, `Point(x = ..., ..old)`, or to declare it `var struct`.
+  changed copy, `Point(x = ..., ..old)`, or to declare it `mutable struct`.
 
-**Making one.** A `var struct`'s constructor is called as any struct's,
+**Making one.** A `mutable struct`'s constructor is called as any struct's,
 with defaults and named arguments, and makes a new, separate struct
 each time. `Point(x = 1, ..p)` makes a new struct too: `p` is not
 changed, and a mutable field the two would hold -- an array, another
-`var struct` -- is shared by both. Making one needs `use mutation` in
+`mutable struct` -- is shared by both. Making one needs `use mutation` in
 the module that makes it, wherever it was declared; a module without it
 may still hold, read and pass on one another module made.
 
@@ -4443,7 +4444,7 @@ fields is a function the program writes.
 ```pyking
 use mutation
 
-var struct Counter(n: Int)
+mutable struct Counter(n: Int)
 
 def bump(c: Counter) -> ():
     c.n += 1
@@ -4454,7 +4455,7 @@ bump(b)
 print(a.n, same(a, b), same(a, Counter(1)))     # 1 true false
 ```
 
-**Linked structures.** A `var struct` may hold a value of its own type,
+**Linked structures.** A `mutable struct` may hold a value of its own type,
 through a datatype that can also hold nothing -- there is no null --
 which is how linked lists, trees and graphs are built, cycles and all:
 
@@ -4465,7 +4466,7 @@ datatype Link:
     End
     Next(node: Node)
 
-var struct Node(value: Int, next: Link)
+mutable struct Node(value: Int, next: Link)
 
 a = Node(1, End)
 b = Node(2, Next(a))
@@ -4481,7 +4482,7 @@ REPL and the debugger show the same text. `print(p, f(p))` works out
 every argument before it writes any, so a change `f` makes to `p` is
 printed.
 
-**Types.** A `var struct` with a type parameter, `var struct Cell(value:
+**Types.** A `mutable struct` with a type parameter, `mutable struct Cell(value:
 a)`, is one type once made: a binding whose struct has a parameter
 nothing decides is refused, as an empty array is -- `c = Cell([])`
 needs a use or an annotation saying what the list holds.

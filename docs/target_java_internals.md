@@ -51,7 +51,7 @@ inside an or-pattern, where it would not be definitely matched.
 `match_stmt` builds the chain, or the labelled block a guarded case
 leaves; `switch_stmt` and `switch_pattern` build java21's `switch`, a
 record pattern for a constructor or a tuple and `var` with its tests in
-the `when` for anything else -- a var struct's constructor among them,
+the `when` for anything else -- a mutable struct's constructor among them,
 since its class is no record.
 
 ## Finishing a block
@@ -113,7 +113,7 @@ can be keys.
 public fields on every version, before the cases that make a record.
 `writable ctx t` asks `ctx.datatypes` -- which holds an imported
 datatype too, with its flag, from `context.sigmaps` -- whether a type is
-a var struct's; where it is, `EField` and a constructor pattern read a
+a mutable struct's; where it is, `EField` and a constructor pattern read a
 field as `struct_field`, `s.x`, rather than a record's accessor, and
 `switch_pattern`/`switch_parts` write a type pattern for it. `SSetField`
 is one `s.x = v;`, the value cast by `typed_value` to the field's type
@@ -132,6 +132,6 @@ captured, so each lives in a cell. Such a cell holds the boxed type
 cell it passes on), and a top-level one is a static cell rather than a
 plain static. `address` compiles `&place`: a cell's `pointer(cell, 0)`
 (the cell is the binding's value without its `[0]`), a store's
-`pointer(i)`, a var struct's `pointer(s, k)`, and `&*p` as `p`. `EDeref`
-is `get()`, `SSetDeref` one `set(v);`. A var struct's class gets
+`pointer(i)`, a mutable struct's `pointer(s, k)`, and `&*p` as `p`. `EDeref`
+is `get()`, `SSetDeref` one `set(v);`. A mutable struct's class gets
 `pykSet`, which the pointer writes a field through.

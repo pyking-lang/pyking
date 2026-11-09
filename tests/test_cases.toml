@@ -2361,11 +2361,11 @@ file = "fail_typecheck_array_eq.pyk"
 [[cases]]
 file = "fail_typecheck_array_open.pyk"
 
-# Mutable structs: `var struct`, field writes and their compound forms,
+# Mutable structs: `mutable struct`, field writes and their compound forms,
 # sharing, patterns, `..` and cycle-safe printing.
 [[cases]]
 file = "var_struct.pyk"
-excluded = { c = "a var struct holding a list (Cell([])): a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+excluded = { c = "a mutable struct holding a list (Cell([])): a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "var_struct_import.pyk"
@@ -2374,7 +2374,7 @@ modules = ["var_struct_shapes_mod.pyk"]
 [[cases]]
 file = "typecheck_var_struct.pyk"
 also = ["pyking_rerun"]
-excluded = { c = "a var struct holding a list (Cell([])): a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+excluded = { c = "a mutable struct holding a list (Cell([])): a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "fail_typecheck_var_struct_make_use.pyk"
@@ -2412,6 +2412,12 @@ file = "fail_typecheck_var_struct_empty.pyk"
 
 [[cases]]
 file = "fail_typecheck_var_datatype.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_struct_old.pyk"
+
+[[cases]]
+file = "fail_typecheck_mutable_misplaced.pyk"
 
 [[cases]]
 file = "fail_typecheck_var_struct_field_eq.pyk"
@@ -2578,12 +2584,12 @@ file = "mutmap_slice_nolist.pyk"
 file = "eval_order_own_builtin.pyk"
 
 # Printing a cycle that an immutable value closes -- a generic datatype
-# through a var struct, a datatype through a MutMap -- stops at the value
+# through a mutable struct, a datatype through a MutMap -- stops at the value
 # that repeats first.
 [[cases]]
 file = "cycle_immutable.pyk"
 
-# A generic datatype printed at several types where a var struct in its
+# A generic datatype printed at several types where a mutable struct in its
 # group of declarations uses it at one.
 [[cases]]
 file = "generic_printer_types.pyk"

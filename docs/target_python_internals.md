@@ -250,7 +250,7 @@ along with what `conversion_needs` says that helper calls, and
 `pprint_py_body` prints each recorded one once through
 `conversion_def`. An element write's temporaries are named by
 `fresh_write_names`, checked against `gen.used` as the comprehension
-helper's names are; a `var struct` field write (`SSetField`) borrows its
+helper's names are; a `mutable struct` field write (`SSetField`) borrows its
 owner name when it has to hold the owner.
 
 **DynArrays.** A DynArray is told from an array by its type alone: `is_dynarray_expr`
@@ -337,10 +337,10 @@ third parameter, `path=()`, a tuple of the ids of the arrays and
 datatype values the walk is inside of (the `enter` statements, in front
 of the array arm and the dataclass arm). A value whose id is already on
 it is a cycle and prints `...`; a shared one prints in full. Every
-dataclass goes on the path, not only a `var struct`'s, because the
+dataclass goes on the path, not only a `mutable struct`'s, because the
 interpreter's `display_value` puts every datatype value with fields on
 its own: an immutable value can be met again inside itself only
-through a var struct, and where printing *starts* at that immutable
+through a mutable struct, and where printing *starts* at that immutable
 value it is the repetition, so both have to agree on which one is cut.
 A Pyking list or a tuple never holds itself, and stays off the path. A
 tuple and `id` keep the helper pure: an id is a safe key while the
@@ -349,7 +349,7 @@ value is on the path, since the path keeps it alive.
 **Arguments before formatting.** `runtime_call` translates and wraps
 each `print`/`debug` argument as before, then `late` asks whether some
 argument the format helper wraps has a type `changeable` says can be
-changed after it is made -- an array, a var struct, a datatype of this
+changed after it is made -- an array, a mutable struct, a datatype of this
 module holding one (looked up by name among the `TData` entries of
 `types`, with a list of names already seen against a recursive one), or
 anything it cannot see into, which is taken to be changeable -- and

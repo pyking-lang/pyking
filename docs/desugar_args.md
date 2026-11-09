@@ -410,7 +410,7 @@ check, value, write) with temporaries of its own.
 
 ## A compound field write
 
-`p.x += e` is the same for a `var struct`'s field: `p` is worked out
+`p.x += e` is the same for a `mutable struct`'s field: `p` is worked out
 once, into `field__owner`, and the write goes to the struct it named
 (PYKING.md, "Mutable structs"):
 

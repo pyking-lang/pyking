@@ -24,7 +24,7 @@
   the checker accepts but a polymorphic parameter: lists as typed cons
   cells, a datatype holding itself as a pointer to a collected struct,
   and a closure's environment on the collected heap (see "Memory").
-- On all four, a `var struct`, a `DynArray`, a `MutMap` and a view are
+- On all four, a `mutable struct`, a `DynArray`, a `MutMap` and a view are
   pointers to a struct written in place (see "Var structs", "DynArrays",
   "MutMaps" and "Slices and views"), `==` compares lists, tuples, structs
   and datatypes part by part, and printing a value that holds itself
@@ -188,7 +188,7 @@ escaped) and a String by `pyk_quote` (`"abc"`, with `\\`, `\"`, `\n`,
 | `Array(Int)` | `pyk_a_Ai_`: a struct of `len` and a pointer to the elements, `items` |
 | `[Int]` (c23-gc) | `pyk_l_Li_ *`: a pointer to the first cell, `NULL` for `[]` |
 | `DynArray(Int)` | `pyk_v_Vi_ *`: a pointer to a struct of `len`, `cap` and `items` |
-| a `var struct` `Point` | `pyk_d_D<module>_Point__ *`: a pointer to its struct |
+| a `mutable struct` `Point` | `pyk_d_D<module>_Point__ *`: a pointer to its struct |
 | `MutMap(String, Int)` | `pyk_m_Msi_ *`: a pointer to its entries' struct |
 | `Map(String, Int)` | `pyk_m_Nsi_ *`: the same struct, of its own code |
 | `Slice(Int)`, a view | `pyk_w_Wi_ *`: a pointer to the array's elements, a start and a length |
@@ -281,7 +281,7 @@ a list; `array_bounds_read.pyk`, `array_bounds_write.pyk` and
 
 ## Var structs
 
-A `var struct` (PYKING.md, "Var structs") is a **pointer** to its
+A `mutable struct` (PYKING.md, "Var structs") is a **pointer** to its
 struct on every C target: plain C allocates it with `malloc` and never
 frees it, c23-gc with `GC_MALLOC` (`GC_MALLOC_ATOMIC` where no field
 holds a pointer). Its constructor makes one; every name, parameter,
@@ -290,7 +290,7 @@ is seen through all.
 
 | Pyking | C |
 |---|---|
-| `var struct Point(x: Int, y: Int = 0)` | `typedef struct pyk_d_D<module>_Point__ pyk_d_D<module>_Point__;` ahead, then `struct pyk_d_D<module>_Point__ { int x; int y; };` |
+| `mutable struct Point(x: Int, y: Int = 0)` | `typedef struct pyk_d_D<module>_Point__ pyk_d_D<module>_Point__;` ahead, then `struct pyk_d_D<module>_Point__ { int x; int y; };` |
 | `Point(5)` | `pyk_mk_D<module>_Point___Point(5, 0)` |
 | `p.x` | `p->x` |
 | `p.x := v` | `p->x = v;` |
@@ -308,7 +308,7 @@ pyk_d_Dmain_Counter__ *pyk_owner17 = field__owner;
 pyk_owner17->n = field__owner->n + switch_();
 ```
 
-A datatype that reaches itself through a var struct, an array or a DynArray
+A datatype that reaches itself through a mutable struct, an array or a DynArray
 holds only a pointer to it, so it stays a value: it is declared ahead,
 as a datatype holding itself is, and needs no heap of its own (plain C
 compiles it).
@@ -477,7 +477,7 @@ with no list, so plain C runs it too.
 | `&x`, a `var` | `&x` |
 | `&a[i]`, an array's element | `&a.items[i]` on plain C; `pyk_place_Ai_(a, i)`, the index checked, on c23-gc |
 | `&w[i]`, a view's element | `pyk_place_Wi_(w, i)`: `&w->items[w->start + i]`, checked on c23-gc |
-| `&p.x`, a var struct's field | `&p->x` |
+| `&p.x`, a mutable struct's field | `&p->x` |
 | `&*p` | `p` |
 | `*p`, `*p := v` | `*p`, `*p = v;` (the pointer in a temporary first where the value could change it) |
 | `p == q` | `p == q`: the same place |
@@ -499,7 +499,7 @@ may outlive the function (`tests/pointers_escape.pyk`).
 
 ## Printing a value that holds itself
 
-An array, a DynArray or a var struct may hold itself, through a datatype:
+An array, a DynArray or a mutable struct may hold itself, through a datatype:
 printing one already being printed further out writes `...`, as every
 target does; one only shared prints in full each time. Only a printer
 that can meet such a store takes the path from the value printed first,
@@ -536,7 +536,7 @@ constructor holding the same stores (`tests/cycle_immutable.pyk`). Two
 such values built apart from the same parts count as one here where the
 interpreter, which compares the objects, would print one more level.
 `tests/var_struct.pyk` and `tests/mutable_values.pyk` print cycles
-through var structs, an array and a DynArray.
+through mutable structs, an array and a DynArray.
 
 ## Polymorphic functions
 
@@ -660,7 +660,7 @@ backend pins down two kinds of operand:
 - one that can **print** -- `analyses.Effects`, the same walk of the
   call graph the OCaml backend uses -- before any later one that prints;
 - one a call could **change** -- it reads a `var` a call can write (a
-  top-level one, or one a closure captures), a field of a var struct,
+  top-level one, or one a closure captures), a field of a mutable struct,
   an element of an array or a DynArray, a DynArray's length, or itself calls
   something -- before a later operand with a call that can change
   something; and an operand with such a call before a later one it
@@ -710,7 +710,7 @@ operands stay exactly where the source put them; no temporary is
 declared.
 
 **`print` writes its arguments once every one is worked out.** Where an
-argument holds an array, a DynArray or a var struct and a later argument
+argument holds an array, a DynArray or a mutable struct and a later argument
 calls something, which could change it, every argument is put in a
 temporary first, in order, and only then formatted:
 

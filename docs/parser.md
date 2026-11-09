@@ -270,11 +270,12 @@ parser cannot tell a value from a module; a write is always to a
 value's field, so its owner becomes `EVar p` -- into an `SSetField` of
 its owner, field and value; `p.x += e` is marked as `a[i] += e` is.
 `p.x = v` is refused with "did you mean `p.x := v`?", in a block and
-at the top level alike. `var struct` is `parse_struct ~writable:true`,
+at the top level alike. `mutable struct` is `parse_struct ~writable:true`,
 at the top level and after `public`, and sets the last flag of its
-`SDatatype`; a `var struct` with no fields, one inside a block and a
-`var datatype` are refused. `check_features` refuses a field write, a
-`var struct` and a constructor of this module's own `var struct`
+`SDatatype`; a `mutable struct` with no fields, one inside a block, a
+`mutable datatype`, `mutable` before anything but `struct`, and the old
+spelling `var struct` (`old_var_struct`) are refused. `check_features` refuses a field write, a
+`mutable struct` and a constructor of this module's own `mutable struct`
 without `use mutation` (one another module declares is the checker's
 to refuse). `parse_chain` stops before `xor` followed at once by `=`,
 which is `xor=` for the statement to read. See

@@ -111,7 +111,7 @@ and pytarget =
   | PyTargetName of info * string (* name *)
   | PyTargetTuple of info * pytarget list (* (t1, t2, ...) *)
   | PyTargetIndex of info * pyexpr * pyexpr (* a[i], an array's element *)
-  | PyTargetAttr of info * pyexpr * string (* p.x, a var struct's field *)
+  | PyTargetAttr of info * pyexpr * string (* p.x, a mutable struct's field *)
 
 and pycompclause =
   | PyCompFor of info * pytarget * pyexpr (* for target in sequence *)
@@ -141,7 +141,7 @@ and pystmt =
   | PyDataclass of info * string * string list * (string * string) list * string option * bool
       (* @dataclass(frozen=True, slots=True) class Name[params]: field:
          annotation ... -- and `_pyk_tag = 'Tag'` where the constructor's
-         Pyking name is not the class's. The bool is a `var struct`'s:
+         Pyking name is not the class's. The bool is a `mutable struct`'s:
          @dataclass(slots=True, eq=False) instead, its fields written in
          place and two values equal only when they are one object *)
   | PyTypeAlias of info * string * string list * string
@@ -711,7 +711,7 @@ let slice_helper = "__pyk_slice"
 
 (* A pointer is an object of a class of its own naming a place: a slot
    of a store -- an array's element by index, or a field by name of a
-   var struct or of a `var`'s box (docs/target_python.md, "Pointers").
+   mutable struct or of a `var`'s box (docs/target_python.md, "Pointers").
    `*p` is `p.get()` and `*p := v` is `p.set(v)`. A `var` whose address
    the module takes anywhere lives in a box, made afresh where it is
    declared, so each turn of a loop has its own and the box outlives the
@@ -766,7 +766,7 @@ let conversion_def ?(formatter = "__pyk_str") name =
        [
          Printf.sprintf "class %s:" name;
          "    # A pointer: the place `slot` of `store` -- an array's element by";
-         "    # index, or a field by name of a var struct or of a var's box.";
+         "    # index, or a field by name of a mutable struct or of a var's box.";
          "    __slots__ = ('store', 'slot')";
          "";
          "    def __init__(self, store, slot):";
@@ -2191,7 +2191,7 @@ let build_format_helper info name floats =
   let inner = PyCall (info, var name, [ element; PyBool (info, false); var "path" ]) in
   (* The recursion-path guard: `path` holds the id of every array and
      datatype value the walk is inside of. One met again on that path is
-     a cycle, which only a var struct or an array can make, and prints
+     a cycle, which only a mutable struct or an array can make, and prints
      as `...`; one that is merely shared prints in full wherever it is.
      An id is a safe key here, since everything on the path is alive. *)
   let enter =
@@ -2557,7 +2557,7 @@ let rec holds_float type_ =
   | _ -> false
 
 (** Whether a value of this type can be changed after it is made --
-    an array, a var struct, or something holding one -- so that when it
+    an array, a mutable struct, or something holding one -- so that when it
     is formatted can be seen. A datatype of this module is looked up in
     `types` by name; one from elsewhere, or a type nothing decided, is
     taken to be changeable. typ -> typ IntMap.t -> bool *)
@@ -3592,7 +3592,7 @@ let rec translate_expr e scope gen =
       let py_message, gen = translate_expr message scope gen in
       (PyCall (info, PyVar (info, fail_helper), [ py_message ]), add_conversion fail_helper gen)
   | ECall (info, EVar (_, "same", _), [ (_, l); (_, r) ], _) when not (is_bound "same" scope) ->
-      (* Two arrays, or two var structs, are the same when they are one
+      (* Two arrays, or two mutable structs, are the same when they are one
          Python object. *)
       binary (fun i a b -> PyBinOp (i, "is", 1, 2, 2, a, b)) info l r
   | ECall (info, EVar (_, "string", _), [ (_, argument) ], _)
@@ -3849,7 +3849,7 @@ and runtime_call info name args scope gen =
   (* Every argument is worked out before any is formatted
      (docs/target_python.md, "Mutable structs"). Python formats each as
      it reaches it, so where an argument the walker formats can still be
-     changed -- it holds an array or a var struct -- and a later one makes
+     changed -- it holds an array or a mutable struct -- and a later one makes
      a call that could change it, the arguments are handed to a lambda
      first and formatted inside it. *)
   let rec late = function
@@ -4502,7 +4502,7 @@ and translate_stmt s scope gen =
       (* A frozen dataclass per constructor, and the datatype's own name
          a type alias for their union -- what an import of it imports.
          Written at the top of the program, since a datatype is in scope
-         throughout its module. A `var struct`'s one class is not
+         throughout its module. A `mutable struct`'s one class is not
          frozen, and compares by identity (docs/target_python.md,
          "Mutable structs"). *)
       let fields_of cname =

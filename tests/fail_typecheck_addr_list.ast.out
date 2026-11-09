@@ -1,4 +1,4 @@
 'tests/fail_typecheck_addr_list.pyk' 9:5-9:10 Type error: '&' takes
   the address of a place that can be written -- a 'var', an array's
-  element, a var struct's field, or '*p' -- and this element is of a
-  value that never changes, or of a MutMap
+  element, a mutable struct's field, or '*p' -- and this element is of
+  a value that never changes, or of a MutMap

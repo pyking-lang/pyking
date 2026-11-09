@@ -86,6 +86,25 @@ let reserved_message word =
          or written here"
         word
 
+(** Refuses the old spelling of a struct whose fields are written in
+    place, `mutable struct`, now `mutable struct`. info -> 'a *)
+let old_var_struct info =
+  raise
+    (Parse_error
+       ( info,
+         "a struct whose fields are written in place is now declared \
+          'mutable struct', not 'var struct': 'mutable struct Name(field: \
+          Type, ...)'" ))
+
+(** Refuses 'mutable' where no 'struct' follows it. info -> 'a *)
+let misplaced_mutable info =
+  raise
+    (Parse_error
+       ( info,
+         "'mutable' goes before 'struct', in 'mutable struct Name(field: \
+          Type, ...)', whose fields are written in place; a variable that \
+          changes is declared with 'var'" ))
+
 
 (** Refuses a qualified name where only a plain one may stand. `::` is
     what makes an overloaded definition's name unique, and only a `def`
@@ -1808,18 +1827,20 @@ and parse_statement eof tokens =
            ( i,
              "a datatype belongs to the top level of a module, so it cannot \
               be declared inside a block" ))
-  | TokStruct i :: _ | TokVar i :: TokStruct _ :: _ ->
+  | TokVar i :: TokStruct _ :: _ -> old_var_struct i
+  | TokStruct i :: _ | TokMutable i :: TokStruct _ :: _ ->
       raise
         (Parse_error
            ( i,
              "a struct belongs to the top level of a module, so it cannot be \
               declared inside a block" ))
-  | TokVar i :: TokDatatype _ :: _ ->
+  | (TokVar i | TokMutable i) :: TokDatatype _ :: _ ->
       raise
         (Parse_error
            ( i,
-             "only a struct is written in place: 'var struct Name(field: \
-              Type, ...)'. A datatype's values never change" ))
+             "only a struct is written in place: 'mutable struct \
+              Name(field: Type, ...)'. A datatype's values never change" ))
+  | TokMutable i :: _ -> misplaced_mutable i
   (* A statement starting with `if` is either an if *statement*
      (`if cond: block`) or an if *expression* used as an expression
      statement. The two share the whole `"if" , expr` prefix, and that
@@ -1905,7 +1926,7 @@ and parse_expr_statement_from eof e rest =
            ( combine_info (expr_info e) i,
              "an element is written with ':=', not '=': did you mean 'a[i] := v'? \
               '=' binds a name" ))
-  (* `p.x := e` writes a field of a `var struct`; `p.x += e` is
+  (* `p.x := e` writes a field of a `mutable struct`; `p.x += e` is
      `p.x := p.x + e`, with `p` worked out once (desugar_args). A plain
      `p.x` is read as a module's name `p.x` until desugar_args knows `p`
      is a value; a write is always to a value's field. *)
@@ -1964,7 +1985,7 @@ and parse_expr_statement_from eof e rest =
              Printf.sprintf
                "'%s' updates a mutable variable, written as its plain name \
                 on the left ('count %s 1'), an array's element ('a[i] %s 1'), \
-                a var struct's field ('p.x %s 1'), or what a pointer points \
+                a mutable struct's field ('p.x %s 1'), or what a pointer points \
                 at ('*p %s 1')"
                word word word word word ))
   | _ -> ());
@@ -2572,7 +2593,7 @@ let rec dotted_definition tokens =
   | (TokDef _ as t) :: rest | (TokDatatype _ as t) :: rest
   | (TokStruct _ as t) :: rest ->
       t :: merge_name rest
-  | (TokVar _ as v) :: (TokStruct _ as t) :: rest -> v :: t :: merge_name rest
+  | (TokMutable _ as v) :: (TokStruct _ as t) :: rest -> v :: t :: merge_name rest
   | TokIdent _ :: TokDot _ :: _ -> (
       match merge_name tokens with
       | (TokIdent _ as name) :: ((TokEq _ | TokColon _) :: _ as rest) -> name :: rest
@@ -2912,7 +2933,7 @@ let params_follow tokens =
     constructor, named as the type is. Its fields are in parentheses on
     the header's line, with every type variable they name a parameter, or
     on indented lines under a `:`, after the parameters written in
-    parentheses before it. `writable` is set after `var struct`, whose
+    parentheses before it. `writable` is set after `mutable struct`, whose
     fields are written in place. bool? -> info -> info -> [token] ->
     (stmt, [token]) *)
 let parse_struct ?(writable = false) eof struct_info tokens =
@@ -2994,7 +3015,7 @@ let parse_struct ?(writable = false) eof struct_info tokens =
       (Parse_error
          ( name_info,
            Printf.sprintf
-             "a var struct has fields to write, and '%s' has none: a struct \
+             "a mutable struct has fields to write, and '%s' has none: a struct \
               with no fields is a plain 'struct %s'"
              name name ));
   let last = Option.value last ~default:name_info in
@@ -3451,7 +3472,9 @@ let made_public stmt public_info =
     info -> info -> [token] -> (stmt, [token]) *)
 let parse_public eof public_info tokens =
   (match tokens with
-  | TokVar _ :: TokStruct _ :: _ -> ()
+  | TokMutable _ :: TokStruct _ :: _ -> ()
+  | TokVar i :: TokStruct _ :: _ -> old_var_struct i
+  | TokMutable i :: _ -> misplaced_mutable i
   | TokVar i :: _ ->
       raise
         (Parse_error
@@ -3468,7 +3491,7 @@ let parse_public eof public_info tokens =
     match tokens with
     | TokDatatype i :: rest -> parse_datatype eof i rest
     | TokStruct i :: rest -> parse_struct eof i rest
-    | TokVar i :: TokStruct _ :: rest -> parse_struct ~writable:true eof i rest
+    | TokMutable i :: TokStruct _ :: rest -> parse_struct ~writable:true eof i rest
     | _ -> (
         match parse_class_start eof tokens with
         | Some parsed -> parsed
@@ -3495,7 +3518,8 @@ let parse_top_statement eof tokens =
   | TokStruct i :: rest ->
       let stmt, rest = parse_struct eof i rest in
       ([ stmt ], rest)
-  | TokVar i :: TokStruct _ :: rest ->
+  | TokVar i :: TokStruct _ :: _ -> old_var_struct i
+  | TokMutable i :: TokStruct _ :: rest ->
       let stmt, rest = parse_struct ~writable:true eof i rest in
       ([ stmt ], rest)
   | _ -> (
@@ -3615,7 +3639,7 @@ let check_features enabled stmts =
     || (List.mem name [ "dynarray_init"; "mutmap_init" ] && not (owns name))
   in
   let writes_store name = List.mem name Builtin.writers && not (owns name) in
-  (* The constructors of this module's `var struct`s: making one is
+  (* The constructors of this module's `mutable struct`s: making one is
      mutation's too. One another module declares is the checker's to
      refuse, since only it knows what an imported constructor makes. *)
   let writable =
@@ -3750,7 +3774,7 @@ let check_features enabled stmts =
               (Parse_error
                  ( i,
                    Printf.sprintf
-                     "'var struct %s' declares a struct whose fields are \
+                     "'mutable struct %s' declares a struct whose fields are \
                       written in place, which needs 'use mutation' at the top \
                       of this module"
                      name ))
@@ -3759,7 +3783,7 @@ let check_features enabled stmts =
               (Parse_error
                  ( i,
                    Printf.sprintf
-                     "'%s' makes a var struct, whose fields are written in \
+                     "'%s' makes a mutable struct, whose fields are written in \
                       place, which needs 'use mutation' at the top of this \
                       module"
                      name ))

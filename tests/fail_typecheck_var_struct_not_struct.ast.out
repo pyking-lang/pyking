@@ -1,3 +1,3 @@
 'tests/fail_typecheck_var_struct_not_struct.pyk' 13:0-13:11 Type
-  error: only a var struct's field is written with ':=', and this
+  error: only a mutable struct's field is written with ':=', and this
   value is (Int, Int)

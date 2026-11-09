@@ -12,7 +12,7 @@
 - Pyking's polymorphism is Java's generics; a list is a `java.util.List`;
   a tuple is a class of the shared runtime; an array, a DynArray and a view
   are the runtime's `PykArray`, `PykDynArray` and `PykView`, a MutMap its
-  `PykMutMap` over a `LinkedHashMap`, a pointer its `PykPtr`; a datatype is a class per constructor; a `var struct` is a
+  `PykMutMap` over a `LinkedHashMap`, a pointer its `PykPtr`; a datatype is a class per constructor; a `mutable struct` is a
   class with fields written in place; a function value is a
   `java.util.function` interface.
 - The three versions are **three shapes of output**: plain classes and
@@ -179,8 +179,8 @@ final class on java8, with no base type and no factory. A construction
 is `new Point(1, 2)` (`new Box<>(...)` where it has parameters), and a
 pattern on it tests nothing.
 
-A **`var struct`** (PYKING.md, "Mutable structs") is a final class on
-every version -- a record's fields are final, and a var struct's are
+A **`mutable struct`** (PYKING.md, "Mutable structs") is a final class on
+every version -- a record's fields are final, and a mutable struct's are
 written in place -- with a public, non-final field per field, a
 constructor, and `PykRuntime.Data`'s two methods:
 
@@ -300,7 +300,7 @@ is its character (`PykChar.toString`); inside another value a String is
 written in double quotes and a Char in single quotes, escaped as
 `Builtin.quote_string` and `Builtin.quote_char` say.
 
-**A cycle** -- an array, a DynArray, a MutMap or a var struct that holds
+**A cycle** -- an array, a DynArray, a MutMap or a mutable struct that holds
 itself, directly or through other values -- is written `...` where it
 repeats: `Node(1, Next(Node(2, Next(...))))`. The walk keeps its
 **path**, the stores, MutMaps and datatype values it is inside of, in an
@@ -313,7 +313,7 @@ same walk.
 **Every argument is worked out before any is written.** A line of
 several values is one string concatenation where nothing can change in
 between; where an argument whose value can change (an array, a DynArray, a
-view, a MutMap, a var struct, anything holding one) comes before one that calls something, the
+view, a MutMap, a mutable struct, anything holding one) comes before one that calls something, the
 arguments go to `PykRuntime.line(a, f(a))` instead, which Java calls
 only once both are evaluated, so a change `f` makes to `a` is printed.
 
@@ -369,7 +369,7 @@ like any other `var`.
 | `a[i]` | `a.get(i)` |
 | `a[i] := v` | the four statements below |
 | `len(a)` | `a.size()` |
-| `same(a, b)` | `(Object) a == (Object) b`, as for two var structs |
+| `same(a, b)` | `(Object) a == (Object) b`, as for two mutable structs |
 | `for x in a` | Java's enhanced `for` over the store, an `Iterable<T>` |
 | `push(v, x)`, `pop(v)` | `v.push(x)`, `v.pop()` |
 | `insert(v, i, x)`, `remove(v, i)`, `clear(v)` | `v.insert(i, x)`, `v.remove(i)`, `v.clear()` |
@@ -506,7 +506,7 @@ store it points into and a slot in it, read by `get()` and written by
 |---|---|---|
 | `&x`, `x` a `var` | `PykRuntime.<T>pointer(x, 0)` | the `var`'s cell, 0 |
 | `&a[i]`, `a` an array or a view | `a.pointer(i)`, the index checked now | the array, `i` (a view's `offset + i`) |
-| `&s.f`, `s` a var struct | `PykRuntime.<T>pointer(s, k)` | the struct, its field's position `k` |
+| `&s.f`, `s` a mutable struct | `PykRuntime.<T>pointer(s, k)` | the struct, its field's position `k` |
 | `&*p` | `p` | |
 | `*p` | `p.get()` | |
 | `*p := v` | `p.set(v);` -- Java works out the pointer, then the value, then writes | |
@@ -516,7 +516,7 @@ closure captures does, but of the boxed type -- `final Integer[] x = {
 1 };`, a static `Integer[]` at top level -- since a pointer reads and
 writes it as an `Object[]`. The cell is made where the `var` is
 declared, so a `var` declared in a loop is a new one each turn, and a
-pointer to a local outlives its method as the cell does. A var struct
+pointer to a local outlives its method as the cell does. A mutable struct
 class implements `PykRuntime.Struct`, a `Data` with `pykSet(i, v)`,
 through which a pointer writes field `i`; it reads it from
 `pykFields()`.

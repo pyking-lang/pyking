@@ -100,7 +100,7 @@ type value =
   | VUndefined of string (* a hoisted `def` whose definition has not run *)
   | VData of string * (string option * value) array
       (* a value of a datatype: its constructor, and each field with its
-         name where it has one. A `var struct`'s fields are written in
+         name where it has one. A `mutable struct`'s fields are written in
          place, and the value is shared by every name holding it; no other
          datatype's ever are, so for them the sharing is never seen *)
   | VArray of value array
@@ -126,7 +126,7 @@ and dynarray = { mutable items : value array; mutable size : int }
 and view = { owner : value array; offset : int; length : int }
 
 (* Where a pointer points: a `var`'s cell, an element of an array (a
-   view's is its array's), or a field of a var struct. Two pointers are
+   view's is its array's), or a field of a mutable struct. Two pointers are
    equal when they name one place. *)
 and location = LCell of value ref | LElem of value array * int | LField of (string option * value) array * int
 

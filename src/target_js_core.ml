@@ -104,7 +104,7 @@ and jsstmt =
       (* target[index] = value; -- an element write into a Pyking
          array, whose index was checked by the statement before it. *)
   | JsSetField of info * jsexpr * string * jsexpr
-      (* target.name = value; -- a field write into a `var struct`. *)
+      (* target.name = value; -- a field write into a `mutable struct`. *)
   | JsClass of info * string * string option * jsstmt list
       (* class Name [extends Parent] { members } -- a Pyking class or
          interface; each member a JsFunc, printed as a method
@@ -788,7 +788,7 @@ let rec translate_expr e scope =
       JsCall (info, JsVar (info, "pykFail"), [ translate_expr message scope ])
   | ECall (info, EVar (_, "same", _), [ (_, left); (_, right) ], _)
     when not (SMap.mem "same" scope.names) ->
-      (* Two arrays (DynArrays, var structs) are the same when they are one
+      (* Two arrays (DynArrays, mutable structs) are the same when they are one
          JavaScript object. *)
       JsBinary (info, "===", translate_expr left scope, translate_expr right scope)
   | ECall (info, EVar (_, name, _), args, _)
@@ -1634,7 +1634,7 @@ and translate_stmt s scope =
   | SDatatype (info, name, type_params, constructors, _, _, writable) ->
       (* One function per constructor, building the value; the type's
          own name is bound too, to its name, so that an import of it has
-         something to import. A `var struct`'s one constructor builds
+         something to import. A `mutable struct`'s one constructor builds
          with `pykStruct`, whose fields are written in place
          (docs/target_js.md, "Mutable structs"). *)
       let builder = if writable then "pykStruct" else "pykData" in
@@ -2382,7 +2382,7 @@ let data_helper =
 let struct_helper =
   String.concat "\n"
     [
-      "// A `var struct`'s value: one object, shared by every name holding";
+      "// A `mutable struct`'s value: one object, shared by every name holding";
       "// it, whose fields are its own properties and are written in place.";
       "// What pykFormat and a pattern read by position is worked out from";
       "// them when it is asked for, so it is never out of date.";
@@ -2972,7 +2972,7 @@ let array_helpers =
       [],
       String.concat "\n"
         [
-          "// The place a slot of a store is: an array's element, a var struct's field.";
+          "// The place a slot of a store is: an array's element, a mutable struct's field.";
           "function pykSlotPlace(store, slot) {";
           "  return {";
           "    pykPtr: true,";
@@ -3000,7 +3000,7 @@ let array_helpers =
       [ "pykSlotPlace" ],
       String.concat "\n"
         [
-          "// `&s.f`: a var struct's field.";
+          "// `&s.f`: a mutable struct's field.";
           "function pykFieldPlace(struct, field) {";
           "  return pykSlotPlace(struct, field);";
           "}";

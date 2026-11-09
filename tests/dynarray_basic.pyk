@@ -55,8 +55,8 @@ for x in shrinking:
     remove(shrinking, 0)
 print(seen, shrinking)
 
-# A DynArray of DynArrays, and one of var structs.
-var struct Score(name: String, points: Int)
+# A DynArray of DynArrays, and one of mutable structs.
+mutable struct Score(name: String, points: Int)
 
 table = dynarray([dynarray([1]), dynarray([2, 3])])
 push(table[0], 4)

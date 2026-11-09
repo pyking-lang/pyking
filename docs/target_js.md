@@ -207,7 +207,7 @@ expressions; integers, strings and booleans; `+ - * /`, unary minus,
 comparisons, and calls. Tail position and `return if c:` are supported
 (see below); nested `def` and lambdas work too — JavaScript has
 closures. Arrays (`array(...)`, `a[i]`, `a[i] := v`, `len`, `same`) are
-too; see "Arrays" below. So are mutable structs (`var struct`,
+too; see "Arrays" below. So are mutable structs (`mutable struct`,
 `p.x := v`, `same`); see "Mutable structs", and DynArrays (`dynarray(...)`,
 `push`, `pop`, `insert`, `remove`, `clear`); see "DynArrays", and MutMaps;
 see "MutMaps"; slices (`s[i:j]`), views (`view`) and `copy_into`; see
@@ -311,7 +311,7 @@ goes through `pykShaped` with `d(c)`, which reads the fields through the
 template with `$0` as `c`: `Some('a')`, not `Some(97)`. The datatype's own name is bound to its name as a string,
 which is what an import of it imports. The functions hoist, so a
 constructor may be used above its declaration, as Pyking allows. A
-`var struct` is built by `pykStruct` instead, and its value is shared
+`mutable struct` is built by `pykStruct` instead, and its value is shared
 and written in place (see "Mutable structs").
 
 A `match` with a guard is a labelled block the arms leave with
@@ -861,7 +861,7 @@ target_js_core.ml), as `pykRange` is.
 
 ## Mutable structs
 
-**A `var struct`'s value is one JavaScript object**, which every name,
+**A `mutable struct`'s value is one JavaScript object**, which every name,
 parameter, element and field holding it shares -- an object is a
 reference, so assigning, passing, returning and storing one never copy
 it, exactly as PYKING.md says a mutable struct behaves. Its one
@@ -869,7 +869,7 @@ constructor builds it with the module's own `pykStruct` rather than
 `pykData`:
 
 ```pyking                              # generated JavaScript
-var struct Point(x: Int, y: Int = 0)   function Point(v0, v1) {
+mutable struct Point(x: Int, y: Int = 0)   function Point(v0, v1) {
                                          return pykStruct('Point', [v0, v1], ['x', 'y']);
                                        }
 p.x := 10                              p.x = 10;
@@ -893,7 +893,7 @@ compound `p.x += e` arrives from desugar_args.ml with its owner held in
 `field__owner`, so the owner is worked out once. `same(a, b)` is
 `a === b`, as for arrays.
 
-**Printing stops at a cycle.** A `var struct` can hold itself, through
+**Printing stops at a cycle.** A `mutable struct` can hold itself, through
 a datatype or an array, and so can an array; printing one must not
 recurse forever. `pykFormat` takes a third argument, the *path*: the
 arrays, tuples, lists and datatype values it is inside of. A value
@@ -907,7 +907,7 @@ array([Point(3, 3), Point(3, 3)])            the one Point twice
 ```
 
 That is interpreter.ml's `display_value` rule. Only an array or a
-`var struct` can repeat, but the guard is on every value holding others
+`mutable struct` can repeat, but the guard is on every value holding others
 -- it costs the same, and an immutable value can never be met inside
 itself. `pykShaped` passes the path along without checking it: a value
 can only reach itself through a datatype's value, which the descriptor
@@ -922,7 +922,7 @@ one exception would be an argument with a descriptor, which
 last argument is therefore handed over as `pykLater(xs, '{f}')`, which
 holds the value and its descriptor until `print`'s own `pykFormat`
 applies it. A list or tuple of Floats cannot change and keeps its
-`pykShaped`, and a `var struct` carries its descriptor inside it.
+`pykShaped`, and a `mutable struct` carries its descriptor inside it.
 
 ## DynArrays
 
@@ -1060,7 +1060,7 @@ two pointers compare.
   elements`, or `a view of`), then a place whose store is the array and
   whose slot is `i`. A view's element is its array's, at `offset + i`,
   so a pointer through a view and one through the array are equal.
-- **A field.** `&s.f` is `pykFieldPlace(s, 'f')`: the var struct object,
+- **A field.** `&s.f` is `pykFieldPlace(s, 'f')`: the mutable struct object,
   and the field's name as the slot.
 - **`&*p`** is `p`.
 

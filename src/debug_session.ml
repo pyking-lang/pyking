@@ -1054,7 +1054,7 @@ let variables t reference =
               (Array.to_list (Array.sub d.entries 0 d.used))
         | Interpreter.VTuple items -> List.mapi (fun i v -> (string_of_int i, v)) items
         | Interpreter.VData (_, fields) ->
-            (* A var struct's fields are read as they are now. *)
+            (* A mutable struct's fields are read as they are now. *)
             List.mapi
               (fun i (label, v) -> ((match label with Some l -> l | None -> string_of_int i), v))
               (Array.to_list fields)

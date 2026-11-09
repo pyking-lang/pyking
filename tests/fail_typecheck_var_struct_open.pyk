@@ -1,4 +1,4 @@
-# A mutable value is one type: a generic var struct made at a type
+# A mutable value is one type: a generic mutable struct made at a type
 # nothing decides is refused, as an empty array is.
 #
 # This program is expected to FAIL. Its `.ast.out` holds the error
@@ -6,6 +6,6 @@
 
 use mutation
 
-var struct Cell(value: a)
+mutable struct Cell(value: a)
 
 empty = Cell([])

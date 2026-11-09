@@ -1,8 +1,8 @@
-# A var struct has fields to write; one with none is a plain struct.
+# A mutable struct has fields to write; one with none is a plain struct.
 #
 # This program is expected to FAIL. Its `.ast.out` holds the error
 # message, not a program's output.
 
 use mutation
 
-var struct Nothing()
+mutable struct Nothing()

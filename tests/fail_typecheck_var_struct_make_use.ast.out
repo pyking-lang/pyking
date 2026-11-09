@@ -1,4 +1,4 @@
 'tests/fail_typecheck_var_struct_make_use.pyk' 10:33-10:65 Type error:
-  'var_struct_shapes_mod.Rect' makes a var struct, whose fields are
-  written in place, which needs 'use mutation' at the top of this
+  'var_struct_shapes_mod.Rect' makes a mutable struct, whose fields
+  are written in place, which needs 'use mutation' at the top of this
   module

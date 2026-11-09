@@ -1,4 +1,4 @@
-# A var struct another module declares: this module has no `use
+# A mutable struct another module declares: this module has no `use
 # mutation`, so it does not make one, but it holds one it is given,
 # reads its fields, passes it on, and sees what the other module writes.
 

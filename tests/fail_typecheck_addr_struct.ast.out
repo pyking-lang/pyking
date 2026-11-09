@@ -1,4 +1,4 @@
 'tests/fail_typecheck_addr_struct.pyk' 12:5-12:9 Type error: '&' takes
   the address of a place that can be written -- a 'var', an array's
-  element, a var struct's field, or '*p' -- and this field is of a
+  element, a mutable struct's field, or '*p' -- and this field is of a
   struct or datatype that never changes

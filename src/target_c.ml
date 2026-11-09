@@ -389,7 +389,7 @@ let rec code own info t =
 (* --- which calls can change something ---
    Beside which calls can print (Analyses.effects), the order C leaves
    open matters where a call changes what another operand reads: a
-   `var` outside the function, a var struct's field, an element, a DynArray.
+   `var` outside the function, a mutable struct's field, an element, a DynArray.
    A def changes something where its body writes one of those, or calls
    a def that does, a builtin that writes (`push`, ...), or another
    module; a call through a function value, which nothing here can see
@@ -1028,7 +1028,7 @@ let ctor_tag ctx info t name =
       go 0 ctors
   | _ -> 0
 
-(** Whether t is a `var struct`'s type: one whose value is a pointer to
+(** Whether t is a `mutable struct`'s type: one whose value is a pointer to
     a struct written in place, on every C target. ctx -> typ -> bool *)
 let var_struct ctx t =
   match t with
@@ -1039,7 +1039,7 @@ let var_struct ctx t =
 
 (** Whether a datatype instance holds itself, directly or through another
     datatype, a tuple or a list: the one a tagged union by value cannot
-    be. An array, a DynArray or a var struct on the way holds a pointer
+    be. An array, a DynArray or a mutable struct on the way holds a pointer
     already, which ends the search. ctx -> info -> typ -> bool *)
 let holds_itself ctx info t =
   let rec reaches seen t target =
@@ -1069,7 +1069,7 @@ let holds_itself ctx info t =
         ctors
   | _ -> false
 
-(** Whether a value of datatype t is a pointer to its struct: a var
+(** Whether a value of datatype t is a pointer to its struct: a mutable
     struct on every C target, and a datatype holding itself on c23-gc
     (plain C refuses one). ctx -> typ -> bool *)
 let boxed ctx t =
@@ -1078,7 +1078,7 @@ let boxed ctx t =
      && match t with TCon (_, c, _, _) when not (is_store c) -> holds_itself ctx no_info t | _ -> false
 
 (** How a member of a datatype's value is reached: `->` through the
-    pointer a var struct or a datatype holding itself is, `.` otherwise.
+    pointer a mutable struct or a datatype holding itself is, `.` otherwise.
     ctx -> typ -> string *)
 let member_of ctx t = if boxed ctx t then "->" else "."
 
@@ -1390,7 +1390,7 @@ let rec ctype ctx st info t =
          can name it before it is complete. *)
       let shown = if is_boxed then name ^ " *" else name in
       (* One that reaches itself through a pointer -- an array's
-         elements, a DynArray, a var struct -- is declared ahead too, so the
+         elements, a DynArray, a mutable struct -- is declared ahead too, so the
          store can name it while its fields are worked out. *)
       let ahead =
         is_boxed
@@ -1466,7 +1466,7 @@ let rec ctype ctx st info t =
                    else [ Printf.sprintf "v%stag = %d;" sel tag ])
                   @ List.map (fun (_, n) -> Printf.sprintf "v%s%s = %s;" sel (member_path sole cname n) n) fs
                 in
-                (* A var struct, or one that holds itself, is made on the
+                (* A mutable struct, or one that holds itself, is made on the
                    heap: malloc on plain C; on c23-gc the collector's,
                    atomic where no field holds a pointer. *)
                 let made =
@@ -1559,7 +1559,7 @@ and declaration ct name =
 
 (* --- printing a value ---
    A value is written by a function per compound type, pyk_show_<code>.
-   An array, a DynArray or a var struct may hold itself; printing one that is
+   An array, a DynArray or a mutable struct may hold itself; printing one that is
    already being printed further out writes `...` instead, so each
    printer that can meet one takes the path from the value printed
    first, `up`, a list of pyk_path cells on the C stack. Only a store
@@ -1596,7 +1596,7 @@ let on_path_helper =
     ]
 
 (** Whether a value of type t can be printed inside itself: a store -- an
-    array, a DynArray, a view, a MutMap, a pointer or a var struct -- whose
+    array, a DynArray, a view, a MutMap, a pointer or a mutable struct -- whose
     elements or fields reach its own type, or a datatype that reaches
     itself through one. ctx -> typ -> bool *)
 let cyclic ctx t =
@@ -3230,7 +3230,7 @@ let rec in_order ?(expected = []) ctx st scope es =
   let effectful = List.concat (List.mapi (fun i e -> if Analyses.may_print ctx.printing e then [ i ] else []) es) in
   let printing = List.filteri (fun i _ -> i < List.length effectful - 1) effectful in
   (* A piece whose value a call could change -- a `var`, a field of a
-     var struct, an element, or a call itself -- is worked out before a
+     mutable struct, an element, or a call itself -- is worked out before a
      later piece that calls something, and a piece that calls something
      before a later one such a call could change. *)
   let calls = List.map (has_call ctx scope) es in
@@ -3261,7 +3261,7 @@ let rec in_order ?(expected = []) ctx st scope es =
 
 (** Whether nothing a call could do changes e's value: e reads no
     `var` a call can write (a captured one, or one of the top level), no
-    field of a var struct, no element and no DynArray's length, and calls
+    field of a mutable struct, no element and no DynArray's length, and calls
     nothing but a builtin that only reads. ctx -> state -> scope -> expr
     -> bool *)
 and stable ctx st scope e =
@@ -3430,12 +3430,12 @@ and expr ctx st scope e =
       | Some { value; _ } -> (mk p_unary ("&" ^ at p_unary value), st)
       | None -> unsupported info (Printf.sprintf "'%s' is not a value this backend can compile" name))
   | EAddr (_, EField (_, owner, field, _), _) ->
-      (* A var struct's field: `&p->x`. *)
+      (* A mutable struct's field: `&p->x`. *)
       let owner_t = type_of ctx scope owner in
       let path =
         match List.assoc_opt field (sole_fields ctx info owner_t) with
         | Some path -> path
-        | None -> unsupported info "the address of a field of what is not a var struct"
+        | None -> unsupported info "the address of a field of what is not a mutable struct"
       in
       let v, st = expr ctx st scope owner in
       (mk p_unary (Printf.sprintf "&%s->%s" (at p_atom v) path), st)
@@ -4234,7 +4234,7 @@ and builtin ctx st scope e name args =
          elements, so two arrays never share one. *)
       wrap (binary p_eq "==" (atom (at p_atom a ^ ".items")) (atom (at p_atom b ^ ".items")))
   | "same", [ a; b ] ->
-      (* A DynArray or a var struct is a pointer: one is one pointer. *)
+      (* A DynArray or a mutable struct is a pointer: one is one pointer. *)
       wrap (binary p_eq "==" a b)
   | ("push" | "insert" | "clear"), (_ :: _ as vs) when dynarray_element (arg_type 0) <> None ->
       let helper, st = dynarray_helper ctx st info (arg_type 0) name in
@@ -4296,7 +4296,7 @@ and print_call ctx st scope name args =
   let values, steps, st = in_order ctx st scope args in
   (* Every argument is worked out before any is written: where a later
      one calls something that could change an earlier one -- an array, a
-     DynArray or a var struct, or what holds one -- each is put in a
+     DynArray or a mutable struct, or what holds one -- each is put in a
      temporary first, in order. *)
   let changeable a =
     reaches_type ctx (fun u -> (match u with TCon (_, c, _, _) when is_store c -> true | _ -> false) || var_struct ctx u) (type_of ctx scope a)
@@ -4736,7 +4736,7 @@ and stmt ctx st scope s =
       let path =
         match List.assoc_opt field (sole_fields ctx info owner_t) with
         | Some path -> path
-        | None -> unsupported info "a field written in place of what is not a var struct"
+        | None -> unsupported info "a field written in place of what is not a mutable struct"
       in
       let ov, st = expr ctx st scope owner in
       let opre, st = flush st in
@@ -4756,7 +4756,7 @@ and stmt ctx st scope s =
           (atom held, [ CDecl (ct, held, Some ov.text) ], st)
       in
       let vv, st = expr ctx st scope value in
-      if vv.local_env then unsupported info (escaping "a var struct");
+      if vv.local_env then unsupported info (escaping "a mutable struct");
       let vpre, st = flush st in
       (opre @ decls @ vpre @ [ CLine (Printf.sprintf "%s->%s = %s;" (at p_atom held) path (at p_assign vv)) ], scope, st))
   | SSetIndex (info, owner, key, value, _) when mutmap_parts (type_of ctx scope owner) <> None ->

@@ -47,7 +47,7 @@ section; everything else compiles:
 - arrays: `array(...)` in its four forms, `a[i]`, `a[i] := v`, `len`,
   `same`, `for` and comprehensions over one, as OCaml's own `array`
   (see "Arrays");
-- pointers: `&` of a `var`, an array's or a view's element, a var
+- pointers: `&` of a `var`, an array's or a view's element, a mutable
   struct's field, or `*p`; `*p`, `*p := v`, `==` by place, printing
   (see "Pointers");
 - slices `s[i:j]` of lists, Strings, arrays, DynArrays and views; views
@@ -59,7 +59,7 @@ section; everything else compiles:
 - DynArrays: `dynarray(...)`, `push`, `pop`, `insert`, `remove`, `clear`,
   `v[i]`, `v[i] := x`, `len`, `same`, `for` and comprehensions (see
   "DynArrays");
-- `var struct`s: fields written with `:=` and the compound operators,
+- `mutable struct`s: fields written with `:=` and the compound operators,
   values shared by reference, `same`, and cycles printed with `...`
   (see "Var structs");
 - tuples, including a binding that takes one apart;
@@ -712,11 +712,11 @@ writes `Array(T)` as `T array` in the `.mli`.
 
 ### Var structs
 
-A `var struct` is a variant of one constructor over an *inline record*
+A `mutable struct` is a variant of one constructor over an *inline record*
 whose fields are all `mutable`, labelled with the fields' names:
 
 ```pyking                          # generated OCaml
-var struct Point(x: Int, y: Int)   type point =
+mutable struct Point(x: Int, y: Int)   type point =
                                      | Point of { mutable x : int; mutable y : int }
 ```
 
@@ -740,12 +740,12 @@ to the name it came from. OCaml fixes that order in a `let` alone, so
 the write takes the record out of the owner with one, and works out the
 value in its body. `p.x += e` reaches this backend already split into a
 binding of the owner, `field__owner = p`, and a write through it. A
-type variable of a generic `var struct` is fixed by the struct's first
+type variable of a generic `mutable struct` is fixed by the struct's first
 use, which OCaml's own weak type variable does the same way.
 
-**Cycles.** A var struct, or an array, can hold itself, so every
+**Cycles.** A mutable struct, or an array, can hold itself, so every
 printer that can meet one again takes the *path*: an `Obj.t list` of
-the arrays and var structs being formatted further out, innermost
+the arrays and mutable structs being formatted further out, innermost
 first, `[]` where formatting starts. `pyk_guard` formats a value with
 the value put on the path, or answers `...` where it is on it already:
 
@@ -773,14 +773,14 @@ Which printers take the path is decided from the datatype's
 declaration and those of its own module alone, so every module that
 sees a datatype hands its printer the same arguments: one takes it
 where its values can hold a cycle through an array, a DynArray, a MutMap or a
-var struct, a type variable's value, or a type of another module. Such
+mutable struct, a type variable's value, or a type of another module. Such
 a printer guards its value too, immutable or not, as the interpreter
 puts every datatype value with fields on its path: the cycle stops at
 whatever on it repeats first, so `o = Just(n)` with `n.nxt := o` prints
 `Just(N(1, ...))`. Its type-parameter printers take the path too
 (`show_a path f0`). A datatype of plain values -- `Point` above, a list
 of Ints, a tree of Strings -- takes no path and prints as it did before
-var structs existed.
+mutable structs existed.
 
 In a recursive group a printer is monomorphic in the others, so a
 generic datatype's printer that another datatype of the group calls at
@@ -885,7 +885,7 @@ every module writes the same type for a pointer, as for a DynArray.
 | `&x`, `x` a `var` | `pyk_ptr_cell x`: the `var`'s ref itself, slot 0 |
 | `&a[i]` | `pyk_ptr_elem a i`, the index checked as the address is taken |
 | `&w[i]`, `w` a view | `pyk_ptr_view_elem w i`: the array's element `offset + i` |
-| `&s.f`, `s` a var struct | `pyk_ptr_field s k get set`: the struct, the field's position, and a reader and a writer of the field |
+| `&s.f`, `s` a mutable struct | `pyk_ptr_field s k get set`: the struct, the field's position, and a reader and a writer of the field |
 | `&*p` | `p` |
 | `p == q` | `pyk_ptr_same p q`: one store (`==`) and one slot |
 | printing | `"Ptr(" ^ … p#get … ^ ")"`, what it points at now; on the path it is its store (`pyk_ptr_store`) |
@@ -975,7 +975,7 @@ what Pyking does on every type the checker lets them compare: scalars
 by value (a Float by IEEE, so `nan = nan` is false and `-0.0 = 0.0`
 true), lists and tuples element by element, datatypes by constructor
 and then field by field. The checker refuses them on functions, arrays,
-DynArrays, MutMaps, var structs and type variables, the values `=` would raise
+DynArrays, MutMaps, mutable structs and type variables, the values `=` would raise
 on or compare by contents where Pyking compares by identity, so none
 reaches it.
 
@@ -998,7 +998,7 @@ let () =
 ```
 
 Every argument is worked out before any is formatted. Where one of
-them can hold an array or a var struct and another calls a function,
+them can hold an array or a mutable struct and another calls a function,
 which could change it, each argument is held under a name of its own,
 left to right, and the line is made from the names:
 
@@ -1075,10 +1075,10 @@ reads the element first, as the interpreter does.
 The rule in full: where one operand *writes* -- prints, can fail (an
 element read of an array, a DynArray or a MutMap, making an array), or calls
 something that can change what a caller sees -- every operand that can
-*see* it is pinned. Seeing is writing, or reading a `var`, a var
+*see* it is pinned. Seeing is writing, or reading a `var`, a mutable
 struct's field, a builtin's reading of a DynArray or a MutMap (`len`, `get`,
 `has`, `keys`, ...), a `string(v)` of something that can hold an array,
-a DynArray, a MutMap or a var struct, or calling any function, which may read
+a DynArray, a MutMap or a mutable struct, or calling any function, which may read
 those. A builtin is told from a program's own function of the same
 name by the type the checker gave the latter. Which functions change something is worked out like which print:
 a function that writes a `var` it did not declare, an element, a field

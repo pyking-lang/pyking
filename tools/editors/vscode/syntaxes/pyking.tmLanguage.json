@@ -59,7 +59,7 @@
     },
     "keyword": {
       "name": "keyword.control.pyking",
-      "match": "\\b(for|in|if|while|loop|break|continue|then|let|else|var|def|return|match|case|public|implicit|import|from|as|datatype|struct|use|lam|and|or|not|xor|class|interface|extends|implements|override|abstract|private|self|super)\\b"
+      "match": "\\b(for|in|if|while|loop|break|continue|then|let|else|var|mutable|def|return|match|case|public|implicit|import|from|as|datatype|struct|use|lam|and|or|not|xor|class|interface|extends|implements|override|abstract|private|self|super)\\b"
     },
     "type": {
       "name": "support.type.pyking",

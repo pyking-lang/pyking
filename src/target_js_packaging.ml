@@ -36,7 +36,7 @@ let reserved_names modules = modules
    not; and a datatype's value, built by the compiled program's
    `pykData` or `pykStruct`. Everything else -- numbers, booleans --
    already prints the way Pyking wants. It walks with the values it is
-   inside of as its path, so that an array or a `var struct` holding
+   inside of as its path, so that an array or a `mutable struct` holding
    itself prints `...` where it repeats -- display_value's rule in
    interpreter.ml (docs/target_js.md, "Mutable structs"). *)
 let format_js =
@@ -49,7 +49,7 @@ let format_js =
       "  // A print argument whose descriptor waited for the others (`pykLater`).";
       "  if (value.pykLater !== undefined) return pykShaped(value.value, value.pykLater, inner, path);";
       "  // `path` holds the values printing is inside of. Only an array or a";
-      "  // `var struct` can contain itself, and where one does, the repetition";
+      "  // `mutable struct` can contain itself, and where one does, the repetition";
       "  // prints as `...`; a value that is only shared is not on the path the";
       "  // second time, and prints in full.";
       "  // A view stands on the path for the array it is a view of, and a";
@@ -101,7 +101,7 @@ let format_js =
       "  }";
       "  // An object whose class has `show` prints what it says.";
       "  if (value.pykShow === true) return value.show();";
-      "  // A datatype's value, or a `var struct`'s: its constructor and its";
+      "  // A datatype's value, or a `mutable struct`'s: its constructor and its";
       "  // fields by position, each Float one written as a Float where the";
       "  // compiler said so.";
       "  if (value.pykTag !== undefined) {";

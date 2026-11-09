@@ -103,7 +103,7 @@ type t = {
 }
 
 (** Whether a module has `use mutation`, which the checker needs to know
-    to refuse making a `var struct` another module declares.
+    to refuse making a `mutable struct` another module declares.
     t -> bool *)
 let uses_mutation unit = List.mem "mutation" (Parser.uses unit.tokens)
 

@@ -88,7 +88,7 @@ type oexpr =
   | OField of oexpr * string (* e.field -- a polymorphic parameter, used *)
   | ORecord of string * oexpr (* { field = e } -- one, passed *)
   | OBuild of string * (string * oexpr) list
-      (* C { f = e; ... } -- a var struct made, its fields named *)
+      (* C { f = e; ... } -- a mutable struct made, its fields named *)
   | OSetField of oexpr * string * oexpr (* e.field <- v -- one written *)
   | OSend of oexpr * string (* e#method -- a pointer's, or an object's *)
   | OObject of (string * bool * oexpr) list * (string * string list * oexpr) list
@@ -689,7 +689,7 @@ type ctx = {
   shows : (string * oexpr) list;
   (* Whether those printers are handed the path as well (a printer that
      takes one passes it on), and the path a value formatted here is
-     inside: the arrays and var structs being formatted further out,
+     inside: the arrays and mutable structs being formatted further out,
      `[]` where formatting starts (docs/target_ocaml.md, "Var structs"). *)
   shows_path : bool;
   path : oexpr;
@@ -1382,7 +1382,7 @@ let array_init_helper = "pyk_array_init"
 let array_unfold_helper = "pyk_array_unfold"
 
 (* Not an array helper, but it lives with them: what stops a cycle of
-   arrays and var structs from printing forever. *)
+   arrays and mutable structs from printing forever. *)
 let guard_helper = "pyk_guard"
 
 (* A DynArray's helpers (docs/target_ocaml.md, "DynArrays"). *)
@@ -1721,7 +1721,7 @@ let array_helper_lines name =
   else if name = ptr_field_helper then
     Some
       [
-        "(* A var struct's field: the struct, the field's position, and how";
+        "(* A mutable struct's field: the struct, the field's position, and how";
         "   to read and write it. *)";
         Printf.sprintf "let %s owner slot get set =" name;
         "  object method get = get () method set v = set v method place = (Obj.repr owner, slot) end";
@@ -2039,7 +2039,7 @@ let array_helper_lines name =
       ]
   else if name = guard_helper then
     (* The path is what formatting is inside of, innermost first: an
-       array or var struct met again on it is a cycle, and stops there.
+       array or mutable struct met again on it is a cycle, and stops there.
        One only shared is not on it, so it prints in full each time. *)
     Some
       [
@@ -2175,14 +2175,14 @@ let numeric ctx operand spelling =
     ctx -> string -> datatype? *)
 let datatype_of ctx canonical = SMap.find_opt canonical ctx.datatypes
 
-(** A var struct field's label in the OCaml record it is kept in: its
+(** A mutable struct field's label in the OCaml record it is kept in: its
     own name, or its position where it has none.
     int -> string option -> string *)
 let field_label index label =
   match label with Some name -> mangle_base name | None -> Printf.sprintf "f%d" index
 
-(** The labels of the var struct `canonical`'s fields, in order, or None
-    where it is not a var struct. ctx -> string -> [string]? *)
+(** The labels of the mutable struct `canonical`'s fields, in order, or None
+    where it is not a mutable struct. ctx -> string -> [string]? *)
 let var_struct_labels ctx canonical =
   match datatype_of ctx canonical with
   | Some (Datatype (_, _, [ (_, fields) ], true)) ->
@@ -2199,7 +2199,7 @@ let record_pattern ctor pairs some =
 (** Whether the printer of the datatype `canonical` is handed the path
     (docs/target_ocaml.md, "Var structs"): whether a value of it can hold
     a cycle -- one that leads back through an array, a DynArray, a MutMap or a
-    var struct to where it started -- or a type variable's value, which
+    mutable struct to where it started -- or a type variable's value, which
     may. Such a value goes on the path itself before its fields are
     formatted, as the interpreter's does, so the cycle stops at whatever
     on it repeats first. Worked out from the
@@ -2279,7 +2279,7 @@ let holds_pointer ctx t = holds_such ctx (fun t -> ptr_target t <> None) t
     entries in any order. ctx -> typ -> bool *)
 let compared_by_helper ctx t = holds_pointer ctx t || holds_such ctx (fun t -> map_parts t <> None) t
 
-(** Whether a value of type t can hold an array or a var struct: one a
+(** Whether a value of type t can hold an array or a mutable struct: one a
     call can change between the moment it is worked out and the moment
     it is formatted. ctx -> typ -> bool *)
 let rec holds_mutable ctx t =
@@ -2321,7 +2321,7 @@ let call_changes defined known unknown tmap e =
 
 (** The functions of a program that can change something a caller can
     see -- a `var` they did not declare themselves, an element of an
-    array or a DynArray, a field of a var struct, a DynArray's length -- directly
+    array or a DynArray, a field of a mutable struct, a DynArray's length -- directly
     or through a call, worked out to a fixed point over the call graph;
     and whether a call that cannot be followed is taken to change
     something, which it is where the program imports a module or any of
@@ -2413,8 +2413,8 @@ let writes ctx e =
        e
 
 (** Whether e can see what another operand does: whether it writes, or
-    reads a `var`, a var struct's field, a DynArray's length, or anything
-    `string` formats that can hold an array or a var struct, or calls a
+    reads a `var`, a mutable struct's field, a DynArray's length, or anything
+    `string` formats that can hold an array or a mutable struct, or calls a
     function, which may read any of those. ctx -> expr -> bool *)
 let observes ctx e =
   writes ctx e
@@ -2841,7 +2841,7 @@ let rec expr ctx acc e =
                           false )
                   in
                   (made, need acc ptr_field_helper)
-              | _ -> unsupported info "the address of a field of a value that is not a var struct")
+              | _ -> unsupported info "the address of a field of a value that is not a mutable struct")
           | _ -> unsupported info "the address of a field of a value whose type is not settled")
       | EDeref (_, pointer, _) -> expr ctx acc pointer
       | _ -> unsupported info "the address of something that is not a place")
@@ -2898,7 +2898,7 @@ let rec expr ctx acc e =
       let ctor = OVar (constructor_name canonical name) in
       match (var_struct_labels ctx canonical, pieces) with
       | Some labels, _ ->
-          (* A var struct is a record of mutable fields, and making one
+          (* A mutable struct is a record of mutable fields, and making one
              allocates the object every holder of it shares. *)
           ( sequence
               (OBuild (constructor_name canonical name, List.combine labels pieces)),
@@ -2915,7 +2915,7 @@ let rec expr ctx acc e =
       | TCon (_, canonical, _, _) -> (
           match SMap.find_opt canonical ctx.datatypes with
           | Some (Datatype (_, _, [ (cname, fields) ], true)) ->
-              (* A var struct's field, read where it is now:
+              (* A mutable struct's field, read where it is now:
                  `let Point { x = tmp1; _ } = p in tmp1`. *)
               let o_record, acc = expr ctx acc record in
               let name, acc = fresh_name ctx acc in
@@ -3164,7 +3164,7 @@ and print_call ctx acc call args =
   if args = [] then (OApp (OVar newline, [ OUnit ]), acc)
   else
     (* Every argument is worked out before any is formatted: where one
-       can hold an array or a var struct and another makes a call, which
+       can hold an array or a mutable struct and another makes a call, which
        could change it, each is held in turn, left to right, and the
        line is made from what was held. *)
     let late =
@@ -3830,7 +3830,7 @@ and matcher ctx acc p used =
       let ctor = constructor_name canonical name in
       let text =
         match (var_struct_labels ctx canonical, parts) with
-        (* A var struct's fields are matched as they are now. *)
+        (* A mutable struct's fields are matched as they are now. *)
         | Some labels, _ -> record_pattern ctor (List.combine labels parts) false
         | None, parts ->
         match parts with
@@ -4609,7 +4609,7 @@ and discard ctx acc statement =
                         OSetField (OVar name, field_label index (Some field), o_value) );
                     ] ),
                 acc )
-          | _ -> unsupported info "a field written in a value that is not a var struct")
+          | _ -> unsupported info "a field written in a value that is not a mutable struct")
       | _ -> unsupported info "a field written in a value whose type is not settled")
   | SSetIndex (_, owner, index, value, _) ->
       (* `a[i] := v` (docs/target_ocaml.md, "Arrays"): the array and the
@@ -5514,7 +5514,7 @@ let datatype_declarations datatypes =
                       (fun (cname, fields) ->
                         match fields with
                         | _ when writable ->
-                            (* A var struct: one constructor over a record
+                            (* A mutable struct: one constructor over a record
                                of mutable fields, which OCaml allocates
                                once and shares by reference. *)
                             Printf.sprintf "  | %s of { %s }" (constructor_base cname)
@@ -5614,7 +5614,7 @@ let datatype_printers ctx acc datatypes =
         let reads_path = StringSet.mem "path" (free body) in
         (* A value whose fields can lead back to it goes on the path
            while they are formatted, and is `...` where it is met again
-           -- a var struct, or an immutable value a cycle passes through. *)
+           -- a mutable struct, or an immutable value a cycle passes through. *)
         let body, acc =
           if reads_path then
             ( OApp (OVar guard_helper, [ OVar "path"; OVar "value"; OLambda ([ OPatName "path" ], body) ]),

@@ -57,8 +57,8 @@ print(counts["cat"], same(alias, counts), same(counts, mutmap([("the", 3)])))
 clear(counts)
 print(counts, len(counts))
 
-# A MutMap of DynArrays, and one holding var structs.
-var struct Box(n: Int)
+# A MutMap of DynArrays, and one holding mutable structs.
+mutable struct Box(n: Int)
 
 groups: MutMap(Int, DynArray(String)) = mutmap()
 for word in ["ox", "ant", "bee", "elk"]:

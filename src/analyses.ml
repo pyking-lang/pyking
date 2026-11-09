@@ -336,7 +336,7 @@ and analyze_stmt s env =
   | SReturn _ | SExprStmt _ | SBreak _ | SContinue _ -> env
   (* Writing an element binds nothing and writes no name: whether the
      owner may be written is its type's question (an Array's elements
-     always may), not a `var`'s. A field write is the same: a `var
+     always may), not a `var`'s. A field write is the same: a `mutable
      struct`'s fields always may be written. *)
   | SSetIndex _ | SSetField _ | SSetDeref _ -> env
   | SReturnStmt (_, stmt, _) ->

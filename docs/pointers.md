@@ -60,7 +60,7 @@ refused, naming the line that would allow them.
 | a `var` | `&count` | `Ptr(Int)` for an Int `var` |
 | an element of an array | `&a[i]` | `Ptr(T)` for an `Array(T)` |
 | an element of a view | `&w[i]` | the array's element `offset + i` |
-| a field of a `var struct` | `&pt.x` | `Ptr(Int)` for an Int field |
+| a field of a `mutable struct` | `&pt.x` | `Ptr(Int)` for an Int field |
 | what a pointer points at | `&*p` | `p` itself |
 
 Everything else has no address, and `&` of it is refused with the
@@ -218,7 +218,7 @@ representation.
 - `Ptr` is a type of one parameter, like `Array`. A binding records
   whether `var` made it (`bvar`), which is what `&x` asks.
 - `EAddr` checks its operand's form -- a `var`; an `EIndex` of an array
-  or a view; an `EField` of a `var struct` (or the `EQualified` a plain
+  or a view; an `EField` of a `mutable struct` (or the `EQualified` a plain
   `p.x` is read as); an `EDeref` -- and refuses anything else, saying
   why. It types as `Ptr(T)`.
 - `EDeref` unifies its operand with `Ptr(T)` and is a `T`; `SSetDeref`

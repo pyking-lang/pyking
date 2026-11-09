@@ -128,7 +128,7 @@ let all =
       max_args = Some 2;
       crosses_host = false;
       doc =
-        "Answer whether two arrays, two DynArrays or two var structs are the \
+        "Answer whether two arrays, two DynArrays or two mutable structs are the \
          same one -- one value under two names, so writing through one is \
          seen through the other -- rather than two holding the same \
          elements or fields, which `array.equal` asks of arrays. `==` \

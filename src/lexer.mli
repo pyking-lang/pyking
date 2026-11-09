@@ -91,6 +91,7 @@ type token =
   | TokLet of info (* 'let' (let expression: `let x = e in e`) *)
   | TokElse of info (* 'else' *)
   | TokVar of info (* 'var' *)
+  | TokMutable of info (* 'mutable' (before `struct`) *)
   | TokPublic of info (* 'public' (module export marker) *)
   | TokImplicit of info (* 'implicit' (an implicit definition or parameter) *)
   | TokImport of info (* 'import' *)

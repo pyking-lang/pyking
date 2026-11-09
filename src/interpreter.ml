@@ -102,7 +102,7 @@ type value =
   | VUndefined of string (* a hoisted `def` whose definition has not run *)
   | VData of string * (string option * value) array
       (* a value of a datatype: its constructor, and each field with its
-         name where it has one. A `var struct`'s fields are written in
+         name where it has one. A `mutable struct`'s fields are written in
          place, and the value is shared by every name holding it; no other
          datatype's ever are, so for them the sharing is never seen *)
   | VArray of value array
@@ -137,7 +137,7 @@ and dynarray = { mutable items : value array; mutable size : int }
 and view = { owner : value array; offset : int; length : int }
 
 (* Where a pointer points: a `var`'s cell, an element of an array (a
-   view's is its array's), or a field of a var struct. Two pointers are
+   view's is its array's), or a field of a mutable struct. Two pointers are
    equal when they name one place. *)
 and location = LCell of value ref | LElem of value array * int | LField of (string option * value) array * int
 
@@ -163,7 +163,7 @@ let boolean b = VBool b
 (* --- objects ---
    An object is a VData of its class's name holding every field it has,
    its parents' first, each by name, written in place: so a field is read,
-   written, pointed at and printed as a var struct's is. What makes it an
+   written, pointed at and printed as a mutable struct's is. What makes it an
    object is its class being in `classes`, which the program's own
    declarations fill before anything runs (`register_classes`). A method
    is a def named `Class.method`, taking `self` first; constructing one is
@@ -365,7 +365,7 @@ let write_location location value =
 (** Formats a value as it appears inside a larger one, or as a
     prompt/debugger shows it: like format_value, but a string is quoted.
     Iterative, so nesting cannot overflow the host stack. An array or a
-    struct met again inside itself -- a cycle, which only a `var struct`
+    struct met again inside itself -- a cycle, which only a `mutable struct`
     or an array can make -- prints as `...`; one that is only shared
     prints in full wherever it is (PYKING.md, "Mutable structs").
     value -> string *)
@@ -946,7 +946,7 @@ let call_free_symbols stmts =
 let divide_info = { file = "<division>"; row1 = 0; col1 = 0; row2 = 0; col2 = 0 }
 
 (** The pointer to a place, given the values naming it: an array's or a
-    view's element (the index checked), a var struct's field, or what a
+    view's element (the index checked), a mutable struct's field, or what a
     pointer points at. expr -> [value] -> value *)
 let address_of place parts =
   match (place, parts) with
@@ -1704,7 +1704,7 @@ and match_pattern env pattern value =
       if is_a built target then Some (extend env bound value) else None
   | PConstructor (_, _, name, patterns, _, _), VData (built, fields)
     when name = built && List.length patterns = Array.length fields ->
-      (* A `var struct`'s fields are read as they are now. *)
+      (* A `mutable struct`'s fields are read as they are now. *)
       List.fold_left2
         (fun env one (_, part) ->
           match env with None -> None | Some env -> match_pattern env one part)
@@ -2041,7 +2041,7 @@ let start_loop state loop =
 let no_show args =
   if Hashtbl.length classes = 0 then true
   else
-    (* A var struct or an array may hold itself: each is looked into once. *)
+    (* A mutable struct or an array may hold itself: each is looked into once. *)
     let seen = ref [] in
     let rec has = function
       | VData (_, fields) when List.memq (Obj.repr fields) !seen -> false

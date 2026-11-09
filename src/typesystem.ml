@@ -175,7 +175,7 @@ let table_parts type_ = match mutmap_parts type_ with Some parts -> Some parts |
 let table_word type_ = if map_parts type_ <> None then "Map" else "MutMap"
 
 (* `Ptr(T)`: a pointer to a place holding a T -- a `var`, an array's or a
-   view's element, a var struct's field -- made by `&` alone (PYKING.md,
+   view's element, a mutable struct's field -- made by `&` alone (PYKING.md,
    "Pointers"). *)
 let ptr_name = "Ptr"
 let t_ptr info target = TCon (info, ptr_name, [ target ], 0)
@@ -3709,7 +3709,7 @@ let pattern_shape wanted type_ info store =
 (** Why `==` cannot compare values of type t, or None where it can:
     structurally, part by part, every part a scalar or itself something
     `==` compares (PYKING.md, "Comparison operators"). A function has no
-    equality; an array, a DynArray, a MutMap and a `var struct` have an identity
+    equality; an array, a DynArray, a MutMap and a `mutable struct` have an identity
     instead, which `same` asks; a type variable may stand for any of
     those. A metavariable is left to what decides it. Answers the part
     that has none, as a reader names it, and what to say of it.
@@ -3733,7 +3733,7 @@ let equality_problem store t =
             ": compare the objects one at a time with '==', which calls their 'eq'" )
     | TCon (_, name, args, _) -> (
         match SMap.find_opt name store.datatypes with
-        | Some (Datatype (_, _, _, true)) -> Some (Printf.sprintf "a var struct, %s" (base_name name), same_hint)
+        | Some (Datatype (_, _, _, true)) -> Some (Printf.sprintf "a mutable struct, %s" (base_name name), same_hint)
         | Some (Datatype (_, params, constructors, false)) ->
             if List.mem name seen then List.find_map (go seen) args
             else
@@ -3771,7 +3771,7 @@ let key_problem store t =
         Some (Printf.sprintf "an object, a %s, which has an identity of its own" (base_name name))
     | TCon (_, name, args, _) -> (
         match SMap.find_opt name store.datatypes with
-        | Some (Datatype (_, _, _, true)) -> Some (Printf.sprintf "a var struct, %s, which changes" (base_name name))
+        | Some (Datatype (_, _, _, true)) -> Some (Printf.sprintf "a mutable struct, %s, which changes" (base_name name))
         | Some (Datatype (_, params, constructors, false)) ->
             if List.mem name seen then List.find_map (go seen) args
             else
@@ -4159,7 +4159,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
       let store = record store sym (unit_type info) in
       (Some (unit_type info), env, store)
   | SSetField (info, owner, field, value, sym) ->
-      (* `p.x := v` writes a field: `p` is a `var struct` -- a plain
+      (* `p.x := v` writes a field: `p` is a `mutable struct` -- a plain
          struct or datatype never changes -- with a field `x`, and `v` is
          that field's type. They are checked in the order they run. *)
       let owner_type, store = check_expr owner env store in
@@ -4207,7 +4207,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
                      Printf.sprintf
                        "a %s never changes, so its field '%s' cannot be \
                         written with '%s': build a new one, %s, or declare \
-                        it 'var struct %s'"
+                        it 'mutable struct %s'"
                        (base_name canonical) field (assignment_word statement) built
                        (base_name canonical) )))
       | settled when is_meta settled ->
@@ -4223,7 +4223,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
             (Type_error
                ( owner_info,
                  Printf.sprintf
-                   "only a var struct's field is written with '%s', and this \
+                   "only a mutable struct's field is written with '%s', and this \
                     value is %s"
                    (assignment_word statement) (shown settled store) )));
       let wanted, store = field_type info owner_type field store in
@@ -4840,7 +4840,7 @@ and expr_type e env store =
          the parameters are. *)
       let spelled = match module_ with Some m -> m ^ "." ^ name | None -> name in
       let _, fields, result, store = constructor_use info spelled name store in
-      (* Making a `var struct` is mutation's, wherever it is declared
+      (* Making a `mutable struct` is mutation's, wherever it is declared
          (FCR-A4); the parser refuses one this module declares, and this
          is where one another module declares is. *)
       (match prune result store with
@@ -4851,7 +4851,7 @@ and expr_type e env store =
                 (Type_error
                    ( info,
                      Printf.sprintf
-                       "'%s' makes a var struct, whose fields are written in \
+                       "'%s' makes a mutable struct, whose fields are written in \
                         place, which needs 'use mutation' at the top of this \
                         module"
                        spelled ))
@@ -4932,7 +4932,7 @@ and expr_type e env store =
                    hint )))
   | EAddr (info, place, _) -> (
       (* `&place`: a pointer to a place something may write -- a `var`,
-         an array's or a view's element, a var struct's field, or what a
+         an array's or a view's element, a mutable struct's field, or what a
          pointer points at (PYKING.md, "Pointers"). *)
       let refuse what =
         raise
@@ -4940,7 +4940,7 @@ and expr_type e env store =
              ( expr_info place,
                Printf.sprintf
                  "'&' takes the address of a place that can be written -- a \
-                  'var', an array's element, a var struct's field, or '*p' -- \
+                  'var', an array's element, a mutable struct's field, or '*p' -- \
                   and %s" what ))
       in
       match place with
@@ -6231,10 +6231,10 @@ and check_builtin_call name call env store =
   | "same", [ first; second ] ->
       (* Whether two values are one: identity, which `==` does not ask
          (PYKING.md, "Arrays", "Mutable structs"). Both are arrays of one
-         element type, or both one `var struct` -- the values that have
+         element type, or both one `mutable struct` -- the values that have
          an identity; one nothing has decided is an array. *)
       check_builtin_arity name info given;
-      let wanted = "two arrays, DynArrays, MutMaps, views, var structs or objects, of one type" in
+      let wanted = "two arrays, DynArrays, MutMaps, views, mutable structs or objects, of one type" in
       let identity settled =
         match settled with
         | TCon (_, c, _, _) when List.mem c [ array_name; dynarray_name; mutmap_name; slice_name ] -> true
@@ -7224,7 +7224,7 @@ and resolved_argument one store =
 
 (** Refuses a binding whose type holds a mutable value of a type nothing
     decided -- an array of elements nothing decided (`a = array([])`,
-    never written or read as anything), or a `var struct` of a parameter
+    never written or read as anything), or a `mutable struct` of a parameter
     nothing decided (`c = Cell([])`): a mutable value has to be one type,
     and no later program text can say which once the module is checked
     (PYKING.md, "Arrays", "Mutable structs"). An immutable `xs = []` stays

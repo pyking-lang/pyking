@@ -5,7 +5,7 @@
 
 use mutation
 
-var struct Point(x: Int, y: Int)
+mutable struct Point(x: Int, y: Int)
 
 p = Point(1, 2)
 p.z := 3

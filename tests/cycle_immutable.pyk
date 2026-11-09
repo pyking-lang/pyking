@@ -10,7 +10,7 @@ datatype Opt(a):
     No
     Just(v: a)
 
-var struct Link(n: Int, next: Opt(Link))
+mutable struct Link(n: Int, next: Opt(Link))
 
 first = Link(1, No)
 around = Just(first)

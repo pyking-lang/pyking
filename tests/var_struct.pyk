@@ -1,4 +1,4 @@
-# Mutable structs: a `var struct` is declared once, its fields written
+# Mutable structs: a `mutable struct` is declared once, its fields written
 # with `:=` and the compound operators, and its values shared by every
 # name, element and parameter holding one -- a write through any of them
 # is seen through all. A `..` update and a pattern read the fields as they
@@ -6,7 +6,7 @@
 
 use mutation
 
-var struct Point(x: Int, y: Int = 0)
+mutable struct Point(x: Int, y: Int = 0)
 
 p = Point(5)
 p.x := 10
@@ -36,7 +36,7 @@ first.y := -1
 print(points[0])
 
 # A field written through a call and through a field of a field.
-var struct Box(inner: Point, label: String)
+mutable struct Box(inner: Point, label: String)
 
 box = Box(Point(0, 0), "b")
 
@@ -65,7 +65,7 @@ match p:
         print("near", x, y)
 
 # Every operator form, in order.
-var struct Counter(n: Int, bits: Int, text: String)
+mutable struct Counter(n: Int, bits: Int, text: String)
 
 c = Counter(7, 12, "a")
 c.n -= 2
@@ -96,8 +96,8 @@ def switch() -> Int:
 pick.x += switch()
 print(original, pick, other)
 
-# A generic var struct takes one type, fixed by its first use.
-var struct Cell(value: a)
+# A generic mutable struct takes one type, fixed by its first use.
+mutable struct Cell(value: a)
 
 cell = Cell([])
 cell.value := [1, 2]
@@ -109,7 +109,7 @@ datatype Link:
     End
     Next(node: Node)
 
-var struct Node(value: Int, next: Link)
+mutable struct Node(value: Int, next: Link)
 
 a = Node(1, End)
 b = Node(2, Next(a))
@@ -122,7 +122,7 @@ loop_back = Node(0, End)
 loop_back.next := Next(loop_back)
 print(loop_back, string(loop_back))
 
-# Walking a linked list of var structs.
+# Walking a linked list of mutable structs.
 var walker = a
 var total = 0
 var steps = 0

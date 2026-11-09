@@ -165,7 +165,7 @@ concurrently — nothing here needs the "one call, then restore" discipline
 
 `js_helpers` writes the module's own helpers -- `pykList`, `pykRange`,
 `pykLen`, the Char helpers, `pykConcat`, `pykData`, `pykStruct` (a
-`var struct`'s constructor), `pykWithShape` and the array ones -- only where the translated program names them
+`mutable struct`'s constructor), `pykWithShape` and the array ones -- only where the translated program names them
 (`uses`), so an ordinary program compiles to ordinary JavaScript. The
 array helpers (`pykArray`, `pykArrayOfList`, `pykArrayFill`,
 `pykArrayInit`, `pykArrayUnfold`, `pykArraySize`, `pykAt`,
@@ -189,7 +189,7 @@ that is not a binding: `JsSetIndex (target, index, value)` prints
 `target[index] = value;`, and is emitted only after the
 `pykCheckIndex` statement that checks it (target_js.md, "Arrays").
 Its sibling `JsSetField (target, name, value)` prints
-`target.name = value;`, a `var struct`'s field written in place; it
+`target.name = value;`, a `mutable struct`'s field written in place; it
 needs no check, and JavaScript's own order -- the owner, then the
 value -- is the one Pyking lays down (target_js.md, "Mutable
 structs").

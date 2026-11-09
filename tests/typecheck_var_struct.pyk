@@ -1,13 +1,13 @@
-# Mutable structs under the type checker. A `var struct` is a type of its
+# Mutable structs under the type checker. A `mutable struct` is a type of its
 # own whose fields `:=` and the compound operators write, with a value of
 # the field's type; a generic one is one type, fixed by its first use;
 # `same` asks whether two are one. The `.ast.out` pins the types worked
-# out, and the printed program declares it `var struct` again.
+# out, and the printed program declares it `mutable struct` again.
 
 use mutation
 
-var struct Account(owner: String, balance: Int = 0)
-var struct Cell(value: a)
+mutable struct Account(owner: String, balance: Int = 0)
+mutable struct Cell(value: a)
 
 acct = Account("ada")
 acct.balance += 100

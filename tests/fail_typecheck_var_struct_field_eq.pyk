@@ -5,7 +5,7 @@
 
 use mutation
 
-var struct Point(x: Int, y: Int)
+mutable struct Point(x: Int, y: Int)
 
 def f(p: Point) -> ():
     p.x = 3

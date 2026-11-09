@@ -420,7 +420,7 @@ and an index, or an object and the name of one of its fields.
 ```python
 class __PykPtr:
     # A pointer: the place `slot` of `store` -- an array's element by
-    # index, or a field by name of a var struct or of a var's box.
+    # index, or a field by name of a mutable struct or of a var's box.
     __slots__ = ('store', 'slot')
 
     def __init__(self, store, slot): ...
@@ -464,7 +464,7 @@ holding pointers is Python's own, which calls `__eq__`.
 
 ### Mutable structs
 
-A `var struct` is a dataclass that is not frozen, declared where any
+A `mutable struct` is a dataclass that is not frozen, declared where any
 datatype's constructor is (see "Datatypes" below), with `eq=False` so
 that two of them are equal only when they are one object. Its value is
 an ordinary Python object, so it is shared the way Pyking says it is:
@@ -476,7 +476,7 @@ object; a pattern `case Point(x, y)` reads the fields as they are.
 
 ```pyking                          # generated Python
 use mutation
-var struct Point(x: Int, y: Int = 0)  @dataclass(slots=True, eq=False)
+mutable struct Point(x: Int, y: Int = 0)  @dataclass(slots=True, eq=False)
                                    class Point:
                                        x: int
                                        y: int
@@ -501,8 +501,8 @@ pick.x := switch()                 __pyk_owner1 = pick
 A compound write `p.x += e` arrives as `field__owner = p` and a write
 of `field__owner.x + e`, `field__owner` a name no `:=` writes.
 
-**Printing.** A var struct prints as a struct does, `Point(10, 1)`,
-through the Bool walker. A value that holds itself -- a var struct or
+**Printing.** A mutable struct prints as a struct does, `Point(10, 1)`,
+through the Bool walker. A value that holds itself -- a mutable struct or
 an array met again inside itself, through any datatypes, lists or
 tuples between -- prints `...` where it repeats: `Node(1,
 Next(Node(2, Next(...))))`. The walker carries `path`, the ids of the
@@ -514,7 +514,7 @@ interpreter's rule (`display_value`), for `print` and `string` alike.
 All of a `print`'s arguments are worked out before any is formatted,
 so `print(a, f())` shows what `f` did to `a`. Python formats each
 argument as it reaches it, so where an argument the walker formats can
-still be changed -- its type holds an array, a DynArray or a var struct, or
+still be changed -- its type holds an array, a DynArray or a mutable struct, or
 is one the backend cannot see into -- and a later argument makes a call
 (other than to a builtin that changes nothing, such as `len`), the
 arguments are handed to a lambda first and formatted inside it:
@@ -1210,7 +1210,7 @@ datatype's parameters are the class's PEP 695 type parameters, and the
 datatype's own name is a `type` alias for the union of its
 constructors, which is what an import of it imports -- unless a
 constructor has the datatype's name, as a `struct`'s does, and the
-class is the type. A `var struct`'s one class is
+class is the type. A `mutable struct`'s one class is
 `@dataclass(slots=True, eq=False)` instead (see "Mutable structs"
 above). A value prints through the Bool walker, which knows
 a datatype's value by its `__dataclass_fields__`; a class whose Python

@@ -72,7 +72,7 @@ runtime error, are the program module's own helpers rather than this
 module's, written only where a program uses them.
 
 `pykFormat` walks with a path -- the values it is inside of -- and
-prints `...` for a value already on it, so an array or a `var struct`
+prints `...` for a value already on it, so an array or a `mutable struct`
 that holds itself prints its cycle once, while a value that is only
 shared prints in full each time (interpreter.ml's `display_value`;
 target_js.md, "Mutable structs"). `pykShaped` passes the path on, and

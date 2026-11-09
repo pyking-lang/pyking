@@ -92,7 +92,7 @@ be changed, but is exposed as a customizable option the same way
 
 (defconst pyking-mode-keywords
   '("for" "in" "if" "while" "loop" "break" "continue" "then" "let" "else"
-    "var" "def" "return" "match" "case" "public" "implicit" "import" "from" "as"
+    "var" "mutable" "def" "return" "match" "case" "public" "implicit" "import" "from" "as"
     "datatype" "struct" "use" "lam" "and" "or" "not" "xor"
     "class" "interface" "extends" "implements" "override" "abstract"
     "private" "self" "super")
@@ -109,7 +109,9 @@ and `import'/`from'/`as' are how another module reaches it. `implicit'
 marks a definition an implicit argument may be resolved to, and an
 implicit parameter in a header or a function type (see \"Implicits\").
 `datatype' declares an algebraic data type (see \"Datatypes\"), and
-`struct' one with a single constructor (see \"Structs\"). `use' turns
+`struct' one with a single constructor (see \"Structs\"), which
+`mutable' in front makes one whose fields are written in place (see
+\"Mutable structs\"). `use' turns
 a feature on for a module (`use mutation'), `lam' starts a lambda, and
 `and'/`or'/`not'/`xor' are operators. The last nine are the words of
 classes and interfaces (see \"Classes and interfaces\"), which need

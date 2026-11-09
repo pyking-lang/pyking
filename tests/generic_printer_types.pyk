@@ -1,4 +1,4 @@
-# A generic datatype printed at several types, where a var struct of the
+# A generic datatype printed at several types, where a mutable struct of the
 # same group of declarations uses it at one: each print uses the type it
 # is given.
 
@@ -8,7 +8,7 @@ datatype Opt(a):
     No
     Just(v: a)
 
-var struct Cellar(name: String, next: Opt(Cellar))
+mutable struct Cellar(name: String, next: Opt(Cellar))
 
 c = Cellar("a", No)
 c.next := Just(Cellar("b", No))

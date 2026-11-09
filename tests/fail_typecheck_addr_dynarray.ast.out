@@ -1,5 +1,5 @@
 'tests/fail_typecheck_addr_dynarray.pyk' 10:5-10:9 Type error: '&'
   takes the address of a place that can be written -- a 'var', an
-  array's element, a var struct's field, or '*p' -- and a DynArray's
-  element moves when the DynArray grows: take the address of an
-  array's
+  array's element, a mutable struct's field, or '*p' -- and a
+  DynArray's element moves when the DynArray grows: take the address
+  of an array's

@@ -1,3 +1,3 @@
 'tests/fail_typecheck_struct_write.pyk' 12:0-12:8 Type error: a Point
   never changes, so its field 'x' cannot be written with '+=': build a
-  new one, Point(x = ..., ..old), or declare it 'var struct Point'
+  new one, Point(x = ..., ..old), or declare it 'mutable struct Point'

@@ -131,7 +131,7 @@ type context = {
 }
 
 (** Whether a module has `use mutation`, which the checker needs to know
-    to refuse making a `var struct` another module declares. t -> bool *)
+    to refuse making a `mutable struct` another module declares. t -> bool *)
 val uses_mutation : t -> bool
 
 (** Every file a module is written in, the declaration half first: a

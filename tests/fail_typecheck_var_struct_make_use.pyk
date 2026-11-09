@@ -1,4 +1,4 @@
-# Making a var struct is mutation's too, even one another module
+# Making a mutable struct is mutation's too, even one another module
 # declares: this module reads and passes them freely, but may not make
 # one without `use mutation`.
 #

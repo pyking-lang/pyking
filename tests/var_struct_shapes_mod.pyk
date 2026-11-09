@@ -1,9 +1,9 @@
-# A module declaring a var struct, imported by
+# A module declaring a mutable struct, imported by
 # fail_typecheck_var_struct_make_use.pyk and var_struct_import.pyk.
 
 use mutation
 
-public var struct Rect(w: Int, h: Int)
+public mutable struct Rect(w: Int, h: Int)
 
 
 public def area(r: Rect) -> Int:

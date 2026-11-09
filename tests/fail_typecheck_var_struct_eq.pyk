@@ -1,4 +1,4 @@
-# `==` does not compare structs: a var struct is compared with
+# `==` does not compare structs: a mutable struct is compared with
 # `same`, or field by field by a function the program writes.
 #
 # This program is expected to FAIL. Its `.ast.out` holds the error
@@ -6,6 +6,6 @@
 
 use mutation
 
-var struct Point(x: Int, y: Int)
+mutable struct Point(x: Int, y: Int)
 
 print(Point(1, 2) == Point(1, 2))

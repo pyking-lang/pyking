@@ -1,5 +1,5 @@
 # Pointers under `use mutation, pointers`: `&` takes the address of a
-# place -- a `var`, an array's or a view's element, a var struct's field,
+# place -- a `var`, an array's or a view's element, a mutable struct's field,
 # or what a pointer points at -- `*p` reads what it points at now, and
 # `*p := v` and the compound forms write it. Two pointers are equal when
 # they name one place. A pointer prints as what it points at. Every
@@ -32,8 +32,8 @@ s = &w[0]
 *s *= 2
 print(arr, *q, q == s)
 
-# A field of a var struct.
-var struct Point(x: Int, y: Int)
+# A field of a mutable struct.
+mutable struct Point(x: Int, y: Int)
 
 pt = Point(1, 2)
 r = &pt.y

@@ -1,4 +1,4 @@
-# Only a var struct's field is written with `:=`: a tuple has no fields.
+# Only a mutable struct's field is written with `:=`: a tuple has no fields.
 #
 # This program is expected to FAIL. Its `.ast.out` holds the error
 # message, not a program's output.

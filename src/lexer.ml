@@ -106,6 +106,7 @@ type token =
   | TokLet of info (* 'let' (let expression: `let x = e in e`) *)
   | TokElse of info (* 'else' *)
   | TokVar of info (* 'var' *)
+  | TokMutable of info (* 'mutable' (before `struct`) *)
   | TokPublic of info (* 'public' (module export marker) *)
   | TokImplicit of info (* 'implicit' (an implicit definition or parameter) *)
   | TokImport of info (* 'import' *)
@@ -194,6 +195,7 @@ let token_info tok =
   | TokLet i -> i
   | TokElse i -> i
   | TokVar i -> i
+  | TokMutable i -> i
   | TokPublic i -> i
   | TokImplicit i -> i
   | TokImport i -> i
@@ -278,6 +280,7 @@ let pprint_token tok =
   | TokLet _ -> "TokLet"
   | TokElse _ -> "TokElse"
   | TokVar _ -> "TokVar"
+  | TokMutable _ -> "TokMutable"
   | TokPublic _ -> "TokPublic"
   | TokImplicit _ -> "TokImplicit"
   | TokImport _ -> "TokImport"
@@ -330,7 +333,7 @@ let reserved_words =
 let keywords =
   [
     "for"; "in"; "if"; "while"; "loop"; "break"; "continue"; "then"; "let";
-    "else"; "var"; "def"; "return"; "match"; "case"; "public"; "implicit";
+    "else"; "var"; "mutable"; "def"; "return"; "match"; "case"; "public"; "implicit";
     "import";
     "from"; "as"; "datatype"; "struct"; "Int"; "Float"; "String"; "Char"; "Bool"; "true"; "false";
     "use"; "lam"; "and"; "or"; "not"; "xor";
@@ -352,6 +355,7 @@ let keyword_token name i =
   | "let" -> Some (TokLet i)
   | "else" -> Some (TokElse i)
   | "var" -> Some (TokVar i)
+  | "mutable" -> Some (TokMutable i)
   | "def" -> Some (TokDef i)
   | "return" -> Some (TokReturn i)
   | "match" -> Some (TokMatch i)

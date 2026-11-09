@@ -367,25 +367,25 @@ order they run: the array (a list or a String is refused with what to
 write instead), the index (an Int), and the value against the element
 type, with `satisfies`. `len`, `for` and a comprehension take arrays,
 and `same` is a builtin taking two values of one type with an identity:
-two arrays, or two `var struct`s. `==` has no row for arrays or structs,
+two arrays, or two `mutable struct`s. `==` has no row for arrays or structs,
 and its error says to use `same`, or `array.equal`.
 
 **An open array is refused at its binding** (`check_open_arrays`, after
 the module is checked): a binding whose type holds `Array` of an
-element type nothing decided, or a `var struct` of a parameter nothing
+element type nothing decided, or a `mutable struct` of a parameter nothing
 decided, since a mutable value has one type and nothing later can say
 which. An immutable `xs = []` stays `[a]`.
 
 ## Mutable structs
 
-A `var struct` is a datatype whose `Datatype` carries `true` as its last
+A `mutable struct` is a datatype whose `Datatype` carries `true` as its last
 field, which `declare_datatypes` takes from the `SDatatype` and a
 module's signature carries to every importer. A field is written by
 `SSetField`, checked in the order it runs: the owner, which must be a
-`var struct` -- a plain struct's write is refused with how to build a
+`mutable struct` -- a plain struct's write is refused with how to build a
 changed copy -- then the field's type, found by `field_type` (the
 function an `EField` read uses), then the value against it. Making a
-`var struct` another module declares is refused in `EConstruct` unless
+`mutable struct` another module declares is refused in `EConstruct` unless
 `store.mutation` is set, which `type_check ~mutation` takes from the
 module's `use` lines; the parser refuses this module's own. See
 [mutation.md](mutation.md).

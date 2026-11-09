@@ -1,5 +1,5 @@
 'tests/fail_typecheck_addr_binding.pyk' 10:5-10:6 Type error: '&'
   takes the address of a place that can be written -- a 'var', an
-  array's element, a var struct's field, or '*p' -- and 'n' is not a
-  var, so nothing can write to it through a pointer: declare it 'var n
-  = ...'
+  array's element, a mutable struct's field, or '*p' -- and 'n' is not
+  a var, so nothing can write to it through a pointer: declare it 'var
+  n = ...'

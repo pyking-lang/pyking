@@ -1,0 +1,4 @@
+'tests/fail_typecheck_mutable_misplaced.pyk' 9:0-9:7 Parsing error:
+  'mutable' goes before 'struct', in 'mutable struct Name(field: Type,
+  ...)', whose fields are written in place; a variable that changes is
+  declared with 'var'

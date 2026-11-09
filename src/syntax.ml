@@ -54,7 +54,7 @@ type expr =
   | EIndex of info * expr * expr * int (* list[index] *)
   | EAddr of info * expr * int
       (* &place -- a pointer to a `var`, an array's or a view's element, a
-         var struct's field, or what a pointer points at (PYKING.md,
+         mutable struct's field, or what a pointer points at (PYKING.md,
          "Pointers") *)
   | EDeref of info * expr * int (* *p -- what a pointer points at, now *)
   | ESlice of info * expr * expr option * expr option * int
@@ -171,7 +171,7 @@ and typ =
 and datatype = Datatype of string * string list * (string * (string option * typ) list) list * bool
 (* a datatype as another module sees it: its canonical name, its
    parameters, each constructor with its fields (the name, where the
-   field has one, and the type), and whether it is a `var struct`, whose
+   field has one, and the type), and whether it is a `mutable struct`, whose
    fields are written in place. *)
 
 and implicit_param = IParam of string * typ
@@ -295,7 +295,7 @@ and stmt =
          worked out, then the value, and the place the pointer was is
          written (PYKING.md, "Pointers"). *)
   | SSetField of info * expr * string * expr * int
-      (* owner.field := value -- a field of a `var struct` written. The
+      (* owner.field := value -- a field of a `mutable struct` written. The
          owner is worked out, then the value, and the field of the owner
          first worked out is written (PYKING.md, "Mutable structs"). *)
   | SMutateTuple of info * assign_target * expr * int
@@ -343,7 +343,7 @@ and stmt =
       (* match subject: case pattern: body ... *)
   | SDatatype of info * string * string list * constructor list * int * bool * bool
       (* [public] datatype Name(a, b): one constructor per line. The
-         flags are `public`, and whether it is a `var struct`. *)
+         flags are `public`, and whether it is a `mutable struct`. *)
   | SClass of info * class_decl * int
       (* a class, an abstract class or an interface *)
   | SImport of info * string * string * bool * (string * string) list * int
@@ -1535,12 +1535,12 @@ and pprint_stmt_body cfg s level =
       in
       String.concat "\n" (lines @ List.concat_map case_lines cases)
   | SDatatype (_, name, _, [ (Constructor (_, cname, _, _) as c) ], _, public, true) ->
-      (* A `var struct` is written as one -- its name, then its one
+      (* A `mutable struct` is written as one -- its name, then its one
          constructor's fields -- since a datatype has no way to say its
          fields are written in place. *)
       let constructor = pprint_constructor cfg c in
       let fields = String.sub constructor (String.length cname) (String.length constructor - String.length cname) in
-      Printf.sprintf "%s%svar struct %s%s" pad (public_prefix public) name fields
+      Printf.sprintf "%s%smutable struct %s%s" pad (public_prefix public) name fields
   | SDatatype (_, name, params, constructors, _, public, _) ->
       let params =
         if params = [] then "" else "(" ^ String.concat ", " params ^ ")"

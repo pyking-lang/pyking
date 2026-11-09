@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Changed
+
+- A struct whose fields are written in place is declared `mutable
+  struct`, not `var struct` (PYKING.md, "Mutable structs"). `mutable` is
+  a new keyword, so it is no longer a name a program may bind. The old
+  spelling is refused with a hint to write `mutable struct`, as is
+  `mutable` before anything but `struct`; a `mutable datatype` is
+  refused as `var datatype` was.
 
 ## [0.1.9] - 2026-11-09
 

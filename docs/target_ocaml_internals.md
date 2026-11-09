@@ -128,7 +128,7 @@ expression rather than one. `writes` is true of one that can print,
 can fail (an element read of an array, a DynArray or a MutMap, or a call to
 one of `Builtin.member_names`, which checks a size), or calls something
 that can change what a caller sees. `observes` is true of one that
-writes, or reads a `var` (a name in `ctx.refs`), a var struct's field,
+writes, or reads a `var` (a name in `ctx.refs`), a mutable struct's field,
 a DynArray or a MutMap through a builtin (`len`, `get`, `has`, `keys`, ...),
 or a `string(v)` of something that can hold a mutable value, or calls
 any function at all -- a builtin being a callee the checker recorded
@@ -153,7 +153,7 @@ in the wrong order when only printing was ordered.
 `print` goes one step further, because its formatting is part of the
 expression OCaml orders: `print(p, change(p))` must format `p` as it is
 *after* `change` has run. `print_call` checks whether any argument's
-type can hold an array or a var struct (`holds_mutable`) and any
+type can hold an array or a mutable struct (`holds_mutable`) and any
 argument calls a function (`makes_calls`) or can print; if so it
 bypasses `in_order` and binds every argument that is not a plain name
 or literal under a fresh name, in order, before the joined string is
@@ -161,7 +161,7 @@ built.
 
 ## Var structs and printing cycles
 
-A `var struct` is translated to a single-constructor variant over an
+A `mutable struct` is translated to a single-constructor variant over an
 inline record of `mutable` fields (`datatype_declarations`), because
 that keeps every other part of the datatype machinery — the
 constructor name, `constructor_name` for one of another module, the
@@ -194,7 +194,7 @@ same by the declaring module and every importer, since one writes the
 printer and the others call it. It is worked out from declarations of
 the datatype's own module alone: a walk over its fields' types, with
 what it is inside of on a stack, that answers yes on meeting a datatype
-already on the stack with an array, a DynArray, a MutMap or a var struct
+already on the stack with an array, a DynArray, a MutMap or a mutable struct
 between (a cycle a mutable value can close), one of those containers or
 a type of another module, or a type variable. A printer that takes the
 path also guards its own value, immutable or not, because the
@@ -205,11 +205,11 @@ otherwise fix its type parameter at the one the group uses. Every module sees th
 of a module it imports — the checker refuses a public datatype that
 names a private one — so every module gets the same answer. A guard is
 only emitted where what it wraps actually reads the path (`free`), so
-an array of Ints, or a var struct of plain fields, prints as before.
+an array of Ints, or a mutable struct of plain fields, prints as before.
 
 ## DynArrays, MutMaps and views: Stdlib types only
 
-A var struct can be an OCaml type of its own because one module
+A mutable struct can be an OCaml type of its own because one module
 declares it and every other names it through that module. A DynArray, a
 MutMap and a view belong to no module, and each generated `.ml` carries
 its own helpers, so a record declared for one in every file would be a
@@ -235,7 +235,7 @@ one -- a datatype this module cannot see counts as holding one, which
 is safe since `pyk_equal` agrees with `=` on everything else -- so
 every other comparison is still OCaml's own `=`. The other way round,
 `pyk_ptr_same` is the identity of the place: the store (a `var`'s ref,
-an array, a var struct's block) by `==`, and the slot in it.
+an array, a mutable struct's block) by `==`, and the slot in it.
 
 ## Grouping mutually recursive functions
 

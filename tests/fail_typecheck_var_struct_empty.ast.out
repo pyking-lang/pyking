@@ -1,3 +1,3 @@
-'tests/fail_typecheck_var_struct_empty.pyk' 8:11-8:18 Parsing error: a
-  var struct has fields to write, and 'Nothing' has none: a struct
+'tests/fail_typecheck_var_struct_empty.pyk' 8:15-8:22 Parsing error: a
+  mutable struct has fields to write, and 'Nothing' has none: a struct
   with no fields is a plain 'struct Nothing'

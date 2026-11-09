@@ -1,4 +1,4 @@
 'tests/fail_typecheck_addr_value.pyk' 11:5-11:10 Type error: '&' takes
   the address of a place that can be written -- a 'var', an array's
-  element, a var struct's field, or '*p' -- and this is a value, not a
-  place: a call's result or a literal has nowhere to write
+  element, a mutable struct's field, or '*p' -- and this is a value,
+  not a place: a call's result or a literal has nowhere to write

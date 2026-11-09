@@ -151,7 +151,8 @@ grouped:
   `++`, `=>` and `**` are no longer operators, and are still read as one
   token each so that the parser can refuse them by name (`'++' is now
   written '+'`) rather than as two `+`.
-- **`use`, `lam`, `and`, `or`, `not` and `xor` are keywords**, and
+- **`use`, `lam`, `and`, `or`, `not`, `xor` and `mutable` are keywords**
+  (`mutable` only ever before `struct`, as `TokMutable`), and
   `class`, `interface`, `extends`, `self` and `super` are reserved:
   `keyword_token` makes each of those a `TokReserved`, which no rule of
   the parser accepts where a name would stand (`reserved_words`).

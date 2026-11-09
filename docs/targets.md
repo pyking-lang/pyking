@@ -267,7 +267,7 @@ compiles a polymorphic parameter:
 | a closure writing a `var` from around it | ✅ | ✅ | ✅ (a one-element array) | ✅ | ✅ (a cell its owner keeps) | ✅ (a cell from the collector) |
 | modules, external modules | ✅ | ✅ | ✅ | ✅ | ✅ (a list or a closure at the boundary is refused) | ✅ (a list crosses as its first cell; a capturing closure does not) |
 | arrays (`array`, `array_init`, `a[i] := v`) | ✅ | ✅ | ✅ (`PykArray`) | ✅ | ✅ (unchecked; `array(xs)` from a list literal only) | ✅ (checked) |
-| `var struct`, field writes, cycle-safe printing | ✅ | ✅ | ✅ (a final class) | ✅ (mutable record fields) | ✅ (a malloc'd struct, by pointer) | ✅ (a collected struct) |
+| `mutable struct`, field writes, cycle-safe printing | ✅ | ✅ | ✅ (a final class) | ✅ (mutable record fields) | ✅ (a malloc'd struct, by pointer) | ✅ (a collected struct) |
 | DynArrays | ✅ | ✅ | ✅ (`PykDynArray`) | ✅ | ✅ (unchecked) | ✅ |
 | `==` on lists, tuples, datatypes | ✅ | ✅ | ✅ | ✅ | ✅ on what plain C compiles | ✅ |
 | MutMaps | ✅ | ✅ (`Map`) | ✅ (`PykMutMap`) | ✅ (`Hashtbl`) | ✅ (linear search, unchecked; `keys`/`values`/`items` need lists) | ✅ (hashed, checked) |

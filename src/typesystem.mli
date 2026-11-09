@@ -169,7 +169,7 @@ type store = {
   kind_origins : (info * string) SMap.t;
   mutation : bool;
       (* whether the module has `use mutation`, without which making a
-         `var struct` is refused *)
+         `mutable struct` is refused *)
   classes : class_info SMap.t; (* every class and interface in scope, by canonical name *)
   current_class : string option; (* the class whose method is being checked *)
   upcasts : typ IntMap.t;
@@ -186,7 +186,7 @@ type store = {
     `declared` is the module's own declaration half -- the names a
     target's own source provides -- which are in scope here unqualified,
     since the two files are one module. `mutation` says whether the
-    module has `use mutation`, without which making a `var struct`
+    module has `use mutation`, without which making a `mutable struct`
     another module declares is refused (the parser refuses its own).
     Answers the types it worked out and, beside them, what every call
     it resolved denotes -- which is what `elaborate.ml` rewrites the

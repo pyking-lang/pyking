@@ -6,7 +6,7 @@
 
 use mutation
 
-var struct Counter(name: String, n: Int)
+mutable struct Counter(name: String, n: Int)
 
 datatype Slot:
     Empty
@@ -16,8 +16,8 @@ datatype Item:
     Leaf(value: Int)
     Many(items: DynArray(Item))
 
-var struct Pair(left: Int, right: Pair2)
-var struct Pair2(label: String, back: Hold)
+mutable struct Pair(left: Int, right: Pair2)
+mutable struct Pair2(label: String, back: Hold)
 
 datatype Hold:
     Nothing
