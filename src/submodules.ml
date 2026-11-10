@@ -233,7 +233,13 @@ let rewrite own reached tokens =
     match tokens with
     | [] -> List.rev acc
     | (TokIdent (i, first) as t) :: rest -> (
-        let after_dot = match previous with Some (TokDot _) -> true | _ -> false in
+        (* Only a dot touching the name: the one ending a lambda's
+           binders, `lam k. bitmap.size(k)`, is followed by a space. *)
+        let after_dot =
+          match previous with
+          | Some (TokDot d) -> d.row2 = i.row1 && d.col2 = i.col1
+          | _ -> false
+        in
         let on_import = List.mem i.row1 import_rows in
         let parts, rest' = chain i rest in
         if after_dot || on_import || parts = [] then go (Some t) (t :: acc) rest

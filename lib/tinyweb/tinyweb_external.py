@@ -358,6 +358,39 @@ def fill_bitmap(b, color):
     bm.x1, bm.y1, bm.x2, bm.y2 = 0, 0, bm.width, bm.height
 
 
+def _bitmap_from(b, pixels):
+    """Makes the bitmap `b` from what the page read of a picture: "width
+    height base64", four bytes a pixel. False, and nothing made, where `b`
+    is a bitmap already -- the picture read again for a page connecting
+    later -- or the text is not that."""
+    if b in _bitmaps:
+        return False
+    words = pixels.split(" ")
+    try:
+        width, height = int(words[0]), int(words[1])
+        data = _base64.b64decode(words[2], validate=True)
+    except (IndexError, ValueError):
+        return False
+    if width < 1 or height < 1 or len(words) != 3 or len(data) != width * height * 4:
+        return False
+    bm = _Bitmap(width, height)
+    bm.data[:] = data
+    # A bitmap's pixels are opaque.
+    bm.data[3::4] = b"\xff" * (width * height)
+    _bitmaps[b] = bm
+    return True
+
+
+def bitmap_width(b):
+    bm = _bitmaps.get(b)
+    return 0 if bm is None else bm.width
+
+
+def bitmap_height(b):
+    bm = _bitmaps.get(b)
+    return 0 if bm is None else bm.height
+
+
 def draw_bitmap(c, b, x, y, scale):
     bm = _bitmaps.get(b)
     if bm is None:
@@ -532,6 +565,17 @@ def report_count(name):
 
 def watch_text(id, kind, name, f):
     watch(id, kind, lambda: f(report_text(name)))
+
+
+def read_bitmap(name, on_load):
+    _ready()
+    id = _fresh("bitmap")
+
+    def loaded():
+        if _bitmap_from(id, report_text("pixels." + id)):
+            on_load(id)
+    watch(id, "loaded", loaded)
+    command("load_bitmap", id, name, "", 0)
 
 
 def watch_step(id, kind, f):
@@ -1635,6 +1679,35 @@ _PAGE_JS = "".join([
     "  g.globalAlpha = before;\n",
     "}\n",
     "\n",
+    "// Reads the pixels of the picture `name` for `bitmap.load_bitmap` and\n",
+    "// calls `then` with them as the program takes them: \"width height\n",
+    "// base64\", the base64 of four bytes a pixel, red, green, blue and alpha.\n",
+    "// A picture that cannot be loaded, or has no size, is said on the\n",
+    "// console, and `then` is not called. String -> String -> (String -> ()) -> ()\n",
+    "function readPicture(name, base, then) {\n",
+    "  const picture = loadPicture(name, base);\n",
+    "  if (!picture.element) return;\n",
+    "  picture.settled.push(() => {\n",
+    "    if (!picture.ready) return;\n",
+    "    const element = picture.element;\n",
+    "    const width = element.naturalWidth;\n",
+    "    const height = element.naturalHeight;\n",
+    "    // A picture with no size of its own, as an SVG may be, has no pixels.\n",
+    "    if (!(width >= 1 && height >= 1)) {\n",
+    "      console.error(`tinyweb: the picture ${name} has no size, so no pixels to read`);\n",
+    "      return;\n",
+    "    }\n",
+    "    const surface = bitmapSurface(width, height);\n",
+    "    surface.context.drawImage(element, 0, 0);\n",
+    "    const bytes = surface.context.getImageData(0, 0, width, height).data;\n",
+    "    let text = \"\";\n",
+    "    for (let at = 0; at < bytes.length; at += 0x8000) {\n",
+    "      text += String.fromCharCode.apply(null, bytes.subarray(at, at + 0x8000));\n",
+    "    }\n",
+    "    then(width + \" \" + height + \" \" + btoa(text));\n",
+    "  });\n",
+    "}\n",
+    "\n",
     "// Keeps the pointer's moves and its release coming to the canvas it went\n",
     "// down on, wherever it goes. Element -> Event -> ()\n",
     "function capture(element, event) {\n",
@@ -2389,6 +2462,10 @@ _PAGE_JS = "".join([
     "        host.place(area);\n",
     "        break;\n",
     "      }\n",
+    "      case \"load_bitmap\":\n",
+    "        readPicture(cmd.text, import.meta.url, (pixels) =>\n",
+    "          host.send({ ev: \"cb\", id: cmd.id, kind: \"loaded\", reports: { [\"pixels.\" + cmd.id]: pixels } }));\n",
+    "        break;\n",
     "      case \"file_button\": {\n",
     "        const button = document.createElement(\"button\");\n",
     "        button.setAttribute(\"data-tinyweb-id\", String(cmd.id));\n",

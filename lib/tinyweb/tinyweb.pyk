@@ -3241,6 +3241,64 @@ public def bitmap.show_bitmap(c: String, b: String, x: Int = 0, y: Int = 0, scal
     draw_bitmap(c, b, x, y, scale)
 
 
+## Reads a picture's pixels into a new bitmap, to look at them with
+## `get_pixel` or change them. The page reads the picture -- PNG, JPG,
+## GIF, WebP, any the browser shows -- and sends its pixels to the
+## program, which calls `on_load` with the bitmap once they have arrived.
+## The file is looked for beside the page first, then among the pictures
+## tinyweb ships, as `tw.load_image` does. A picture that cannot be read
+## is said on the browser's console, and `on_load` is not called.
+##
+## A bitmap's pixels are opaque: where the picture is see-through, the
+## pixel keeps only its colour, which is usually black. A JPG's colours
+## are a little off, most of all at sharp edges; a PNG's are exact, which
+## matters where a picture marks something by its colour.
+##
+## # Parameters
+## - `name`: the file's name, such as `"photo.jpg"`.
+## - `on_load`: what is called with the bitmap.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.bitmap as bitmap
+## tw.web_init(0)
+## c = tw.canvas(200, 100)
+## def loaded(b: String):
+##     (w, h) = bitmap.size(b)
+##     print("the ball is", w, "by", h, "pixels")
+##     bitmap.show_bitmap(c, b)
+## bitmap.load_bitmap("ball.png", loaded)
+## ```
+## ```stdout
+## ```
+public def bitmap.load_bitmap(name: String, on_load: (String) -> ()) -> ():
+    read_bitmap(name, on_load)
+
+
+## A bitmap's width and height, in pixels.
+##
+## # Parameters
+## - `b`: the bitmap, as `bitmap` or `load_bitmap` answered.
+##
+## # Returns
+## Its width and height; (0, 0) for what is not a bitmap.
+##
+## # Examples
+## ```pyking
+## import tinyweb as tw
+## import tinyweb.bitmap as bitmap
+## tw.web_init(0)
+## b = bitmap.bitmap(64, 48)
+## print(bitmap.size(b))
+## ```
+## ```stdout
+## (64, 48)
+## ```
+public def bitmap.size(b: String) -> (Int, Int):
+    (bitmap_width(b), bitmap_height(b))
+
+
 # --- tinyweb.layout ---
 
 ## Where what is made next goes on the page, and a box to write text in.

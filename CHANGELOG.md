@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Added
+
+- tinyweb: `bitmap.load_bitmap(name, on_load)` reads a picture's pixels
+  into a new bitmap, which `on_load` is handed once they have arrived,
+  and `bitmap.size(b)` is a bitmap's width and height. The page decodes
+  the picture, so any format the browser shows will do -- PNG, JPG, GIF,
+  WebP -- with no decoder in any host, on every target
+  (docs/libraries.md, "Bitmaps").
+
+### Fixed
+
+- A lambda whose body starts with a submodule reached through an
+  import's alias, `lam k. bitmap.size(k)` after `import tinyweb.bitmap
+  as bitmap`, was refused as naming no module: the dot ending the
+  binders was read as part of the path.
+
 ## [0.1.10] - 2026-11-10
 
 ### Added

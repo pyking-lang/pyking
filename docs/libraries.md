@@ -422,6 +422,27 @@ submodule `tinyweb.bitmap`; a pixel crosses the boundary as one Int,
 `0xRRGGBB`, which `color.hex` and `color.to_hex` turn into a `Color` and
 back.
 
+A picture's pixels reach the program the other way. The host's
+`read_bitmap(name, on_load)`, behind `bitmap.load_bitmap`, is written
+over the generic commands: it sends `load_bitmap` with a fresh bitmap
+identifier and the file's name, and watches that identifier for
+`loaded`. The page loads the picture as `image` does (beside the page,
+then `tinyweb_assets/`), draws it on a canvas of its own, and answers
+`{ev: "cb", id, kind: "loaded"}` reporting `pixels.<id>` as `"width
+height base64"`, four bytes a pixel. The host makes the bitmap under
+that identifier, opaque, and calls `on_load` with it. The watching is
+the host's, not tinyweb.pyk's, because C and Java cannot be handed a
+function that captures the identifier. The command is kept for a page
+connecting later, which reads the picture again; the host makes no
+bitmap under an identifier that is one already, so `on_load` runs
+once. Decoding
+is the browser's, so any format it shows will do, and no host decodes
+a picture itself. A picture that cannot be loaded is said on the
+console, and nothing is reported. `bitmap_width` and `bitmap_height`
+answer `bitmap.size`. An events file gives a picture as
+`report_text "pixels.bitmap" "2 1 <base64>"` followed by `cb "bitmap"
+"loaded"`.
+
 **Layout (part of step 5).** The submodule `tinyweb.layout`: `row` and
 `column` add a box,
 `{op: "row", id}` or `{op: "column", id}`, and `inside` and `outside`
@@ -473,8 +494,8 @@ and `resume` thaws them. `render_wav` collects the sound commands
 between its `render` and `render_end`, plays them into an
 `OfflineAudioContext` with the same channels, offers the result as a
 WAV file and reports `rendered` with how long that took and the loudest
-sample. `save_canvas`, `download`, `file_button` and `cursor` are
-commands of the same shape; a file picked is reported as `file` and,
+sample. `save_canvas`, `download`, `file_button`, `load_bitmap` and `cursor`
+are commands of the same shape; a file picked is reported as `file` and,
 unless it is a sample, its text as `file.text`.
 
 **Where the page is.** A program starts with `web_init(port)` -- `port`

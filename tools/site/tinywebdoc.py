@@ -109,6 +109,12 @@ DESCRIPTIONS = {
     "draw_bitmap": "Draws the bitmap `b` on the canvas `c`, its top left corner at "
                    "(`x`, `y`), each pixel `scale` pixels across: sharp squares above "
                    "1.0. What changed since it was last drawn is sent to the page.",
+    "read_bitmap": "Asks the page for the pixels of the picture `name` -- any format "
+                   "the browser reads -- and calls `on_load` with a new bitmap holding "
+                   "them once they have arrived, as `make_bitmap` names one. Called "
+                   "once, though a page connecting later reads the picture again.",
+    "bitmap_width": "The width of the bitmap `b` in pixels; 0 where it is not one.",
+    "bitmap_height": "The height of the bitmap `b` in pixels; 0 where it is not one.",
     "draw_pairs": "Many shapes' numbers in one go, as a list rather than as words: "
                   "`kind` \"polygon\" or \"path\" through the points (x, y) in "
                   "`items`, drawn as `draw_shape` draws one. Not in C, which "
@@ -210,12 +216,14 @@ DESCRIPTIONS = {
                "Timers: \"after\" and \"every\" (seconds; reports \"timer\"), "
                "\"cancel\". The page: \"set_text\", \"visible\" and "
                "\"enabled\" (1 or 0), \"remove\", \"text_area\" (rows columns), "
-               "\"file_button\", \"cursor\", \"save_canvas\", \"download\". "
+               "\"file_button\", \"load_bitmap\" (text the picture's file; reports "
+               "\"loaded\" for `id` with its pixels as `pixels.<id>`), \"cursor\", "
+               "\"save_canvas\", \"download\". "
                "`mode` says what a page connecting later is sent again: 0 kept, 1 "
                "the last of its kind and id, 2 like a sound, 3 nothing.",
     "watch": "Calls `f` each time the page reports `kind` for the element `id`: a "
              "timer's \"timer\", a beat's \"beat\", a text area's \"change\", a "
-             "file button's \"loaded\", a rendering's \"rendered\".",
+             "file button's and a picture's \"loaded\", a rendering's \"rendered\".",
     "report_number": "The `k`th number the page last reported under `name`: "
                      "\"clock\" (the beat, the latency, whether sound runs), \"beat\" "
                      "(a beat's step and time), \"level\", \"band\" and \"wave\" once "

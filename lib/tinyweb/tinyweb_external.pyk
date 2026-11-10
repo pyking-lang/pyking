@@ -81,6 +81,17 @@ def fill_bitmap(b: String, color: Int) -> ()
 
 def draw_bitmap(c: String, b: String, x: Int, y: Int, scale: Float) -> ()
 
+# Asks the page for the pixels of the picture `name` (the generic command
+# `load_bitmap`) and, when it answers, makes them a bitmap and calls
+# `on_load` with it: once, though a page connecting later reads the
+# picture again. Written in each host, since C and Java cannot be handed
+# a function that captures the bitmap's identifier.
+def read_bitmap(name: String, on_load: (String) -> ()) -> ()
+
+def bitmap_width(b: String) -> Int
+
+def bitmap_height(b: String) -> Int
+
 # topic: Images
 ## Starts loading a picture, so that `image` can draw it. The file is
 ## looked for beside the page first, then among the pictures tinyweb

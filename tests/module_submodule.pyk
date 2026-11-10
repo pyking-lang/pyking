@@ -26,3 +26,10 @@ print(inc(99))
 
 from module_submodule_mod1 import num
 print(num.twice(21))
+
+# A lambda's body can start with a submodule's name: the dot that ends
+# the binders is not part of the path.
+f = lam k. n.deep.inc(k)
+print(f(1))
+g = lam (k: Int). num.twice(k)
+print(g(5))

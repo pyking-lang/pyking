@@ -659,6 +659,35 @@ let page_js = String.concat "" [
   "  g.globalAlpha = before;\n";
   "}\n";
   "\n";
+  "// Reads the pixels of the picture `name` for `bitmap.load_bitmap` and\n";
+  "// calls `then` with them as the program takes them: \"width height\n";
+  "// base64\", the base64 of four bytes a pixel, red, green, blue and alpha.\n";
+  "// A picture that cannot be loaded, or has no size, is said on the\n";
+  "// console, and `then` is not called. String -> String -> (String -> ()) -> ()\n";
+  "function readPicture(name, base, then) {\n";
+  "  const picture = loadPicture(name, base);\n";
+  "  if (!picture.element) return;\n";
+  "  picture.settled.push(() => {\n";
+  "    if (!picture.ready) return;\n";
+  "    const element = picture.element;\n";
+  "    const width = element.naturalWidth;\n";
+  "    const height = element.naturalHeight;\n";
+  "    // A picture with no size of its own, as an SVG may be, has no pixels.\n";
+  "    if (!(width >= 1 && height >= 1)) {\n";
+  "      console.error(`tinyweb: the picture ${name} has no size, so no pixels to read`);\n";
+  "      return;\n";
+  "    }\n";
+  "    const surface = bitmapSurface(width, height);\n";
+  "    surface.context.drawImage(element, 0, 0);\n";
+  "    const bytes = surface.context.getImageData(0, 0, width, height).data;\n";
+  "    let text = \"\";\n";
+  "    for (let at = 0; at < bytes.length; at += 0x8000) {\n";
+  "      text += String.fromCharCode.apply(null, bytes.subarray(at, at + 0x8000));\n";
+  "    }\n";
+  "    then(width + \" \" + height + \" \" + btoa(text));\n";
+  "  });\n";
+  "}\n";
+  "\n";
   "// Keeps the pointer's moves and its release coming to the canvas it went\n";
   "// down on, wherever it goes. Element -> Event -> ()\n";
   "function capture(element, event) {\n";
@@ -1413,6 +1442,10 @@ let page_js = String.concat "" [
   "        host.place(area);\n";
   "        break;\n";
   "      }\n";
+  "      case \"load_bitmap\":\n";
+  "        readPicture(cmd.text, import.meta.url, (pixels) =>\n";
+  "          host.send({ ev: \"cb\", id: cmd.id, kind: \"loaded\", reports: { [\"pixels.\" + cmd.id]: pixels } }));\n";
+  "        break;\n";
   "      case \"file_button\": {\n";
   "        const button = document.createElement(\"button\");\n";
   "        button.setAttribute(\"data-tinyweb-id\", String(cmd.id));\n";
@@ -3194,6 +3227,64 @@ let make_bitmap width height background =
   fill_bitmap id background;
   id
 
+(* The bytes of base64 text; None where it is not base64. *)
+let unbase64 text =
+  let value c =
+    match c with
+    | 'A' .. 'Z' -> Char.code c - 65
+    | 'a' .. 'z' -> Char.code c - 71
+    | '0' .. '9' -> Char.code c + 4
+    | '+' -> 62
+    | '/' -> 63
+    | _ -> -1
+  in
+  let n = String.length text in
+  let pad = if n >= 2 && text.[n - 2] = '=' then 2 else if n >= 1 && text.[n - 1] = '=' then 1 else 0 in
+  if n mod 4 <> 0 then None
+  else
+    let out = Bytes.create ((n / 4 * 3) - pad) in
+    let ok = ref true in
+    let i = ref 0 in
+    while !ok && !i < n do
+      let v k = if !i + k >= n - pad then 0 else value text.[!i + k] in
+      let vs = [ v 0; v 1; v 2; v 3 ] in
+      if List.exists (fun v -> v < 0) vs then ok := false
+      else begin
+        let b = (v 0 lsl 18) lor (v 1 lsl 12) lor (v 2 lsl 6) lor v 3 in
+        let at = !i / 4 * 3 in
+        List.iteri
+          (fun k shift ->
+            if at + k < Bytes.length out then
+              Bytes.set out (at + k) (Char.unsafe_chr ((b lsr shift) land 255)))
+          [ 16; 8; 0 ]
+      end;
+      i := !i + 4
+    done;
+    if !ok then Some out else None
+
+(* Makes the bitmap `b` from what the page read of a picture: "width
+   height base64", four bytes a pixel. False, and nothing made, where `b`
+   is a bitmap already -- the picture read again for a page connecting
+   later -- or the text is not that. *)
+let bitmap_from b pixels =
+  if Hashtbl.mem bitmaps b then false
+  else
+    match String.split_on_char ' ' pixels with
+    | [ w; h; text ] -> (
+        match (int_of_string_opt w, int_of_string_opt h, unbase64 text) with
+        | Some w, Some h, Some data when w >= 1 && h >= 1 && Bytes.length data = w * h * 4 ->
+            (* A bitmap's pixels are opaque. *)
+            for i = 0 to (w * h) - 1 do
+              Bytes.set data ((i * 4) + 3) '\255'
+            done;
+            Hashtbl.replace bitmaps b { bw = w; bh = h; data; x1 = 0; y1 = 0; x2 = w; y2 = h };
+            true
+        | _ -> false)
+    | _ -> false
+
+let bitmap_width b = match Hashtbl.find_opt bitmaps b with Some bm -> bm.bw | None -> 0
+let bitmap_height b = match Hashtbl.find_opt bitmaps b with Some bm -> bm.bh | None -> 0
+
 let draw_bitmap c b x y scale =
   match Hashtbl.find_opt bitmaps b with
   | None -> ()
@@ -3373,6 +3464,12 @@ let report_count name =
   | Some (Text _) | None -> 0
 
 let watch_text id kind name f = watch id kind (fun () -> f (report_text name))
+
+let read_bitmap name on_load =
+  ready ();
+  let id = fresh "bitmap" in
+  watch id "loaded" (fun () -> if bitmap_from id (report_text ("pixels." ^ id)) then on_load id);
+  command "load_bitmap" id name "" 0
 
 let watch_step id kind f =
   watch id kind (fun () -> f (int_of_float (report_number kind 0)) (report_number kind 1))

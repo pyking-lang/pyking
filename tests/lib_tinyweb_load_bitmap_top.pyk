@@ -1,0 +1,24 @@
+# A picture's pixels, read by a real page: tests/test_tinyweb.py runs
+# this in Chromium, where the page decodes ball.png, one of the pictures
+# tinyweb ships, and `loaded` prints and shows what arrived
+# (lib_tinyweb_load_bitmap_top.chromium.out). A picture that is not
+# there is said on the console and never handed over. With no page, as
+# here, nothing answers.
+import tinyweb as tw
+import tinyweb.bitmap as bitmap
+
+tw.web_init(0)
+c = tw.canvas(100, 100)
+
+
+def loaded(b: String):
+    (w, h) = bitmap.size(b)
+    print("ball.png is", w, "by", h)
+    p = bitmap.get_pixel(b, w / 2, h / 2)
+    print("its middle:", p.r, p.g, p.b)
+    bitmap.show_bitmap(c, b, 10, 10)
+
+
+bitmap.load_bitmap("ball.png", loaded)
+bitmap.load_bitmap("no_such_picture.png", loaded)
+print("asked for two pictures")

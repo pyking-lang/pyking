@@ -78,6 +78,9 @@ void tinyweb_set_pixel(const char *b, int x, int y, int color);
 int tinyweb_get_pixel(const char *b, int x, int y);
 void tinyweb_fill_bitmap(const char *b, int color);
 void tinyweb_draw_bitmap(const char *c, const char *b, int x, int y, double scale);
+void tinyweb_read_bitmap(const char *name, void (*on_load)(const char *));
+int tinyweb_bitmap_width(const char *b);
+int tinyweb_bitmap_height(const char *b);
 const char *tinyweb_make_button(const char *title, void (*on_click)(void));
 const char *tinyweb_label(const char *text);
 const char *tinyweb_row(void);
@@ -724,6 +727,35 @@ static const char *const tinyweb_page_js[] = {
     "  g.globalAlpha = before * alpha;\n",
     "  g.drawImage(picture.element, x, y, width, height);\n",
     "  g.globalAlpha = before;\n",
+    "}\n",
+    "\n",
+    "// Reads the pixels of the picture `name` for `bitmap.load_bitmap` and\n",
+    "// calls `then` with them as the program takes them: \"width height\n",
+    "// base64\", the base64 of four bytes a pixel, red, green, blue and alpha.\n",
+    "// A picture that cannot be loaded, or has no size, is said on the\n",
+    "// console, and `then` is not called. String -> String -> (String -> ()) -> ()\n",
+    "function readPicture(name, base, then) {\n",
+    "  const picture = loadPicture(name, base);\n",
+    "  if (!picture.element) return;\n",
+    "  picture.settled.push(() => {\n",
+    "    if (!picture.ready) return;\n",
+    "    const element = picture.element;\n",
+    "    const width = element.naturalWidth;\n",
+    "    const height = element.naturalHeight;\n",
+    "    // A picture with no size of its own, as an SVG may be, has no pixels.\n",
+    "    if (!(width >= 1 && height >= 1)) {\n",
+    "      console.error(`tinyweb: the picture ${name} has no size, so no pixels to read`);\n",
+    "      return;\n",
+    "    }\n",
+    "    const surface = bitmapSurface(width, height);\n",
+    "    surface.context.drawImage(element, 0, 0);\n",
+    "    const bytes = surface.context.getImageData(0, 0, width, height).data;\n",
+    "    let text = \"\";\n",
+    "    for (let at = 0; at < bytes.length; at += 0x8000) {\n",
+    "      text += String.fromCharCode.apply(null, bytes.subarray(at, at + 0x8000));\n",
+    "    }\n",
+    "    then(width + \" \" + height + \" \" + btoa(text));\n",
+    "  });\n",
     "}\n",
     "\n",
     "// Keeps the pointer's moves and its release coming to the canvas it went\n",
@@ -1480,6 +1512,10 @@ static const char *const tinyweb_page_js[] = {
     "        host.place(area);\n",
     "        break;\n",
     "      }\n",
+    "      case \"load_bitmap\":\n",
+    "        readPicture(cmd.text, import.meta.url, (pixels) =>\n",
+    "          host.send({ ev: \"cb\", id: cmd.id, kind: \"loaded\", reports: { [\"pixels.\" + cmd.id]: pixels } }));\n",
+    "        break;\n",
     "      case \"file_button\": {\n",
     "        const button = document.createElement(\"button\");\n",
     "        button.setAttribute(\"data-tinyweb-id\", String(cmd.id));\n",
@@ -3143,6 +3179,86 @@ static void tw_base64(tw_text *out, const unsigned char *bytes, size_t length)
     }
 }
 
+/* The value of one base64 digit; -1 for what is not one. */
+static int tw_base64_digit(char c)
+{
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+/* Makes the bitmap `b` from what the page read of a picture: "width
+   height base64", four bytes a pixel. False, and nothing made, where `b`
+   is a bitmap already -- the picture read again for a page connecting
+   later -- or the text is not that. */
+static bool tw_bitmap_from(const char *b, const char *pixels)
+{
+    tw_bitmap *bitmap;
+    long width, height;
+    const char *text;
+    char *end;
+    size_t n, pad, i, at, count;
+    unsigned char *data;
+    if (tw_bitmap_named(b) != NULL) return false;
+    width = strtol(pixels, &end, 10);
+    if (end == pixels || *end != ' ') return false;
+    text = end + 1;
+    height = strtol(text, &end, 10);
+    if (end == text || *end != ' ') return false;
+    text = end + 1;
+    if (width < 1 || height < 1 || width > 100000 || height > 100000) return false;
+    count = (size_t) width * (size_t) height * 4;
+    n = strlen(text);
+    pad = n >= 2 && text[n - 2] == '=' ? 2 : n >= 1 && text[n - 1] == '=' ? 1 : 0;
+    if (n % 4 != 0 || n / 4 * 3 - pad != count) return false;
+    data = (unsigned char *) malloc(count);
+    if (data == NULL) abort();
+    for (i = 0, at = 0; i < n; i += 4) {
+        int k, v[4];
+        unsigned long word;
+        for (k = 0; k < 4; k++) {
+            v[k] = i + (size_t) k >= n - pad ? 0 : tw_base64_digit(text[i + (size_t) k]);
+            if (v[k] < 0) {
+                free(data);
+                return false;
+            }
+        }
+        word = ((unsigned long) v[0] << 18) | ((unsigned long) v[1] << 12)
+               | ((unsigned long) v[2] << 6) | (unsigned long) v[3];
+        for (k = 0; k < 3 && at < count; k++) {
+            data[at++] = (unsigned char) ((word >> (16 - 8 * k)) & 255);
+        }
+    }
+    /* A bitmap's pixels are opaque. */
+    for (i = 3; i < count; i += 4) data[i] = 255;
+    tw_bitmaps = (tw_bitmap *) tw_grow(tw_bitmaps, tw_bitmap_count, sizeof(tw_bitmap));
+    bitmap = &tw_bitmaps[tw_bitmap_count++];
+    bitmap->id = tw_copy(b);
+    bitmap->width = (int) width;
+    bitmap->height = (int) height;
+    bitmap->data = data;
+    bitmap->x1 = 0;
+    bitmap->y1 = 0;
+    bitmap->x2 = (int) width;
+    bitmap->y2 = (int) height;
+    return true;
+}
+
+int tinyweb_bitmap_width(const char *b)
+{
+    tw_bitmap *bitmap = tw_bitmap_named(b);
+    return bitmap == NULL ? 0 : bitmap->width;
+}
+
+int tinyweb_bitmap_height(const char *b)
+{
+    tw_bitmap *bitmap = tw_bitmap_named(b);
+    return bitmap == NULL ? 0 : bitmap->height;
+}
+
 void tinyweb_draw_bitmap(const char *c, const char *b, int x, int y, double scale)
 {
     tw_text json = { NULL, 0, 0 }, line = { NULL, 0, 0 };
@@ -3491,6 +3607,8 @@ typedef struct {
     void (*text)(const char *);
     void (*step)(int, double);
     void (*pair)(double, double);
+    /* `text` is called with `id`, a bitmap made of the text, once. */
+    int picture;
 } tw_callback;
 static tw_callback *tw_callbacks = NULL;
 static size_t tw_callback_count = 0;
@@ -3509,6 +3627,7 @@ static tw_callback *tw_watching(const char *id, const char *kind)
     added->text = NULL;
     added->step = NULL;
     added->pair = NULL;
+    added->picture = 0;
     return added;
 }
 
@@ -3522,6 +3641,22 @@ void tinyweb_watch_text(const char *id, const char *kind, const char *name, void
     tw_callback *added = tw_watching(id, kind);
     added->name = tw_copy(name);
     added->text = f;
+}
+
+void tinyweb_read_bitmap(const char *name, void (*on_load)(const char *))
+{
+    tw_text pixels = { NULL, 0, 0 };
+    const char *id;
+    tw_callback *added;
+    tw_ready();
+    id = tw_fresh("bitmap");
+    tw_puts(&pixels, "pixels.");
+    tw_puts(&pixels, id);
+    added = tw_watching(id, "loaded");
+    added->name = pixels.text;
+    added->text = on_load;
+    added->picture = 1;
+    tinyweb_command("load_bitmap", id, name, "", 0);
 }
 
 void tinyweb_watch_step(const char *id, const char *kind, void (*f)(int, double))
@@ -3797,6 +3932,8 @@ static void tw_deliver(const tw_event *event)
                 tw_callback called = tw_callbacks[i];
                 if (called.f != NULL) {
                     called.f();
+                } else if (called.picture) {
+                    if (tw_bitmap_from(called.id, tinyweb_report_text(called.name))) called.text(called.id);
                 } else if (called.text != NULL) {
                     called.text(tinyweb_report_text(called.name));
                 } else if (called.step != NULL) {

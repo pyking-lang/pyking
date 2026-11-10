@@ -1,0 +1,38 @@
+# tinyweb's load_bitmap: the page reads a picture and sends its pixels,
+# which become a bitmap the program reads and changes; bitmap.size.
+# The events give the pixels as a page would: a second answer for the
+# same picture (a page connecting later) is not handed over again, and
+# pixels that do not fit the size are not handed over at all.
+import tinyweb as tw
+import tinyweb.bitmap as bitmap
+import tinyweb.color as color
+
+tw.web_init(0)
+c = tw.canvas(40, 40)
+
+
+def show(p: color.Color) -> String:
+    string(p.r) + " " + string(p.g) + " " + string(p.b)
+
+
+made = bitmap.bitmap(5, 3)
+print("made:", bitmap.size(made), "not a bitmap:", bitmap.size("nothing"))
+
+
+def loaded(b: String):
+    (w, h) = bitmap.size(b)
+    print("loaded", b, "of", w, "by", h)
+    for y in range(h):
+        for x in range(w):
+            print(" ", x, y, show(bitmap.get_pixel(b, x, y)), bitmap.get_pixel(b, x, y).a)
+    bitmap.set_pixel(b, 1, 1, color.black)
+    bitmap.show_bitmap(c, b, scale = 10.0)
+
+
+def broken(b: String):
+    print("never called for", b)
+
+
+bitmap.load_bitmap("pic.png", loaded)
+bitmap.load_bitmap("broken.png", broken)
+print("asked for both")

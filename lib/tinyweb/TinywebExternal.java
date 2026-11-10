@@ -564,6 +564,52 @@ public final class TinywebExternal {
         bm.y2 = bm.height;
     }
 
+    /** Makes the bitmap `b` from what the page read of a picture: "width
+     *  height base64", four bytes a pixel. False, and nothing made, where
+     *  `b` is a bitmap already -- the picture read again for a page
+     *  connecting later -- or the text is not that. */
+    private static boolean bitmap_from(String b, String pixels) {
+        if (bitmaps.containsKey(b)) {
+            return false;
+        }
+        String[] words = pixels.split(" ", -1);
+        if (words.length != 3) {
+            return false;
+        }
+        int width;
+        int height;
+        byte[] data;
+        try {
+            width = Integer.parseInt(words[0]);
+            height = Integer.parseInt(words[1]);
+            data = java.util.Base64.getDecoder().decode(words[2]);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+        if (width < 1 || height < 1 || (long) width * height * 4 != data.length) {
+            return false;
+        }
+        Bitmap bm = new Bitmap(width, height);
+        // A bitmap's pixels are opaque, which the new one's alpha already is.
+        for (int at = 0; at < data.length; at += 4) {
+            bm.data[at] = data[at];
+            bm.data[at + 1] = data[at + 1];
+            bm.data[at + 2] = data[at + 2];
+        }
+        bitmaps.put(b, bm);
+        return true;
+    }
+
+    public static int bitmap_width(String b) {
+        Bitmap bm = bitmaps.get(b);
+        return bm == null ? 0 : bm.width;
+    }
+
+    public static int bitmap_height(String b) {
+        Bitmap bm = bitmaps.get(b);
+        return bm == null ? 0 : bm.height;
+    }
+
     public static void draw_bitmap(String c, String b, int x, int y, double scale) {
         Bitmap bm = bitmaps.get(b);
         if (bm == null) {
@@ -813,6 +859,17 @@ public final class TinywebExternal {
 
     public static void watch_text(String id, String kind, final String name, final Consumer<String> f) {
         watch(id, kind, () -> f.accept(report_text(name)));
+    }
+
+    public static void read_bitmap(String name, final Consumer<String> on_load) {
+        ready();
+        final String id = fresh("bitmap");
+        watch(id, "loaded", () -> {
+            if (bitmap_from(id, report_text("pixels." + id))) {
+                on_load.accept(id);
+            }
+        });
+        command("load_bitmap", id, name, "", 0);
     }
 
     public static void watch_step(String id, final String kind, final BiConsumer<Integer, Double> f) {
@@ -2227,6 +2284,35 @@ public final class TinywebExternal {
         "  g.globalAlpha = before;\n",
         "}\n",
         "\n",
+        "// Reads the pixels of the picture `name` for `bitmap.load_bitmap` and\n",
+        "// calls `then` with them as the program takes them: \"width height\n",
+        "// base64\", the base64 of four bytes a pixel, red, green, blue and alpha.\n",
+        "// A picture that cannot be loaded, or has no size, is said on the\n",
+        "// console, and `then` is not called. String -> String -> (String -> ()) -> ()\n",
+        "function readPicture(name, base, then) {\n",
+        "  const picture = loadPicture(name, base);\n",
+        "  if (!picture.element) return;\n",
+        "  picture.settled.push(() => {\n",
+        "    if (!picture.ready) return;\n",
+        "    const element = picture.element;\n",
+        "    const width = element.naturalWidth;\n",
+        "    const height = element.naturalHeight;\n",
+        "    // A picture with no size of its own, as an SVG may be, has no pixels.\n",
+        "    if (!(width >= 1 && height >= 1)) {\n",
+        "      console.error(`tinyweb: the picture ${name} has no size, so no pixels to read`);\n",
+        "      return;\n",
+        "    }\n",
+        "    const surface = bitmapSurface(width, height);\n",
+        "    surface.context.drawImage(element, 0, 0);\n",
+        "    const bytes = surface.context.getImageData(0, 0, width, height).data;\n",
+        "    let text = \"\";\n",
+        "    for (let at = 0; at < bytes.length; at += 0x8000) {\n",
+        "      text += String.fromCharCode.apply(null, bytes.subarray(at, at + 0x8000));\n",
+        "    }\n",
+        "    then(width + \" \" + height + \" \" + btoa(text));\n",
+        "  });\n",
+        "}\n",
+        "\n",
         "// Keeps the pointer's moves and its release coming to the canvas it went\n",
         "// down on, wherever it goes. Element -> Event -> ()\n",
         "function capture(element, event) {\n",
@@ -2981,6 +3067,10 @@ public final class TinywebExternal {
         "        host.place(area);\n",
         "        break;\n",
         "      }\n",
+        "      case \"load_bitmap\":\n",
+        "        readPicture(cmd.text, import.meta.url, (pixels) =>\n",
+        "          host.send({ ev: \"cb\", id: cmd.id, kind: \"loaded\", reports: { [\"pixels.\" + cmd.id]: pixels } }));\n",
+        "        break;\n",
         "      case \"file_button\": {\n",
         "        const button = document.createElement(\"button\");\n",
         "        button.setAttribute(\"data-tinyweb-id\", String(cmd.id));\n",

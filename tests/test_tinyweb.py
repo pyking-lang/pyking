@@ -34,6 +34,9 @@ each target it lists, and compares the commands it logs with its
              is run both ways against the same small DOM under node, and
              -- where a Chromium is found -- both ways in a real browser,
              and what was drawn is compared (see `BROWSER` below).
+             What it printed there is held to the `.out` file, or to
+             a `.chromium.out` beside it where a real page answers
+             what nothing answers headless (a picture's pixels).
 
 Usage: python3 tests/test_tinyweb.py [--compiler CMD] [--only PART]
                                       [--sample PERCENT [--seed N]]
@@ -903,6 +906,11 @@ def check_chromium(compiler, chromium, case):
     directly, web through commands, and iweb, where the interpreter
     runs it -- held to one recording. -> String?"""
     stem, _, _, expected_out = case
+    # What a real page answers by itself -- a picture's pixels -- prints
+    # what no page answers headless: that case says it in a file of its own.
+    chromium_out = stem.with_suffix(".chromium.out")
+    if chromium_out.exists():
+        expected_out = chromium_out.read_text()
     with tempfile.TemporaryDirectory(prefix="pyk-tinyweb-") as workdir:
         built, problem = builds(compiler, stem, workdir)
         if built is None:

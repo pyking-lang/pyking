@@ -1,0 +1,6 @@
+report_text "pixels.bitmap1" "2 2 /wAA/wD/AP8AAP//////gA=="
+cb "bitmap1" "loaded"
+report_text "pixels.bitmap1" "2 2 /wAA/wD/AP8AAP//////gA=="
+cb "bitmap1" "loaded"
+report_text "pixels.bitmap2" "3 2 AQIDBA=="
+cb "bitmap2" "loaded"
