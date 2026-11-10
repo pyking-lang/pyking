@@ -140,7 +140,38 @@ code --install-extension pyking-<version>.vsix
 ```
 
 or, in the Extensions view, open the `...` menu and choose **Install
-from VSIX...**. The extension marks `.pyk` files as Pyking, highlights
+from VSIX...**.
+
+If the terminal says the `code` command is not found, either install
+the `.vsix` from the Extensions view instead, or put `code` on the
+command line as below. A terminal that was already open when VS Code
+was installed does not see the command; open a new one.
+
+**macOS.** Installing VS Code does not put `code` on the command line.
+Install it once:
+
+1. Move **Visual Studio Code** to the **Applications** folder, if it is
+   still in **Downloads**, and open it from there.
+2. Press **Cmd + Shift + P** to open the Command Palette.
+3. Type `shell command` and choose **Shell Command: Install 'code'
+   command in PATH**. Recent versions call it **Shell Command: Install
+   'code' and optionally 'copilot' commands in PATH**, and then ask
+   whether to install GitHub Copilot CLI as well; **No** installs only
+   `code`.
+4. You may be asked for your Mac password.
+5. Close and reopen your terminal.
+
+**Windows.** The installer puts `code` on the `PATH` when its **Add to
+PATH** option is selected, which it is unless you cleared it. If you
+cleared it, run the installer again and select it. VS Code from the ZIP
+archive does not put `code` on the `PATH`.
+
+**Linux.** The `.deb` and `.rpm` packages and the Snap all provide
+`code`. VS Code from the `.tar.gz` archive does not: its `code` is in
+the archive's `bin/` folder, so run it by its full path, or link it into
+a folder on your `PATH`.
+
+The extension marks `.pyk` files as Pyking, highlights
 them, and starts `pyk lsp --stdio`. Its settings:
 
 ```json
@@ -197,6 +228,13 @@ cursor --install-extension pyking-<version>.vsix
 
 or, in the Extensions view, open the `...` menu and choose **Install
 from VSIX...**. The settings are the same as for VS Code.
+
+If the terminal says the `cursor` command is not found, use **Install
+from VSIX...**, or put `cursor` on the command line: open the Command
+Palette (**Cmd + Shift + P** on a Mac, **Ctrl + Shift + P** elsewhere),
+type `shell command`, choose **Shell Command: Install 'cursor' command
+in PATH**, and reopen your terminal. On Linux, Cursor's AppImage has no
+`cursor` command; use **Install from VSIX...**.
 
 ### Debugging
 

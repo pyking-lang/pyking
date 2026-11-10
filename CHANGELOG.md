@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   WebP -- with no decoder in any host, on every target
   (docs/libraries.md, "Bitmaps").
 
+### Changed
+
+- The Editors page, and the VS Code extension's README, say how to put
+  the `code` command (and Cursor's `cursor`) on the command line on
+  macOS, Windows and Linux, and when an install leaves it off.
+
 ### Fixed
 
 - A lambda whose body starts with a submodule reached through an

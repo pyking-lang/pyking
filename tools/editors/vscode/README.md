@@ -54,6 +54,19 @@ cursor --install-extension pyking-<version>.vsix
 
 or in the Extensions view: the `...` menu, **Install from VSIX...**.
 
+If `code` or `cursor` is not found, use **Install from VSIX...**, or put
+the command on the `PATH` (the website's Editors page has the details):
+
+- macOS: the editor does not do it on its own. Open the Command Palette
+  (**Cmd + Shift + P**), type `shell command`, choose **Shell Command:
+  Install 'code' command in PATH** (in recent VS Code, **Install 'code'
+  and optionally 'copilot' commands in PATH**; in Cursor, **Install
+  'cursor' command in PATH**), and open a new terminal.
+- Windows: VS Code's installer does it when **Add to PATH** is selected,
+  as it is unless cleared; the ZIP archive does not.
+- Linux: VS Code's `.deb`, `.rpm` and Snap packages do it; the `.tar.gz`
+  archive and Cursor's AppImage do not.
+
 ## Building
 
 `make vsix` builds `pyking-<version>.vsix`, with the version taken from
