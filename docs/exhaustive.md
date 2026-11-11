@@ -51,12 +51,21 @@ A list's shape is its length. A pattern without a rest marker has one
 length. One with a marker takes every length from its fixed part up.
 
 1. Each column first finds `L`, the longest length any pattern in it
-   fixes.
+   fixes -- and at least the column's longest prefix plus its longest
+   suffix, less one, for the reason under 4.
 2. A list then has `L + 2` shapes: exactly 0, 1, … `L` elements, and
    "more than `L`".
 3. A rest pattern is each of the shapes it takes.
 4. "More than `L`" is specialized at `L + 1` elements, which no pattern
-   without a rest marker has.
+   without a rest marker has: a rest pattern's prefix goes at the
+   front, its suffix at the back, and wildcards fill the middle. That
+   one shape stands for every longer list too, which is sound only
+   while no prefix and no suffix in the column can reach the same slot
+   -- in a longer list they never do. `[.., false, _]` and
+   `[_, true, ..]` would otherwise share the middle slot of a
+   three-element shape and seem to cover every longer list between
+   them, when `[x, false, true, y]` matches neither; with `L` at least
+   `2 + 2 - 1`, the shape has four slots and the gap shows.
 
 `[]` and `[x, ..rest]` cover a list between them for this reason, and
 so do `[]`, `[x]` and `[x, y, ..r]`.

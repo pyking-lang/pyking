@@ -220,6 +220,9 @@ file = "fail_typecheck_match_gap.pyk"
 file = "fail_typecheck_match_ints.pyk"
 
 [[cases]]
+file = "fail_typecheck_match_list_ends.pyk"
+
+[[cases]]
 file = "fail_typecheck_match_partial.pyk"
 
 [[cases]]
@@ -341,6 +344,10 @@ excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-
 
 [[cases]]
 file = "list_pattern_match.pyk"
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "list_pattern_ends.pyk"
 excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]

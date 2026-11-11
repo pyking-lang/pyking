@@ -1,0 +1,18 @@
+# A list pattern's prefix counts from the front and its suffix from the
+# back, and in a list long enough the two never meet: `[.., false, _]`
+# and `[_, true, ..]` between them take every list of two or three
+# elements, and miss `[x, false, true, y]`. A `match` is checked
+# against lists of every length, not only the shortest the patterns
+# reach.
+#
+# This program is expected to FAIL type checking. Its `.ast.out` holds
+# the error message, not a program's output.
+
+def ends(xs: [Bool]) -> String:
+    answer = match xs:
+        case []: "none"
+        case [_]: "one"
+        case [true, false]: "two"
+        case [.., false, _]: "false before last"
+        case [_, true, ..]: "true second"
+    return answer
