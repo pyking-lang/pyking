@@ -4938,10 +4938,18 @@ A non-breaking space (U+00A0) is a space wherever a space may stand:
 in indentation, where it counts as one space, and between the words
 of a line. Code copied out of a PDF, a slide or a web page often has
 them in place of ordinary spaces, and it runs as it looks. Inside a
-string or a comment one is kept as written. A tab is not a space. `pyk highlight`, and the
+string or a comment one is kept as written. `pyk highlight`, and the
 playground's Copy for slides, write indentation with them for this
 reason (see the documentation's "Code on slides" page,
 `sitesrc/documentation/slides.md`).
+
+A tab is not an indentation character: how wide one is depends on the
+editor, so a line indented with one is refused, naming the four spaces
+to write instead. Between two tokens a tab is a space, as in Python.
+A file written on Windows reads as it does anywhere else: a carriage
+return before a line break, and a byte order mark in front of the file,
+are what an editor there writes and does not show, and both mean nothing
+to the lexer.
 
 ### Lines and continuation
 

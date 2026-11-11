@@ -78,6 +78,17 @@ columns count bytes. `indent_width`, `trim` and `blank` answer the same
 questions for the REPL and the language server, which look at a line's
 spaces without lexing it.
 
+Two things an editor does not show are read here too, so that a file
+means the same whatever wrote it. A carriage return (`\r`, what Windows
+writes before each `\n`) is skipped wherever it stands, and a line
+holding only spaces and one of them is blank. A UTF-8 byte order mark
+(the three bytes `EF BB BF` that Windows editors put in front of a
+file) is dropped before the first character is read, and moves no
+column. A tab is a space between two tokens, and an error -- "a line is
+indented with spaces, not tabs" -- where it indents a line that is not
+blank: `past_leading_tabs` and `line_ends_here` are what tell the two
+apart.
+
 The mechanism is `stack`, a list of indentation *levels*
 (`width / 4`, not raw column counts), starting at `[0]`, plus a
 `line_start` flag that is true only at the beginning of a line and

@@ -481,6 +481,36 @@ let leading_spaces chars =
   in
   go 0 0 chars
 
+
+(** Whether what follows a line's leading spaces is the end of the
+    line: nothing, a line break, or a comment. Such a line sets no
+    indentation. [char] -> bool *)
+let line_ends_here chars =
+  match chars with [] | ('\n' | '\r' | '#') :: _ -> true | _ -> false
+
+(** What follows the spaces and tabs a line starts with, and whether a
+    tab was among them. A tab is not an indentation character -- how
+    wide it is depends on the editor, which is exactly why a program
+    cannot be read by it -- so a line indented with one is refused
+    unless the line is blank. [char] -> (bool, [char]) *)
+let past_leading_tabs chars =
+  let rec go seen rest =
+    match rest with
+    | '\t' :: xs -> go true xs
+    | ' ' :: xs -> go seen xs
+    | '\xC2' :: '\xA0' :: xs -> go seen xs
+    | _ -> (seen, rest)
+  in
+  go false chars
+
+(** Windows writes a UTF-8 file with three bytes in front (a byte order
+    mark, U+FEFF); an editor shows nothing there, so the lexer reads
+    nothing there either. [char] -> [char] *)
+let without_byte_order_mark chars =
+  match chars with
+  | '\xEF' :: '\xBB' :: '\xBF' :: rest -> rest
+  | _ -> chars
+
 let indent_width line =
   let count, _, _ = leading_spaces (chars_of_string line) in
   count
@@ -523,11 +553,17 @@ let lexing file chars =
      whether nothing but spaces has been seen on this line yet. *)
   let rec lex rest r c stack depth line_start tokens =
     match rest with
-    | x :: _ when line_start && x <> '\n' && x <> '#' ->
+    | x :: _ when line_start && x <> '\n' && x <> '\r' && x <> '#' ->
         (* A non-breaking space counts as one space, as it shows. *)
         let count, width, ys = leading_spaces rest in
         (match ys with
-        | y :: _ when y <> '\n' && y <> '#' ->
+        | '\t' :: _ when not (line_ends_here (snd (past_leading_tabs ys))) ->
+            raise
+              (Lex_error
+                 ( fi r c (width + 1),
+                   "a line is indented with spaces, not tabs: 4 spaces for \
+                    each level" ))
+        | y :: _ when not (line_ends_here ys) && y <> '\t' ->
             if count mod 4 <> 0 then
               raise
                 (Lex_error
@@ -767,6 +803,13 @@ let lexing file chars =
     (* A non-breaking space (U+00A0) is a space, as text pasted from a
        slide or a web page writes one. *)
     | '\xC2' :: '\xA0' :: xs -> lex xs r (c + 2) stack depth line_start tokens
+    (* A tab between two tokens is a space too; one that indents a line
+       is refused above, where the line starts. *)
+    | '\t' :: xs -> lex xs r (c + 1) stack depth line_start tokens
+    (* A carriage return is what Windows writes before each line break,
+       and an editor shows nothing for it: it is skipped, and the `\n`
+       after it ends the line. *)
+    | '\r' :: xs -> lex xs r c stack depth line_start tokens
     | '\n' :: xs -> lex xs (r + 1) 0 stack depth (depth = 0) tokens
     (* Keywords and identifiers *)
     | x :: _ when is_letter x ->
@@ -816,4 +859,4 @@ let lexing file chars =
         raise
           (Lex_error (fi r c 1, Printf.sprintf "unexpected character '%c'" x))
   in
-  lex chars 1 0 [ 0 ] 0 true []
+  lex (without_byte_order_mark chars) 1 0 [ 0 ] 0 true []

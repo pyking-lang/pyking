@@ -1,0 +1,4 @@
+# A tab between two tokens is a space, as Python reads it.
+
+x	=	1 +	2
+print(x)
