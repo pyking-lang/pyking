@@ -659,6 +659,32 @@ let utf8_length s =
   in
   go 0 0
 
+(** The byte at which character `i` of a UTF-8 String starts, or None
+    where the String has no character `i`: a walk over the characters
+    before it, allocating nothing. string -> int -> int option *)
+let byte_of_char s i =
+  let rec go k count =
+    if k >= String.length s then None
+    else if count = i then Some k
+    else go (k + Uchar.utf_decode_length (String.get_utf_8_uchar s k)) (count + 1)
+  in
+  if i < 0 then None else go 0 0
+
+let code_point_at s i =
+  match byte_of_char s i with
+  | Some k -> Some (Uchar.to_int (Uchar.utf_decode_uchar (String.get_utf_8_uchar s k)))
+  | None -> None
+
+(** Characters `low` up to `high` of a UTF-8 String, as the String they
+    make: `s[low:high]`, the bounds already checked. The characters are
+    copied as the bytes they are. string -> int -> int -> string *)
+let utf8_sub s low high =
+  if high <= low then ""
+  else
+    let start = Option.value (byte_of_char s low) ~default:(String.length s) in
+    let stop = Option.value (byte_of_char s high) ~default:(String.length s) in
+    String.sub s start (stop - start)
+
 let char_of_int n = if is_code_point n then n else 0
 
 let char_of_string s = match code_points s with c :: _ -> c | [] -> 0
