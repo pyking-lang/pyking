@@ -1221,7 +1221,10 @@ Strings are delimited by double quotes, and support backslash escapes:
 a double quote, once escaped). Single quotes write a `Char` instead, one
 character: see "Char literals" below. A String is counted in
 characters -- Unicode code points -- so `len("åäö")` is 3 and
-`len("👑")` is 1 on every target.
+`len("👑")` is 1 on every target. A String ends on the line it starts
+on: a line break inside one is written `\n`, and a quote left unclosed
+is refused where its line ends rather than taking the lines below as
+text.
 
 An `Int` holds **at least the signed 32-bit range**, −2 147 483 648 to
 2 147 483 647. Every implementation carries that much; several carry
