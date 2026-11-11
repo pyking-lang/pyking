@@ -481,6 +481,15 @@ let leading_spaces chars =
   in
   go 0 0 chars
 
+
+(** Windows writes a UTF-8 file with three bytes in front (a byte order
+    mark, U+FEFF); an editor shows nothing there, so the lexer reads
+    nothing there either. [char] -> [char] *)
+let without_byte_order_mark chars =
+  match chars with
+  | '\xEF' :: '\xBB' :: '\xBF' :: rest -> rest
+  | _ -> chars
+
 let indent_width line =
   let count, _, _ = leading_spaces (chars_of_string line) in
   count
@@ -523,11 +532,11 @@ let lexing file chars =
      whether nothing but spaces has been seen on this line yet. *)
   let rec lex rest r c stack depth line_start tokens =
     match rest with
-    | x :: _ when line_start && x <> '\n' && x <> '#' ->
+    | x :: _ when line_start && x <> '\n' && x <> '\r' && x <> '#' ->
         (* A non-breaking space counts as one space, as it shows. *)
         let count, width, ys = leading_spaces rest in
         (match ys with
-        | y :: _ when y <> '\n' && y <> '#' ->
+        | y :: _ when y <> '\n' && y <> '\r' && y <> '#' ->
             if count mod 4 <> 0 then
               raise
                 (Lex_error
@@ -767,6 +776,10 @@ let lexing file chars =
     (* A non-breaking space (U+00A0) is a space, as text pasted from a
        slide or a web page writes one. *)
     | '\xC2' :: '\xA0' :: xs -> lex xs r (c + 2) stack depth line_start tokens
+    (* A carriage return is what Windows writes before each line break,
+       and an editor shows nothing for it: it is skipped, and the `\n`
+       after it ends the line. *)
+    | '\r' :: xs -> lex xs r c stack depth line_start tokens
     | '\n' :: xs -> lex xs (r + 1) 0 stack depth (depth = 0) tokens
     (* Keywords and identifiers *)
     | x :: _ when is_letter x ->
@@ -816,4 +829,4 @@ let lexing file chars =
         raise
           (Lex_error (fi r c 1, Printf.sprintf "unexpected character '%c'" x))
   in
-  lex chars 1 0 [ 0 ] 0 true []
+  lex (without_byte_order_mark chars) 1 0 [ 0 ] 0 true []

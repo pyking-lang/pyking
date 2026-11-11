@@ -4943,6 +4943,11 @@ playground's Copy for slides, write indentation with them for this
 reason (see the documentation's "Code on slides" page,
 `sitesrc/documentation/slides.md`).
 
+A file written on Windows reads as it does anywhere else: a carriage
+return before a line break, and a byte order mark in front of the file,
+are what an editor there writes and does not show, and both mean nothing
+to the lexer.
+
 ### Lines and continuation
 
 A statement ends where the tokens stop being able to continue it, and
