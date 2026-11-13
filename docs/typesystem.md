@@ -378,8 +378,10 @@ generalised (a binding never is), so the first use that decides it
 decides it for every use. Once the whole module is checked, a
 metavariable still open is one no program text can observe, so any type
 is sound for it: `Typesystem.defaulted` makes each one `Int` in the
-types the backends are given (pyk.ml, `check_module`), since C, Java and
-OCaml have to name one. The checker's own answers keep the variable, and
+types the backends are given (pyk.ml's `check_module`, and the
+browser bundle's `front_end` and `checked_modules` in
+`src/web/pyking_web.ml`, so the playground compiles what `pyk compile`
+does), since C, Java and OCaml have to name one. The checker's own answers keep the variable, and
 the `pyking` target, which writes types back, is given those.
 `check_binding_keys` (after the module is checked) still checks every
 MutMap and Map key type in a binding's type, used or not.

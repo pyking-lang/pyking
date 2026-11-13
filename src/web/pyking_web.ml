@@ -486,7 +486,7 @@ let stem_of name = Filename.remove_extension name
     checker accepted, with the types it worked out and the loops the
     tail-call pass built. Raises the front end's own errors.
     string -> string -> bool -> ([stmt], typ IntMap.t) *)
-let front_end source name natively =
+let front_end ?(default_open = true) source name natively =
   let tokens = Lexer.lexing name (Lexer.chars_of_string source) in
   let program = Parser.parse tokens in
   (* Default parameters and named arguments go first, as they do in
@@ -502,6 +502,10 @@ let front_end source name natively =
      a name environment of its own, so an unbound name is reported here
      too -- as the name error it is (pyk.ml draws the same line). *)
   let tmap, qmap = Typesystem.type_check program [] in
+  (* A type nothing decided is made one for the backends, as pyk.ml's
+     check_module does it (Typesystem.defaulted); the `pyking` view
+     keeps the variable the checker inferred. *)
+  let tmap, qmap = if default_open then Typesystem.defaulted tmap qmap else (tmap, qmap) in
   (* The one rule types do not state: only a `var` may be written to. *)
   Analyses.analyze_mutability program;
   warn_module qmap tokens program;
@@ -548,7 +552,7 @@ let browser_sources =
     Answers each module with the types worked out for it.
     Raises the front end's own errors.
     bool? -> string -> bool -> [(Module.t, typ IntMap.t?)] *)
-let checked_modules ?(natively = false) ?(warn = false) main release =
+let checked_modules ?(natively = false) ?(warn = false) ?(default_open = true) main release =
   let units = Module.load ~from:browser_sources main in
   (* The tail-call pass builds nodes and so hands out more symbols; they
      continue past the highest in the whole program, since one numbering
@@ -571,6 +575,11 @@ let checked_modules ?(natively = false) ?(warn = false) main release =
           let tmap, qmap =
             Typesystem.type_check ~declared ~mutation:(Module.uses_mutation unit) unit.stmts
               (Module.sigmaps_for unit sigmaps)
+          in
+          (* As in front_end: what nothing decided is made one type for
+             the backends, before the sigmap is built, as pyk.ml does. *)
+          let tmap, qmap =
+            if default_open then Typesystem.defaulted tmap qmap else (tmap, qmap)
           in
           Analyses.analyze_mutability unit.stmts;
           (* Warnings are the page's own program's: the file named. A
@@ -873,7 +882,10 @@ let analyze main =
     errors. string -> string -> [(string, string)] *)
 let compile_modules main target =
   let family = Targets.family_of target in
-  let checked = checked_modules ~natively:(family = Targets.Ocaml) ~warn:true main false in
+  let checked =
+    checked_modules ~natively:(family = Targets.Ocaml) ~warn:true
+      ~default_open:(target <> "pyking") main false
+  in
   let checked =
     if List.mem family [ Targets.C; Targets.Cgc; Targets.Java ] then Prune.program checked else checked
   in
@@ -1061,7 +1073,7 @@ let compile_source source target name =
         failed (Printf.sprintf "Unsupported by target '%s'" target) info message
     | exception e -> refused e
   else
-  match front_end source name natively with
+  match front_end ~default_open:(target <> "pyking") source name natively with
   | exception (Warnings.Refused _ as e) -> refused e
   | exception e -> (
       match front_end_error e with
