@@ -1,0 +1,20 @@
+use mutation
+from option import Option, None, Some
+mutable struct Cell(value: a)
+xs: [a] = []
+print(xs, len(xs))
+ys: [a] = []
+none: Option(a) = None
+print(ys, none)
+c: Cell([a]) = Cell(value = [])
+print(c)
+c2: Cell([a]) = Cell(value = [])
+print(c2)
+nested: Array([a]) = list::array([[]])
+print(nested, len(nested[0]))
+def keep(items:[a]) -> [a]:
+    more: [a] = []
+    items + more
+print(keep([1, 2]))
+zs: [Int] = []
+print(zs + [1])

@@ -1,0 +1,36 @@
+# A value whose type holds a list, an Option or a `mutable struct`
+# parameter nothing decides has a type with a variable in it, and so
+# does one whose annotation writes one: `xs: [a] = []` says the value
+# does not decide what the list holds. Every target compiles each.
+
+use mutation
+
+mutable struct Cell(value: a)
+
+xs = []
+print(xs, len(xs))
+
+ys: [a] = []
+none: Option(a) = None
+print(ys, none)
+
+c = Cell([])
+print(c)
+
+c2: Cell([a]) = Cell([])
+print(c2)
+
+nested = array([[]])
+print(nested, len(nested[0]))
+
+# A variable an enclosing definition holds is that one's.
+def keep(items: [a]) -> [a]:
+    more: [a] = []
+    items + more
+
+print(keep([1, 2]))
+
+# An annotated value is no less open than an unannotated one: a later
+# use decides it.
+zs: [a] = []
+print(zs + [1])

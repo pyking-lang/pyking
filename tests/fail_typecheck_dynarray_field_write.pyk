@@ -1,0 +1,9 @@
+# A DynArray has no field to write.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+v = dynarray([1])
+v.size := 3

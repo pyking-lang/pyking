@@ -1,0 +1,10 @@
+# A 'var' and its name are on one line: a 'var' alone is refused,
+# rather than read together with the binding on the next line.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+var
+count = 0

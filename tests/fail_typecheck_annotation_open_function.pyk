@@ -1,0 +1,7 @@
+# `(a) -> a` on a binding says the function does not decide its
+# parameter's type; `lam x. x + 1` decides it is Int.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+f: (a) -> a = lam x. x + 1

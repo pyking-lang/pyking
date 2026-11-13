@@ -1,0 +1,10 @@
+# A type variable on a binding's annotation that no enclosing `def`
+# holds says the value does not decide that type. A value that does is
+# refused, naming the annotation as it was written.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+x: Array(a) = array([1, 2])

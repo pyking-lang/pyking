@@ -3655,6 +3655,27 @@ let check_annotation ?(env = SMap.empty) annotation actual store =
           unify plain (zonk actual store) store
         else None
       in
+      (* A variable no enclosing definition holds, on a binding -- which
+         is never polymorphic -- says the value does not decide that
+         type: `x: Array(a) = array([])`, `xs: [a] = []`, `n:
+         Option(a) = None`, as `-t pyking` writes back a type nothing
+         decided and as a hover shows one. The value is checked with
+         each such variable rigid, so `x: a = 5` and `xs: [a] = [1]`,
+         whose value does decide it, are refused; then each variable is
+         a type still open, which what the program does with the binding
+         may decide, exactly as it would have with no annotation. *)
+      let undecided () =
+        let plain = resolved store written in
+        let vars = List.filter (fun v -> not (List.mem v enclosing)) (free_vars plain) in
+        let actual = zonk actual store in
+        if vars = [] then None
+        else
+          match unify plain actual store with
+          | None -> None
+          | Some _ ->
+              let metas, store = fresh_metas (List.length vars) (type_info written) store in
+              unify (substitute plain (List.combine vars metas)) actual store
+      in
       match unify annotation (zonk actual store) store with
       | Some answer -> answer
       | None ->
@@ -3663,12 +3684,24 @@ let check_annotation ?(env = SMap.empty) annotation actual store =
             match scoped () with
             | Some answer -> answer
             | None ->
+            match undecided () with
+            | Some answer -> answer
+            | None ->
+            let plain = resolved store written in
+            let open_vars = List.filter (fun v -> not (List.mem v enclosing)) (free_vars plain) in
             raise
               (Type_error
                  ( type_info annotation,
                    Printf.sprintf
-                     "this binding is annotated %s, but its value has type %s"
-                     (printed_nested annotation) (shown_nested actual store) )))
+                     "this binding is annotated %s, but its value has type %s%s"
+                     (printed_nested plain) (shown_nested actual store)
+                     (match open_vars with
+                     | [] -> ""
+                     | v :: _ ->
+                         Printf.sprintf
+                           ": a type variable such as '%s' on a binding says the value does not decide \
+                            that type, and this one does"
+                           v) )))
 
 (** Checks a return's type against return_type, or -- while one is being
     worked out -- collects it into store's frame.
@@ -4890,7 +4923,9 @@ and expr_type e env store =
       match prune record_type store with
       | TCon (_, canonical, args, _) when SMap.mem canonical store.classes ->
           object_member info canonical args field sym store
-      | _ -> field_type info record_type field store)
+      | settled ->
+          builtin_method_call info record field None settled env store;
+          field_type info record_type field store)
   | ESuper (info, _, name, args, sym) -> check_super info name args sym env store
   | EMethod (info, _, _, _, _) | EUpcast (info, _, _, _) -> unsupported info
   | ECall _ -> check_call e env store
@@ -5600,7 +5635,8 @@ and check_call call env store =
                      "nothing here says what class %s is, so there is no telling which method '%s' is meant; \
                       annotate it, as in 'def f(%s: Shape)'"
                      subject name (match obj with EVar (_, n, _) -> n | _ -> "x") ))
-        | _ ->
+        | settled ->
+            builtin_method_call (expr_info callee) obj name (Some (List.map snd written)) settled env peeked;
             if List.exists (fun (n, _) -> n <> None) written then
               raise
                 (Type_error
@@ -5800,6 +5836,64 @@ and resolve_overload call spelling candidates args env store =
   | [] -> raise (no_candidate info spelling candidates given store)
   | several -> raise (several_candidates ~args info spelling several given store)
 
+(** Refuses `v.name` or `v.name(args)` where `v` is no datatype or class
+    -- a builtin like a DynArray, a list or a String, which has no fields
+    and no methods -- but `name` is a function in scope: Pyking calls
+    those with the value as an argument, `push(v, x)`, and a reader who
+    knows Python writes `v.push(x)`. Answers () where `name` is not such
+    a function, leaving the error to whoever asked.
+    info -> expr -> string -> [expr] option -> typ -> env -> store -> () *)
+and builtin_method_call info obj name args settled env store =
+  let callee = EVar (info, name, 0) in
+  let is_function =
+    match type_of env name with
+    | Some t -> (
+        match t with
+        | TBuiltin _ | TFunction _ | TForall (_, _, TFunction _, _) -> true
+        | _ -> false)
+    | None -> candidates_for callee env <> None
+  in
+  let has_members =
+    match prune settled store with
+    | TCon (_, canonical, _, _) -> SMap.mem canonical store.datatypes || SMap.mem canonical store.classes
+    | t -> is_meta t
+  in
+  if is_function && not has_members then
+    let text e = Syntax.pprint_expr Syntax.default_config e 0 in
+    (* How many arguments it takes, where every definition of the name
+       agrees: `len(a)` rather than `len(a, ...)`. *)
+    let arities =
+      let of_type t =
+        match t with
+        | TFunction (_, params, _, _, _, _, _) | TForall (_, _, TFunction (_, params, _, _, _, _, _), _) ->
+            Some (List.length params)
+        | TBuiltin (_, builtin, _) -> (
+            match Builtin.lookup builtin with
+            | Some { Builtin.min_args; max_args = Some most; _ } when min_args = most -> Some most
+            | _ -> None)
+        | _ -> None
+      in
+      match type_of env name with
+      | Some t -> [ of_type t ]
+      | None -> (
+          match candidates_for callee env with
+          | Some (_, found) -> List.map (fun (_, t) -> of_type t) found
+          | None -> [ None ])
+    in
+    let call =
+      match args with
+      | Some args -> Printf.sprintf "%s(%s)" name (String.concat ", " (List.map text (obj :: args)))
+      | None when List.for_all (fun a -> a = Some 1) arities -> Printf.sprintf "%s(%s)" name (text obj)
+      | None -> Printf.sprintf "%s(%s, ...)" name (text obj)
+    in
+    raise
+      (Type_error
+         ( info,
+           Printf.sprintf
+             "%s has no methods or fields, so '.%s' means nothing here: '%s' is a \
+              function, and the value is its first argument, as in '%s'"
+             (shown settled store) name name call ))
+
 (** The type of the field `field` of a value of type record_type: every
     constructor of its datatype has the field, at one type. Raises
     Type_error otherwise. info -> typ -> string -> store -> (typ, store) *)
@@ -5808,7 +5902,7 @@ and field_type info record_type field store =
      value, so every constructor of the datatype has to have it, at
      one type. *)
   match prune record_type store with
-  | TCon (_, canonical, args, _) -> (
+  | TCon (_, canonical, args, _) when SMap.mem canonical store.datatypes -> (
       let (Datatype (_, params, constructors, _)) =
         SMap.find canonical store.datatypes
       in
@@ -7222,34 +7316,21 @@ and resolved_argument one store =
           passed,
           List.map (fun one -> resolved_argument one store) inner )
 
-(** Refuses a binding whose type holds a mutable value of a type nothing
-    decided -- an array of elements nothing decided (`a = array([])`,
-    never written or read as anything), or a `mutable struct` of a parameter
-    nothing decided (`c = Cell([])`): a mutable value has to be one type,
-    and no later program text can say which once the module is checked
-    (PYKING.md, "Arrays", "Mutable structs"). An immutable `xs = []` stays
-    a list of anything. [stmt] -> store -> () *)
-let check_open_arrays stmts store =
-  let writable name =
-    match SMap.find_opt name store.datatypes with
-    | Some (Datatype (_, _, _, writable)) -> writable
-    | None -> false
-  in
-  let rec open_array type_ =
-    match type_ with
-    | TCon (_, name, [ element ], _) when name = array_name || name = dynarray_name || name = slice_name ->
-        metas_in element store <> [] || open_array element
-    | TCon (_, name, args, _) when name = mutmap_name || name = map_name ->
-        List.exists (fun arg -> metas_in arg store <> []) args || List.exists open_array args
-    | TCon (_, name, args, _) when writable name ->
-        List.exists (fun arg -> metas_in arg store <> []) args || List.exists open_array args
-    | TCon (_, _, args, _) | TTuple (_, args, _) -> List.exists open_array args
-    | TList (_, element, _) -> open_array element
-    | _ -> false
-  in
+(** Checks that every MutMap and Map key type in a binding's type is one
+    a key can be: what `d[k]` and `has` check at a use, this checks of
+    one nothing used (`d = mutmap()` with no entry ever put in it).
+
+    A binding whose type holds a mutable value of a type nothing decided
+    -- `x = array([])`, `v = dynarray()`, `c = Cell([])` never written
+    or read as anything -- is not refused: its type is `Array(a)`, as an
+    immutable `xs = []` is `[a]`. It is not polymorphic -- a binding
+    never is, and an array is one store of one type -- but nothing in
+    the program can tell which type that is, so any one would do, and a
+    backend that has to name one is given one (`defaulted`).
+    [stmt] -> store -> () *)
+let check_binding_keys stmts store =
   (* A MutMap's key type, wherever one is in a binding's type, is one a
-     key can be: what `d[k]` and `has` check at a use, this checks of a
-     MutMap nothing used. *)
+     key can be. *)
   let rec keys_fit info type_ =
     match type_ with
     | TCon (_, name, [ key; _ ], _) when name = mutmap_name -> demand_key info key store
@@ -7258,39 +7339,61 @@ let check_open_arrays stmts store =
     | TList (_, element, _) -> keys_fit info element
     | _ -> ()
   in
-  let check name info sym =
+  let check info sym =
     match IntMap.find_opt sym store.tmap with
-    | Some type_ ->
-        let type_ = zonk type_ store in
-        keys_fit info type_;
-        if open_array type_ then
-          let shown =
-            substitute type_ (List.map (fun meta -> (meta, t_unknown info)) (metas_in type_ store))
-          in
-          raise
-            (Type_error
-               ( info,
-                 Printf.sprintf
-                   "the type of '%s' is %s: nothing says what it holds. \
-                    Use it, or annotate it ('%s: %s = ...')"
-                   name (printed shown) name
-                   (printed
-                      (substitute type_
-                         (List.map (fun meta -> (meta, t_var info "Int")) (metas_in type_ store)))) ))
+    | Some type_ -> keys_fit info (zonk type_ store)
     | None -> ()
   in
   let rec names target =
     match target with
-    | TargetName (i, name, sym) -> check name i sym
+    | TargetName (i, _, sym) -> check i sym
     | TargetTuple (_, parts, _) -> List.iter names parts
   in
   Walk.fold_stmts
     (fun () node ->
       match node with
       | Walk.NStmt (SLet (_, target, _, _, _, _, _)) | Walk.NStmt (SLetStmt (_, target, _, _, _, _)) -> names target
-      | Walk.NStmt (SVar (i, name, _, sym)) -> check name i sym
+      | Walk.NStmt (SVar (i, _, _, sym)) -> check i sym
       | _ -> ())
     () stmts
+
+(** The types a backend is given, with every type nothing decided made
+    one: `Int`, for each metavariable left open once the whole module is
+    checked (which `displayed` names `a`, `b`, ...). Such a type is the
+    element type of an empty list or array, an empty DynArray's or
+    MutMap's, a `None`'s, ... -- nothing in the program reads a value of
+    it or tells it apart from any other type, so any one is sound, and
+    Int is one every backend holds and every key and `+` accepts. The
+    type checker's own answers keep the variable: a hover, the REPL and a
+    message say `Array(a)`, and `-t pyking` writes it back as such. A
+    rigid variable is a definition's own and is left alone.
+    typ IntMap.t -> resolution IntMap.t -> typ IntMap.t * resolution IntMap.t *)
+let defaulted tmap qmap =
+  let rec fix type_ =
+    match type_ with
+    | TVar (info, _, _, false) -> t_int info
+    | TUnknown _ -> type_
+    | TList (i, e, s) -> TList (i, fix e, s)
+    | TTuple (i, es, s) -> TTuple (i, List.map fix es, s)
+    | TCon (i, c, es, s) -> TCon (i, c, List.map fix es, s)
+    | TFunction (i, ps, r, a, b, c, d) -> TFunction (i, List.map fix ps, fix r, a, b, c, map_implicits fix d)
+    | TForall (i, vs, b, s) -> TForall (i, vs, fix b, s)
+    | type_ -> type_
+  in
+  let rec argument one =
+    match one with
+    | Direct (name, type_) -> Direct (name, fix type_)
+    | Wrapped (name, type_, passed, inner) -> Wrapped (name, fix type_, passed, List.map argument inner)
+  in
+  let resolution answer =
+    match answer with
+    | Call (target, supplied) ->
+        Call (Option.map (fun (name, type_) -> (name, fix type_)) target, List.map argument supplied)
+    | Adapted (type_, passed, supplied) -> Adapted (fix type_, passed, List.map argument supplied)
+    | Upcast type_ -> Upcast (fix type_)
+    | Method_call _ | Method_value _ | Super_owner _ | Object_eq _ -> answer
+  in
+  (IntMap.map fix tmap, IntMap.map resolution qmap)
 
 (** Type-checks one module -- or a whole one-file program, which is the
     same thing. `sigmaps` pairs the name of every module this one imports
@@ -7319,7 +7422,7 @@ let type_check ?(declared = []) ?(mutation = true) stmts sigmaps =
   in
   let store = settle_plus store in
   let store = settle_kinds store in
-  check_open_arrays stmts store;
+  check_binding_keys stmts store;
   check_exports stmts store;
   check_exported_datatypes stmts store;
   check_matches stmts store;

@@ -1,0 +1,11 @@
+# A MutMap has no methods: 'has' is a function, called with the MutMap
+# as its first argument.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+m: MutMap(String, Int) = mutmap()
+m["one"] := 1
+print(m.has("one"))

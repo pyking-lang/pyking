@@ -1,0 +1,2 @@
+'tests/fail_typecheck_var_several.pyk' 8:5-8:6 Parsing error: a 'var'
+  declares one name: write one 'var' per variable, as in 'var a = 0'

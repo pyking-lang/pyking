@@ -1,0 +1,4 @@
+'tests/fail_typecheck_annotation_open_function.pyk' 7:3-7:11 Type
+  error: this binding is annotated (a) -> a, but its value has type
+  (Int) -> Int: a type variable such as 'a' on a binding says the
+  value does not decide that type, and this one does

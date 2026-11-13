@@ -1,0 +1,2 @@
+'tests/fail_typecheck_var_name_next_line.pyk' 9:0-9:3 Parsing error:
+  expected a name after 'var', as in 'var count = 0'

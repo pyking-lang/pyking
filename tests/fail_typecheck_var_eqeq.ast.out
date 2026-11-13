@@ -1,0 +1,2 @@
+'tests/fail_typecheck_var_eqeq.pyk' 8:10-8:12 Parsing error: a 'var'
+  is declared with '=', not '==': 'var count = ...'

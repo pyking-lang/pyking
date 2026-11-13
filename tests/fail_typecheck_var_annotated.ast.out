@@ -1,0 +1,5 @@
+'tests/fail_typecheck_var_annotated.pyk' 8:9-8:10 Parsing error: a
+  'var' takes no type annotation: its type is its starting value's, as
+  in 'var count = 0'. Where the value does not say enough, annotate a
+  binding of it and start from that: 'start: [Int] = []', then 'var
+  count = start'

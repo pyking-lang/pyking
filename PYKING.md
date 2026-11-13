@@ -599,7 +599,7 @@ list_pattern_items = list_pattern_item , { "," , list_pattern_item } ;
 list_pattern_item  = pattern_as | rest_marker ;
 rest_marker        = ".." , [ ident ] ;
 
-var_decl    = "var" , ident , "=" , bound_expr ;
+var_decl    = "var" , ident , ( "=" | ":=" ) , bound_expr ;   (* ":=" is accepted as "=" *)
 assignment  = [ "implicit" ] , target , [ ":" , type ] , "=" , bound_value ;
 mutation    = ident , ":=" , bound_expr
             | target , ":=" , bound_expr            (* a tuple of names *)
@@ -1960,7 +1960,12 @@ notebook, every cell is a program of its own and writes its own `use`.
 `var name = expr` declares a new mutable variable, initialized to the
 value of `expr`. Once declared, it is updated with `name := expr`, not
 `=`. Both need `use mutation` at the top of the module (see "Features
-turned on with `use`").
+turned on with `use`"). Since `:=` is what every later write uses,
+`var name := expr` is accepted too, and means the same declaration;
+`-t pyking` writes it back with `=`. A `var` takes no type annotation
+(its type is its starting value's) and declares one name, and a
+declaration that is not `var name = expr` is refused at the token that
+goes wrong, with the form it should take.
 
 ```pyking
 use mutation
@@ -2092,10 +2097,18 @@ print(primes, zeros, squares, fibs)
   negative `n` is a runtime error (`an array's size is never negative`)
   on `c23-gc` and every target but plain C, and a size is checked before
   anything is allocated.
-- **An empty array needs its element type known**: from its use, or
+- **An empty array's element type is decided by its use**, or
   written, `empty: Array(Int) = array([])`. One whose element type
-  nothing decides is refused at its binding: `the type of 'empty' is
-  Array(?)`. An immutable `xs = []` stays a list of anything.
+  nothing decides has the type `Array(a)`, as `xs = []` has `[a]`:
+  `empty = array([])` followed by `print(empty)` is a whole program, and
+  a hover or the REPL shows `Array(a)`. Writing that type is allowed
+  too, `empty: Array(a) = array([])`: a type variable no enclosing
+  `def` holds says the value does not decide that type, so `x: a = 5`,
+  whose value does, is refused. An array is still one type: the first
+  use that decides it decides it everywhere, and a second use at
+  another type is refused. A backend that has to name the element type
+  (C, Java, OCaml) is given `Int`, which no program can tell apart,
+  since an array of no decided type holds no element to read.
 
 **Reading and writing.** `a[i]` reads element `i`, counting from 0, and
 `a[i] := v` writes it; the compound forms (`a[i] += 1`) work on an
@@ -2225,6 +2238,11 @@ collections") -- and `dynarray(n, v)` one of `n` copies of `v`;
 | `insert(v, i, x)` | puts `x` before index `i`, moving the elements from `i` on up; `0 <= i <= len(v)` | `()` |
 | `remove(v, i)` | takes the element at `i` out, moving the ones after it down | it |
 | `clear(v)` | removes every element | `()` |
+
+These are functions, called with the DynArray as the first argument:
+`push(v, x)`, not `v.push(x)`. A DynArray, like an array, a MutMap, a
+list or a String, has no methods or fields, and `v.push(x)` is refused
+with the call to write instead.
 
 `pop` of an empty DynArray, and an index outside one, are runtime errors on
 every target but plain C. `push` and `pop` take constant time on
@@ -4483,9 +4501,9 @@ every argument before it writes any, so a change `f` makes to `p` is
 printed.
 
 **Types.** A `mutable struct` with a type parameter, `mutable struct Cell(value:
-a)`, is one type once made: a binding whose struct has a parameter
-nothing decides is refused, as an empty array is -- `c = Cell([])`
-needs a use or an annotation saying what the list holds.
+a)`, is one type once made: the first use that decides its parameter
+decides it everywhere. One that nothing decides, `c = Cell([])`, is
+`Cell([a])`, as an empty array is `Array(a)`.
 
 **Targets.** Every target compiles them: a class with fields that can be
 written on Python and JavaScript, a final class on Java, a record with

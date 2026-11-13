@@ -1,0 +1,16 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open open_types.pyk
+> idle
+diagnostics $CASES/open_types.pyk v1 []
+> hover open_types.pyk 3:1
+{"contents": {"kind": "markdown", "value": "```pyking\nx: Array(a)\n```"}, "range": {"end": {"character": 1, "line": 2}, "start": {"character": 0, "line": 2}}}
+> hover open_types.pyk 5:5
+{"contents": {"kind": "markdown", "value": "```pyking\nvar count: Int\n```"}, "range": {"end": {"character": 9, "line": 4}, "start": {"character": 0, "line": 4}}}
+> open open_types_error.pyk
+> idle
+diagnostics $CASES/open_types_error.pyk v1 [{"code": "Type error", "message": "DynArray(Int) has no methods or fields, so '.push' means nothing here: 'push' is a function, and the value is its first argument, as in 'push(x1, y)'", "range": {"end": {"character": 11, "line": 4}, "start": {"character": 4, "line": 4}}, "severity": 1, "source": "pyking"}]
+> shutdown
+null
+> exit
+> exit status 0

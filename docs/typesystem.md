@@ -370,11 +370,27 @@ and `same` is a builtin taking two values of one type with an identity:
 two arrays, or two `mutable struct`s. `==` has no row for arrays or structs,
 and its error says to use `same`, or `array.equal`.
 
-**An open array is refused at its binding** (`check_open_arrays`, after
-the module is checked): a binding whose type holds `Array` of an
-element type nothing decided, or a `mutable struct` of a parameter nothing
-decided, since a mutable value has one type and nothing later can say
-which. An immutable `xs = []` stays `[a]`.
+**An open array is not refused.** A binding whose type holds `Array` of
+an element type nothing decided -- or a DynArray, a MutMap or a `mutable
+struct` of a parameter nothing decided -- keeps that metavariable open,
+and is shown as `Array(a)`, as an immutable `xs = []` is `[a]`. It is not
+generalised (a binding never is), so the first use that decides it
+decides it for every use. Once the whole module is checked, a
+metavariable still open is one no program text can observe, so any type
+is sound for it: `Typesystem.defaulted` makes each one `Int` in the
+types the backends are given (pyk.ml, `check_module`), since C, Java and
+OCaml have to name one. The checker's own answers keep the variable, and
+the `pyking` target, which writes types back, is given those.
+`check_binding_keys` (after the module is checked) still checks every
+MutMap and Map key type in a binding's type, used or not.
+
+**A type variable on a binding's annotation** that no enclosing
+definition holds (`check_annotation`, `undecided`) means a type the value
+does not decide: `x: Array(a) = array([])`, as `-t pyking` writes the
+type back. The value is unified with the annotation with each such
+variable rigid first, so `x: a = 5` is refused; on success the variables
+are replaced by fresh metavariables and unified again, so the binding is
+exactly as open as it would be with no annotation.
 
 ## Mutable structs
 

@@ -1,0 +1,19 @@
+use mutation
+x = array([])
+x
+len(x)
+v = dynarray()
+v
+push(v, 4)
+v
+d = mutmap()
+d
+xs = []
+xs
+var count := 0
+count := count + 1
+count
+w = dynarray([1, 2])
+w.push(3)
+len(w)
+var total: Int = 0

@@ -1,0 +1,8 @@
+# A list has no methods, and 'append' is no function in scope, so there
+# is no call to suggest: the dot reads a field, and a list has none.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+xs = [1, 2]
+xs.append(3)

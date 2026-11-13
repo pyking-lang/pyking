@@ -1,0 +1,17 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> > > array([]) : Array(a)
+> 0 : Int
+> > dynarray([]) : DynArray(a)
+> > dynarray([4]) : DynArray(Int)
+> > mutmap([]) : MutMap(a, b)
+> > [] : [a]
+> > > 1 : Int
+> > '<repl>' 1:0-1:6 Type error: DynArray(Int) has no methods or fields,
+  so '.push' means nothing here: 'push' is a function, and the value
+  is its first argument, as in 'push(w, 3)'
+> 2 : Int
+> '<repl>' 1:9-1:10 Parsing error: a 'var' takes no type annotation: its
+  type is its starting value's, as in 'var total = 0'. Where the value
+  does not say enough, annotate a binding of it and start from that:
+  'start: [Int] = []', then 'var total = start'
+> 

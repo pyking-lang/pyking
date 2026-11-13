@@ -105,6 +105,71 @@ let misplaced_mutable info =
           Type, ...)', whose fields are written in place; a variable that \
           changes is declared with 'var'" ))
 
+(** The Parse_error for a `var` that is not `var name = expr` (or the
+    `var name := expr` slip it accepts too): blamed on the token that
+    goes wrong, with the declaration as it should read, rather than on
+    `var` as an expression that cannot start. info -> info -> [token]
+    -> exn *)
+let malformed_var eof var_info rest =
+  let as_written = "'var count = 0'" in
+  match rest with
+  | TokIdent (ni, name) :: after when ni.row1 = var_info.row2 -> (
+      let following = match after with t :: _ -> Some (token_info t) | [] -> None in
+      match after with
+      | TokColon ci :: _ ->
+          Parse_error
+            ( ci,
+              Printf.sprintf
+                "a 'var' takes no type annotation: its type is its starting \
+                 value's, as in 'var %s = 0'. Where the value does not say \
+                 enough, annotate a binding of it and start from that: \
+                 'start: [Int] = []', then 'var %s = start'"
+                name name )
+      | TokCompound (ci, op) :: _ ->
+          Parse_error
+            ( ci,
+              Printf.sprintf
+                "'%s=' changes a variable that already exists, and 'var' \
+                 declares a new one: 'var %s = ...' declares it, and '%s %s= \
+                 ...' then changes it"
+                op name name op )
+      | TokEqEq ci :: _ ->
+          Parse_error
+            ( ci,
+              Printf.sprintf
+                "a 'var' is declared with '=', not '==': 'var %s = ...'"
+                name )
+      | TokComma ci :: _ ->
+          Parse_error
+            ( ci,
+              Printf.sprintf
+                "a 'var' declares one name: write one 'var' per variable, \
+                 as in 'var %s = 0'"
+                name )
+      | _ when (match following with Some fi -> fi.row1 > ni.row2 | None -> true) ->
+          Parse_error
+            ( combine_info var_info ni,
+              Printf.sprintf
+                "a 'var' needs a starting value: 'var %s = ...', whose type \
+                 is the variable's"
+                name )
+      | _ ->
+          Parse_error
+            ( here eof after,
+              Printf.sprintf "expected '=' after 'var %s', as in %s" name
+                as_written ))
+  | TokLParen pi :: _ ->
+      Parse_error
+        ( pi,
+          "a 'var' declares one name, not a tuple of them: write one 'var' \
+           per variable, as in 'var a = 1' and 'var b = 2'" )
+  | _ ->
+      Parse_error
+        ( (match rest with
+          | t :: _ when (token_info t).row1 = var_info.row2 -> token_info t
+          | _ -> var_info),
+          Printf.sprintf "expected a name after 'var', as in %s" as_written )
+
 
 (** Refuses a qualified name where only a plain one may stand. `::` is
     what makes an overloaded definition's name unique, and only a `def`
@@ -1857,11 +1922,17 @@ and parse_statement eof tokens =
           (SExprStmt (expr_info e, e, 0), rest)
       | _ ->
           raise (after_condition eof rest "expected ':' or 'then' after if condition"))
-  | TokVar i :: TokIdent (_, name) :: TokEq _ :: rest ->
+  (* `var count := 0` is accepted as `var count = 0`: a declaration's
+     value is written with `=`, but `:=` is what every later write to
+     the variable uses, and reaching for it here is an easy slip that
+     says nothing else (PYKING.md, "Mutable variables"). *)
+  | TokVar i :: TokIdent (ni, name) :: (TokEq _ | TokAssign _) :: rest
+    when ni.row1 = i.row2 ->
       let value, rest = parse_bound_value eof rest in
       let e = expect_expr_value value "a 'var' declaration" in
       check_plain_name i name "declared with 'var'";
       (SVar (combine_info i (expr_info e), name, e, 0), rest)
+  | TokVar i :: rest -> raise (malformed_var eof i rest)
   | TokIdent (i, name) :: TokAssign _ :: rest ->
       let value, rest = parse_bound_value eof rest in
       let e = expect_expr_value value "a ':=' mutation" in

@@ -1,0 +1,22 @@
+# `var name := value` declares a variable as `var name = value` does:
+# `:=` is what every later write uses, and an easy slip to make in the
+# declaration too.
+
+use mutation
+
+var count := 0
+count := count + 1
+count += 10
+print(count)
+
+def total(xs: Array(Int)) -> Int:
+    var sum := 0
+    for x in xs:
+        sum += x
+    sum
+
+print(total(array([1, 2, 3])))
+
+var greeting := "hello"
+var both = greeting + ", world"
+print(greeting, both)

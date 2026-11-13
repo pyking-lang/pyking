@@ -200,6 +200,16 @@ val type_check :
   (string * sigmap) list ->
   typ IntMap.t * resolution IntMap.t
 
+(** The types `type_check` answered, as a backend is given them: every
+    type nothing in the module decided -- a metavariable left open,
+    which the checker names `a`, `b`, ... -- made `Int`. Nothing reads a
+    value of such a type, so any one type is sound, and a backend that
+    has to name one (C, Java, OCaml) is given one. The checker's own
+    answers keep the variable, for what a hover, the REPL and a message
+    show. typ IntMap.t -> resolution IntMap.t
+    -> typ IntMap.t * resolution IntMap.t *)
+val defaulted : typ IntMap.t -> resolution IntMap.t -> typ IntMap.t * resolution IntMap.t
+
 (** The environment a program starts in: every name in
     Builtin.names, at its TBuiltin type. () -> env *)
 val builtin_env : unit -> env

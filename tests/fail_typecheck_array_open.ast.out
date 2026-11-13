@@ -1,3 +1,0 @@
-'tests/fail_typecheck_array_open.pyk' 10:0-10:5 Type error: the type
-  of 'empty' is Array(?): nothing says what it holds. Use it, or
-  annotate it ('empty: Array(Int) = ...')

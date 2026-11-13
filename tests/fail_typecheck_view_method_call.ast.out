@@ -1,0 +1,4 @@
+'tests/fail_typecheck_view_method_call.pyk' 10:6-10:11 Type error:
+  Slice(Int) has no methods or fields, so '.len' means nothing here:
+  'len' is a function, and the value is its first argument, as in
+  'len(v)'

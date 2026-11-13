@@ -299,7 +299,7 @@ bounded amount; `c23-gc` runs the rest.
 | statements | `syntax.ml`: `SVar`, `SMutate`, `SMutateTuple`, `SSetIndex`, `SSetField` |
 | `mutable struct` | `syntax.ml`: the last flag of `SDatatype` and of `Datatype` |
 | sugar | `desugar_args.ml`: tuple `:=`, compound element and field writes |
-| types | `typesystem.ml`: `Array(T)`, `array`/`array_init`, `same`, element and field writes, `check_open_arrays` |
+| types | `typesystem.ml`: `Array(T)`, `array`/`array_init`, `same`, element and field writes, `defaulted` |
 | the `var` rule | `analyses.ml` (`analyze_mutability`) |
 | running | `interpreter.ml`: `VArray`, `VData`'s field array, the write continuations, `display_value` |
 | warnings | `warnings.ml`: `shared-fill`; a compound write counts as a read |
@@ -380,9 +380,10 @@ a write's errors at the statement.
   `empty::dynarray` and `list::dynarray`, and `check_builtin_call` types the five
   writers: the first argument is unified with a DynArray, an index with Int,
   a value with the element type.
-- **Open types** (FCR-H2): `check_open_arrays` refuses a binding whose
-  type holds an array of undecided elements, or a `mutable struct` of an
-  undecided parameter, at the end of the module.
+- **Open types** (FCR-H2): a binding whose type holds an array of
+  undecided elements, or a `mutable struct` of an undecided parameter,
+  is `Array(a)` to the checker and is not refused; `Typesystem.defaulted`
+  gives the backends `Int` for it once the module is checked.
 
 ### The interpreter
 

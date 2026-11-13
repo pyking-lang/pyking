@@ -1,0 +1,21 @@
+use mutation
+x: Array(a) = list::array([])
+print(x)
+print(len(x))
+v: DynArray(a) = empty::dynarray()
+print(v, len(v))
+d: MutMap(a, b) = empty::mutmap()
+print(d, len(d))
+y: Array(a) = list::array([])
+w: DynArray(a) = empty::dynarray()
+print(y, w)
+def empties() -> Int:
+    inner: Array(a) = list::array([])
+    (grown, n): (DynArray(a), Int) = (empty::dynarray(), 3)
+    print(inner, grown, n)
+    len(inner) + len(grown) + n
+print(empties())
+later: DynArray(Int) = empty::dynarray()
+print(len(later))
+push(later, 7)
+print(later)

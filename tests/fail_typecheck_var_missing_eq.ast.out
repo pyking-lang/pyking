@@ -1,0 +1,2 @@
+'tests/fail_typecheck_var_missing_eq.pyk' 8:10-8:11 Parsing error:
+  expected '=' after 'var count', as in 'var count = 0'

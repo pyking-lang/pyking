@@ -926,7 +926,7 @@ let report_warnings found =
     answering the types it worked out. Exits via fail on the first
     error. Module.t -> [(string, Typesystem.sigmap)] -> bool
     -> ([stmt], typ IntMap.t) *)
-let check_module ?(warnings = Warnings.default) ?(warn = false) ?(start = 0) (unit : Module.t) sigmaps experiment =
+let check_module ?(warnings = Warnings.default) ?(warn = false) ?(start = 0) ?(default_open = true) (unit : Module.t) sigmaps experiment =
   let declared = Module.external_signatures unit.declarations in
   (* Pyking is statically typed, so this is not a mode: a program that
      does not check is refused, whatever was asked for. The checker
@@ -945,6 +945,12 @@ let check_module ?(warnings = Warnings.default) ?(warn = false) ?(start = 0) (un
      with `:=`, and nothing may shadow one. *)
   (try Analyses.analyze_mutability unit.stmts
    with Analyses.Analysis_error _ as e -> fail e);
+  (* A type nothing in the module decided -- the element type of an
+     `array([])` never written to -- is the variable `a` to the checker,
+     and is made one type here for the backends, which have to name one
+     (Typesystem.defaulted). The `pyking` target writes the variable
+     back as the checker said it. *)
+  let tmap, qmap = if default_open then Typesystem.defaulted tmap qmap else (tmap, qmap) in
   (* What checks may still be wrong: a name bound and never used. Each
      warning goes to stderr and the program goes on, unless a -Werror
      made one of them an error. *)
@@ -1059,7 +1065,7 @@ let front_end options =
             let elaborated, tmap =
               check_module ~warnings:(warning_config options)
                 ~warn:(not (Module.in_library (library_path options) unit.path))
-                ~start:highest unit
+                ~start:highest ~default_open:(options.target <> pyking_target) unit
                 (Module.sigmaps_for unit sigmaps)
                 options.type_experiment
             in
@@ -2563,10 +2569,27 @@ let run_command argv =
     if options.command = "compile" then command_compile checked options
     else command_interpret ~libs:(library_path options) checked options.arguments
 
-(** Runs pyk. [string] -> int *)
+(** Runs pyk. An exception that reaches here is a fault in pyk itself
+    -- every error a program can have is reported where it is found, at
+    its place in the source -- so it is said to be one, rather than
+    printed as OCaml's `Fatal error: exception Not_found`, which reads
+    like an error the program ran into. OCAMLRUNPARAM=b adds where it
+    was raised. [string] -> int *)
 let main argv =
-  match argv with
-  | "highlight" :: rest -> command_highlight rest
-  | _ -> run_command argv
+  try
+    match argv with
+    | "highlight" :: rest -> command_highlight rest
+    | _ -> run_command argv
+  with
+  | (Not_found | Invalid_argument _ | Failure _ | Assert_failure _ | Match_failure _) as error ->
+      let trace = Printexc.get_backtrace () in
+      prerr_endline
+        (wrap
+           (Printf.sprintf
+              "pyk: internal error (%s): this is a fault in pyk, not an error in the program it was \
+               given. Please report it, with the program that caused it."
+              (Printexc.to_string error)));
+      if trace <> "" then prerr_string trace;
+      2
 
 let () = exit (main (List.tl (Array.to_list Sys.argv)))

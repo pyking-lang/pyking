@@ -1,0 +1,12 @@
+# A DynArray has no methods: 'push' is a function, called with the
+# DynArray as its first argument. This stopped the compiler with
+# 'Fatal error: exception Not_found' before the program ran.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+x1 = dynarray([7, 10, 33, 100, 8, 203, 99])
+for y in x1:
+    x1.push(y)

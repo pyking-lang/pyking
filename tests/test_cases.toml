@@ -2065,6 +2065,12 @@ file = "tuple_wildcards.pyk"
 [[cases]]
 file = "var_values.pyk"
 
+# `var name := value` is accepted as `var name = value`; every other
+# misshapen `var` is refused at the token that goes wrong.
+[[cases]]
+file = "var_colon_eq.pyk"
+also = ["pyking_rerun"]
+
 [[cases]]
 file = "var_lists.pyk"
 excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
@@ -2368,8 +2374,49 @@ file = "fail_typecheck_array_string_write.pyk"
 [[cases]]
 file = "fail_typecheck_array_eq.pyk"
 
+# An array, DynArray, MutMap or mutable struct whose type nothing decides
+# is `Array(a)`, not refused; a backend that has to name the type is
+# given Int. A type variable on a binding's annotation says the value
+# does not decide that type.
 [[cases]]
-file = "fail_typecheck_array_open.pyk"
+file = "typecheck_open_array.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "typecheck_open_list.pyk"
+also = ["pyking_rerun"]
+libs = ["option"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "fail_typecheck_open_array_one_type.pyk"
+
+[[cases]]
+file = "fail_typecheck_annotation_open_decided.pyk"
+
+[[cases]]
+file = "fail_typecheck_annotation_open_function.pyk"
+
+# A dot on a value with no fields or methods -- a DynArray, an array, a
+# MutMap, a view, a list -- is a type error naming the call to write,
+# not the compiler's own Not_found.
+[[cases]]
+file = "fail_typecheck_dynarray_method_call.pyk"
+
+[[cases]]
+file = "fail_typecheck_array_field.pyk"
+
+[[cases]]
+file = "fail_typecheck_mutmap_method_call.pyk"
+
+[[cases]]
+file = "fail_typecheck_view_method_call.pyk"
+
+[[cases]]
+file = "fail_typecheck_list_method_unknown.pyk"
+
+[[cases]]
+file = "fail_typecheck_dynarray_field_write.pyk"
 
 # Mutable structs: `mutable struct`, field writes and their compound forms,
 # sharing, patterns, `..` and cycle-safe printing.
@@ -2409,9 +2456,6 @@ file = "fail_typecheck_var_struct_no_field.pyk"
 file = "fail_typecheck_var_struct_not_struct.pyk"
 
 [[cases]]
-file = "fail_typecheck_var_struct_open.pyk"
-
-[[cases]]
 file = "fail_typecheck_var_struct_same.pyk"
 
 [[cases]]
@@ -2425,6 +2469,36 @@ file = "fail_typecheck_var_datatype.pyk"
 
 [[cases]]
 file = "fail_typecheck_var_struct_old.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_annotated.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_no_value.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_tuple.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_several.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_compound.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_eqeq.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_no_name.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_missing_eq.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_name_next_line.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_colon_eq_no_mutation.pyk"
 
 [[cases]]
 file = "fail_typecheck_mutable_misplaced.pyk"
@@ -2474,9 +2548,6 @@ file = "fail_typecheck_dynarray_push_type.pyk"
 
 [[cases]]
 file = "fail_typecheck_dynarray_not_dynarray.pyk"
-
-[[cases]]
-file = "fail_typecheck_dynarray_open.pyk"
 
 [[cases]]
 file = "fail_typecheck_dynarray_eq.pyk"
@@ -2642,9 +2713,6 @@ file = "fail_typecheck_mutmap_key_type.pyk"
 
 [[cases]]
 file = "fail_typecheck_mutmap_value_type.pyk"
-
-[[cases]]
-file = "fail_typecheck_mutmap_open.pyk"
 
 [[cases]]
 file = "fail_typecheck_mutmap_eq.pyk"

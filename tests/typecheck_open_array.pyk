@@ -1,0 +1,38 @@
+# An array, a DynArray or a MutMap whose element type nothing decides
+# is not refused: its type is `Array(a)`, as `xs = []` is `[a]`. It is
+# one store of one type all the same -- nothing generalises it -- and a
+# backend that has to name the type is given one no program can tell
+# apart. The `.ast.out` pins the types as the checker says them: with
+# the variable, which `-t pyking` writes back and checks again.
+
+use mutation
+
+x = array([])
+print(x)
+print(len(x))
+
+v = dynarray()
+print(v, len(v))
+
+d = mutmap()
+print(d, len(d))
+
+# The variable may be written: it says the value does not decide it.
+y: Array(a) = array([])
+w: DynArray(b) = dynarray()
+print(y, w)
+
+# Inside a function, and inside a tuple.
+def empties() -> Int:
+    inner = array([])
+    (grown, n) = (dynarray(), 3)
+    print(inner, grown, n)
+    len(inner) + len(grown) + n
+
+print(empties())
+
+# A later use still decides it, for every use, as before.
+later = dynarray()
+print(len(later))
+push(later, 7)
+print(later)

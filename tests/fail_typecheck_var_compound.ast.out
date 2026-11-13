@@ -1,0 +1,4 @@
+'tests/fail_typecheck_var_compound.pyk' 8:10-8:12 Parsing error: '+='
+  changes a variable that already exists, and 'var' declares a new
+  one: 'var count = ...' declares it, and 'count += ...' then changes
+  it

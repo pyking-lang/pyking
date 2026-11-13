@@ -1,0 +1,4 @@
+'tests/fail_typecheck_mutmap_method_call.pyk' 11:6-11:11 Type error:
+  MutMap(String, Int) has no methods or fields, so '.has' means
+  nothing here: 'has' is a function, and the value is its first
+  argument, as in 'has(m, "one")'

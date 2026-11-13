@@ -19,12 +19,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- An empty array, DynArray, MutMap or `mutable struct` whose element
+  type nothing decides is no longer refused: `x = array([])` followed
+  by `print(x)` is a whole program, and `x` is `Array(a)`, as `xs = []`
+  is `[a]`. It is still one store of one type, so the first use that
+  decides the type decides it everywhere. Every backend compiles it: C,
+  Java and OCaml, which have to name the type, are given `Int`, which
+  no program can tell apart (PYKING.md, "Arrays").
+- `var count := 0` declares a variable as `var count = 0` does: `:=` is
+  what every later write uses, and it is an easy slip to make here too.
 - The Editors page, and the VS Code extension's README, say how to put
   the `code` command (and Cursor's `cursor`) on the command line on
   macOS, Windows and Linux, and when an install leaves it off.
 
 ### Fixed
 
+- `v.push(x)` on a DynArray -- or `a.len` on an array, `m.has(k)` on a
+  MutMap, any `.name` on a value with no fields -- stopped the compiler
+  with `Fatal error: exception Not_found` before the program ran. It is
+  a type error now, at the `.name`, giving the call to write instead:
+  `DynArray(Int) has no methods or fields, so '.push' means nothing
+  here: 'push' is a function, and the value is its first argument, as
+  in 'push(x1, y)'`.
+- A binding annotated with a type variable no enclosing `def` holds was
+  refused against a value that fits it, with a message naming the same
+  type twice: `xs: [a] = []`, `n: Option(a) = None` and `f: (a) -> a =
+  lam x. x` were "annotated all a. [a], but its value has type [a]". So
+  was the output of `-t pyking` for any program with an `xs = []`
+  nothing decided, which it writes back as `xs: [a] = []`. Such a
+  variable now says the value does not decide that type: a value that
+  does, `x: a = 5`, is refused, naming the annotation as written.
+- `xs = []` at the top level, never given an element type, compiled to
+  Java that did not compile (a type variable `A` with nothing declaring
+  it), as `array([])` inside a `def` did.
+- A `var` written wrongly -- `var count: Int = 0`, `var count`, `var
+  (a, b) = ...`, `var a, b = ...`, `var count += 1`, `var count == 0`,
+  `var 3 = 4` -- was "unexpected token in expression" at `var`. Each now
+  says what is wrong at the token that is, and how the declaration is
+  written. A `var` with its name on the next line is refused rather
+  than read as one declaration.
 - A lambda whose body starts with a submodule reached through an
   import's alias, `lam k. bitmap.size(k)` after `import tinyweb.bitmap
   as bitmap`, was refused as naming no module: the dot ending the

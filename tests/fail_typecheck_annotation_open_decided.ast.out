@@ -1,0 +1,4 @@
+'tests/fail_typecheck_annotation_open_decided.pyk' 10:3-10:11 Type
+  error: this binding is annotated Array(a), but its value has type
+  Array(Int): a type variable such as 'a' on a binding says the value
+  does not decide that type, and this one does

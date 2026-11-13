@@ -1,0 +1,8 @@
+# A 'var' declares one name, not a tuple of them.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+var (a, b) = (1, 2)

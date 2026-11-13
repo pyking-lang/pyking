@@ -193,7 +193,7 @@ builtin.")
    ;; class_stmt = ["abstract"] "class" | "interface" , upper_ident , ...
    '("\\_<\\(?:class\\|interface\\)\\_>[ \t]+\\(\\sw+\\)"
      1 font-lock-type-face)
-   ;; var_decl = "var" , ident , "=" , expr -- the declared variable name.
+   ;; var_decl = "var" , ident , ("=" | ":=") , expr -- the declared name.
    '("\\_<var\\_>[ \t]+\\(\\sw+\\)"
      1 font-lock-variable-name-face)
    ;; for_stmt = "for" , ident , "in" , expr , ":" , block -- loop variable.

@@ -1,0 +1,12 @@
+# An array nothing has decided the type of yet is still one array of
+# one type: the first use decides it, and a use at another type is
+# refused. It is not polymorphic, as `xs = []` is not.
+#
+# This program is expected to FAIL. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+v = dynarray()
+push(v, 1)
+push(v, "two")
