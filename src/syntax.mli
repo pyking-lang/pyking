@@ -535,6 +535,15 @@ val pprint_stmt : config -> stmt -> int -> string
     [stmt] -> bool -> typ IntMap.t option -> string *)
 val pprint_program : stmt list -> bool -> typ IntMap.t option -> string
 
+(** The callee of a `string(...)` call the parser writes for one
+    `${...}` or `$name` of an interpolated String whose span is i: the
+    builtin `string`, with an empty span at the `$`. info -> expr *)
+val interpolation_callee : info -> expr
+
+(** Whether e is such a callee, rather than a `string` the program
+    wrote. expr -> bool *)
+val is_interpolation_callee : expr -> bool
+
 (** A string with leading and trailing blanks removed.
     string -> string *)
 val strip : string -> string

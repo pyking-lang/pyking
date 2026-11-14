@@ -128,6 +128,14 @@ restriction of it, but these are genuinely new.
   with `from hello import mymod` or `from hello.mymod import foo`; there
   are no package folders or `__init__` files. `import hello.mymod` binds
   `mymod` rather than `hello`. See "Submodules".
+- **String interpolation without an `f`**: every String may hold
+  `${expr}` or `$name` -- `"Hello, $name, ${n + 1}"` -- where Python
+  needs an f-string; `r"..."` turns it off, and `\$` writes a `$`. The
+  parser rewrites each into `+` and `string(...)` (see "String
+  interpolation").
+- **`printsl`, `eprint` and `eprintsl`**: `print` on the same line, to
+  standard error, or both -- what Python writes with `end=""` and
+  `file=sys.stderr` (see "Printing").
 - **A `Char` type, and Strings in double quotes only**: `'a'` is a
   `Char` -- one Unicode code point -- and a String is always written
   `"..."`; `'abc'` is refused. `s[i]` is a String's i-th character, and
@@ -248,7 +256,8 @@ Expressions:
 
 - Comments
 - Integer literals (decimal, hexadecimal `0xff`, binary `0b101`) and
-  string literals (with backslash escapes)
+  string literals (with backslash escapes), String interpolation
+  (`"${e}"`, `"$name"`) and raw Strings (`r"..."`)
 - Float literals (`1.0`, `0.5`, `1e9`, `1.5e-3`) — IEEE 754 binary64,
   with a digit required on each side of the point
 - Boolean literals (`true`, `false`) — Pyking extension; spelled
@@ -534,9 +543,11 @@ print(orange, 0b0001_0101, 0x7fff_ffff)
 ```
 
 Strings are delimited by double quotes, and support backslash escapes:
-`\n`, `\t`, `\r`, `\0`, `\\`, `\'` and `\"` (so a string can contain
-a double quote, once escaped). Single quotes write a `Char` instead, one
-character: see "Char literals" below. A String is counted in
+`\n`, `\t`, `\r`, `\0`, `\\`, `\'`, `\"` (so a string can contain
+a double quote, once escaped) and `\$` (a dollar sign that does not
+start an interpolation: see "String interpolation" below). Single
+quotes write a `Char` instead, one character: see "Char literals"
+below. A String is counted in
 characters -- Unicode code points -- so `len("åäö")` is 3 and
 `len("👑")` is 1 on every target.
 
@@ -580,6 +591,53 @@ message = "hello, pyking"
 quoted = "it's a test with a \"quoted\" word\nand a second line"
 print(count, message)
 print(quoted)
+```
+
+### String interpolation
+
+A String may hold values to show inside it. `${e}` holds any expression,
+and `$name` a name -- the name ends at the first character that cannot
+be part of one, so `"$a,$b"` is `a`, then `","`, then `b`. Each is shown
+the way `print` shows it.
+
+```pyking
+name = "Ada"
+a = 1
+b = 2.5
+print("Hello, ${name}! ${a + 1} is more than $a.")
+print("List{$a,$b}")
+print("${[1, 2]} and ${(a, "one")} and ${a, b}")
+```
+
+`${a, b}` holds the tuple `(a, b)`, as `${(a, b)}` does. An
+interpolation is not a new kind of value: the parser rewrites it, before
+anything is checked, into the `+` and `string(...)` it stands for, so
+`"List{$a,$b}"` is `"List{" + string(a) + "," + string(b) + "}"`, and a
+program compiled to Pyking (`-t pyking`) has no `$` left in its
+Strings. What `string` refuses an interpolation refuses too -- a
+function, say -- and an error in the expression is an error at its place
+in the String:
+
+```pyking error
+def f(x: Int) -> Int:
+    x + 1
+
+print("f is ${f}")    # Type error: an interpolation cannot show (Int) -> Int
+```
+
+A `$` that is followed by neither `{` nor a letter or `_` is a dollar
+sign, so `"$5"` needs no escape; `\$` writes one anywhere, and `$` before
+a keyword (`"$if"`) is refused. An interpolation shows its value with the
+builtin `string`, so a program that defines a `string` of its own cannot
+interpolate where that definition is in scope. A pattern is matched and
+never evaluated, so a String in a pattern cannot interpolate.
+
+A **raw String**, `r"..."`, is every character between its quotes as
+written: no escapes and no interpolation. It cannot hold a `"`.
+
+```pyking
+print(r"C:\new\table has ${no} $interpolation")
+print("costs \$5, or $5")
 ```
 
 ### Float literals
@@ -5732,7 +5790,8 @@ polymorphic function stays polymorphic across the boundary.
 ## Builtins and I/O
 
 > **Available:** in every module · **Compared with Python:** similar --
-> `print`, `len`, `range` and the conversions are Python's; `debug` is new
+> `print`, `len`, `range` and the conversions are Python's; `printsl`,
+> `eprint`, `eprintsl` and `debug` are new
 
 A few operations are built into the language rather than defined in a
 library: printing, `len`, `range`, the conversions and `panic`. A
@@ -5741,8 +5800,8 @@ passed.
 
 ### Builtin functions
 
-`print`, `debug`, `range`, `string`, `len`, `int`,
-`float`, `bool`, `char` and `panic` are checked at the call, each by its own rule,
+`print`, `printsl`, `eprint`, `eprintsl`, `debug`, `range`, `string`,
+`len`, `int`, `float`, `bool`, `char` and `panic` are checked at the call, each by its own rule,
 because none of them is a function *value*: a builtin is a host operation (see "Names
 and scoping"), it has no type that can be written down, and it may be
 called and nothing else.
@@ -5750,6 +5809,9 @@ called and nothing else.
 | call | accepts | gives |
 |---|---|---|
 | `print(…)` | any number of arguments, of any type | `()` |
+| `printsl(…)` | any number of arguments, of any type | `()` |
+| `eprint(…)` | any number of arguments, of any type | `()` |
+| `eprintsl(…)` | any number of arguments, of any type | `()` |
 | `debug(…)` | any number of arguments, of any type | `()` |
 | `string(x)` | one `Int`, `Float`, `String`, `Char`, `Bool`, list or tuple | `String` |
 | `len(x)` | one list, array, DynArray, view, Map, MutMap or `String` (counted in characters) | `Int` |
@@ -5810,7 +5872,32 @@ or the value converted, so a program can tell `int("0")` from
 Using one as a value rather than calling it is an error — `shout = print`
 is refused — which is also what the C and Java backends do with `print`.
 
-### `print` and `debug`
+### Printing
+
+`print` writes its arguments, separated by spaces, as one line of
+standard output. Three more builtins take and format their arguments
+exactly as `print` does, and differ in where they write and whether they
+end the line: an `e` in front writes to **standard error**, and `sl` at
+the end writes on the **same line**, with no newline after.
+
+| | ends the line | same line |
+|---|---|---|
+| standard output | `print` | `printsl` |
+| standard error | `eprint` | `eprintsl` |
+
+```pyking
+printsl("loading")
+printsl("...")
+print(" done")              # loading... done
+eprint("warning:", 3)       # warning: 3, on standard error
+```
+
+In a browser, standard error is the console's error stream, and a
+`printsl` or `eprintsl` line is shown once it is complete. `eprint` and
+`eprintsl` are the program's own output to standard error, and stay in
+a program built in release mode; `debug`, below, does not.
+
+### `debug`
 
 `debug` is `print`'s twin for diagnostic output — Pyking extension. It
 takes and formats its arguments exactly as `print` does, and writes the
@@ -5840,9 +5927,10 @@ it is an ordinary call, and release mode leaves it alone.
 
 ### Input and output
 
-`print` writes to standard output and `debug` to standard error.
-Everything else a program reads or writes goes through the standard
-library: `io` reads standard input and writes without a newline, `sys`
+`print` and `printsl` write to standard output, and `eprint`,
+`eprintsl` and `debug` to standard error. Everything else a program
+reads or writes goes through the standard library: `io` reads standard
+input and writes without a newline, `sys`
 gives the program's arguments and environment and ends it with an exit
 code, and `fs` reads and writes files.
 
@@ -5994,8 +6082,11 @@ its indentation into block structure.
   `extends`, `implements`, `interface`, `override`, `private`, `self`
   and `super`.
 - **Literals**: integers (decimal, `0x` hexadecimal, `0b` binary),
-  floats, `'c'` Chars and `"…"` Strings, written as "Values and basic
-  types" in the Language reference says.
+  floats, `'c'` Chars, `"…"` Strings and `r"…"` raw Strings, written as
+  "Values and basic types" in the Language reference says. An
+  interpolation in a String -- `${…}` or `$name` -- is lexed as the
+  tokens of its expression, and the parser rewrites it into `+` and
+  `string(…)` before anything is checked.
 - **Comments** start with `#`; see below.
 
 ### Comments
@@ -6521,14 +6612,20 @@ digits      = digit , { digit } ;
 exponent    = ( "e" | "E" ) , [ "+" | "-" ] , digits ;
 bool        = "true" | "false" ;
 (* A String is in double quotes; a Char is exactly one character -- one
-   Unicode code point, or one escape -- in single quotes. *)
-string      = '"' , { string_char } , '"' ;
+   Unicode code point, or one escape -- in single quotes. A String may
+   interpolate: `${` an expression `}`, or `$` and a name. A `$` before
+   anything else is a dollar sign. A raw String, `r"..."`, is its
+   characters as written, with no escapes and no interpolation. *)
+string      = '"' , { string_char | interpolation } , '"'
+            | 'r"' , { any_char_except_double_quote } , '"' ;
+interpolation = "${" , expr , { "," , expr } , "}"
+            | "$" , ident ;
 char        = "'" , char_char , "'" ;
 string_char = any_char_except_double_quote_or_backslash
             | "\" , escape ;
 char_char   = any_char_except_single_quote_or_backslash
             | "\" , escape ;
-escape      = "n" | "t" | "r" | "0" | "\" | "'" | '"' ;
+escape      = "n" | "t" | "r" | "0" | "\" | "'" | '"' | "$" ;
 ```
 
 ### Notes on the grammar
@@ -7024,19 +7121,22 @@ operators).
 | `lambda x: x + 1` | `lam x. x + 1` |
 | `a if c else b` | `if c then a else b` |
 | `'text'` or `"text"` | `"text"`; `'c'` is a Char |
+| `f"{a} and {b + 1}"` | `"$a and ${b + 1}"`, in every String |
+| `print(x, end="")`, `print(x, file=sys.stderr)` | `printsl(x)`, `eprint(x)` |
 | `1 < 2 < 3` | refused: `1 < 2 and 2 < 3` |
 | `x = x + 1` updating `x` | `x := x + 1`, on a `var x` |
 | `(y := 3)`, the walrus | `:=` is a statement, never an expression |
 | `class A:` with fields assigned in `__init__` | `class A(x: Int):`, under `use objects` |
 
 **New in Pyking:** `use`, `var`, `datatype`, `struct`, `mutable struct`,
+`$name` interpolation without braces, `printsl`/`eprint`/`eprintsl`,
 `let … in`, `loop`, `public`, `implicit`, `Type::name` overloading, type
 annotations that are checked, and pointers (`&`, `*`).
 
 **Not in Pyking:** `try`/`except`/`raise` (use `Result` and `panic`),
 `with`, decorators (`@` is not a character Pyking reads), `*args` and
 `**kwargs`, `yield`, `async`, `global`/`nonlocal`, `assert`, `del`,
-f-strings, dict and set literals (`{` is not read; use `map(...)`), the
+format specifications (`{x:.2f}`), dict and set literals (`{` is not read; use `map(...)`), the
 `in` and `is` operators, `//` (Int `/` already truncates), and
 `while … else`. Where the parser can tell what was meant -- `elif`,
 `**`, a chained comparison, a String in single quotes -- the error says

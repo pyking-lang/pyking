@@ -1,0 +1,7 @@
+# An interpolation shows its value with the builtin `string`, which a
+# program's own `string` would hide.
+
+def string(x: Int) -> String:
+    "mine"
+
+print("one is ${1}")

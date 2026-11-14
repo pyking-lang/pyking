@@ -4290,7 +4290,8 @@ and builtin ctx st scope e name args =
       | _ -> unsupported info "`char` of this type")
   | _ -> unsupported info (Printf.sprintf "the builtin `%s` with these arguments" name)
 
-(** A print or debug call, as the C call writing the line.
+(** An output call -- print, printsl, eprint, eprintsl or debug -- as
+    the C call writing it.
     ctx -> state -> scope -> string -> [expr] -> (string, state) *)
 and print_call ctx st scope name args =
   let values, steps, st = in_order ctx st scope args in
@@ -4333,10 +4334,14 @@ and print_call ctx st scope name args =
       ([], st) args values
   in
   let format = String.concat " " (List.map fst pieces) in
+  (* `eprint`, `eprintsl` and `debug` write to stderr; `printsl` and
+     `eprintsl` end no line, and with nothing to write write nothing. *)
+  let format = if Builtin.ends_line name then format ^ "\\n" else format in
+  let arguments = String.concat "" (List.map (fun (_, v) -> ", " ^ v) pieces) in
   let call =
-    if Builtin.is_debug name then
-      Printf.sprintf "fprintf(stderr, \"%s\\n\"%s)" format (String.concat "" (List.map (fun (_, v) -> ", " ^ v) pieces))
-    else Printf.sprintf "printf(\"%s\\n\"%s)" format (String.concat "" (List.map (fun (_, v) -> ", " ^ v) pieces))
+    if format = "" then "((void)0)"
+    else if Builtin.writes_error name then Printf.sprintf "fprintf(stderr, \"%s\"%s)" format arguments
+    else Printf.sprintf "printf(\"%s\"%s)" format arguments
   in
   ((if steps = [] then call else "(" ^ String.concat ", " (steps @ [ call ]) ^ ")"), st)
 

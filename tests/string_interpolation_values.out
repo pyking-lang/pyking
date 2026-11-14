@@ -1,0 +1,6 @@
+xs = [1, 2, 3], pair = (1, "one")
+tuple (1, 'c', "s") and (2, 3)
+nested [[1], []] and [(1, true)]
+shape Circle(1.5) and Some(3)
+strings in a list are quoted: ["a", "b"]
+3 items, the first 1

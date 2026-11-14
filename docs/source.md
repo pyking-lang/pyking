@@ -1395,10 +1395,10 @@ three are design rather than accident:
   **`bind_imports(state, stmts, exports)`** binds an entry's imports into
   its environment. **`with_host(state, host)`** swaps the host, which is
   how a session gains an external module's implementation.
-- **Hosts** -- `console_host` and `callback_host(externals?, debug_line?,
-  print_line)`: where `print` and `debug` go, and how an external module
-  is reached. `debug` writes to standard error unless a host says
-  otherwise.
+- **Hosts** -- `console_host` and `callback_host(externals?, error?,
+  write)`: where the output builtins write, as text, and how an external
+  module is reached. Standard error is standard error unless a host
+  says otherwise.
 - **`callback(state, info, callee, args) -> value`** /
   **`apply(state, callee, args) -> state`** — a function value called in
   a machine of its own that shares `state`'s runtime: how a host calls

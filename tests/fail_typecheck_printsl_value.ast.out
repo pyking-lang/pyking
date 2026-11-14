@@ -1,0 +1,2 @@
+'tests/fail_typecheck_printsl_value.pyk' 3:3-3:6 Type error: this
+  binding is annotated Int, but its value has type ()

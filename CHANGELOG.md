@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- String interpolation: every String may hold `${expression}` or
+  `$name`, shown as `print` shows it -- `"Hello, $name! ${n + 1}"`. A
+  name ends at the first character that cannot be part of one, and
+  `${a, b}` holds the tuple `(a, b)`. The parser rewrites each into `+`
+  and `string(...)` before the program is checked, so every target and
+  the interpreter run it unchanged, and `-t pyking` prints no `$` left
+  to interpolate. Errors name the interpolation and point into the
+  String. `\$` writes a dollar sign, and `r"..."` is a raw String, with
+  no escapes and no interpolation. The highlighter, the playground's
+  editors and the VS Code grammar colour what a String interpolates as
+  code.
+- `printsl`, `eprint` and `eprintsl`: `print` on the same line (no
+  newline), to standard error, and both. Unlike `debug`, `eprint` and
+  `eprintsl` stay in a release build.
+
 ### Changed
 
 - The website's documentation is reorganized (design/website.md).

@@ -1,0 +1,4 @@
+'tests/fail_typecheck_interpolation_type.pyk' 4:14-4:21 Type error:
+  `+` cannot be applied to Int and String; it accepts Int + Int or
+  Float + Float or String + String or two lists of one type. `+` joins
+  two Strings and converts nothing: write string(n)

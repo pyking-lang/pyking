@@ -1,0 +1,4 @@
+# An error inside `${...}` is an error in the expression, at its place.
+
+n = 1
+print("n is ${n + "1"}")

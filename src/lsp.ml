@@ -983,7 +983,7 @@ let signature label doc params =
     string -> [(string, [string])] *)
 let builtin_signatures name =
   match name with
-  | "print" | "debug" -> [ (name ^ "(values...) -> ()", [ "values..." ]) ]
+  | "print" | "printsl" | "eprint" | "eprintsl" | "debug" -> [ (name ^ "(values...) -> ()", [ "values..." ]) ]
   | "range" ->
       [
         ("range(stop: Int) -> [Int]", [ "stop: Int" ]);
@@ -1600,7 +1600,10 @@ let code_actions state document range_ =
         let rec go i = i + n <= m && (String.sub p.message i n = needle || go (i + 1)) in
         go 0
       in
-      let tokens = try Lexer.lexing document.path (Lexer.chars_of_string document.text) with _ -> [] in
+      let tokens =
+        try List.concat_map Lexer.flatten_interp (Lexer.lexing document.path (Lexer.chars_of_string document.text))
+        with _ -> []
+      in
       let inside (t : Lexer.info) = contains p.at t.row1 t.col1 && contains p.at t.row2 t.col2 in
       (* The operator of the expression the error is about: the one at
          its own depth, outside any parentheses within it. *)

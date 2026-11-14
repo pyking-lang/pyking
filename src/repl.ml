@@ -676,9 +676,9 @@ let terminal_host =
       (function
       | None -> Interpreter.console_host
       | Some externals ->
-          Interpreter.callback_host ~externals (fun line ->
-              print_string line;
-              print_newline ()));
+          Interpreter.callback_host ~externals (fun text ->
+              print_string text;
+              flush stdout));
     connect =
       (fun added all ->
         let plugins units =

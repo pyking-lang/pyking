@@ -38,6 +38,10 @@ type token =
   | TokInt of info * int
   | TokFloat of info * float
   | TokString of info * string
+  | TokInterp of info * interp_part list
+      (* a String with `${e}` or `$b` in it: a String with interpolations, in order; the
+         parser makes it `+` and `string(...)` (PYKING.md, "String
+         interpolation") *)
   | TokChar of info * int (* 'a': one Unicode code point *)
   | TokAdd of info (* '+' user defined *)
   | TokConcat of info (* '++' (no longer an operator: `+` joins) *)
@@ -121,8 +125,21 @@ type token =
          'interface', 'extends', 'self', 'super' *)
   | TokIdent of info * string
 
+(* One piece of an interpolated String: text as written (escapes
+   decoded), or an expression -- the span of its `${...}` or `$name`,
+   and its tokens. *)
+and interp_part =
+  | IText of string
+  | IExpr of info * token list
+
 (** The source span a token carries. token -> info *)
 val token_info : token -> info
+
+(** An interpolated String's tokens laid flat, in source order: its
+    expressions' own tokens, and between them TokStrings (with empty
+    text) spanning the String's literal stretches -- what a highlighter
+    colours. Any other token, alone. token -> [token] *)
+val flatten_interp : token -> token list
 
 (** Formats one token for display, as `--tokens` prints it.
     token -> string *)

@@ -651,7 +651,9 @@ let reaches w f g =
 let check ?(qmap = IntMap.empty) ?(toplevel_used = false) ?(public = []) ?(display = Fun.id)
     ?(outer = []) config tokens stmts =
   let w =
-    { tokens; qmap; toplevel_used; public; display; next = 0; all = []; calls = []; parents = []; shared = [] }
+    (* A name used in an interpolation is among the String's tokens. *)
+    { tokens = List.concat_map Lexer.flatten_interp tokens; qmap; toplevel_used; public; display;
+      next = 0; all = []; calls = []; parents = []; shared = [] }
   in
   (* What is in scope before the first statement -- an earlier REPL
      entry's names -- is bound in a block of its own, outside this one,

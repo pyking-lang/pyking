@@ -1,0 +1,3 @@
+'tests/fail_typecheck_interpolation_extra.pyk' 2:15-2:16 Parsing
+  error: an interpolation '${...}' holds one expression, and this is
+  not part of it

@@ -419,17 +419,19 @@ which a `Leave` piece pops, and a value already on the path is cut. See
 
 ## Hosts: where output actually goes
 
-`Host` is a tiny protocol — `print_line` and `debug_line`, one per
-`builtin.ml` host-crossing entry (see that module's own page for what
-the interface itself specifies), and `externals`, how a module
-implemented in a target language is reached — with two constructors
-serving two different embeddings: `console_host` writes to the real
-standard output and standard error; `callback_host` hands each line to a
-function, which is the shape both a debugger's "output" pane and a
-browser worker's message-passing need. `debug_line` defaults to standard
-error there too. None of the machine itself — `step`, `call`,
+`Host` is a tiny protocol — `write_out` and `write_err`, the program's
+standard output and standard error, each handed text with a line's
+newline included (so `printsl` and `eprintsl` hand over text with none;
+see `builtin.ml`'s own page for what the interface itself specifies),
+and `externals`, how a module implemented in a target language is
+reached — with two constructors serving two different embeddings:
+`console_host` writes to the real standard output and standard error,
+flushing each write; `callback_host` hands the text to a function,
+which is the shape both a debugger's "output" pane and a browser
+worker's message-passing need. `write_err` defaults to standard error
+there too. None of the machine itself — `step`, `call`,
 `apply_builtin` — knows or cares which one is in play; `apply_builtin`'s
-host-crossing case calls `host.print_line` or `host.debug_line`, and
+host-crossing case calls `host.write_out` or `host.write_err`, and
 *which* host that is was fixed in `Runtime` when the run began --
 `with_host` gives a machine another one, which is how a REPL session
 gains a module's implementation when an entry imports it.

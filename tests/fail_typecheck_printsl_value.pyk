@@ -1,0 +1,3 @@
+# `printsl` answers unit, as `print` does.
+
+n: Int = printsl("x")

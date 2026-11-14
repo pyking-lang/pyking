@@ -211,6 +211,7 @@ and parse_atom eof tokens =
   | TokInt (i, v) :: rest -> parse_call_tail eof (EInt (i, v, 0)) rest
   | TokFloat (i, v) :: rest -> parse_call_tail eof (EFloat (i, v, 0)) rest
   | TokString (i, s) :: rest -> parse_call_tail eof (EString (i, s, 0)) rest
+  | TokInterp (i, parts) :: rest -> parse_call_tail eof (interpolation i parts) rest
   | TokChar (i, c) :: rest -> parse_call_tail eof (EChar (i, c, 0)) rest
   | TokTrue i :: rest -> parse_call_tail eof (EBool (i, true, 0)) rest
   | TokFalse i :: rest -> parse_call_tail eof (EBool (i, false, 0)) rest
@@ -838,6 +839,31 @@ and parse_comparison eof tokens =
               'a < b < c'" ))
   | _ -> (built, rest)
 
+(** An interpolated String as the expression it stands for: its pieces
+    joined by `+`, each `${e}` or `$name` as `string(e)` -- a `${a, b}`
+    holds the tuple `(a, b)` -- and a text piece as a String. A String
+    that starts with an interpolation starts with its `string(...)`, so
+    the whole is a String whatever it holds.
+    info -> [interp_part] -> expr *)
+and interpolation i parts =
+  let piece part =
+    match part with
+    | IText text -> EString (i, text, 0)
+    | IExpr (ei, tokens) -> (
+        let value, rest = parse_tuple_or_expr ei tokens in
+        match rest with
+        | [] -> ECall (ei, interpolation_callee ei, [ (None, value) ], 0)
+        | tok :: _ ->
+            raise
+              (Parse_error
+                 ( token_info tok,
+                   "an interpolation '${...}' holds one expression, and this \
+                    is not part of it" )))
+  in
+  match List.map piece parts with
+  | [] -> EString (i, "", 0)
+  | first :: rest -> List.fold_left (fun left right -> EAdd (i, left, right, 0)) first rest
+
 (** Parses one expression, or a bare (unparenthesized) tuple
     `expr, expr, ...`. info -> [token] -> (expr, [token]) *)
 and parse_tuple_or_expr eof tokens =
@@ -1334,6 +1360,12 @@ and parse_pattern_atom eof tokens =
       (PInt (combine_info i int_info, -v, 0), rest)
   | TokInt (i, v) :: rest -> (PInt (i, v, 0), rest)
   | TokString (i, s) :: rest -> (PString (i, s, 0), rest)
+  | TokInterp (i, _) :: _ ->
+      raise
+        (Parse_error
+           ( i,
+             "a pattern is matched, never evaluated, so its String cannot \
+              interpolate: write '\\$' for a '$' of its own" ))
   | TokChar (i, c) :: rest -> (PChar (i, c, 0), rest)
   | TokTrue i :: rest -> (PBool (i, true, 0), rest)
   | TokFalse i :: rest -> (PBool (i, false, 0), rest)

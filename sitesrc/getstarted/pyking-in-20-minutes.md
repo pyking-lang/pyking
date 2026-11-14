@@ -43,14 +43,25 @@ your own machine.
 
 ## Hello, world, and running a program
 
-`print` writes its arguments separated by spaces. `+` joins two
+`print` writes its arguments separated by spaces. A string shows a
+value inside it with `$name` or `${expression}`. `+` joins two
 strings, and `string(n)` turns a number into a string.
 
 ```pyking
 name = "world"
 n = 3
 print("Hello,", name)
+print("Hello, $name! ${n * 2} times.")
 print("Hello, " + name + "! " + string(n) + " times.")
+```
+
+`printsl` prints on the same line, with no newline after it, and
+`eprint` prints to standard error; `eprintsl` does both.
+
+```pyking
+printsl("one, ")
+print("two")
+eprint("this line goes to standard error")
 ```
 
 Save a program as `hello.pyk`, then run it with the interpreter, or
@@ -423,7 +434,7 @@ import io
 total = loop sum = 0 while not io.is_eof():
     line = io.read_line()
     if line == "" then sum else sum + int(line)
-io.write_line("The sum is " + string(total))
+print("The sum is $total")
 ```
 
 `sys.args()` from the [`sys`](/libraries/sys/) library gives the

@@ -5659,6 +5659,15 @@ and check_call call env store =
     | EVar (_, name, _) -> (
         match type_of env name with
         | Some (TBuiltin (_, builtin, _)) -> Some builtin
+        | _ when is_interpolation_callee func ->
+            (* An interpolation shows its value with the builtin
+               `string`, and the program has a `string` of its own here. *)
+            raise
+              (Type_error
+                 ( expr_info call,
+                   "an interpolation shows its value with the builtin 'string', \
+                    and a 'string' defined here hides it: give that definition \
+                    another name" ))
         | _ -> None)
     | _ -> None
   in
@@ -6162,7 +6171,7 @@ and check_builtin_call name call env store =
   let types = List.map (fun t -> zonk t store) types in
   let given = List.length args in
   match (name, types) with
-  | ("print" | "debug"), _ -> (unit_type info, store)
+  | ("print" | "printsl" | "eprint" | "eprintsl" | "debug"), _ -> (unit_type info, store)
   | "panic", [ message ] ->
       (* `panic(message)` never answers, so it answers whatever is wanted
          where it stands. *)
@@ -6172,10 +6181,16 @@ and check_builtin_call name call env store =
   | "string", [ value ] ->
       check_builtin_arity name info given;
       if not (every value [ KInt; KFloat; KString; KChar; KBool; KList; KTuple; KData ])
-      then
-        raise
-          (builtin_argument_error name (List.hd args) value
-             "Int, Float, String, Char, Bool, a list, a tuple or a datatype");
+      then (
+        let accepted = "Int, Float, String, Char, Bool, a list, a tuple or a datatype" in
+        match call with
+        | ECall (_, func, _, _) when is_interpolation_callee func ->
+            raise
+              (Type_error
+                 ( expr_info (List.hd args),
+                   Printf.sprintf "an interpolation cannot show %s; it shows %s"
+                     (printed value) accepted ))
+        | _ -> raise (builtin_argument_error name (List.hd args) value accepted));
       (t_string info, store)
   | ("int" | "float" | "bool"), [ value ] ->
       check_builtin_arity name info given;

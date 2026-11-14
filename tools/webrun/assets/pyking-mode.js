@@ -40,8 +40,12 @@ ace.define("ace/mode/pyking_highlight_rules", [], function (require, exports) {
         // end of its line rather than swallowing the rest of the file.
         { token: "constant.character", regex: "'(?:\\\\.|[\\uD800-\\uDBFF][\\uDC00-\\uDFFF]|[^'\\\\])'" },
         { token: "invalid", regex: "'(?:[^'\\\\]|\\\\.)*'" },
-        { token: "string", regex: '"(?:[^"\\\\]|\\\\.)*"' },
-        { token: "string", regex: "['\"].*$" },
+        // A raw String has no escapes and no interpolation; any other
+        // String is read in states of its own, where `${...}` and
+        // `$name` are code (PYKING.md, "String interpolation").
+        { token: "string", regex: 'r"[^"]*"' },
+        { token: "string", regex: '"', push: "string" },
+        { token: "string", regex: "'.*$" },
         { token: "constant.numeric", regex: "\\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\\d+(?:\\.\\d+)?)\\b" },
         // `def name` -- colour the name being defined, not just the keyword.
         { token: ["keyword", "text", "entity.name.function"],
@@ -54,6 +58,18 @@ ace.define("ace/mode/pyking_highlight_rules", [], function (require, exports) {
         { token: "paren.rparen", regex: "[\\])}]" },
         { token: "punctuation", regex: "[,:]" },
         { token: "text", regex: "\\s+" }
+      ],
+      string: [
+        { token: "constant.language.escape", regex: "\\\\." },
+        { token: "string", regex: "\\$\\{", push: "interpolation" },
+        { token: ["string", "identifier"], regex: "(\\$)([A-Za-z_][A-Za-z_0-9]*)" },
+        { token: "string", regex: '"', next: "pop" },
+        { token: "string", regex: '[^"\\\\$]+' },
+        { token: "string", regex: "\\$" }
+      ],
+      interpolation: [
+        { token: "string", regex: "\\}", next: "pop" },
+        { include: "start" }
       ]
     };
     this.normalizeRules();

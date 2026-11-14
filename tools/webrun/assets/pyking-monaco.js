@@ -39,7 +39,11 @@ export function registerPyking(monaco, words) {
         // unterminated literal is invalid to the end of its line rather
         // than swallowing the rest of the file.
         [/'(?:\\.|[\uD800-\uDBFF][\uDC00-\uDFFF]|[^'\\])'/, "string.char"],
-        [/"(?:[^"\\]|\\.)*"/, "string"],
+        // A raw String: no escapes and no interpolation. Any other String
+        // is read in a state of its own, where `${...}` and `$name` are
+        // code (PYKING.md, "String interpolation").
+        [/r"[^"]*"/, "string"],
+        [/"/, "string", "@string"],
         [/'(?:[^'\\]|\\.)*'/, "string.invalid"],
         [/['"].*$/, "string.invalid"],
         [/0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d+(?:\.\d+)?/, "number"],
@@ -60,6 +64,18 @@ export function registerPyking(monaco, words) {
         [/[[\](){}]/, "@brackets"],
         [/[,:.]/, "delimiter"],
         [/\s+/, "white"],
+      ],
+      string: [
+        [/[^"\\$]+/, "string"],
+        [/\\./, "string.escape"],
+        [/\$\{/, "string", "@interpolation"],
+        [/(\$)([A-Za-z_][A-Za-z_0-9]*)/, ["string", "identifier"]],
+        [/\$/, "string"],
+        [/"/, "string", "@pop"],
+      ],
+      interpolation: [
+        [/\}/, "string", "@pop"],
+        { include: "@root" },
       ],
     },
   });

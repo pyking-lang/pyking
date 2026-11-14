@@ -89,6 +89,35 @@ let all =
          in a pure function.";
     };
     {
+      name = "printsl";
+      min_args = 0;
+      max_args = None;
+      crosses_host = true;
+      doc =
+        "Write the arguments, space-separated, as `print` does, but end no \
+         line: what is written next follows on the same line. Yields unit.";
+    };
+    {
+      name = "eprint";
+      min_args = 0;
+      max_args = None;
+      crosses_host = true;
+      doc =
+        "Write the arguments, space-separated, as one line of standard \
+         error -- the console's error stream in a browser. As `print` \
+         otherwise; unlike `debug`, it stays in a program compiled with \
+         `--release`. Yields unit.";
+    };
+    {
+      name = "eprintsl";
+      min_args = 0;
+      max_args = None;
+      crosses_host = true;
+      doc =
+        "Write the arguments, space-separated, to standard error as `eprint` \
+         does, but end no line. Yields unit.";
+    };
+    {
       name = "range";
       min_args = 1;
       max_args = Some 3;
@@ -472,6 +501,15 @@ let lookup name = List.find_opt (fun builtin -> builtin.name = name) all
 (** Whether name is `debug`, the builtin whose output is diagnostic
     rather than the program's own. string -> bool *)
 let is_debug name = name = "debug"
+
+(** Whether the output builtin name writes to standard error rather than
+    standard output: `debug`, `eprint` and `eprintsl`. string -> bool *)
+let writes_error name = name = "debug" || name = "eprint" || name = "eprintsl"
+
+(** Whether the output builtin name ends the line it writes: all but
+    `printsl` and `eprintsl`, which write on the same line.
+    string -> bool *)
+let ends_line name = not (name = "printsl" || name = "eprintsl")
 
 (* --- what a conversion reads ---
 

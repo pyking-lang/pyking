@@ -29,7 +29,7 @@
       env -- a persistent chain of frames.
       externals -- how a host reaches a module implemented in a target
         language.
-      host -- where print and debug go.
+      host -- where print, eprint and debug go.
       state -- a machine state; control, kont, frame, loop and runtime
         are its opaque parts.
 
@@ -196,15 +196,18 @@ exception Suspended of int * state
 
 (* --- hosts --- *)
 
-(** Writes to standard output, and reaches no external module: nothing
-    in a terminal can call a target language's own code. host *)
+(** Writes to standard output and standard error, flushing each write,
+    and reaches no external module: nothing in a terminal can call a
+    target language's own code. host *)
 val console_host : host
 
-(** A host that hands each printed line to a function, and each `debug`
-    line to another -- standard error unless one is given.
+(** A host that hands what `print` and `printsl` write, as text (a
+    line's newline included), to a function, and what `eprint`,
+    `eprintsl` and `debug` write to another -- standard error unless one
+    is given.
     externals? -> (string -> ())? -> (string -> ()) -> host *)
 val callback_host :
-  ?externals:externals -> ?debug_line:(string -> unit) -> (string -> unit) -> host
+  ?externals:externals -> ?error:(string -> unit) -> (string -> unit) -> host
 
 (* --- running a program --- *)
 

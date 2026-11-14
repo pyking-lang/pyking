@@ -39,6 +39,33 @@ is in the [language reference](/documentation/language/).
 | Objects | `use objects`: classes, interfaces, one parent | classes, many parents | prototypes and classes | none | classes, interfaces, one parent | objects and classes, structural |
 | Generics | type variables, inferred | hints only | none | none | generics | type variables, inferred |
 | Memory | managed | managed | managed | `malloc` and `free` | managed | managed |
+| Values in a string | `"n = $n, ${n + 1}"` | `f"n = {n}, {n + 1}"` | `` `n = ${n}, ${n + 1}` `` | `printf("%d", n)` | `"n = " + n` | `Printf.sprintf "%d" n` |
+
+## String interpolation, everywhere
+
+Every Pyking string may hold `$name` or `${expression}`. The parser
+rewrites it before anything is checked: `"n = $n, next ${n + 1}"` is
+`"n = " + string(n) + ", next " + string(n + 1)`, so each target
+compiles a plain concatenation, and a value is shown as `print` shows
+it on every target. For Python:
+
+```pyking
+n = 5
+print("n = $n, next ${n + 1}")
+```
+
+```python excerpt target=python
+...
+print('n = ' + str(n) + ', next ' + str(n + 1))
+```
+
+and for Java:
+
+```java excerpt target=java
+...
+        System.out.println("n = " + String.valueOf(n) + ", next " + String.valueOf(n + 1));
+...
+```
 
 ## Seeing the generated code yourself
 
@@ -86,7 +113,8 @@ What differs:
 | `var n = 0`, then `n := n + 1` or `n += 1` | `n = 0`, then `n = n + 1` or `n += 1` |
 | `0 < x and x < 10` | `0 < x < 10` |
 | `case [first, ..rest]:` | `case [first, *rest]:` |
-| `"n = " + string(n)` | `f"n = {n}"` |
+| `"n = $n"` or `"n = ${n + 1}"` | `f"n = {n}"` or `f"n = {n + 1}"` |
+| `printsl(x)`, `eprint(x)` | `print(x, end="")`, `print(x, file=sys.stderr)` |
 | `public def area(s: Shape) -> Float:` | every top-level name is exported |
 | `datatype`, `struct`, `let`, `loop`, `use` | no counterpart |
 
@@ -101,7 +129,7 @@ Some Python features are not in Pyking at all:
 | `yield`, generators | build a list, or use `loop` |
 | `async`, `await` | none |
 | `global`, `nonlocal` | a `var` can be written with `:=` from any `def` inside its scope |
-| f-strings | `+` and `string(x)` |
+| format specifications, `f"{x:.2f}"` | none yet; `"$x"` shows a value as `print` does |
 | `{"a": 1}` dict literals | `map([("a", 1)])`, or `mutmap()` under `use mutation` |
 | `{1, 2}` set literals, sets | none; a list or a map |
 | `x in xs` | `list.contains(x, xs)` |
@@ -191,6 +219,8 @@ Different:
 | `a / b` and `a % b` on Ints | `__pyk_div(a, b)` and `__pyk_mod(a, b)` |
 | `lam x. x + 1` | `lambda x: x + 1` |
 | `if c then a else b` | `a if c else b` |
+| `"n = $n"` | `'n = ' + str(n)` |
+| `printsl(x)`, `eprint(x)` | `print(x, end='')`, `print(x, file=sys.stderr)` |
 | a datatype | a `@dataclass(frozen=True, slots=True)` per constructor, and a `type` alias for the union |
 | `match` | Python's `match`, with class patterns |
 | a function that calls itself in tail position | a `while True:` loop |
@@ -331,7 +361,7 @@ runs the Pyking interpreter in the browser.
 | `match s:` with `case Circle(r):` | `switch` on a tag field |
 | `a == b`, `a != b` (structural) | `a === b`, `a !== b` |
 | `and`, `or`, `not`, or `&&`, `\|\|`, `!` | `&&`, `\|\|`, `!` |
-| `"n = " + string(n)` | `` `n = ${n}` `` |
+| `"n = $n"`, `"n = ${n + 1}"` | `` `n = ${n}` ``, `` `n = ${n + 1}` `` |
 | `print(x)` | `console.log(x)` |
 | `public def f(x: Int) -> Int:` | `export function f(x) { ... }` |
 | `from m import f` | `import { f } from "./m.js";` |

@@ -1,0 +1,4 @@
+Hello, Ada: 4
+(2, "Ada")
+cost $5, ${x} and $y, but $5 alone
+raw ${n}

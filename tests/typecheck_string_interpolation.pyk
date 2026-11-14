@@ -1,0 +1,10 @@
+# Interpolation is rewritten into `+` and `string(...)` before the
+# checker sees the program: the printed program has no `${}` left, and a
+# `$` that would start one is written `\$`.
+
+name = "Ada"
+n = 2
+print("Hello, $name: ${n * 2}")
+print("${n, name}")
+print("cost \$5, \${x} and \$y, but $5 alone")
+print(r"raw ${n}")

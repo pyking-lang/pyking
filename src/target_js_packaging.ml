@@ -295,6 +295,37 @@ let line_via name sink =
       "}";
     ]
 
+(* The output builtins (builtin.ml): what the runtime module may export
+   and a module import. *)
+let output_builtins = [ "print"; "printsl"; "eprint"; "eprintsl"; "debug" ]
+
+(** `printsl`, `eprint` and `eprintsl`. On node, `printsl` and
+    `eprintsl` write their text with no newline to process.stdout and
+    process.stderr, and `eprint` is console.error. In a browser,
+    `printsl` writes through the `io` library's `write`, which holds a
+    line back until it is complete, as `print` writes through its
+    `write_line`; the console has no same-line write for standard
+    error, so `eprintsl` holds its text back in the same way, until an
+    `eprint` or an `eprintsl` ending in a newline completes the line.
+    bool -> [string] *)
+let same_line_js browser =
+  let text = "values.map((value) => pykFormat(value)).join(' ')" in
+  if browser then
+    [
+      "let pykErrPartial = '';";
+      Printf.sprintf "function printsl(...values) {\n  write(%s);\n}" text;
+      Printf.sprintf
+        "function eprintsl(...values) {\n  const lines = (pykErrPartial + %s).split('\\n');\n  pykErrPartial = lines.pop();\n  for (const line of lines) console.error(line);\n}"
+        text;
+      Printf.sprintf "function eprint(...values) {\n  eprintsl(...values);\n  eprintsl('\\n');\n}";
+    ]
+  else
+    [
+      Printf.sprintf "function printsl(...values) {\n  process.stdout.write(%s);\n}" text;
+      Printf.sprintf "function eprint(...values) {\n  console.error(%s);\n}" text;
+      Printf.sprintf "function eprintsl(...values) {\n  process.stderr.write(%s);\n}" text;
+    ]
+
 (* The browser's standard output: the `io` library's own browser
    implementation, which a page embedding the program may replace. `print`
    writes through it, so a program and an `io.write_line` share one
@@ -358,7 +389,7 @@ let module_import statement =
     runtime module, and imports written as ES imports. jshost *)
 let runtime_host =
   {
-    operations = [ ("print", "print"); ("debug", "debug") ];
+    operations = List.map (fun name -> (name, name)) output_builtins;
     importing = Some module_import;
   }
 
@@ -432,7 +463,7 @@ let shared_runtime target =
        "// world. Every module of the program imports this one.";
      ]
     @ (if browser then
-         [ Printf.sprintf "import { write_line } from './%s';" browser_io ]
+         [ Printf.sprintf "import { write, write_line } from './%s';" browser_io ]
        else [])
     @ [
         "";
@@ -446,7 +477,11 @@ let shared_runtime target =
         "";
         line_via "debug" "console.error";
         "";
-        "export { print, debug, pykFormat, pykFloatStr, pykShaped, pykLater, pykParseInt,";
+      ]
+    @ same_line_js browser
+    @ [
+        "";
+        "export { print, printsl, eprint, eprintsl, debug, pykFormat, pykFloatStr, pykShaped, pykLater, pykParseInt,";
         "  pykTrunc, pykParseFloat };";
         "";
       ])
@@ -469,7 +504,7 @@ let js_module (unit : Module.t) js_program renames main target =
     ]
   in
   let wanted =
-    List.filter (calls js_program) [ "print"; "debug" ]
+    List.filter (calls js_program) output_builtins
     @ List.filter
         (fun name ->
           uses_name js_program name

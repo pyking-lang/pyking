@@ -28,6 +28,10 @@ Run with `pyk prog.pyk`, this writes `square of 7` to standard error
 and `49` to standard output. `pyk prog.pyk 2>/dev/null` shows the
 output alone.
 
+`eprint` also writes to standard error, but it is part of the program:
+a release build keeps it, and removes every `debug`. Use `eprint` for
+an error message the user should see, and `debug` for tracing.
+
 ### Release mode
 
 `pyk compile --release` compiles a program with every call to `debug`

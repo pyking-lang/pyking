@@ -1,0 +1,2 @@
+'tests/fail_typecheck_interpolation_unbound.pyk' 1:14-1:20 Name error:
+  unbound name 'nobody'

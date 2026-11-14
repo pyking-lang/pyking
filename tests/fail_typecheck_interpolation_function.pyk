@@ -1,0 +1,7 @@
+# An interpolation shows what `string` accepts, and a function is not
+# one of those.
+
+def f(x: Int) -> Int:
+    x + 1
+
+print("f is ${f}")

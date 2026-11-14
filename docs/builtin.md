@@ -10,8 +10,8 @@ boundary".
 
 ## Four readers, one table
 
-`print`, `debug`, `range`, `string`, `len`, `same`, `int`, `float`,
-`bool`, `char` and `panic` are in scope in every program and are bound by
+`print`, `printsl`, `eprint`, `eprintsl`, `debug`, `range`, `string`,
+`len`, `same`, `int`, `float`, `bool`, `char` and `panic` are in scope in every program and are bound by
 nothing, and so are the builtin **overload sets**
 (`Builtin.overload_sets`) `array`, `array_init`, `dynarray`, `mutmap`
 and `map`: their members (`list::array`, `fill::array`, `empty::map`,
@@ -75,7 +75,8 @@ type t = {
 ```
 
 `max_args` is an option, and `None` *is* variadic — there is no separate
-flag that could disagree with the bounds. `print` and `debug` are
+flag that could disagree with the bounds. The output builtins --
+`print`, `printsl`, `eprint`, `eprintsl` and `debug` -- are
 `(0, None)`, which is why they never fail an arity check; `string`, `len`, `float` and `int`
 are `(1, Some 1)`; `range` is `(1, Some 3)`.
 
@@ -84,7 +85,8 @@ list (`pykBuiltins`), so it is the order someone writing Pyking sees.
 
 The table itself is private. A caller asks for `names`, for
 `pure_names`, for one entry by `lookup`, or for the single property a
-backend branches on, `crosses_host` and `is_debug` — the same arrangement
+backend branches on, `crosses_host`, `writes_error`, `ends_line` and
+`is_debug` — the same arrangement
 `src/targets.ml` uses for the target table, and for the same reason: a
 caller reading rows would be free to ask a question the module has not
 agreed to answer.
@@ -97,12 +99,14 @@ written into first.
 ## The host boundary is a field, not a module
 
 A Pyking program on its own only computes: it cannot reach a console, a
-file or a clock. `print` and `debug` are the only things a program can
+file or a clock. The output builtins are the only things a program can
 be *observed* to do without a library, and that distinction is worth
 keeping — but it is a property of an operation rather than a reason for
-a second module, so it is the `crosses_host` field. `is_debug` says
-which of the two a call is: `print` writes the program's own output and
-`debug` diagnostic output, to standard error where the host has one.
+a second module, so it is the `crosses_host` field. Two more questions
+say which output a call is: `writes_error` -- `eprint`, `eprintsl` and
+`debug` write to standard error, `print` and `printsl` to standard
+output -- and `ends_line` -- `printsl` and `eprintsl` end no line.
+`is_debug` picks out `debug`, the diagnostic one `--release` removes.
 
 Every backend consults it at the same point in translation, recognising
 that a call is one that leaves the program rather than a call to an
@@ -123,15 +127,23 @@ backend:
 - `target_c.ml` and `target_java.ml` emit `printf(...)` and
   `System.out.println(...)`, each with its own formatting glue for the
   parts C and Java do not spell the way Pyking does -- and
-  `fprintf(stderr, ...)` and `System.err.println(...)` for `debug`.
+  `fprintf(stderr, ...)` and `System.err.println(...)` for standard
+  error, with no `\n` and `print` for the same-line ones.
 - `target_ocaml.ml` emits `print_endline`, needing almost no glue:
   OCaml already spells `true`, `false` and `()` as Pyking does.
-  `prerr_endline` for `debug`.
+  `prerr_endline` for standard error, and `print_string` and
+  `prerr_string` for the same-line ones.
 - `target_python.ml` emits Python's own `print`, with
-  `file=__import__('sys').stderr` for `debug`.
+  `file=__import__('sys').stderr` for standard error and `end=''` for
+  the same-line ones.
+- On node, `printsl` and `eprintsl` are `process.stdout.write` and
+  `process.stderr.write`; in a browser, the console has no same-line
+  write, so the runtime holds a line back until it is complete.
 - `interpreter.ml` does not translate anything — it *performs* the
   operation, through a host, since it runs a program rather than
-  emitting one: `print_line` for `print` and `debug_line` for `debug`.
+  emitting one: `write_out` for `print` and `printsl`, and `write_err`
+  for the others. Both take text, a line's newline included, so a
+  same-line write is just text with none.
 
 Every one of those checks that the call reaches the builtin, and not a
 program's own definition that took the name: the checker records a type

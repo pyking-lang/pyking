@@ -175,7 +175,7 @@ let reaches imported statement =
     `hello . mymod__foo`). A path is followed only from a name no dot
     comes before, and not on an import line.
     table -> [(String, reach)] -> [token] -> [token] *)
-let rewrite own reached tokens =
+let rec rewrite own reached tokens =
   let own_roots = List.map root (namespaces own) in
   (* The names after `first`, each `.name` on the row the one before it
      ended on: (name, its span), in order. *)
@@ -296,6 +296,18 @@ let rewrite own reached tokens =
                          Printf.sprintf "'%s.%s' is not defined: the submodule '%s' has no '%s'"
                            first (fst (List.hd parts)) first (fst (List.hd parts)) )))
           | None -> go (Some t) (t :: acc) rest)
+    | TokInterp (i, parts) :: rest ->
+        (* What a String interpolates is code, and a path in it is
+           followed as anywhere else. *)
+        let parts =
+          List.map
+            (function
+              | IExpr (ei, inner) -> IExpr (ei, rewrite own reached inner)
+              | text -> text)
+            parts
+        in
+        let t = TokInterp (i, parts) in
+        go (Some t) (t :: acc) rest
     | t :: rest -> go (Some t) (t :: acc) rest
   in
   go None [] tokens

@@ -51,6 +51,18 @@ excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-
 file = "escapes.pyk"
 
 [[cases]]
+file = "string_interpolation.pyk"
+
+[[cases]]
+file = "string_interpolation_values.pyk"
+libs = ["option"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "typecheck_string_interpolation.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
 file = "evaluation_order.pyk"
 
 [[cases]]
@@ -121,6 +133,36 @@ file = "typecheck_infer_branch.pyk"
 
 [[cases]]
 file = "fail_typecheck_infer_mixed.pyk"
+
+[[cases]]
+file = "fail_typecheck_interpolation_empty.pyk"
+
+[[cases]]
+file = "fail_typecheck_interpolation_extra.pyk"
+
+[[cases]]
+file = "fail_typecheck_interpolation_function.pyk"
+
+[[cases]]
+file = "fail_typecheck_interpolation_keyword.pyk"
+
+[[cases]]
+file = "fail_typecheck_interpolation_pattern.pyk"
+
+[[cases]]
+file = "fail_typecheck_interpolation_shadowed.pyk"
+
+[[cases]]
+file = "fail_typecheck_interpolation_type.pyk"
+
+[[cases]]
+file = "fail_typecheck_interpolation_unbound.pyk"
+
+[[cases]]
+file = "fail_typecheck_interpolation_unclosed.pyk"
+
+[[cases]]
+file = "fail_typecheck_printsl_value.pyk"
 
 [[cases]]
 file = "fail_typecheck_int_concat.pyk"
@@ -1405,6 +1447,9 @@ file = "debug_basic.pyk"
 [[cases]]
 file = "debug_values.pyk"
 excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "print_same_line.pyk"
 
 # `release = true` compiles with --release: every call to `debug` is
 # removed, so each compiled target must write nothing to standard error,

@@ -1,0 +1,6 @@
+x = "a"
+match x:
+    case "$x":
+        print("matched")
+    case _:
+        print("not")

@@ -3900,23 +3900,25 @@ and runtime_call info name args scope gen =
             PyLambda (info, List.map (fun (param, _) -> (param, None)) named, call),
             List.map snd named )
   in
-  (* `debug` is Python's own `print`, sent to standard error. The host's
-     `sys` is reached through `__import__`, since a Pyking module may be
-     called `sys` too. *)
-  if Builtin.is_debug name then
-    let stderr =
-      PyAttr
-        ( info,
-          PyCall (info, PyVar (info, "__import__"), [ PyString (info, "sys") ]),
-          "stderr" )
-    in
-    ( first_bound
-        (PyCall
-           ( info,
-             PyVar (info, "print"),
-             py_args @ [ PyKeyword (info, "file", stderr) ] )),
-      gen )
-  else (first_bound (PyCall (info, PyVar (info, name), py_args)), gen)
+  (* Every output builtin is Python's own `print`: `eprint`, `eprintsl`
+     and `debug` sent to standard error, and `printsl` and `eprintsl`
+     ending no line. The host's `sys` is reached through `__import__`,
+     since a Pyking module may be called `sys` too. *)
+  let stream =
+    if Builtin.writes_error name then
+      [
+        PyKeyword
+          ( info,
+            "file",
+            PyAttr
+              ( info,
+                PyCall (info, PyVar (info, "__import__"), [ PyString (info, "sys") ]),
+                "stderr" ) );
+      ]
+    else []
+  in
+  let ending = if Builtin.ends_line name then [] else [ PyKeyword (info, "end", PyString (info, "")) ] in
+  (first_bound (PyCall (info, PyVar (info, "print"), py_args @ ending @ stream)), gen)
 
 (** Expands one Pyking CompFor into one or two Python comprehension
     clauses -- one for an irrefutable pattern, two (raw items, then a

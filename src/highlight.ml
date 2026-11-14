@@ -136,6 +136,9 @@ let lexed_prefix s =
 (** One line, without its leading spaces, as spans. string -> [span] *)
 let line_spans s =
   let tokens, stop = lexed_prefix s in
+  (* An interpolated String is coloured as a String, but for what it
+     interpolates, which is coloured as code. *)
+  let tokens = List.concat_map Lexer.flatten_interp tokens in
   let rec go tokens at after_def acc =
     match tokens with
     | [] ->

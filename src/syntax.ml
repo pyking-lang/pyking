@@ -946,7 +946,34 @@ let binop_prec op =
 (* Always delimit with double quotes, as a String is written, and
    escape whatever the lexer's scan_string can decode back, so the output
    round-trips. *)
-let quote_string s = Builtin.quote_string s
+(* A String as Pyking source: builtin.ml's escapes, and a `$` that the
+   lexer would read as the start of an interpolation -- one before a
+   `{`, a letter or `_` -- written `\$`, so the program printed reads
+   back as the same String. *)
+(* String interpolation is rewritten by the parser into `+` and calls
+   of the builtin `string` (PYKING.md, "String interpolation"). Such a
+   call's callee is given an empty span at its `$`, which no name a
+   program writes has: that is how the checker tells it from a call the
+   program wrote, and words its errors for the interpolation. *)
+let interpolation_callee (i : info) =
+  EVar ({ i with row2 = i.row1; col2 = i.col1 }, "string", 0)
+
+let is_interpolation_callee e =
+  match e with
+  | EVar (i, "string", _) -> i.row1 = i.row2 && i.col1 = i.col2
+  | _ -> false
+
+let quote_string s =
+  let quoted = Builtin.quote_string s in
+  let n = String.length quoted in
+  let b = Buffer.create (n + 2) in
+  String.iteri
+    (fun i ch ->
+      match (ch, if i + 1 < n then quoted.[i + 1] else ' ') with
+      | '$', ('{' | '_' | 'a' .. 'z' | 'A' .. 'Z') -> Buffer.add_string b "\\$"
+      | ch, _ -> Buffer.add_char b ch)
+    quoted;
+  Buffer.contents b
 
 (** A type's name as this module spells it: `option.Option` is `Option`
     where a `from option import Option` brought it in. config -> string

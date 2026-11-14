@@ -121,6 +121,14 @@ val lookup : string -> t option
     rather than the program's own. string -> bool *)
 val is_debug : string -> bool
 
+(** Whether an output builtin writes to standard error: `debug`,
+    `eprint`, `eprintsl`. string -> bool *)
+val writes_error : string -> bool
+
+(** Whether an output builtin ends its line: all but `printsl` and
+    `eprintsl`. string -> bool *)
+val ends_line : string -> bool
+
 (** Whether calling name leaves the program, so that a backend has to
     emit host output for it. False for a name that is not a builtin.
     string -> bool *)

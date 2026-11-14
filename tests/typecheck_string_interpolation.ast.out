@@ -1,0 +1,6 @@
+name: String = "Ada"
+n: Int = 2
+print("Hello, " + string(name) + ": " + string(n * 2))
+print(string((n, name)))
+print("cost $5, \${x} and \$y, but $5 alone")
+print("raw \${n}")

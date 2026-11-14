@@ -1180,9 +1180,9 @@ let command_interpret ?(libs = []) checked arguments =
   let host =
     Interpreter.callback_host
       ~externals:(Plugin_host.externals plugins)
-      (fun line ->
-        print_string line;
-        print_newline ())
+      (fun text ->
+        print_string text;
+        flush stdout)
   in
   let state = Interpreter.run_modules units host in
   (* What a plugin asked to run once the top level ended -- events
@@ -2121,7 +2121,7 @@ let command_dap options =
     let text = if available > 0 then really_input_string written available else "" in
     let lines = List.rev !errors in
     errors := [];
-    (if text = "" then [] else [ ("stdout", text) ]) @ List.map (fun l -> ("stderr", l ^ "\n")) lines
+    (if text = "" then [] else [ ("stdout", text) ]) @ List.map (fun l -> ("stderr", l)) lines
   in
   let send text =
     note "<--" text;
@@ -2170,8 +2170,8 @@ let command_dap options =
   let failed error =
     (match error with
     | Interpreter.Runtime_error _ -> (
-        match format_error error with Some text -> errors := !errors @ [ unwrapped text ] | None -> ())
-    | error -> errors := !errors @ [ Printexc.to_string error ]);
+        match format_error error with Some text -> errors := (unwrapped text ^ "\n") :: !errors | None -> ())
+    | error -> errors := (Printexc.to_string error ^ "\n") :: !errors);
     finish 1
   in
   let after_started = ref false in
@@ -2303,10 +2303,10 @@ let command_dap options =
                     let host =
                       Interpreter.callback_host
                         ~externals:(Plugin_host.externals plugins)
-                        ~debug_line:(fun line -> errors := !errors @ [ line ])
-                        (fun line ->
-                          print_string line;
-                          print_newline ())
+                        ~error:(fun text -> errors := text :: !errors)
+                        (fun text ->
+                          print_string text;
+                          flush stdout)
                     in
                     Ok
                       (Debug_session.create

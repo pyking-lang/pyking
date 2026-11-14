@@ -1,0 +1,42 @@
+# String interpolation (PYKING.md, "String interpolation"): `${e}` holds
+# any expression and `$name` a name, ending at the first character that
+# cannot be part of one. The parser rewrites each into `+` and
+# `string(...)`, so what is shown is what `string` and `print` show.
+# Scalars only, so every target runs it; string_interpolation_values.pyk
+# has lists and tuples.
+
+name = "Ada"
+a = 1
+b = 2.5
+c = 'z'
+ok = true
+
+print("Hello, ${name}")
+print("Hello, $name!")
+print("List{$a,$b}")
+print("$a$b$c$ok")
+print("${a + 41} is ${if ok then "yes" else "no"}")
+print("$name's turn")
+print("${a}${a}")
+print("${name}")
+
+def twice(n: Int) -> Int:
+    n * 2
+
+print("twice(a) = ${twice(a)}, and ${twice(twice(a))}")
+
+# A String inside an interpolation, interpolating in turn.
+print("outer ${"inner $a"} done")
+
+# `\$` is a dollar sign; a `$` before anything that cannot start a name
+# is one too.
+print("cost \$5, \${a} and \$name")
+print("cost $5, $ alone, $-1 and a$")
+
+# A raw String has no escapes and no interpolation.
+print(r"raw ${a} $name \n {braces}")
+print(r"C:\new\table")
+
+# What an interpolation answers is a String, and joins as one.
+s = "a=$a"
+print(s + "; " + "b=$b", len(s))

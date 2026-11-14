@@ -49,6 +49,10 @@ type token =
   | TokInt of info * int
   | TokFloat of info * float
   | TokString of info * string
+  | TokInterp of info * interp_part list
+      (* a String with `${e}` or `$b` in it: a String with interpolations, in order; the
+         parser makes it `+` and `string(...)` (PYKING.md, "String
+         interpolation") *)
   | TokChar of info * int (* 'a': one Unicode code point *)
   | TokAdd of info (* '+' user defined *)
   | TokConcat of info (* '++' (no longer an operator: `+` joins) *)
@@ -136,12 +140,20 @@ type token =
          'interface', 'extends', 'self', 'super' *)
   | TokIdent of info * string
 
+(* One piece of an interpolated String: text as written (escapes
+   decoded), or an expression -- the span of its `${...}` or `$name`,
+   and its tokens. *)
+and interp_part =
+  | IText of string
+  | IExpr of info * token list
+
 (** The source span a token carries. token -> info *)
 let token_info tok =
   match tok with
   | TokInt (i, _) -> i
   | TokFloat (i, _) -> i
   | TokString (i, _) -> i
+  | TokInterp (i, _) -> i
   | TokChar (i, _) -> i
   | TokAdd i -> i
   | TokConcat i -> i
@@ -222,11 +234,20 @@ let token_info tok =
   | TokIdent (i, _) -> i
 
 (** Formats one token for display. token -> string *)
-let pprint_token tok =
+let rec pprint_token tok =
   match tok with
   | TokInt (_, x) -> Printf.sprintf "TokInt(%d)" x
   | TokFloat (_, x) -> Printf.sprintf "TokFloat(%s)" (Builtin.float_text x)
   | TokString (_, s) -> Printf.sprintf "TokString('%s')" s
+  | TokInterp (_, parts) ->
+      Printf.sprintf "TokInterp(%s)"
+        (String.concat ", "
+           (List.map
+              (function
+                | IText s -> Printf.sprintf "'%s'" s
+                | IExpr (_, tokens) ->
+                    "${" ^ String.concat " " (List.map pprint_token tokens) ^ "}")
+              parts))
   | TokChar (_, c) -> Printf.sprintf "TokChar(%d)" c
   | TokAdd _ -> "TokAdd"
   | TokConcat _ -> "TokConcat"
@@ -436,6 +457,7 @@ let escape_char e =
   | '\\' -> Some '\\'
   | '\'' -> Some '\''
   | '"' -> Some '"'
+  | '$' -> Some '$'
   | '0' -> Some '\000'
   | _ -> None
 
@@ -509,6 +531,65 @@ let blank line =
     | _ -> false
   in
   go (chars_of_string line)
+
+(** The characters of a `${...}` after its `${`, up to the `}` that
+    closes it, and what follows that `}`; None where nothing closes it.
+    A String or Char literal inside is skipped whole, so a `}` in one --
+    or in an interpolation of a String inside -- does not close it.
+    [char] -> ([char] * [char]) option *)
+let rec interpolation_body chars =
+  let rec find acc rest =
+    match rest with
+    | [] -> None
+    | '}' :: xs -> Some (List.rev acc, xs)
+    | (('"' | '\'') as quote) :: xs -> (
+        match skip_literal quote xs with
+        | None -> None
+        | Some (taken, ys) -> find (List.rev_append (quote :: taken) acc) ys)
+    | ch :: xs -> find (ch :: acc) xs
+  in
+  find [] chars
+
+(** A literal's characters after its opening quote, through its closing
+    one, and what follows; None where it does not close.
+    char -> [char] -> ([char] * [char]) option *)
+and skip_literal quote chars =
+  let rec go acc rest =
+    match rest with
+    | [] -> None
+    | '\\' :: e :: xs -> go (e :: '\\' :: acc) xs
+    | ch :: xs when ch = quote -> Some (List.rev (ch :: acc), xs)
+    | '$' :: '{' :: xs when quote = '"' -> (
+        match interpolation_body xs with
+        | None -> None
+        | Some (body, ys) -> go ('}' :: List.rev_append body ('{' :: '$' :: acc)) ys)
+    | ch :: xs -> go (ch :: acc) xs
+  in
+  go [] chars
+
+(** See lexer.mli. token -> [token] *)
+let rec flatten_interp tok =
+  match tok with
+  | TokInterp (i, parts) ->
+      let groups =
+        List.filter_map
+          (function
+            | IExpr (_, tokens) -> Some (List.concat_map flatten_interp tokens)
+            | IText _ -> None)
+          parts
+      in
+      let text a b = if b > a then [ TokString ({ i with col1 = a; col2 = b; row2 = i.row1 }, "") ] else [] in
+      let rec go at groups =
+        match groups with
+        | [] -> text at i.col2
+        | [] :: rest -> go at rest
+        | group :: rest ->
+            let first = token_info (List.hd group) in
+            let last = token_info (List.nth group (List.length group - 1)) in
+            text at first.col1 @ group @ go last.col2 rest
+      in
+      go i.col1 groups
+  | tok -> [ tok ]
 
 (** Lexes a character list into a list of tokens.
     string -> [char] -> [token] *)
@@ -626,11 +707,30 @@ let lexing file chars =
     | '#' :: xs ->
         let text, ys = string_until (fun ch -> ch <> '\n') xs in
         lex ys r (c + 1 + String.length text) stack depth line_start tokens
-    (* String *)
+    (* String: plain, or with interpolations (`${e}`, `$name`) *)
     | '"' :: xs ->
-        let text, body_length, ys = scan_string file r c '"' xs in
-        let length = 1 + body_length in
-        lex ys r (c + length) stack depth line_start
+        let parts, length, ys = scan_interpolated r c xs in
+        let info = fi r c length in
+        let tok =
+          match parts with
+          | [] -> TokString (info, "")
+          | [ IText text ] -> TokString (info, text)
+          | parts -> TokInterp (info, parts)
+        in
+        lex ys r (c + length) stack depth line_start (tok :: tokens)
+    (* Raw String: every character as written -- no escapes, no
+       interpolation -- up to the next double quote. *)
+    | 'r' :: '"' :: xs ->
+        let text, after = string_until (fun ch -> ch <> '"') xs in
+        (match after with
+        | [] ->
+            raise
+              (Lex_error
+                 ( fi r (c + 2 + String.length text) 0,
+                   "unexpected end of string literal" ))
+        | _ -> ());
+        let length = 3 + String.length text in
+        lex (List.tl after) r (c + length) stack depth line_start
           (TokString (fi r c length, text) :: tokens)
     (* Char: one code point between single quotes *)
     | '\'' :: xs -> (
@@ -815,5 +915,66 @@ let lexing file chars =
     | x :: _ ->
         raise
           (Lex_error (fi r c 1, Printf.sprintf "unexpected character '%c'" x))
+  (* An interpolated String's body, after its opening quote at r/c: its
+     pieces in order, the source characters it takes (both quotes
+     counted), and what follows it. A `${...}` is lexed as an
+     expression, on its own and as if inside brackets, so it may hold
+     any expression -- a String of its own included. *)
+  and scan_interpolated r c chars =
+    let text = Buffer.create 16 in
+    let flush parts =
+      if Buffer.length text = 0 then parts
+      else (
+        let piece = IText (Buffer.contents text) in
+        Buffer.clear text;
+        piece :: parts)
+    in
+    let rec scan consumed parts rest =
+      let col = c + 1 + consumed in
+      match rest with
+      | [] -> raise (Lex_error (fi r col 0, "unexpected end of string literal"))
+      | '\\' :: e :: xs when escape_char e <> None ->
+          Buffer.add_char text (Option.get (escape_char e));
+          scan (consumed + 2) parts xs
+      | '\\' :: e :: _ ->
+          raise (Lex_error (fi r col 2, Printf.sprintf "unknown escape sequence '\\%c'" e))
+      | '"' :: xs -> (List.rev (flush parts), consumed + 2, xs)
+      | '$' :: '{' :: xs -> (
+          match interpolation_body xs with
+          | None ->
+              raise
+                (Lex_error
+                   ( fi r col 2,
+                     "this '${' is not closed: an interpolation ends with '}' \
+                      before the String's closing quote" ))
+          | Some (body, after) ->
+              let width = 3 + List.length body in
+              let inner = lex body r (col + 2) [ 0 ] 1 false [] in
+              if inner = [] then
+                raise
+                  (Lex_error
+                     ( fi r col width,
+                       "'${}' holds no expression: write one inside it, or '\\$' \
+                        for a '$' of its own" ));
+              scan (consumed + width) (IExpr (fi r col width, inner) :: flush parts) after)
+      | '$' :: (x :: _ as name) when is_letter x -> (
+          let word, after = string_until is_digit_letter name in
+          let width = 1 + String.length word in
+          match lex (chars_of_string word) r (col + 1) [ 0 ] 1 false [] with
+          | [ (TokIdent _ as name) ] ->
+              scan (consumed + width) (IExpr (fi r col width, [ name ]) :: flush parts) after
+          | _ ->
+              raise
+                (Lex_error
+                   ( fi r col width,
+                     Printf.sprintf
+                       "'$%s' interpolates no name: '%s' is a keyword. Write \
+                        '${...}' for an expression, or '\\$' for a '$' of its own"
+                       word word )))
+      | ch :: xs ->
+          Buffer.add_char text ch;
+          scan (consumed + 1) parts xs
+    in
+    scan 0 [] chars
   in
   lex chars 1 0 [ 0 ] 0 true []

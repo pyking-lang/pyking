@@ -567,10 +567,13 @@ type externals = {
 }
 
 type host = {
-  print_line : string -> unit;
-  (* Where `debug` writes: the host's diagnostic channel, kept apart
-     from what the program prints. *)
-  debug_line : string -> unit;
+  (* Where `print` and `printsl` write: the program's own output, as
+     text -- a line's newline is part of what `print` hands over, and
+     `printsl` hands over none. *)
+  write_out : string -> unit;
+  (* Where `eprint`, `eprintsl` and `debug` write: the host's diagnostic
+     channel, kept apart from what the program prints. *)
+  write_err : string -> unit;
   (* A module implemented in a target language has no AST to interpret,
      so a host that cannot call into that language leaves this None and
      a program importing one is refused before it runs (docs/modules.md,
@@ -579,25 +582,29 @@ type host = {
   externals : externals option;
 }
 
-(** Writes to standard output, and reaches no external module: nothing
-    in a terminal can call a target language's own code. host *)
+(** Writes text to standard error, at once. string -> () *)
+let standard_error text =
+  prerr_string text;
+  flush stderr
+
+(** Writes to standard output and standard error, and reaches no
+    external module: nothing in a terminal can call a target language's
+    own code. Each write is flushed, so the two interleave as they ran
+    and a `printsl` prompt shows before a read. host *)
 let console_host =
   {
-    print_line = (fun text -> print_string text; print_newline ());
-    debug_line = (fun text -> prerr_string text; prerr_newline ());
+    write_out = (fun text -> print_string text; flush stdout);
+    write_err = standard_error;
     externals = None;
   }
 
-(** A host that hands each printed line to a function, and each `debug`
-    line to another -- standard error unless one is given.
+(** A host that hands what the program writes, as text, to a function,
+    and what it writes to standard error to another -- standard error
+    itself unless one is given.
     externals? -> (string -> ())? -> (string -> ()) -> host *)
-let callback_host ?externals ?debug_line write_line =
-  let debug_line =
-    match debug_line with
-    | Some debug_line -> debug_line
-    | None -> fun text -> prerr_string text; prerr_newline ()
-  in
-  { print_line = write_line; debug_line; externals }
+let callback_host ?externals ?error write =
+  let write_err = match error with Some error -> error | None -> standard_error in
+  { write_out = write; write_err; externals }
 
 (* --- environments --- *)
 
@@ -1434,9 +1441,12 @@ let range_list start stop step info =
 let apply_builtin name args info host =
   match (name, args) with
   | name, _ when Builtin.crosses_host name ->
-      let line = String.concat " " (List.map format_value args) in
-      if Builtin.is_debug name then host.debug_line line
-      else host.print_line line;
+      let text =
+        String.concat " " (List.map format_value args)
+        ^ if Builtin.ends_line name then "\n" else ""
+      in
+      if Builtin.writes_error name then host.write_err text
+      else host.write_out text;
       unit_value
   | "string", [ value ] -> VString (format_value value)
   (* The conversions answer a default where there is no right answer,
@@ -2115,7 +2125,7 @@ let rec call state call_node callee args env rest =
           | Some closure -> call state call_node closure more env rest
           | None -> failed state info (Printf.sprintf "'%s' has not run yet" key))
       | _ -> failed state info "a class's def is called by its name")
-  | VBuiltin (("print" | "string" | "debug") as name) when not (no_show args) -> (
+  | VBuiltin (("print" | "printsl" | "eprint" | "eprintsl" | "string" | "debug") as name) when not (no_show args) -> (
       (* An object whose class has `show` prints what it says, which is a
          method to run: each is worked out first, then printing starts. *)
       match

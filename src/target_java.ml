@@ -1262,7 +1262,14 @@ let rec expr ctx st scope e =
     when Builtin.crosses_host name && not (IntMap.mem callee ctx.tmap) ->
       let line, st = print_text ctx st scope (arg_exprs args) in
       ( atom
-          (Printf.sprintf "%s(%s)" (rt (if Builtin.is_debug name then "debugLine" else "printLine")) line.text),
+          (Printf.sprintf "%s(%s)"
+             (rt
+                (match (Builtin.writes_error name, Builtin.ends_line name) with
+                | false, true -> "printLine"
+                | false, false -> "printSame"
+                | true, true -> "debugLine"
+                | true, false -> "errorSame"))
+             line.text),
         st )
   | ECall (_, EVar (_, name, _), args, _)
     when List.mem name Builtin.pure_names && not (SMap.mem name scope.names) ->
@@ -1931,8 +1938,10 @@ and effect_of ctx st scope e =
     when Builtin.crosses_host name && not (IntMap.mem callee ctx.tmap) ->
       let line, st = print_text ctx st scope (arg_exprs args) in
       ( [ JLine
-            (Printf.sprintf "System.%s.println(%s);" (if Builtin.is_debug name then "err" else "out")
-               (if args = [] then "" else line.text)) ],
+            (Printf.sprintf "System.%s.%s(%s);"
+               (if Builtin.writes_error name then "err" else "out")
+               (if Builtin.ends_line name then "println" else "print")
+               (if args = [] && Builtin.ends_line name then "" else line.text)) ],
         st )
   | ECall (_, EVar (_, name, _), _, _)
     when List.mem name [ "push"; "pop"; "insert"; "remove"; "clear"; "discard"; "copy_into" ] && not (SMap.mem name scope.names) ->
@@ -3617,6 +3626,16 @@ let runtime_source programs version =
         "";
         "    public static Void debugLine(String line) {";
         "        System.err.println(line);";
+        "        return null;";
+        "    }";
+        "";
+        "    public static Void printSame(String text) {";
+        "        System.out.print(text);";
+        "        return null;";
+        "    }";
+        "";
+        "    public static Void errorSame(String text) {";
+        "        System.err.print(text);";
         "        return null;";
         "    }";
         "";

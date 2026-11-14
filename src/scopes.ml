@@ -53,7 +53,8 @@ let name_span tokens name (from : Lexer.info) =
         match token with
         | Lexer.TokIdent (i, n) -> n = name && compare (i.row1, i.col1) (from.row1, from.col1) >= 0
         | _ -> false)
-      tokens
+      (* A name used in an interpolation is among the String's tokens. *)
+      (List.concat_map Lexer.flatten_interp tokens)
   in
   match found with
   | Some token -> Lexer.token_info token

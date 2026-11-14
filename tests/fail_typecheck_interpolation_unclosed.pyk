@@ -1,0 +1,2 @@
+x = 1
+print("open ${x + 1")

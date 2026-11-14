@@ -3148,20 +3148,22 @@ and in_order ctx acc exprs =
     in
     (translated, sequence, acc)
 
-(** print(...) or debug(...): the arguments formatted per builtin.ml and
-    written as one line, to standard error for debug.
+(** An output call -- print, printsl, eprint, eprintsl or debug: the
+    arguments formatted per builtin.ml and written, to standard error
+    for eprint, eprintsl and debug, and ending the line for all but
+    printsl and eprintsl.
     ctx -> acc -> expr -> [expr] -> (oexpr, acc) *)
 and print_call ctx acc call args =
-  let to_stderr =
-    match call with
-    | ECall (_, EVar (_, name, _), _, _) -> Builtin.is_debug name
-    | _ -> false
-  in
+  let name = match call with ECall (_, EVar (_, name, _), _, _) -> name | _ -> "print" in
+  let to_stderr = Builtin.writes_error name in
   let newline, endline =
-    if to_stderr then ("prerr_newline", "prerr_endline")
-    else ("print_newline", "print_endline")
+    match (to_stderr, Builtin.ends_line name) with
+    | true, true -> ("prerr_newline", "prerr_endline")
+    | false, true -> ("print_newline", "print_endline")
+    | true, false -> ("", "prerr_string")
+    | false, false -> ("", "print_string")
   in
-  if args = [] then (OApp (OVar newline, [ OUnit ]), acc)
+  if args = [] then ((if newline = "" then OUnit else OApp (OVar newline, [ OUnit ])), acc)
   else
     (* Every argument is worked out before any is formatted: where one
        can hold an array or a mutable struct and another makes a call, which

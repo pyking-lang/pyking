@@ -1,0 +1,26 @@
+# `printsl` is `print` ending no line, `eprint` is `print` to standard
+# error, and `eprintsl` is both: print_same_line.out holds what the
+# program prints and print_same_line.err what it writes to standard
+# error. Unlike `debug`, they stay under --release.
+
+x = 3
+printsl("a", x)
+printsl()
+printsl(" ")
+print("b")
+printsl("same ")
+printsl("line ")
+print("ends here")
+eprint("an error:", x, true)
+eprintsl("one ")
+eprintsl("line")
+eprint()
+eprint("${x} interpolated")
+print("done")
+
+def note(n: Int) -> Int:
+    eprintsl("note ")
+    eprint(n)
+    n + 1
+
+print(note(x))

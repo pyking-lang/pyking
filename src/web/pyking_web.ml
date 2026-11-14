@@ -771,8 +771,8 @@ let run_program main release =
   | checked -> (
       let host =
         Interpreter.callback_host ~externals:(externals_for checked)
-          ~debug_line:(fun line -> emit_debug (line ^ "\n"))
-          (fun line -> emit (line ^ "\n"))
+          ~error:emit_debug
+          emit
       in
       match
         Interpreter.start_modules
@@ -1212,8 +1212,8 @@ let run_source source name =
       let program = Analyses.apply_signatures program in
       let host =
         Interpreter.callback_host
-          ~debug_line:(fun line -> emit_debug (line ^ "\n"))
-          (fun line -> emit (line ^ "\n"))
+          ~error:emit_debug
+          emit
       in
       let state = Interpreter.run_program program host in
       match Interpreter.failure state with
@@ -1322,8 +1322,8 @@ let repl_host =
       machine =
         (fun externals ->
           Interpreter.callback_host ?externals
-            ~debug_line:(fun line -> emit_debug (line ^ "\n"))
-            (fun line -> emit (line ^ "\n")));
+            ~error:emit_debug
+            emit);
       connect = (fun _ all -> externals_for all);
       warn = (fun line -> repl_warnings := !repl_warnings @ [ line ]);
       from = Some browser_sources;
@@ -1530,8 +1530,8 @@ let debug_start request =
   | units, program ->
       let host =
         Interpreter.callback_host ~externals:(externals_for units)
-          ~debug_line:(fun line -> emit_debug (line ^ "\n"))
-          (fun line -> emit (line ^ "\n"))
+          ~error:emit_debug
+          emit
       in
       let drive machine = if !slicing then Interpreter.run machine else raise (Debug_call machine) in
       let own = List.filter_map Json.to_string_option (Json.to_list (Json.member "files" r)) in

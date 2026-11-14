@@ -36,6 +36,8 @@ const SHELL = path.join(HERE, "..", "..", "tools", "site", "public", "site", "sh
 const BASE = "/pk";
 // The site's own sections, keyed as astro.config.mjs keys them.
 const SECTIONS = SITE_SECTIONS.map((s) => ({ ...s, key: s.prefix.replace(/\//g, "") }));
+// Getting started's first page, where its tab goes.
+const FIRST = SITE_SECTIONS.find((s) => s.prefix === "/getstarted/").path;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // The build the pages say they are, and the one version.json names: the
 // same until a check of a new build changes them.
@@ -81,7 +83,7 @@ const tall = '<div style="height: 4000px">tall</div>';
 const PAGES = {
   "/": page("Home", "<h1>Pyking</h1>"),
   "/install/": page("Install", "<h1>Install</h1>"),
-  "/getstarted/overview/": page("Overview", `<h1>Overview</h1>
+  [FIRST]: page("Overview", `<h1>Overview</h1>
     <a id="toMath" href="${BASE}/libraries/math/">math</a>
     <a id="toSecond" href="${BASE}/getstarted/second/">second</a>
     <a id="toLinked" href="${BASE}/playground/#code=abc">a program</a>
@@ -240,7 +242,7 @@ try {
   progress("links");
   await tab("playground", "Getting started");
   check("a section opened for the first time starts at its first page",
-    await ready("getstarted", "/getstarted/overview/"));
+    await ready("getstarted", FIRST));
   await click("getstarted", "#toMath");
   check("a link to another section shows that page of it",
     await until(`${win("libraries")}.location.pathname === "${BASE}/libraries/math/"`)
@@ -250,7 +252,7 @@ try {
   await evaluate("history.back()");
   check("Back goes to the section the link was on",
     await until(`pykingShell.current === "getstarted"`)
-    && await where() === `${BASE}/getstarted/overview/`, await where());
+    && await where() === `${BASE}${FIRST}`, await where());
   await evaluate("history.forward()");
   check("and Forward to the section it went to",
     await until(`pykingShell.current === "libraries"`)
@@ -265,8 +267,8 @@ try {
     && await until("document.title === 'Second | Pyking'"), await where());
   await evaluate("history.back()");
   check("and Back within the section",
-    await ready("getstarted", "/getstarted/overview/")
-    && await until(`location.pathname === "${BASE}/getstarted/overview/"`), await where());
+    await ready("getstarted", FIRST)
+    && await until(`location.pathname === "${BASE}${FIRST}"`), await where());
   await click("getstarted", "#toLinked");
   check("a link to a program shows it in the playground already open",
     await until(`${win("playground")}.location.hash === "#code=abc"`)
@@ -280,7 +282,7 @@ try {
   await tab("getstarted", "Getting started");
   check("a section's own tab goes to its first page, as without the shell",
     await until(`${win("getstarted")}.left === undefined`)
-    && await ready("getstarted", "/getstarted/overview/"));
+    && await ready("getstarted", FIRST));
   await click("getstarted", ".site-title");
   check("the logo shows the start page", await ready("home", "/")
     && await shown() === "home" && await where() === `${BASE}/`, await where());
@@ -301,7 +303,7 @@ try {
     await until(`${win("getstarted")}.location.pathname === "${BASE}/runtime/plain.html"`)
     && await shown() === "getstarted");
   await evaluate("history.back()");
-  await ready("getstarted", "/getstarted/overview/");
+  await ready("getstarted", FIRST);
 
   progress("the theme");
   await evaluate(`${win("getstarted")}.localStorage.setItem("starlight-theme", "light")`);
@@ -395,8 +397,8 @@ try {
     + "&& document.querySelector('script[data-build]')?.dataset.build === 'b6'"));
 
   progress("another site");
-  await open(`${site}/getstarted/overview/`);
-  await ready("getstarted", "/getstarted/overview/");
+  await open(`${site}${FIRST}`);
+  await ready("getstarted", FIRST);
   await click("getstarted", "#away");
   await sleep(1500);
   const history = await send("Page.getNavigationHistory", {}, sessionId);

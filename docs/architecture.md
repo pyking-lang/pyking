@@ -507,7 +507,9 @@ forced to agree, is in
 [targets.md](targets.md#integers-hold-32-bits-and-overflow-is-undefined).
 
 **A host is where output goes and how an external module is reached**:
-`print_line` for `print`, `debug_line` for `debug`, and `externals` for a
+`write_out` for `print` and `printsl`, `write_err` for `eprint`,
+`eprintsl` and `debug` -- each takes text, a line's newline included --
+and `externals` for a
 module implemented in a target language. `pyk` gives it the plugins
 `src/plugin_host.ml` loaded; the browser gives it the page's JavaScript.
 `sys.exit` does not go through the machine at all: the OCaml
