@@ -17,32 +17,31 @@ const menu = menus[id];
 const current = (link) => here === base + link;
 const within = (page) => current(page.link)
   || (page.items ?? []).some((item) => current(item.link));
+// Two levels and no more. A main page is listed in bold; its own pages
+// (a page of the language reference, a tinyweb submodule) open under it
+// while it or one of them is shown, and a main page without pages of its
+// own opens at its headings while it is shown. A sub-page's headings are
+// never listed: they are the page's to show, not the menu's.
+const pages = menu?.pages ?? [];
 ---
 <nav class="pyking-sidebar" aria-label={menu?.label ?? "Pages"}>
   {menu && (
     <>
       <p class="pyking-sidebar-title">{menu.label}</p>
-      <ul>
-        {menu.pages.map((page) => (
-          <li>
+      <ul class="pyking-sidebar-main">
+        {pages.map((page) => (
+          <li class:list={[page.items && "pyking-sidebar-parent", within(page) && "pyking-sidebar-open"]}>
             <a href={base + page.link} aria-current={current(page.link) ? "page" : undefined}>{page.label}</a>
-            {current(page.link) && page.headings.length > 0 && (
-              <ul class="pyking-sidebar-headings">
-                {page.headings.map((h) => <li><a href={`#${h.anchor}`}>{h.text}</a></li>)}
+            {page.items && within(page) && (
+              <ul class="pyking-sidebar-sub">
+                {page.items.map((item) => (
+                  <li><a href={base + item.link} aria-current={current(item.link) ? "page" : undefined}>{item.label}</a></li>
+                ))}
               </ul>
             )}
-            {page.items && within(page) && (
-              <ul class="pyking-sidebar-headings">
-                {page.items.map((item) => (
-                  <li>
-                    <a href={base + item.link} aria-current={current(item.link) ? "page" : undefined}>{item.label}</a>
-                    {current(item.link) && (item.headings ?? []).length > 0 && (
-                      <ul class="pyking-sidebar-headings">
-                        {item.headings.map((h) => <li><a href={`#${h.anchor}`}>{h.text}</a></li>)}
-                      </ul>
-                    )}
-                  </li>
-                ))}
+            {!page.items && current(page.link) && page.headings.length > 0 && (
+              <ul class="pyking-sidebar-sub">
+                {page.headings.map((h) => <li><a href={`#${h.anchor}`}>{h.text}</a></li>)}
               </ul>
             )}
           </li>

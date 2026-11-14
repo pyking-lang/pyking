@@ -22,13 +22,16 @@ always there beside `share/pyking.js`, and every package ships it.
 |---|---|
 | `index.md`, `404.md`, `install.md` | `sitesrc/`, as they are |
 | `getstarted/*.md` | `sitesrc/getstarted/` |
-| `documentation/language.md` | `PYKING.md`, its title made front matter and links into `docs/` kept as their text |
-| `documentation/editors.md` | `sitesrc/documentation/` |
+| `documentation/language/*.md`, `documentation/grammar.md` | `PYKING.md`, one page per `##` part (`LANGUAGE_PAGES` in `help.py` names each part's file): its `###` sections made the page's `##` ones, links into `docs/` kept as their text, and a link to a heading of another part pointed at that part's page. The first part is the Language reference's own page, the others are listed under it; Grammar is a page of its own |
+| `documentation/*.md` | `sitesrc/documentation/`: Editors, Playground, Notebook, Command line, REPL, Compiler targets, Code on slides, Pyking vs. other languages, Styling tinyweb |
 | `libraries/*.md` | `lib/`, by `libdoc.py`: an overview and one page per module |
-| `index.json` | the sections, their pages in menu order, each page's `##` headings with their anchors, and which pages the Help tab shows |
+| `index.json` | the sections, their pages in menu order, each page's `##` headings with their anchors and its sidebar group, and which pages the Help tab shows |
 
-The sections and their order are `SECTIONS` in `help.py`. The Help tab
-shows Getting started, the language reference and the libraries. The
+The sections and their order are `SECTIONS` in `help.py`. A page's
+`sidebar.group` front matter puts it under a heading of the left menu:
+Documentation has the groups Tools, Language and tinyweb. The Help tab
+shows Getting started, the Language group (the language reference,
+Pyking vs. other languages and the grammar) and the libraries. The
 website adds tinyweb's pages for other languages under Documentation
 (`tools/site/tinywebdoc.py`), since those need the compiler to build.
 
@@ -36,6 +39,11 @@ A page's ```` ```pyking ```` blocks are cells, as in the notebook: whole
 programs that run in the page. A block that is not a whole program is
 marked `norun`, and one meant to be refused `error`; `tests/test_site.py`
 runs every other one and holds each `error` block to being refused.
+A ```` ```<lang> excerpt target=<T> ```` block is an excerpt of what the
+compiler writes for the ```` ```pyking ```` block before it, and the test
+compiles that block for `T` and finds the excerpt's lines in the output,
+in order; a line of only `...` (or `# ...`, `// ...`) stands for lines
+left out.
 
 ## Documenting a library
 

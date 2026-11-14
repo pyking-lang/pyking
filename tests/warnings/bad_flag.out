@@ -35,7 +35,8 @@ Options:
   -Werror[=<name>]      make every warning an error, or just that one;
                         -Wno-error[=<name>] undoes it
   --use <feature>       with the REPL, turn a feature on from the start,
-                        as a 'use' line would: mutation or objects
+                        as a 'use' line would: mutation, pointers or
+                        objects
   --tinyweb-log         with the interpreter or the REPL, print what a
                         program sends its tinyweb page, and what the page
                         answers, on stderr as the page runs

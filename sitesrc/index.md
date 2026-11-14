@@ -6,7 +6,7 @@ hero:
   tagline: A small, statically typed language that reads like Python and compiles to Python, JavaScript, C, Java and OCaml.
   actions:
     - text: Get started
-      link: /getstarted/overview/
+      link: /getstarted/pyking-in-20-minutes/
       icon: right-arrow
     - text: Install
       link: /install/

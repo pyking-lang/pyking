@@ -233,7 +233,8 @@ let synopsis =
   \  -Werror[=<name>]      make every warning an error, or just that one;\n\
   \                        -Wno-error[=<name>] undoes it\n\
   \  --use <feature>       with the REPL, turn a feature on from the start,\n\
-  \                        as a 'use' line would: mutation or objects\n\
+  \                        as a 'use' line would: mutation, pointers or\n\
+  \                        objects\n\
   \  --tinyweb-log         with the interpreter or the REPL, print what a\n\
   \                        program sends its tinyweb page, and what the page\n\
   \                        answers, on stderr as the page runs\n\

@@ -11,7 +11,7 @@ None of it needs Astro, which `make website` installs on first use and
 FILE`), the reference for what a program means; the page runs the same
 compiler as JavaScript, which tests/test_notebook.py covers.
 
-Eleven parts:
+Thirteen parts:
 
   docs      lib/ through tools/help/libdoc.py: nothing undocumented or
             documented wrongly -- every parameter in order, a Returns
@@ -33,7 +33,16 @@ Eleven parts:
             with tinyweb's log set, prints exactly its ```stdout block.
   sidebar   the help's index (tools/help/help.py) and site.py's left
             menus list every page of every section, tinyweb's pages for
-            other languages included; the Help tab's pages are among them.
+            other languages included; the Help tab's pages are among them;
+            every menu has two levels, pages and their own pages, and
+            no heading that is not a page; Documentation lists the tools,
+            the language and tinyweb in that order, with the language
+            reference's pages under it.
+  reference PYKING.md is the language reference: every `##` part of it
+            is a page (help.py, LANGUAGE_PAGES), its sections the page's
+            `##` sections, the Grammar a page of its own; every link to a
+            heading of another part leads to that part's page, and to a
+            heading that page has.
   runtime   every sound a library's page plays is copied into the
             website's runtime.
   publish   what `make website-release` commits (tools/site/publish.py,
@@ -51,6 +60,12 @@ Eleven parts:
             the language reference and the library pages: an `error`
             block must be refused, every other must run, with its
             ```stdin and ```args.
+  excerpts  every compiled-code excerpt of the help's pages -- a
+            ```<lang> excerpt target=<T> block, as "Pyking vs. other
+            languages" shows what the compiler writes -- is found, line by
+            line and in order, in what `pyk compile -t T --stdout` writes
+            for the ```pyking block before it; a `...` line stands for
+            lines left out.
   shell     every page loads tools/site/public/site/shell.js first, with
             the sections, and the shell's page starts no playground and
             no cells; then tests/site/shell.mjs drives the shell in
@@ -69,11 +84,16 @@ Functions:
     check_notebook() -- the notebook part.
     check_examples(compiler) -- the examples part.
     check_sidebar() -- the sidebar part.
+    check_reference() -- the reference part.
     check_runtime() -- the runtime part.
     check_publish() -- the publish part.
     check_build() -- the build part.
     blocks(text) -- the runnable Pyking blocks of a Markdown page.
     check_cells(compiler) -- the cells part.
+    excerpts(text) -- the compiled-code excerpts of a Markdown page.
+    excerpt_problems(text, compiler) -- where they are not what the
+        compiler writes.
+    check_excerpts(compiler) -- the excerpts part.
     check_shell() -- the shell part.
     main(argv) -- the command-line entry point.
 """
@@ -383,14 +403,106 @@ def check_sidebar():
             results.append((f"every page of {section['label']} in the index is written",
                             f"missing: {', '.join(absent)}" if absent else None))
         shown = [slug for section in index["sections"] for slug in section["help"]]
-        wanted = ["getstarted/overview", "documentation/language", "libraries"]
-        results.append(("the Help tab shows Getting started, the language reference "
-                        "and the libraries",
+        wanted = ["getstarted/pyking-in-20-minutes", "documentation/language",
+                  "documentation/language/functions", "documentation/grammar", "libraries"]
+        results.append(("the Help tab shows Getting started, the language reference, "
+                        "the grammar and the libraries",
                         None if all(w in shown for w in wanted) else f"shows {shown}"))
+        documentation = menus["documentation"]["pages"]
+        deep = [item["label"] for section in index["sections"]
+                for entry in menus[section["id"]]["pages"]
+                for item in entry.get("items", []) if item.get("items")]
+        results.append(("every left menu has two levels: pages, and their own pages under them",
+                        f"a third level under: {deep}" if deep else None))
+        labels = [entry["label"] for entry in documentation]
+        results.append(("Documentation's menu has no headings that are not pages",
+                        None if all(entry.get("link") for entry in documentation)
+                        and not any(entry.get("group") for entry in documentation)
+                        else f"{labels}"))
+        tops = [entry["link"] for entry in documentation]
+        wanted_order = ["/documentation/editors/", "/documentation/language/",
+                        "/documentation/grammar/", f"/{website.TINYWEB}/"]
+        results.append(("Documentation's menu lists the tools, then the language, "
+                        "then tinyweb",
+                        None if all(w in tops for w in wanted_order)
+                        and [tops.index(w) for w in wanted_order]
+                        == sorted(tops.index(w) for w in wanted_order)
+                        else f"{tops}"))
+        reference = next((entry for entry in documentation
+                          if entry["link"] == "/documentation/language/"), {})
+        under = [item["link"] for item in reference.get("items", [])]
+        expected = ["/" + file[: -len(".md")] + "/" for _, file, _ in helpdoc.LANGUAGE_PAGES[1:]
+                    if file != "documentation/grammar.md"]
+        results.append(("the language reference's pages are listed under it, in "
+                        "PYKING.md's order",
+                        None if under == expected else f"under it: {under}"))
+        tinyweb_entry = next((entry for entry in documentation
+                              if entry["link"] == f"/{website.TINYWEB}/"), {"items": []})
+        results.append(("tinyweb's pages for other languages are listed under "
+                        "Tinyweb without Pyking",
+                        None if tinyweb_entry.get("items") else f"{tinyweb_entry}"))
     links = tinywebdoc.see_also(f"../../{website.TINYWEB}/")
     missing = [l.slug for l in tinywebdoc.LANGUAGES if f"/{l.slug}/)" not in links]
     results.append(("the tinyweb page links each language's page",
                     f"missing: {', '.join(missing)}" if missing else None))
+    return results
+
+
+def check_reference():
+    """PYKING.md is the language reference, a page per `##` part.
+    () -> [(String, String?)]"""
+    results = []
+    text = helpdoc.LANGUAGE.read_text()
+    parts = helpdoc.split_parts(text)
+    named = [title for title, _, _ in helpdoc.LANGUAGE_PAGES]
+    results.append(("every `##` part of PYKING.md is a page help.py names, in order",
+                    None if [title for title, _ in parts] == named
+                    else f"PYKING.md: {[title for title, _ in parts]}"))
+    pages = helpdoc.language_pages()
+    results.append(("the Grammar is a page of its own",
+                    None if "documentation/grammar.md" in pages else sorted(pages)))
+    # A part's `###` sections are its page's `##` ones, which the menus
+    # list; every part has at least one.
+    bare = [file for file, page in pages.items() if not helpdoc.headings(page)]
+    results.append(("every page of the reference has sections the menu lists",
+                    f"none in: {', '.join(bare)}" if bare else None))
+    deep = [file for file, page in pages.items()
+            if any(line.startswith("### ") and not inside
+                   for line, inside in helpdoc._fences(page.split("\n")))
+            and not any(line.startswith("## ") and not inside
+                        for line, inside in helpdoc._fences(page.split("\n")))]
+    results.append(("every page's headings are promoted a level",
+                    f"not in: {', '.join(deep)}" if deep else None))
+    # Every link to a heading leads to a page that has it.
+    anchors = {}
+    for file, page in pages.items():
+        slug = "/" + file[: -len(".md")].removesuffix("/index") + "/"
+        anchors[slug] = {helpdoc.slugify(line.lstrip("#").strip())
+                         for line, inside in helpdoc._fences(page.split("\n"))
+                         if not inside and re.match(r"^#{2,6} ", line)}
+    broken = []
+    for file, page in pages.items():
+        own = "/" + file[: -len(".md")].removesuffix("/index") + "/"
+        for target, anchor in re.findall(r"\]\((/documentation/[^)#]*/)?#([^)\s]+)\)", page):
+            if anchor not in anchors.get(target or own, set()):
+                broken.append(f"{file}: {target or ''}#{anchor}")
+    results.append(("every link to a heading of the reference leads to a page that has it",
+                    "\n  ".join(broken) if broken else None))
+    # A part help.py does not name stops the build, said plainly.
+    original = helpdoc.LANGUAGE
+    with tempfile.TemporaryDirectory(prefix="pyk-site-") as directory:
+        changed = Path(directory) / "PYKING.md"
+        changed.write_text(text + "\n## Something new\n\nText.\n")
+        helpdoc.LANGUAGE = changed
+        try:
+            helpdoc.language_pages()
+            refused = None
+        except SystemExit as error:
+            refused = str(error)
+        finally:
+            helpdoc.LANGUAGE = original
+    results.append(("a `##` part help.py does not name stops the help's build",
+                    None if refused and "Something new" in refused else repr(refused)))
     return results
 
 
@@ -559,6 +671,90 @@ def blocks(text):
     return found
 
 
+ELLIPSIS = re.compile(r"^(?:#|//|/\*|\(\*)?\s*\.\.\.\s*(?:\*/|\*\))?$")
+
+
+def excerpts(text):
+    """The compiled-code excerpts of a Markdown page: each ```<lang>
+    excerpt target=<T> block, with the ```pyking block before it, the
+    program it is an excerpt of. String -> [{source, target, lines, line}]"""
+    found, lines, last, k = [], text.splitlines(), None, 0
+    while k < len(lines):
+        match = FENCE.match(lines[k])
+        if not match:
+            k += 1
+            continue
+        ticks, lang, rest = match.groups()
+        end = k + 1
+        while end < len(lines) and not lines[end].startswith(ticks):
+            end += 1
+        body = lines[k + 1:end]
+        words = rest.split()
+        target = next((w[len("target="):].strip('"') for w in words if w.startswith("target=")), None)
+        if lang.lower() in ("pyking", "pyk"):
+            last = "\n".join(body) + "\n"
+        elif "excerpt" in words and target:
+            found.append({"source": last, "target": target, "lines": body, "line": k + 1})
+        k = end + 1
+    return found
+
+
+def excerpt_problems(text, compiler):
+    """Where an excerpt is not what the compiler writes: each excerpt's
+    lines, stripped and with `...` lines skipped, must be found in order
+    among the lines `pyk compile -t T --stdout` writes for its program.
+    String -> String -> [(String, String)]"""
+    problems = []
+    for excerpt in excerpts(text):
+        name = f"the {excerpt['target']} excerpt at line {excerpt['line']}"
+        if excerpt["source"] is None:
+            problems.append((name, "no ```pyking block before it"))
+            continue
+        with tempfile.TemporaryDirectory(prefix="pyk-excerpt-") as directory:
+            program = Path(directory) / "example.pyk"
+            program.write_text(excerpt["source"])
+            ran = subprocess.run(
+                shlex.split(compiler) + ["compile", "-t", excerpt["target"], "--stdout",
+                                         str(program)],
+                capture_output=True, text=True, timeout=TIMEOUT, cwd=directory)
+        if ran.returncode != 0:
+            problems.append((name, "does not compile: " + (ran.stderr or ran.stdout).strip()))
+            continue
+        written = [line.strip() for line in ran.stdout.splitlines()]
+        at = 0
+        for line in excerpt["lines"]:
+            wanted = line.strip()
+            if not wanted or ELLIPSIS.match(wanted):
+                continue
+            try:
+                at = written.index(wanted, at) + 1
+            except ValueError:
+                problems.append((name, f"the compiler does not write {wanted!r} (or not "
+                                       "in this order)"))
+                break
+    return problems
+
+
+def check_excerpts(compiler):
+    """Every compiled-code excerpt of the help's pages is what the
+    compiler writes. String -> [(String, String?)]"""
+    results = []
+    with tempfile.TemporaryDirectory(prefix="pyk-site-") as directory:
+        generated = Path(directory) / "help"
+        helpdoc.write(generated)
+        for path in sorted(generated.rglob("*.md")):
+            text = path.read_text()
+            count = len(excerpts(text))
+            if not count:
+                continue
+            problems = excerpt_problems(text, compiler)
+            label = path.relative_to(generated)
+            results.append((f"{label}: its {count} compiled-code excerpts are what "
+                            "the compiler writes",
+                            "\n  ".join(f"{n}: {p}" for n, p in problems) or None))
+    return results
+
+
 def check_cells(compiler):
     """Every runnable block of the help's pages -- sitesrc/, the language
     reference and the library pages -- runs, or is refused where it is
@@ -643,8 +839,8 @@ def main(argv):
     cells, count = check_cells(compiler)
     results = (check_docs() + check_exports(compiler) + check_copies() + check_plugin()
                + check_notebook() + check_examples(compiler) + check_sidebar()
-               + check_runtime() + check_publish() + check_build() + cells
-               + check_shell())
+               + check_reference() + check_runtime() + check_publish() + check_build()
+               + cells + check_excerpts(compiler) + check_shell())
     failed = 0
     for name, detail in results:
         if detail is None:

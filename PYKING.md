@@ -15,20 +15,49 @@ of the language beyond that core are turned on per module by a `use`
 line at its top -- `use mutation` and `use objects` -- and every module
 is read by the same parser: a construct of a
 feature the module has not turned on is parsed as usual and refused as a
-syntax error naming the `use` line that would allow it. See "Features
-turned on with `use`".
+syntax error naming the `use` line that would allow it. See "Programs,
+modes and `use`".
 
 This document is the language reference: what Pyking programs mean, and
-what the bootstrap implementation in `src/` currently accepts. It says
-nothing about the compiler itself: what targets a program can be compiled
-to and what each supports is in [docs/targets.md](docs/targets.md), and
-how the compiler is put together is in
-[docs/architecture.md](docs/architecture.md).
+what the bootstrap implementation in `src/` currently accepts. It is the
+one source of the language's documentation: the website shows each `##`
+part below as a page of its own -- "Overview" through "Warnings" as the
+Language reference, and "Grammar", the syntax on its own, as the Grammar
+page (`tools/help/help.py` splits it). It says nothing about the
+compiler itself: what targets a program can be compiled to and what each
+supports is in [docs/targets.md](docs/targets.md), and how the compiler
+is put together is in [docs/architecture.md](docs/architecture.md).
 
 Examples are marked `python` where they are also valid Python, and
 `pyking` where they use something Python has no spelling for.
 
-## New in Pyking (not in Python)
+## Overview
+
+Pyking reads like Python, and most of what a Python programmer writes
+first means what they expect. Where it differs, it differs on purpose:
+every block is a scope, `=` never changes a name, every program is
+type-checked before it runs, and data is described by datatypes and
+taken apart by `match`. The pages of this reference say what each
+construct means; the syntax on its own is the Grammar page, and how
+Pyking lines up with the languages it compiles to is "Pyking vs. other
+languages".
+
+### How to read this reference
+
+Each page starts with a line saying when its constructs are available
+and how they compare with Python:
+
+> **Available:** in every module · **Compared with Python:** the same
+
+*Available* names the `use` line a construct needs, if any (see
+"Programs, modes and `use`"). *Compared with Python* is one of "the
+same", "differs" (and how) or "new in Pyking".
+
+Examples marked `pyking` are whole programs. On the website each is a
+cell that runs in the page -- edit it and run it again. An example the
+compiler refuses is shown with the error it gives.
+
+### New in Pyking (not in Python)
 
 A quick reference for readers already familiar with Python: everything
 else in this document is either borrowed directly from Python or a
@@ -204,7 +233,16 @@ restriction of it, but these are genuinely new.
   list). Irrefutable patterns (names and tuple destructuring like
   `[label for (_, label) in pairs]`) simply bind, exactly as in Python.
 
-## Feature summary
+### Modes at a glance
+
+| Mode | Turned on by | Adds |
+|---|---|---|
+| functional, immutable | nothing: every module starts here | `=` bindings, functions, lambdas, lists, tuples, Maps, datatypes, structs, `match`, `loop`, `for`, `while`, Option, Result, modules |
+| mutation | `use mutation` | `var` and `:=`, compound assignment, Arrays, DynArrays, MutMaps, views, `mutable struct` |
+| pointers | `use mutation, pointers` | `&x`, `*p`, `*p := v`, `Ptr(T)` |
+| objects | `use objects` | classes, abstract classes and interfaces |
+
+### Feature summary
 
 Expressions:
 
@@ -364,8 +402,7 @@ Statements:
 - Expression statements
 - Output with `print`, and diagnostic output with `debug` — Pyking
   extension; `debug` writes the way `print` does, where diagnostics go,
-  and a program built in release mode has none of it (see "Builtins"
-  under "Type checking")
+  and a program built in release mode has none of it (see "Builtins and I/O")
 - A block written on its header's own line (`def f(x): x * x`,
   `if c: print(1)`, `case 0: "zero"`) — one expression, meaning exactly
   what the indented form means
@@ -392,7 +429,7 @@ Structure:
   share its name with another binding of the same block (see "Names and
   scoping")
 - Statically typed: every program is type-checked, whatever is then done
-  with it, and a type error stops the compile (see "Type checking")
+  with it, and a type error stops the compile (see "Types and type inference")
 - Warnings for names bound and never used, and for an `=` shadowing a
   name it was probably meant to update, with GCC's `-W` flags (see
   "Warnings")
@@ -401,806 +438,86 @@ Structure:
   each running its own top level before anything that imports it (see
   "Modules")
 
-## Grammar
+## Programs, modes and `use`
 
-EBNF for the subset currently accepted by `parse()` in `src/parser.ml`.
-`INDENT`/`DEDENT` are not literal characters — they are synthesized by the
-lexer from 4-space indentation changes (see "Indentation-based blocks"
-below). Comments are stripped by the lexer and don't appear here.
+> **Available:** in every module · **Compared with Python:** new in Pyking
 
-```ebnf
-(* An import and a `public` belong to a module's top level, so they are
-   here rather than in `statement`, which is what a block holds. The
-   `use` lines come before everything else. *)
-program     = { use_stmt } , { top_statement } ;
-use_stmt    = "use" , feature , { "," , feature } ;
-feature     = "mutation" | "objects" ;
-top_statement = import_stmt
-            | from_stmt
-            | public_stmt
-            | datatype_stmt
-            | struct_stmt
-            | class_stmt
-            | statement ;
+A program is one file, its main module, together with every module it
+imports (see "Modules"). How much of the language a module may use is
+chosen by the module itself, with `use` lines at its top. Without one, a
+module is functional: names are bound once and data is not changed in
+place.
 
-import_stmt = "import" , module_item , { "," , module_item } ;
-module_item = module_path , [ "as" , ident ] ;
-from_stmt   = "from" , module_path , "import" , field_item , { "," , field_item } ;
-(* A module, or a submodule of one: `hello`, `hello.mymod`. *)
-module_path = ident , { "." , ident } ;
-field_item  = ident , [ "as" , ident ] ;
-public_stmt = "public" , ( function_def | function_sig | datatype_stmt
-                          | struct_stmt | assignment ) ;
+### Features turned on with `use` — Pyking extension
 
-(* A datatype belongs to a module's top level. Its name and every
-   constructor's start with an uppercase letter; its parameters are type
-   variables. Its constructors follow the ':' on its own line, or on
-   indented lines under it, or both; a line holds one or more,
-   separated by commas. *)
-datatype_stmt = "datatype" , [ sub_path , "." ] , upper_ident , [ "(" , type_var , { "," , type_var } , ")" ] ,
-                ":" , ( constructor_line , [ INDENT , { constructor_line } , DEDENT ]
-                      | INDENT , constructor_line , { constructor_line } , DEDENT ) ;
-constructor_line = constructor , { "," , constructor } ;
-constructor = upper_ident , [ "(" , [ field , { "," , field } ] , ")" ] ;
-(* A field is a type alone (positional only), or named; a named field's
-   type may be left to its default. Unnamed fields come first, and every
-   field after one with a default has one too. *)
-field       = type
-            | ident , ":" , type , [ "=" , expr ]
-            | ident , "=" , expr ;
-upper_ident = ? an ident beginning with an uppercase letter ? ;
+A module is functional and immutable unless it turns more of the
+language on, with `use` lines at its top -- before any import or
+statement, though comments may come first:
 
-(* A struct is a datatype of one constructor, named as the type is. Its
-   fields are in parentheses on its own line -- every type variable they
-   name is then a parameter -- or on indented lines under its ':', a
-   line holding one or more separated by commas, after the parameters
-   written in parentheses. With neither it has no fields. "mutable"
-   makes it a mutable struct, whose fields are written in place: it has
-   at least one field, and needs `use mutation`. *)
-struct_stmt = [ "mutable" ] , "struct" , [ sub_path , "." ] , upper_ident ,
-              [ "(" , [ field , { "," , field } ] , ")"
-              | [ "(" , type_var , { "," , type_var } , ")" ] , ":" ,
-                INDENT , field_line , { field_line } , DEDENT ] ;
-field_line  = field , { "," , field } ;
+```pyking
+# A counter, kept in a mutable variable.
+use mutation
 
-(* A class, an abstract class or an interface belongs to a module's top
-   level and needs `use objects` (see "Classes and interfaces"). A
-   class's header holds its type parameters (bare lowercase names) and
-   its fields, which are its constructor's parameters; a parent class is
-   written with its constructor's arguments, an interface with its type
-   arguments. Its members are on indented lines under its ':'. *)
-class_stmt  = ( [ "abstract" ] , "class" , upper_ident ,
-                "(" , [ header_item , { "," , header_item } ] , ")" ,
-                [ "extends" , class_name , "(" , [ args ] , ")" ] ,
-                [ "implements" , iface , { "," , iface } ]
-              | "interface" , upper_ident , [ "(" , type_var , { "," , type_var } , ")" ] ,
-                [ "extends" , iface , { "," , iface } ] ) ,
-              [ ":" , INDENT , member , { member } , DEDENT ] ;
-header_item = type_var | member_field ;
-class_name  = [ sub_path , "." ] , upper_ident ;
-iface       = class_name , [ "(" , type , { "," , type } , ")" ] ;
-member      = member_field | method ;
-(* A header field has a default only where every one after it has; a
-   body field always has its first value. *)
-member_field = [ "private" ] , [ "var" ] , ident , ( ":" , type , [ "=" , expr ] | "=" , literal ) ;
-(* A method's parameters after `self` all say their types; one with no
-   body is abstract (in an abstract class) or an interface's. *)
-method      = [ "private" ] , [ "override" ] , [ "abstract" ] ,
-              "def" , ident , "(" , "self" , { "," , param } , ")" , [ "->" , type ] ,
-              [ ":" , block ] ;
-
-(* A block is indented under its header, or is the single expression
-   written on the header's own line -- which the EBNF cannot say, since
-   it cannot see where a line ends; see the notes below. *)
-block       = INDENT , { statement } , DEDENT
-            | expr_stmt ;
-
-statement   = function_def
-            | function_sig
-            | return_stmt
-            | loop_stmt
-            | break_stmt
-            | continue_stmt
-            | if_stmt
-            | match_stmt
-            | var_decl
-            | assignment
-            | mutation
-            | expr_stmt ;
-
-(* `implicit` marks a definition an implicit argument may be resolved
-   to; a definition's own name may carry a `::` qualifier, which is what
-   makes two definitions of one base name distinct. *)
-function_def = [ "implicit" ] , "def" , def_name ,
-               "(" , [ params ] , ")" , [ "->" , type ] , ":" , block ;
-(* The second form names its parameters; it ends its line, every
-   parameter has a type and none a default, and it means the first form
-   with the parameter types in order. *)
-function_sig = "def" , def_name , ":" , type
-             | "def" , def_name , "(" , [ named_type , { "," , named_type } ] ,
-               ")" , "->" , type ;
-named_type   = ident , ":" , type ;
-(* A dotted name defines in a submodule: `mymod.foo`, `mymod.deep.foo`. *)
-def_name     = [ sub_path , "." ] , ( ident | qualified_name ) ;
-sub_path     = ident , { "." , ident } ;
-(* No whitespace is permitted on either side of the "::", and neither
-   half may be a keyword. *)
-qualified_name = ident , "::" , ident ;
-(* Every parameter after the first one with a default has one too, and
-   every implicit parameter comes after every ordinary one. *)
-params       = param , { "," , param } , { "," , implicit_param }
-             | implicit_param , { "," , implicit_param } ;
-param        = ident , [ ":" , type ] , [ "=" , expr ] ;
-implicit_param = "implicit" , ident , ":" , type ;
-
-type         = type_atom , [ "->" , type ] ;
-type_atom    = "Int" | "Float" | "String" | "Char" | "Bool"
-             | type_var
-             | [ sub_path , "." ] , upper_ident , [ "(" , type , { "," , type } , ")" ]
-             | "all" , type_var , { type_var } , "." , type
-             | "[" , type , "]"
-             | type_paren ;
-(* One parenthesized list, three readings, decided by the token after
-   ")" and by whether a comma is written -- exactly as `tuple_lit` and a
-   parenthesized expression are told apart among values. *)
-type_paren   = "(" , [ type , { "," , type } ,
-                       { "," , implicit_param } , [ "," ] ] , ")" ,
-               "->" , type
-             | "(" , implicit_param , { "," , implicit_param } , ")" ,
-               "->" , type
-             | "(" , type , ")"
-             | "(" , ")"
-             | "(" , type , "," , ")"
-             | "(" , type , ( "," , type )+ , [ "," ] , ")" ;
-type_var     = ? an ident beginning with a lowercase letter ? ;
-
-return_stmt = "return" , bound_value ;
-
-(* `for`, `while` and the accumulator loop are one construct with
-   different halves written; every combination of them is a loop_stmt. *)
-loop_stmt   = ( "loop" , accumulator , [ iteration ]
-              | iteration ) , ":" , block ;
-accumulator = target , [ ":" , type ] , "=" , tuple_or_expr ;
-iteration   = "for" , ident , "in" , expr | "while" , expr ;
-
-(* The value, written on the `break`/`continue` line itself, is the
-   accumulator the jump leaves with. *)
-break_stmt    = "break" , [ tuple_or_expr ] ;
-continue_stmt = "continue" , [ tuple_or_expr ] ;
-
-if_stmt     = "if" , expr , ":" , block ,
-              { "else" , "if" , expr , ":" , block } ,
-              [ "else" , ":" , block ] ;
-
-(* Always indented: a `match` opens a list of clauses rather than a
-   block of statements, and a `case` clause is not an expression, so
-   there is nothing its header's line could carry. *)
-match_stmt  = "match" , expr , ":" , INDENT , case_clause , { case_clause } , DEDENT ;
-case_clause = "case" , pattern , [ "if" , expr ] , ":" , block ;
-pattern     = pattern_as , { "," , pattern_as } ;
-pattern_as  = pattern_or , [ "as" , ident ] ;
-pattern_or  = pattern_join , { "|" , pattern_join } ;
-pattern_join = pattern_atom , { "+" , pattern_atom } ;
-pattern_atom = int | "-" , int | string | char | bool | "_" | ident
-             | constructor_pattern
-             | "(" , ")"
-             | "(" , pattern_as , ")"
-             | "(" , pattern_as , "," , ")"
-             | "(" , pattern_as , ( "," , pattern_as )+ , [ "," ] , ")"
-             | list_pattern ;
-(* Positional sub-patterns first, then named ones in any order; a field
-   not mentioned matches anything. *)
-constructor_pattern = [ sub_path , "." ] , upper_ident ,
-                      [ "(" , [ field_pattern , { "," , field_pattern } ] , ")" ] ;
-field_pattern = pattern_as | ident , "=" , pattern_as ;
-
-list_pattern = "[" , [ list_pattern_items ] , "]" ;
-list_pattern_items = list_pattern_item , { "," , list_pattern_item } ;
-list_pattern_item  = pattern_as | rest_marker ;
-rest_marker        = ".." , [ ident ] ;
-
-var_decl    = "var" , ident , ( "=" | ":=" ) , bound_expr ;   (* ":=" is accepted as "=" *)
-assignment  = [ "implicit" ] , target , [ ":" , type ] , "=" , bound_value ;
-mutation    = ident , ":=" , bound_expr
-            | target , ":=" , bound_expr            (* a tuple of names *)
-            | ident , compound_op , bound_expr
-            | atom , ( ":=" | compound_op ) , bound_expr
-                       (* an array's element, an atom ending in an
-                          index_tail, or a mutable struct's field, an atom
-                          ending in "." ident *)
-            | "*" , unary , ( ":=" | compound_op ) , bound_expr ;
-                       (* what a pointer points at *)
-compound_op = "+=" | "-=" | "*=" | "/=" | "%=" | "^="
-            | "&=" | "|=" | "<<=" | ">>=" | "xor" "=" ;   (* no space in "xor=" *)
-
-(* A bound value may start on the line after its "=", indented -- the
-   lexer wraps it in the same INDENT/DEDENT any other block gets. *)
-bound_value = tuple_or_expr | value_stmt | INDENT , bound_value , DEDENT ;
-bound_expr  = tuple_or_expr | INDENT , bound_expr , DEDENT ;
-
-value_stmt  = value_if | match_stmt | loop_stmt ;
-value_if    = "if" , expr , ":" , block ,
-              { "else" , "if" , expr , ":" , block } ,
-              "else" , ":" , block ;
-
-target      = target_atom , { "," , target_atom } ;
-target_atom = ident
-            | sub_path , "." , ident
-            | "(" , ")"
-            | "(" , target_atom , "," , ")"
-            | "(" , target_atom , ( "," , target_atom )+ , [ "," ] , ")" ;
-
-expr_stmt   = tuple_or_expr ;
-
-tuple_or_expr = expr , { "," , expr } ;
-
-expr        = lambda | if_expr | let_expr | disjunction ;
-
-(* A lambda takes everything to its right that one expression can hold,
-   so it associates to the right and binds looser than every operator;
-   a comma ends it, since `lam x. a, b` is a pair. A parameter with a
-   type, and more than one, are written in parentheses. *)
-lambda      = "lam" , lambda_params , "." , expr ;
-lambda_params = ident
-            | "(" , [ param , { "," , param } ] , ")" ;
-
-if_expr     = "if" , expr , "then" , expr , "else" , expr ;
-
-(* Like a lambda, the body takes everything to its right that one
-   expression can hold. *)
-let_expr    = "let" , target , [ ":" , type ] , "=" , expr , "in" , expr ;
-
-(* `and`/`or`/`not` and their symbol spellings bind looser than a
-   comparison; the bitwise operators bind tighter, as Python's do. *)
-disjunction = conjunction , { ( "or" | "||" ) , conjunction } ;
-conjunction = negation , { ( "and" | "&&" ) , negation } ;
-negation    = "not" , negation | comparison ;
-
-comparison  = bit_or , [ comp_op , bit_or ] ;
-comp_op     = "<" | "<=" | ">" | ">=" | "==" | "!=" ;
-
-bit_or      = bit_xor , { "|" , bit_xor } ;
-bit_xor     = bit_and , { "xor" , bit_and } ;
-bit_and     = shift , { "&" , shift } ;
-shift       = additive , { ( "<<" | ">>" ) , additive } ;
-additive    = multiplicative , { ( "+" | "-" ) , multiplicative } ;
-multiplicative = unary , { ( "*" | "/" | "%" ) , unary } ;
-unary       = ( "-" | "!" | "~" | "&" | "*" ) , unary | power ;
-                       (* "&" and "*" are a pointer's, under
-                          `use pointers`: an address and what a pointer
-                          points at *)
-(* `^` associates to the right, and its right operand may be negated:
-   `2 ^ -1`. It binds tighter than unary minus: `-2 ^ 2` is `-(2 ^ 2)`. *)
-power       = atom , [ "^" , unary ] ;
-
-atom        = ( float | int | string | char | bool | ident | list_lit | list_comp
-              | tuple_lit | construct
-              | "(" , expr , ")" ) ,
-              { call_tail | field_tail | index_tail } ;
-(* `xs[i]`: the `[` on the row the indexed expression ends on. *)
-index_tail  = "[" , expr , "]"
-            | "[" , [ expr ] , ":" , [ expr ] , "]" ;   (* a slice: a copy *)
-(* A constructor applied to its fields, with a call's arguments; one with
-   no fields is written bare. *)
-construct   = [ sub_path , "." ] , upper_ident , [ call_tail ] ;
-field_tail  = "." , ident ;
-(* Every named argument comes after every positional one; the named
-   ones may be written in any order. A constructor's arguments may end
-   in `..expr`, which gives every field not written before it. *)
-call_tail   = "(" , [ call_args ] , ")" ;
-call_args   = expr , { "," , expr } , { "," , named_arg } , [ "," , update ]
-            | named_arg , { "," , named_arg } , [ "," , update ]
-            | update ;
-named_arg   = ident , "=" , expr ;
-update      = ".." , expr ;
-args        = expr , { "," , expr } ;
-
-list_lit    = "[" , [ args ] , "]" ;
-
-list_comp   = "[" , expr , comp_for , { comp_for | comp_if } , "]" ;
-comp_for    = "for" , pattern , "in" , expr ;
-comp_if     = "if" , expr ;
-
-tuple_lit   = "(" , ")"
-            | "(" , expr , "," , ")"
-            | "(" , expr , ( "," , expr )+ , [ "," ] , ")" ;
-
-ident       = letter , { letter | digit } ;
-int         = digit , { digit }
-            | "0" , ( "x" | "X" ) , hex_digit , { [ "_" ] , hex_digit }
-            | "0" , ( "b" | "B" ) , bin_digit , { [ "_" ] , bin_digit } ;
-hex_digit   = digit | "a" | "b" | "c" | "d" | "e" | "f"
-            | "A" | "B" | "C" | "D" | "E" | "F" ;
-bin_digit   = "0" | "1" ;
-(* A point needs a digit on each side, so `1.` and `.5` are not floats.
-   An exponent alone makes one: `1e9` is a Float. *)
-float       = digits , "." , digits , [ exponent ]
-            | digits , exponent ;
-digits      = digit , { digit } ;
-exponent    = ( "e" | "E" ) , [ "+" | "-" ] , digits ;
-bool        = "true" | "false" ;
-(* A String is in double quotes; a Char is exactly one character -- one
-   Unicode code point, or one escape -- in single quotes. *)
-string      = '"' , { string_char } , '"' ;
-char        = "'" , char_char , "'" ;
-string_char = any_char_except_double_quote_or_backslash
-            | "\" , escape ;
-char_char   = any_char_except_single_quote_or_backslash
-            | "\" , escape ;
-escape      = "n" | "t" | "r" | "0" | "\" | "'" | '"' ;
+var count = 0
+count := count + 1
+print(count)
 ```
 
-Notes that don't fall out of the grammar alone:
+| Feature | Turns on |
+|---|---|
+| `mutation` | `var`, `:=` and compound assignment such as `+=` (see "Mutable variables"), making and writing arrays (see "Arrays"), DynArrays (see "DynArrays"), MutMaps (see "MutMaps") and views (see "Slices and views"), and declaring, making and writing `mutable struct`s (see "Mutable structs") |
+| `pointers` | `&`, `*` and `*p := v` (see "Pointers"); needs `mutation` too |
+| `objects` | declaring classes, abstract classes and interfaces (see "Classes and interfaces") |
 
-- **A statement starts a line of its own**, and so does a `case` clause.
-  There is no statement separator in Pyking: a statement ends where the
-  tokens stop being able to continue it, which by itself would make
+Several are written on one line, `use mutation, objects`, or on lines
+of their own.
 
-  ```
-  print h
-  ```
+**One parser reads every module.** A `use` changes nothing about how
+the module is read: `var` is parsed in every module, and refused in one
+that has not turned mutation on, as a syntax error that names the line
+that would allow it:
 
-  *two* statements — a bare `print`, then a bare `h` — and so a program
-  that reads as though it prints and does not. The rule cannot be stated
-  in the EBNF, because the grammar cannot see line boundaries: the lexer
-  turns indentation into block structure and emits nothing at all for the
-  end of a line. It is checked against the source positions the tokens
-  carry, and reported as an ordinary `Parsing error`:
-
-  ```
-  'prog.pyk' 2:6-2:7 Parsing error: each statement must start on a new
-    line. In this case, 'print' and 'h' are seen as two different
-    statements
-  ```
-
-  Both are quoted back, because the mistake is not that something is in
-  the wrong place but that *two* things were read where one was meant.
-
-  One line may still hold a whole statement whose header opens a block
-  (`x = if c:`), and a statement may still span as many lines as its
-  blocks need. What one line may not hold is *two* statements.
-- Two rules about `break`/`continue` cannot be stated in the grammar and
-  are checked in `src/parser.ml` beside the others, so they hold in
-  every mode and are reported as a `Parsing error`. First, each may only
-  appear in the body of a `loop`, and may not reach out of a `for`, a
-  `while` or a `def` to find one:
-
-  ```
-  'prog.pyk' 3:8-3:13 Parsing error: 'break' may only appear in the
-    body of a 'loop', and this one is inside a 'for', which it may not
-    reach out of
-  ```
-
-  Second, nothing may be written after one in the same block, since
-  nothing there can run:
-
-  ```
-  'prog.pyk' 3:4-3:17 Parsing error: this statement cannot be reached:
-    'continue' has already left the loop, so nothing written after it
-    in the same block runs
-  ```
-
-  A `return` is deliberately not part of that second rule: statements
-  after one are legal Pyking, and a branch that returns is an ordinary
-  way to leave a body early.
-
-  Third, a `break x`/`continue x` gives the loop it belongs to an
-  accumulator, so the loop must have one to give: a value is refused in
-  a `loop:` with none written, and in a plain `for`/`while`:
-
-  ```
-  'prog.pyk' 2:10-2:12 Parsing error: this loop carries nothing, so
-    'break' takes no value: give the loop an accumulator ('loop acc =
-    ...') for 'break' to give one
-  ```
-
-  The value is whatever follows the keyword on its own line, a bare
-  tuple included (`break n, acc`), exactly as a loop header's
-  initializer is written. A second thing after it on the line is two
-  statements on one line, refused as such.
-- A `loop_stmt` is a `value_stmt`, so a loop may be bound with `=` or
-  returned with `return`, exactly as a value-form `if`/`match` may. It
-  needs none of the rules those two obey -- every loop has an
-  accumulator (unit where none was written), so there is no way through
-  one that produces nothing.
-- `comp_op` does not repeat — `1 < 2 < 3` is not a valid `expr`
-  (comparisons don't chain), and the parser says what to write instead:
-  `'prog.pyk' 1:12-1:13 Parsing error: comparisons do not chain: write
-  'a < b and b < c' rather than 'a < b < c'`.
-- Three spellings Pyking no longer has are refused where they stand,
-  each with the one it has instead: `++` (`'++' is now written '+'`),
-  `=>` (`a lambda is now written 'lam x. x + 1'`) and `**` (`a power is
-  written with '^'`).
-- A `use` line is written before anything else in a module, comments
-  aside; one written later is refused (`'use' turns on a feature for
-  the whole module, so it is written before anything else`), and so is
-  a feature `use` does not know, or one named twice. What a feature
-  turns on is parsed in every module and refused, as a `Parsing error`,
-  in one that has not turned it on: see "Features turned on with
-  `use`".
-- `while_stmt` has no `else` clause (unlike Python's `while`/`else`).
-- An `if_stmt`'s chain is written `else if`, two ordinary keywords —
-  there is no `elif` keyword to reserve. The chained header must be the
-  *statement* form, i.e. end in `:`; `else if c then a else b` is an
-  error, since an `if_expr` may not start an `else` tail. This makes
-  `else if` exactly equivalent to an `else` block holding one nested
-  `if_stmt`, and that is how it is parsed: `src/parser.ml` builds no
-  ladder node, just an `SIf` whose `else_body` is a one-element list
-  holding the next `SIf`. Both pretty-printers undo the nesting when
-  printing (as `else if` in Pyking's own syntax), so
-  a ladder round-trips flat instead of stepping one level right per
-  branch — and an `else:` block a program *did* write with a single
-  nested `if_stmt` inside prints as an `else if` chain, the two being
-  the same AST.
-- A trailing `else` is optional at every point in the chain, so a ladder
-  may end after its last `else if` block and run no branch at all.
-- `if_expr` sits at the very bottom of the precedence ladder, below
-  `comparison`, and its three sub-expressions are each a full `expr`. Two
-  consequences: the branches extend as far right as they can (`if c then
-  1 else 2 + 1` has `2 + 1` as its else branch, not `(if ...) + 1`), and
-  an `if_expr` cannot be an operand without parentheses (`1 + if c then a
-  else b` is a syntax error; write `1 + (if c then a else b)`).
-- The branches are `expr`, not `tuple_or_expr`, so a comma ends the
-  `if_expr` instead of being absorbed into it: `if c then a else b, d` is
-  a two-element tuple whose first element is the `if_expr`. This matches
-  how Python reads `a if c else b, d`.
-- `if_expr` is right-associative, so an `else` branch that is itself an
-  `if_expr` chains flat, with the very same `else if` keyword pair the
-  `if_stmt` ladder uses, only inline:
-  `if a then 1 else if b then 2 else 3`.
-- Unlike `if_stmt`, `if_expr`'s `else` is **mandatory**, and that is what
-  makes the two `if`s coexist without ambiguity. Because every `else`
-  therefore has exactly one possible owner, even
-  `if a then if b then c else d else e` has a single valid parse (the
-  inner `if` must claim the first `else`, so the outer claims the
-  second). The classic dangling-else ambiguity comes from `else` being
-  *optional* — true of Pyking's `if_stmt`, deliberately not of its
-  `if_expr`. The two also never compete for the same token in practice:
-  an `if_stmt`'s `else` always starts a line after a DEDENT, an
-  `if_expr`'s is always inline. This holds for the `else if` pair too,
-  and what follows it separates the two cases the same way a leading
-  `if` is separated at `statement` (see the next note): a `:` ends an
-  `if_stmt` chain's condition, a `then` an `if_expr` chain's.
-- A `statement` beginning with `if` is where the real parsing difficulty
-  lies: it may be an `if_stmt` or an `expr_stmt` holding an `if_expr`,
-  and the two share the entire `"if" , expr` prefix. Since that `expr`
-  can be arbitrarily long, no bounded lookahead separates them — the
-  grammar is not LL(1) at `statement`. `src/parser.ml` handles this
-  without backtracking by parsing the shared prefix once and then
-  dispatching on the single token that follows it: `:` means `if_stmt`,
-  `then` means `if_expr`. (An `if_stmt` whose *condition* is an `if_expr`
-  needs no special handling — `expr` already covers it, so
-  `if if a then b else c:` parses.)
-- The right-hand side of an `assignment` faces that same standoff and
-  resolves it the same way: `x = if c:` is a `value_stmt`, `x = if c
-  then a else b` an ordinary `expr`, and only the token after the shared
-  `"if" , expr` prefix (`:` or `then`) tells them apart. A `match` on
-  the right of `=` needs no such care — `match` is a reserved keyword,
-  so it can never begin an `expr`.
-- Two restrictions on a `value_stmt` are not expressible in the grammar
-  and are checked by the parser instead, since every backend depends on
-  both: every branch's `block` must **end in an expression**
-  (an `expr_stmt`, or a nested `value_stmt` that recursively ends in
-  one), and a `value_if`'s final `else` is **mandatory** — a binding
-  cannot be left without a value when no condition holds. A `match_stmt`
-  needs no such existence rule: it already requires at least one
-  `case_clause`, and a subject matching none of them is a runtime error,
-  not a silently skipped branch. The nested-`value_stmt` case is also
-  what makes an `else if` ladder work in value form, a ladder being
-  exactly a nested `if_stmt` as its `else` branch's only statement.
-- `assignment` and `return_stmt` accept a `value_stmt`; `var_decl` and
-  `mutation` keep taking a plain `tuple_or_expr`, and the parser says so
-  explicitly if you try. The value form works by pushing something into
-  each branch's tail — an assignment to the target for `assignment`, a
-  `return` for `return_stmt` — and both of those are single, unambiguous
-  things to push. `var`/`:=` distinguish *declaring* from *updating*,
-  and a form that expands to one of them per branch has no way to say
-  which of the two each of those is.
-- The indented `bound_value`/`bound_expr` form holds exactly **one**
-  value: anything left in the block before its DEDENT is an error
-  (`expected a single value in the indented block after '='`). It exists
-  mainly for a `value_stmt` whose header would otherwise share the `=`
-  line, but nothing restricts it to those — `x =` followed by an
-  indented `1 + 2` is the same rule, as is `var`/`:=` (both take a
-  `bound_expr`: the next-line layout, but no `value_stmt`). Both
-  pretty-printers
-  normalize it away, printing the value back on the `=` line; the two
-  spellings are the same AST.
-- A `value_stmt` is rejected in each `bound_expr` position with an error
-  naming it (`a 'var' declaration takes an expression; a value-form
-  'if'/'match' can only be bound with '='`). A value form binds its
-  target in every branch tail, which is what `var` declares and `:=`
-  updates — neither of which the branches can decide between.
-- Statements before a branch's last one are ordinary statements, run for
-  their effect: a branch may bind local names, print, or update an
-  enclosing `var` before yielding its value. This is a consequence of
-  how a `value_stmt` compiles — it stays one `if`/`match` *statement*,
-  with only the branch tails turned into assignments to the target — and
-  is why the value form is not the same as an `if_expr` spread over
-  several lines.
-- `comp_if` and `comp_for`'s sequence are the one place an `if_expr`
-  needs parentheses: `[x for x in xs if (if a then b else c)]`. Written
-  bare, the comprehension's own `if`/`in` would run straight into the
-  `if_expr`'s keywords. Python restricts these exact two positions for
-  exactly this reason (its grammar admits only an `or_test` there,
-  excluding the conditional expression), so `[x for x in xs if b if a
-  else c]` is a syntax error in Python too. Pyking's parser is in fact
-  lenient enough to recover in some of these cases, but both
-  pretty-printers always emit the parentheses.
-- `additive`, `multiplicative`, `shift`, `bit_and`, `bit_xor`, `bit_or`,
-  `conjunction` and `disjunction` are left-associative; `power` is
-  right-associative.
-- `call_tail` can repeat after any atom, so `f(1)(2)` parses (a call
-  result can itself be called), even though no example in this document
-  uses that. This chaining only applies to a `(` on the *same source row*
-  as the atom it follows — a `(` that starts a new row is always treated
-  as the start of the next statement instead, never as a continuation of
-  the previous one. (There are no statement-separator tokens in this
-  grammar at all — see the parser module comment in `src/parser.ml` —
-  so without this row check, a statement immediately followed by one
-  starting with `(`, e.g. a parenthesized tuple destructuring assignment,
-  would be misparsed as one giant chained call.)
-- `unary` is where the prefix operators are: `-expr` negates, `!expr`
-  is `not` and `~expr` is a bitwise not, and each nests (`- -x`). It
-  sits between `multiplicative` and `power`, so it binds tighter than
-  `*`/`/` and looser than `^` and a `call_tail` — `-x * y` is
-  `(-x) * y`, `-2 ^ 2` is `-(2 ^ 2)`, and `-f(x)` negates the call's
-  *result*, not `f`. `not`, the word, binds as loosely as Python's
-  instead: `not a == b` is `not (a == b)`, where `!a == b` is
-  `(!a) == b`. It
-  applies to the operand it precedes and no further, so parentheses are
-  what extend it over a sum: `-x + 1` is `(-x) + 1`, not `-(x + 1)`.
-- The same `-` token serves both operators and they never compete: a
-  binary `-` can only appear where an expression has just ended, a unary
-  one only where an expression is about to begin, so spacing never
-  matters (`10 - -3`, `10 - - 3` and `10 - -3` all subtract minus three).
-  One consequence of the grammar having no statement separators (see
-  `call_tail` above) does follow: a statement *starting* with `-` on the
-  line after an expression statement continues that expression instead
-  of starting a new one, exactly as a leading `(` does.
-- A `pattern_atom` admits a negative integer, matching Python
-  (`case -1:`). Only a literal — a pattern is matched, never evaluated,
-  so there is no expression there for the general `unary` rule to apply
-  to.
-- `match_stmt` requires at least one `case_clause`.
-- Unlike Python, where `match`/`case` are context-sensitive ("soft")
-  keywords, they're always reserved in Pyking — a variable or parameter
-  can't be named `match` or `case`. The same is true of `Int`, `String`,
-  and `Bool` (the atomic type names): they're reserved everywhere, not
-  just in type position, so no identifier may be named after one of them
-  either; of `then` and `let`, which have no Python counterpart at all; and of
-  `true`/`false`, which do have a Python counterpart (`True`/`False`) but
-  not this spelling of one — a Pyking program cannot use `true`, `false`,
-  `True`, or `False` as an identifier (the first two because they're
-  keywords, the last two because they're simply unbound: Pyking has no
-  binding for Python's capitalised spelling). `use`, `lam`, `and`, `or`,
-  `not`, `xor` and `mutable` (of `mutable struct`) are keywords too, and `class`, `interface`, `extends`,
-  `self` and `super` are reserved for a later part of the language:
-  nothing uses them yet, and no program may bind one (`'class' is
-  reserved for a later part of the language, so it cannot be used as a
-  name`).
-- `assignment`'s `[ ":" , type ]` annotates the *binding*, e.g.
-  `x: Int = 1`. Like every other annotation it is optional and nothing
-  verifies it (see "Type annotations"), but it is the one the type
-  checker writes back into: `pyk compile -t pyking` prints each binding
-  with the type it inferred, in exactly this syntax, so that output can
-  be fed back to the compiler. A destructuring target takes one
-  annotation for the whole binding, not one per name.
-- `param`'s `[ ":" , type ]` and `function_def`'s `[ "->" , type ]` are
-  both optional and independent — a function may annotate none, some, or
-  all of its parameters, with or without a return type. Annotations are
-  purely syntactic in an ordinary compile: they're parsed, stored in the
-  AST, and pretty-printed back out, and every backend erases them
-  completely — no generated code carries type syntax at all. Whether
-  anything is *verified* against them is a separate question, answered by
-  "Type checking" at the end of this reference.
-- **A tuple type is written the way the tuple value is.** A tuple `type`
-  with zero elements, `()`, is the Unit type; one with a single element
-  is `(Int,)`, carrying the same comma the singleton value `(1,)`
-  carries; and `(Int, Bool)` upwards needs no comma to be a tuple, with
-  a trailing one allowed as it is among values. So `(1,)` has type
-  `(Int,)` and `(1, true)` has type `(Int, Bool)`, each spelled like the
-  value it describes. Tuple and list types nest arbitrarily, e.g.
-  `[(Int, Bool)]`, `(Int, [String], (Bool, Bool))` or `((Int,),)`.
-- **Parentheses around one type are grouping**, exactly as they are
-  around one expression: `(Int)` is `Int`, `((Int))` is `Int` again, and
-  `(1)` is likewise just `1`. The comma is the whole difference between
-  grouping and a singleton, in types and in values alike — which is why
-  a singleton must be written with it in both.
-- The trailing `[ "->" , type ]` in `type` is what makes a **function
-  type**, `(Int, Bool) -> Int`. The parenthesized list before the arrow
-  is the *parameter list*, and the same list without an arrow after it is
-  a tuple — which is the whole rule, decided by the one token after `)`.
-  So `(Int, Bool)` is a pair, `(Int, Bool) -> Int` takes two parameters,
-  and `((Int, Bool)) -> Int` takes one parameter that is a pair. The
-  arrow settles the singleton too: `(Int) -> Int` and `(Int,) -> Int`
-  both take one `Int` — the comma is a list's, and there is no tuple
-  there for it to make — while `((Int,)) -> Int` takes one parameter
-  that *is* a one-tuple. The
-  result is a `type` in its turn, so `->` groups to the right:
-  `(Int) -> (Int) -> Int` returns a function and needs no parentheses of
-  its own. A function type may appear wherever a type may, including
-  nested inside list and tuple types — `[(Int) -> Bool]`,
-  `((Int) -> Int, Int)` — and as another function type's parameter,
-  `((Int) -> Int) -> Int`.
-- The same is true of `tuple_lit`, `target_atom`, and `pattern_atom` —
-  and of `type_paren` above, which is the point of writing them alike:
-  `()` is the empty tuple, and a *parenthesized* single element followed
-  by a comma, e.g. `(1,)`, `(x,)`, `case (p,):` or `(Int,)`, is a genuine
-  singleton tuple/target/pattern/type, distinct from a plain
-  parenthesized `(1)`/`(x)`/`(p)`/`(Int)` (which is just grouping,
-  unwrapped by the parser). Tuples nest arbitrarily in all four
-  positions.
-- `tuple_or_expr`, `target`, and `pattern` all also accept a *bare*
-  (unparenthesized) form — `1, 2`, `a, b`, `case a, b:` — but deliberately
-  require at least two elements and forbid a trailing comma there: a
-  singleton must be written with explicit parens, `(e,)`/`(name,)`/
-  `case (p,):`. This isn't just a style rule — since (as noted above)
-  there are no statement-separator tokens, a bare trailing comma is
-  genuinely ambiguous with the start of the next statement, and the
-  parser doesn't detect or reject it: `x = 1,` followed by `print(x)` on
-  the next line silently parses as the single statement
-  `x = (1, print(x))` instead of two statements. Always use the
-  parenthesized singleton form when there's any doubt.
-- `pattern_atom` is intentionally minimal beyond tuples and lists: an
-  integer, string, or boolean literal matches only that exact value; `_`
-  always matches, discarding the value; a plain `ident` also always
-  matches, but binds the value to that name; a parenthesized group
-  destructures a tuple value element-by-element; a `list_pattern`
-  destructures a list value; a `constructor_pattern` destructures a
-  datatype's value. All of these nest arbitrarily (e.g.
-  `case (a, [b, ..c]):`). An identifier starting with an uppercase
-  letter is a constructor wherever a pattern holds it, so `case Red:`
-  matches the constructor `Red` rather than binding a name.
-- `|` binds looser than `+` and tighter than `as`, which binds looser
-  than everything but the comma: `case 1 | 2, x as y:` is
-  `case (1 | 2), (x as y):`. Every alternative of a `|` binds the same
-  names, refused at parse time otherwise:
-
-  ```
-  'prog.pyk' 3:22-3:28 Parsing error: every alternative of '|' binds
-    the same names, and 'x' is bound in one of them but not in this one
-  ```
-- A guard is any expression, read after the pattern and up to the
-  `:`. It is asked only once its pattern has matched, and it sees the
-  names the pattern binds.
-- A `datatype` is written at a module's top level only; inside a block
-  it is a parse error. Two constructors on one line are separated by a
-  comma, and a line of them after the header's starts a line of its
-  own. A field written
-  `name = default` with no type takes its default's type (see
-  "Datatypes"). A `struct` is written at the top level too, and two
-  fields on one of its lines are separated by a comma.
-- `..expr` is written only as the last argument of a constructor, and
-  at most once; in a call to a `def` it is a parse error.
-- An uppercase identifier in an expression is a constructor. Every
-  name a program binds -- with `=`, `var` or `def`, as a parameter, a
-  loop variable, in a pattern, or as an import's alias -- starts with a
-  lowercase letter or `_`; one starting with an uppercase letter is
-  refused at parse time, since an uppercase name is a type or a
-  constructor. A constant is written `pi = 3.14`, not `PI = 3.14`. A
-  `from` line renaming a datatype or a constructor gives it a name
-  starting with an uppercase letter, as the name it renames does.
-- `x.name` reads a field where `x` is a value, and reaches a module's
-  public name where `x` is an imported module; the two are told apart by
-  what `x` is bound to. The `.` and the field name are on the line the
-  value ends on.
-- No pattern (tuple, list, or nested combination of either) may bind the
-  same name more than once — e.g. `case [a, ..b, a]:` is rejected at
-  parse time with "duplicate binding 'a' in pattern". This mirrors
-  Python's own restriction on repeated names within one `match` pattern,
-  mirroring Python's own restriction on repeated names within one
-  `match` pattern.
-- `list_pattern_items` may contain **at most one** `rest_marker`,
-  appearing anywhere among the items — patterns before it are a prefix
-  that must match the start of the list, patterns after it are a suffix
-  that must match the end, and `rest_marker` itself consumes everything
-  in between (possibly nothing). A bare `..` matches and discards that
-  middle portion; `..name` matches and binds it (as a list) to `name`.
-  With no rest marker at all, `list_pattern` matches only a list of
-  exactly that length. `[]` matches only the empty list.
-- `comp_for`'s `pattern` is `pattern` (i.e. the *full* pattern grammar,
-  same as a `case_clause`'s), not just a name or Python's assignment-like
-  targets — this is Pyking's one deliberate departure from Python's own
-  comprehension grammar. An element the pattern doesn't match (a literal
-  that doesn't equal it, or a list pattern whose shape doesn't fit) is
-  silently filtered out of the result — it never raises an error. (A
-  `match`, unlike a comprehension, has to match every value; see
-  "Exhaustiveness".) `list_comp` always starts with a `comp_for`; `comp_for`/
-  `comp_if` may then repeat in any order, matching Python's own
-  multi-clause comprehensions (nested `for`s, interspersed `if`s).
-- A `qualified_name` may be a **definition's** name and nothing else --
-  not a binding, a `var`, a parameter, a loop variable, a pattern
-  capture, a module name or an import alias -- and the definition must
-  take at least one argument, since the arguments of a call are what
-  resolve which of them is meant. Both are refused where they are
-  written (`'int::zero' takes no argument, so nothing could say which
-  definition of 'zero' a call means`). A module-qualified name is
-  `m.int::leq`: the module is written with a `.` and the definition's
-  own qualifier with a `::`, and the two never mix.
-- A **dotted** `def_name`, datatype name or `=` target -- `mymod.foo` --
-  defines a name in a submodule (see "Submodules"), and is written only
-  at a module's top level: inside a block it is refused. A
-  `qualified_name` goes last, `mymod.int::abs`. Every `.` in a dotted
-  name, in a `module_path` and in a `sub_path` is on the row the name
-  before it ended on.
-- `implicit` in front of a statement marks a `def` or an `=` binding of
-  one name, and nothing else. It is a statement's prefix rather than a
-  top-level one, so a definition inside a function may be implicit
-  there and nowhere else; `public implicit def ...` is written in that
-  order.
-- An `implicit_param` needs both its name and its type written: the
-  pair is what resolves it. It may not carry a default value, and a
-  lambda may not have one at all.
-- `lambda_params` shares `param` with `function_def`, but a lambda
-  parameter may **not** carry a default value: a default is evaluated in
-  the scope the definition is written in, and a lambda is an expression
-  written wherever it stands. Writing one is refused (`the lambda
-  parameter 'x' may not have a default value; only a 'def' parameter
-  may`).
-- A lambda starts with `lam`, so nothing has to be tried to tell one
-  from a parenthesized expression: `(x)` after `lam` is a parameter
-  list, and anywhere else the expression `x`. The `.` ending the
-  parameters is the first one after them, which is why a parameter with
-  a type is parenthesized: `lam x: geo.Point. x` would end its type at
-  the wrong `.`.
-- In a pattern, `+` joins pieces (`[x] + xs`) and `|` separates
-  alternatives; `||` there is refused as the slip it is (`alternatives
-  in a pattern are separated by '|', not '||'`). A pattern holds no
-  expressions, so its `|` and an expression's bitwise `|` never meet --
-  a guard is an expression, and its `|` is bitwise or.
-- **A line may be continued while a bracket is open.** The lexer
-  synthesizes `INDENT`/`DEDENT` from each physical line's leading
-  whitespace (see "Indentation-based blocks" below), and suspends that
-  entirely while an `(` or `[` is unclosed — so a parameter list, a
-  call's arguments, a list literal, a comprehension and a tuple may each
-  span several lines. The continuation lines are part of the same
-  statement and their own indentation means nothing; outside brackets,
-  indentation means exactly what it did. See "Lines and continuation".
-- `block`'s bare-`expr_stmt` alternative is taken **only** when that
-  expression begins on the row the header's `:` ends on. The EBNF cannot
-  state this, for the same reason it cannot state "a statement starts a
-  line of its own": the lexer emits no token for a line break, so both
-  are checked in `src/parser.ml` against the positions the tokens
-  already carry. A block that begins on the *next* line without being
-  indented is therefore not an inline block but the error it always was
-  (`expected an indented block`).
-- It is an `expr_stmt`, not a `statement`: only a value may be written
-  there. A `return`, a binding, a `:=`, or a nested header is refused
-  where it stands (`a block written on its header's own line must be
-  one expression, and 'return a' is not; write it in an indented block
-  instead`), so no line ever hides control flow or a new name behind
-  its `:`. An `if` written there is the `if_expr`, which is an
-  expression; the statement form is not.
-- An inline block **ends its line**. Nothing may be indented under it
-  (`a block written on its header's own line is the whole block, so
-  nothing may be indented under it`), and nothing may continue the
-  construct on the same line — an `else` has to start the next one
-  (`'else' must start on a new line: the block written on the header's
-  own line ends that line`). A second *statement* after it on the line
-  is caught by the one-statement-per-line rule instead, since it is a
-  sibling of the header rather than part of its block.
-- The two layouts are the same program. `def add(a, b): a + b` parses to
-  exactly what `def add(a, b):` followed by an indented `a + b` parses
-  to, so nothing after the parser can tell them apart — including the
-  pretty-printer, which prints every block indented.
-- The rule is the *block's*, so it holds wherever a block does:
-  `function_def`, `if_stmt` and its `else`, `for_stmt`, `while_stmt`,
-  `loop_stmt` and `case_clause`. A `match_stmt`'s clause list is not a
-  block and has no inline form.
-
-## Feature details
-
-### Comments
-
-A `#` starts a line comment that runs to the end of the line. It may appear
-on its own line or trail after other tokens.
-
-```python
-# This is a line comment.
-x = 1  # comments may also trail after other tokens
-print(x)
 ```
+'prog.pyk' 1:0-1:3 Parsing error: 'var' declares a mutable variable,
+  which needs 'use mutation' at the top of this module
+'prog.pyk' 2:0-2:6 Parsing error: ':=' changes the mutable variable
+  'count', which needs 'use mutation' at the top of this module
+```
+
+**A feature belongs to its module.** Importing a module that uses
+mutation does not turn mutation on in the importer, and nothing turns
+it on for a module but its own `use` line. A library may use mutation
+inside itself, and a module implemented in a target's own language
+(tinyweb's host half, for one) does whatever its host does: neither
+makes the program that imports it mutable. Submodules share their
+file's `use` lines.
+
+Without `use mutation`, `for` and `while` still work -- a `for` prints
+each element, and `while not io.is_eof():` reads to the end of the input
+-- and a `loop`'s accumulator is a fresh binding each turn, not a
+mutation. That is how a functional module adds something up:
+
+```pyking
+total = loop sum = 0 for x in [1, 2, 3]:
+    sum + x
+print(total)
+```
+
+In the REPL, a `use` line typed at the prompt holds for the rest of the
+session, and `pyk repl --use mutation` starts one with it on. In a
+notebook, every cell is a program of its own and writes its own `use`.
+
+## Values and basic types
+
+> **Available:** in every module · **Compared with Python:** differs --
+> `true`/`false` are lowercase, `'a'` is a `Char`, and nothing converts
+> implicitly
+
+Pyking has five basic types: `Int`, `Float`, `String`, `Char` and
+`Bool`, and the unit value `()`, which is what a statement that answers
+nothing answers. Values of one type become another only through the
+conversions `int`, `float`, `string`, `bool` and `char` (see "Builtins
+and I/O").
 
 ### Integer and string literals
 
@@ -1343,7 +660,7 @@ print(1.0 / 3.0)          # 0.3333333333333333
 extension, with no Python equivalent, so (unlike every other example in
 this section so far) the following is Pyking source, not valid Python:
 Python spells the same two values `True`/`False`, capitalised, which
-Pyking has no binding for at all (see the grammar notes above). They are
+Pyking has no binding for at all (see the notes on the Grammar). They are
 ordinary values, usable anywhere an expression is: bound with `=`,
 declared with `var` and updated with `:=`, passed as arguments, returned,
 compared with `==`, and so on.
@@ -1404,6 +721,17 @@ print([c for c in "ok"], ("ab", 'c'))   # ['o', 'k'] ("ab", 'c')
 - **Patterns**: `case 'a':` matches that Char, and a `match` on a Char
   needs a `case _`, since no list of literals covers every one.
 
+## Operators and expressions
+
+> **Available:** in every module · **Compared with Python:** mostly the
+> same; differs for `^` (power), non-chaining comparisons, `if … then …
+> else` expressions and lambdas (`lam`)
+
+An expression computes a value. Operands are evaluated left to right,
+operators are overloaded over `Int` and `Float` but never mix them, and
+three expression forms are Pyking's own: the `if … then … else`
+expression, `lam` lambdas and `let … in`.
+
 ### Variables (identifier references)
 
 An identifier is a name starting with a letter or underscore, followed by
@@ -1428,7 +756,7 @@ default precedence.
 operands of one type and answers that same type. There is no third
 possibility — an `Int` beside a `Float` is refused, not widened, and
 `float(n)` and `int(x)` are what a program writes instead. See "Numbers,
-and what the checker defaults to" under "Type checking".
+and what the checker defaults to" under "Types and type inference".
 
 On two Ints, `/` is **integer division, truncating toward zero**.
 Truncation is toward zero rather than downward, so `-7 / 2` is `-3` and
@@ -1760,110 +1088,154 @@ condition's pieces the same way on every turn. The branches of an
 `if` means rather than a special case: only the chosen branch runs at
 all, and its own pieces then run left to right.
 
-### List literals
+### `if`/`then`/`else` expressions
 
-`[e1, e2, ...]` builds a list from a comma-separated list of expressions,
-using the same syntax as call arguments.
+`if cond then e1 else e2` is an *expression*: it evaluates `cond`, then
+yields `e1` or `e2`, whichever the condition selects — only the chosen
+branch is evaluated. Python writes the same thing with the condition in
+the middle, so (unlike most examples in this document) the following is
+Pyking source, not valid Python; it compiles to Python's conditional
+expression `e1 if cond else e2`.
+
+Unlike the `if` *statement*, the `else` is mandatory — an expression must
+always produce a value. The branches reach as far right as they can, so
+parenthesize when mixing with operators, and an `else` branch that is
+itself an if expression chains flat, reading like an `elif` ladder.
 
 ```pyking
-use mutation
+def sign(x): if x < 0 then "negative" else if x == 0 then "zero" else "positive"
 
-values = [1, 2, 3]
-var total = 0
-for v in values:
-    total := total + v
-print(values, total)
+
+def clamp(x, lo, hi):
+    y = if x < lo then lo else x
+    return if y > hi then hi else y
+
+
+print(sign(-5), sign(0), sign(7))
+print(clamp(42, 1, 10))
+
+# The `+ 1` belongs to the else branch; parenthesize to apply it to the
+# whole expression instead.
+print(if 1 < 2 then 100 else 200 + 1)
+print((if 1 < 2 then 100 else 200) + 1)
+
+# Parentheses are required around an if expression used as a
+# comprehension filter (see the notes on the Grammar).
+print([x for x in [1, 2, 3, 4] if (if x < 3 then true else false)])
 ```
 
-### List comprehensions
+### Lambdas — Pyking extension
 
-`[expr for pattern in seq if cond ...]` builds a list by running `expr`
-once for every element of `seq` that matches `pattern` (with any `if`
-conditions also holding), in order. Multiple `for`/`if` clauses can be
-mixed freely, just like Python's own comprehensions, including nested
-`for`s over multiple sequences and a comprehension nested inside another
-(the `expr`, a sequence, or a condition can itself be a comprehension).
+`lam x. x + 1` is an expression that is a function, written as in the
+lambda calculus (`λx. x + 1`): the keyword `lam`, the parameters, a `.`
+and the body. One parameter with no type needs no parentheses, so
+`lam x. x + 1` and `lam (x). x + 1` are the same thing; several need
+them, and so does a parameter with a type -- `lam (n: Int). n - 1` --
+since a type may hold a `.` of its own (`geo.Point`, `all a. a`), and in
+parentheses it ends at the `)`. No parameters is `lam (). e`. The body
+is **one expression** — there is no block form.
 
-```python
-values = [1, 2, 3, 4, 5]
-doubled = [x * 2 for x in values if x > 2]
-print(doubled)
+The body takes everything to its right that one expression can hold, so
+a lambda binds looser than every operator and associates to the right:
+`lam x. lam y. x + y` is curried. A comma ends it, since `lam x. a, b`
+is a pair whose first element is the lambda.
 
-rows = [1, 2, 3]
-cols = [10, 20]
-products = [r * c for r in rows for c in cols]
-print(products)
+`x => x + 1`, the spelling Pyking had before `lam`, is refused with
+`a lambda is now written 'lam x. x + 1'`; `lam x, y. e` and
+`lam x: Int. e` are refused too, each with the parenthesized form to
+write.
 
-table = [[r * c for c in cols] for r in rows]
-print(table)
+```pyking
+double = lam x. x * 2
+add = lam (x, y). x + y
+typed = lam (n: Int). n - 1
+nothing = lam (). 7
+
+print(double(21), add(3, 4), typed(10), nothing())
+
+# A lambda answering with a lambda; a lambda associates to the right, so
+# no parentheses are needed.
+adder = lam x. lam y. x + y
+print(adder(6)(7))
+
+# An `if` expression is one expression, so it is a body like any other.
+sign = lam n. if n < 0 then 0 - 1 else 1
+print(sign(-5), sign(5))
 ```
 
-Unlike Python, `pattern` is a full Pyking pattern, not just a plain name
-or a simple destructuring target — it can be a literal, `_`, a tuple
-pattern, or a list pattern (see "list patterns" below), and nests
-arbitrarily.
+A lambda captures what is bound where it is written, exactly as a `def`
+body does, and a later binding of a name is a new binding rather than a
+write to the old one — so what a lambda captured does not change under
+it (see "Names and scoping").
 
-A *refutable* pattern — a literal, or a list pattern — may reject a value,
-and an element it doesn't match is filtered out of the result rather than
-raising an error:
-
-```python
-readings = [0, 5, 0, 8, 3]
-only_zero = [1 for 0 in readings]
-print(only_zero)
-
-rows = [[1, 2], [3], [4, 5], []]
-pair_sums = [a + b for [a, b] in rows]
-print(pair_sums)
+```pyking
+base = 100
+shift = lam n. n + base
+base = 200
+print(shift(1))     # 101: the binding `shift` captured
 ```
 
-`0 in readings` above only produces one `1` per element that literally
-equals `0` (filtering out everything else); `[a, b] in rows` only matches
-sub-lists of exactly two elements, filtering out `[3]` and `[]`.
+**A lambda is monomorphic.** Its parameters are one type, settled
+between its body and its uses, and never generalised; a `def` with the
+same body is polymorphic and serves every type at once. That is
+Hindley-Milner's own distinction between a `let`-bound definition and a
+lambda-bound one, and it is the whole of the difference here:
 
-An *irrefutable* pattern — a plain name, `_`, or a tuple destructuring
-built from those — always binds and never filters, matching how the same
-target behaves in a Python comprehension. A tuple pattern is a fixed-arity
-destructuring (like its tuple type `(T1, ..., Tn)`), so a wrong-arity
-value is a shape error that surfaces at runtime the same way Python's own
-unpacking would, rather than being silently skipped:
+```pyking
+def named(x): x
+print(named(1), named("a"))     # fine: `named` is polymorphic
 
-```python
-pairs = [(1, "a"), (2, "b"), (3, "c")]
-labels = [label for (_, label) in pairs]
-print(labels)
+id = lam x. x
+print(id(1))
+# print(id("a"))                -- error: `id` is Int -> Int by now
 ```
 
-A refutable pattern therefore does two things at once — it *filters* and
-it *binds* — while an irrefutable one only binds. That is a statement
-about the language; how a backend achieves it is its own business, and
-the Python target's encoding is described in
-[docs/target_python.md](docs/target_python.md).
+Two more rules follow from a lambda being an expression rather than a
+definition. A lambda parameter may not have a default value, since a
+default belongs to the scope a definition is written in. And a lambda
+parameter is a binding like any other, so it may not shadow a `var`.
 
-`tests/list_comprehension_pattern_helper.pyk` exercises every refutable
-case; the other `list_comprehension_*` tests use irrefutable patterns.
+**A lambda argument is checked last.** In a call, every other argument
+is checked first, and a lambda's parameters with no type written take
+the ones its parameter has by then: in `apply(lam p. p.x, points)` the
+list says `p` is a Point, although the lambda is written first. Only the
+checking waits; the arguments still run in the order written (see
+"Evaluation order").
 
-### Tuple literals
+### Let expressions — Pyking extension
 
-`(e1, e2, ...)` builds a tuple, corresponding directly to a Python tuple.
-Three shapes need explicit parentheses: `()` is the empty tuple (also
-called Unit), `(e,)` is a singleton (the trailing comma is required — a
-plain `(e)` is just a parenthesized `e`, not a tuple), and any 2+-element
-tuple may optionally end in a trailing comma, `(e1, e2,)`. A 2+-element
-tuple can *also* be written without the enclosing parentheses at all,
-Python-style: `e1, e2, ...` — but this bare form requires at least two
-elements and never allows a trailing comma (see the grammar notes above
-for why). Tuples nest arbitrarily, with list literals or with themselves.
+`let target = value in body` is an expression: `value` is evaluated
+once, bound to `target`, and the whole is worth `body`. The target is
+what an `=` binding takes — a name, or a tuple taken apart — with an
+optional annotation, checked as a binding's is. What it binds is seen by
+the body and nowhere else, not even by `value`.
 
-```python
-unit = ()
-single = (1,)
-pair = (1, 2)
-bare_pair = 1, 2
-nested = (1, (2, 3), [4, 5])
+```pyking
+foo = let x = 78 in x + 1
+print(foo)                                  # 79
 
-print(unit, single, pair, bare_pair, nested)
+# One binding per `let`; a later one sees the earlier.
+print(let a = 2 in let b = a * 3 in a + b)  # 8
+
+pair = (1, (2, 3))
+print(let (x, (y, z)) = pair in x + y * z)  # 7
+print(let t: (Int, String) = (4, "four") in t)
 ```
+
+Like a lambda, the body takes everything to its right that one
+expression can hold, so parentheses end it: `1 + (let x = 10 in x) * 2`
+is 21. A name a `let` binds starts with a lowercase letter, may not
+shadow a `var`, and may not be bound twice in one target.
+
+## Names, bindings and scope
+
+> **Available:** in every module · **Compared with Python:** differs --
+> every block is a scope, and `=` makes a new binding, never an update
+
+A name is bound by `=`, by a `def`, by a parameter, by a `for` loop or by
+a pattern. Every block is a scope, so a name bound inside an `if` or a
+loop body is gone after it, and every use of a name is checked at
+compile time.
 
 ### Immutable bindings (`=`) and tuple destructuring
 
@@ -1896,64 +1268,312 @@ a, b = 1, 2
 print(a, b, c, d, e, f, g, h)
 ```
 
-### Features turned on with `use` — Pyking extension
+### Names and scoping
 
-A module is functional and immutable unless it turns more of the
-language on, with `use` lines at its top -- before any import or
-statement, though comments may come first:
+Pyking is **lexically scoped**: every use of a name refers to the
+innermost enclosing binding of that name, decided entirely by where the
+code is written. A scope is a function body or any indented block — the
+body of an `if`/`else` branch, a `for`, `while` or `loop` body, a `case`
+arm, a value-form branch — plus a list comprehension and the file's top
+level.
+Names bound inside a scope are not visible outside it:
 
 ```pyking
-# A counter, kept in a mutable variable.
+total = 0
+
+if 1 < 2:
+    inner = total + 1
+    print(inner)
+
+# `inner` is not in scope here -- using it is a compile-time error.
+```
+
+**What binds a name.** An `=` binding, a `var` declaration, a `def` (its
+own name, visible throughout the block it is written in — see "Bindings
+are sequential — except `def`" below), a parameter, a `for` variable, a
+`loop` accumulator, a pattern variable in a `case` arm or
+comprehension. All of them behave
+the same way with respect to *scope*; they differ only in when within
+that scope the name becomes visible.
+
+**Shadowing.** Any of those may reuse a name that is already in scope;
+the inner binding wins until its scope ends, and the outer one is
+untouched and visible again afterwards. Two `=` bindings of the same name
+in one scope are the same thing — the second shadows the first, which is
+why a binding may change what a name means (and even its type) without
+ever being an update:
+
+```pyking
+n = "outer"
+
+
+def describe(n):
+    "param " + string(n)
+
+
+print(describe(1), n)
+```
+
+**A `def`'s name is the exception to that.** Within one block, a
+function name means exactly one thing: two `def`s of the same name are
+an error, and so is any *other* binding of a name a `def` in that block
+uses — in either order, and whatever the binding form:
+
+```pyking
+# Each of these is a compile-time error:
+#   f = 1              def f(n): n * 2       (a binding and a function)
+#   def f(n): n * 2    f = 1                 (the same, written the other way)
+#   var f = 1          def f(n): n * 2       (a variable and a function)
+#   def f(n): n        def f(n): n * 2       (two functions)
+```
+
+This is what makes the next rule safe. A function's name is visible
+*throughout* its block, so if the name could also mean something else
+there, a use of it would have two candidates and no reason to prefer
+either — is `use()` below returning the number or the function?
+
+```pyking error
+f = 1
+
+def apply(): f          # rejected: which `f`?
+
+def f(n): n * 2
+```
+
+Nothing forbids the *name*; it forbids sharing a **block**. A nested
+block may shadow a function freely, because there the answer is never in
+doubt:
+
+```pyking
+f = 1
+
+
+def apply():
+    def f(): 5        # a different block: this shadows the binding
+    return f()
+
+
+print(apply())           # 5
+```
+
+**The other restriction:** a `var` may not be shadowed. While a mutable
+variable is in scope, no binding of any kind may reuse its name — not an
+`=` binding, parameter, `for` variable, pattern variable, `def`, or
+another `var`:
+
+```pyking
 use mutation
 
 var count = 0
-count := count + 1
-print(count)
+
+# Each of these is a compile-time error while `count` is in scope:
+#   count = 1                  (binding shadows the variable)
+#   def f(count): ...          (parameter shadows it)
+#   for count in range(3): ... (loop variable shadows it)
 ```
 
-| Feature | Turns on |
-|---|---|
-| `mutation` | `var`, `:=` and compound assignment such as `+=` (see "Mutable variables"), making and writing arrays (see "Arrays"), DynArrays (see "DynArrays"), MutMaps (see "MutMaps") and views (see "Slices and views"), and declaring, making and writing `mutable struct`s (see "Mutable structs") |
-| `pointers` | `&`, `*` and `*p := v` (see "Pointers"); needs `mutation` too |
-| `objects` | declaring classes, abstract classes and interfaces (see "Classes and interfaces") |
+This is what makes `:=` unambiguous. `count := 1` updates the mutable
+variable `count` denotes; if an inner scope could rebind that name to
+something immutable, a reader would have to search every enclosing scope
+to know whether a given `:=` updates the variable, is an error, or
+reaches a *different* variable of the same name. With shadowing
+forbidden, the answer is always the nearest `var` — and correspondingly
+`:=` requires one: applying it to a binding, parameter, or pattern
+variable is an error, not a silent conversion.
 
-Several are written on one line, `use mutation, objects`, or on lines
-of their own.
-
-**One parser reads every module.** A `use` changes nothing about how
-the module is read: `var` is parsed in every module, and refused in one
-that has not turned mutation on, as a syntax error that names the line
-that would allow it:
-
-```
-'prog.pyk' 1:0-1:3 Parsing error: 'var' declares a mutable variable,
-  which needs 'use mutation' at the top of this module
-'prog.pyk' 2:0-2:6 Parsing error: ':=' changes the mutable variable
-  'count', which needs 'use mutation' at the top of this module
-```
-
-**A feature belongs to its module.** Importing a module that uses
-mutation does not turn mutation on in the importer, and nothing turns
-it on for a module but its own `use` line. A library may use mutation
-inside itself, and a module implemented in a target's own language
-(tinyweb's host half, for one) does whatever its host does: neither
-makes the program that imports it mutable. Submodules share their
-file's `use` lines.
-
-Without `use mutation`, `for` and `while` still work -- a `for` prints
-each element, and `while not io.is_eof():` reads to the end of the input
--- and a `loop`'s accumulator is a fresh binding each turn, not a
-mutation. That is how a functional module adds something up:
+A `var` may itself shadow any *immutable* name, and two sibling scopes
+may each declare their own `var` of one name, since neither is in scope
+where the other is:
 
 ```pyking
-total = loop sum = 0 for x in [1, 2, 3]:
-    sum + x
-print(total)
+use mutation
+
+count = 100
+
+
+def tally(items):
+    var count = 0
+    for item in items:
+        count := count + item
+    return count
+
+
+print(tally([1, 2, 3]), count)
 ```
 
-In the REPL, a `use` line typed at the prompt holds for the rest of the
-session, and `pyk repl --use mutation` starts one with it on. In a
-notebook, every cell is a program of its own and writes its own `use`.
+**Bindings are sequential — except `def`.** A scope's names come into
+being in the order they are written, so a name must already be bound
+where it is used:
+
+```pyking
+# total = later + 1     -- error: `later` is not bound yet
+later = 41
+total = later + 1
+```
+
+**Functions are the exception**: every `def` in a block is in scope
+throughout that block, from its first line, not from the `def` onward.
+That is what makes a function usable before it is written — its own
+recursive calls, two functions that call each other, a helper defined at
+the bottom of the file — and it is safe to do for a `def` and not for an
+`=` binding, because a `def` says what its name means on the `def`
+itself, while a binding's meaning is whatever its right-hand side works
+out to.
+
+```pyking
+def is_even(n):
+    if n == 0:
+        true
+    else:
+        is_odd(n - 1)        # written below; in scope anyway
+
+
+def is_odd(n):
+    if n == 0:
+        false
+    else:
+        is_even(n - 1)       # and its own name, so plain recursion too
+
+
+print(is_even(10), is_odd(10))
+```
+
+It applies per block, so a `def` inside a function body — or inside one
+branch of an `if` — is in scope for that body or that branch, and
+nowhere else. Nested functions may be mutually recursive on exactly the
+same terms.
+
+**Only the *names* are visible ahead — not the values.** A function
+body sees whatever is bound *where the body is written*. Rebinding a
+name afterwards makes a new binding; it does not reach back into a
+function that already captured the old one:
+
+```pyking
+x = 1
+
+
+def show() -> Int:
+    return x
+
+
+x = "two"
+print(x, show())        # two 1
+```
+
+`show` was written where `x` was `1`, so that is the `x` it returns —
+even though the name means something else, of another type, by the time
+`show` is called. This follows from `=` being a binding rather than an
+assignment, and it is what lets the type checker say anything reliable
+about a function at all.
+
+The two rules meet like this: the *name* of a `def` written below is
+already usable, but the *bindings* it captures are the ones above it:
+
+```pyking
+x = 1
+
+
+def f():
+    return g()          # `g` is written below -- fine, it is a function
+
+
+x = 2
+
+
+def g():
+    return x            # the `x` visible here: the second binding
+
+
+print(f(), g())         # 2 2
+```
+
+A `var` is the deliberate other half: `:=` updates the one binding
+rather than making a new one, so a function reading a `var` sees the
+updates. That is what a `var` is for.
+
+```pyking
+use mutation
+
+var counter = 0
+
+
+def read(): counter
+
+
+counter := 42
+print(read())           # 42
+```
+
+A loop binds afresh on every turn — its variable and everything in its
+body — so a `def` written inside one keeps the turn it was written on,
+not the last. Functions written in the same turn that call each other
+find each other's copy from that turn, wherever in the body they are
+written:
+
+```pyking
+fns =
+loop made = [] for i in range(3):
+    def show(): i
+    made + [show]
+
+for f in fns:
+    print(f())          # 0, then 1, then 2
+```
+
+The design behind these rules, the alternatives, and how other languages
+answer the same question are in
+[docs/defshadow.md](docs/defshadow.md).
+
+Being *in scope* is not the same as having *run*, though. A function
+value comes into being when its `def` is reached, so a call that
+executes before that fails at run time, exactly as the same program
+would in Python:
+
+```pyking
+def top(n):
+    helper(n)          # fine: `top` is called below, after both defs
+
+
+def helper(n):
+    n + 1
+
+
+print(top(1))
+
+# print(later(1))     -- compiles, but fails at run time: `later` has
+# def later(n):          not been reached yet
+#     n
+```
+
+**Checking.** All of this is checked statically, before any code is
+generated, and reported as a `Name error` against the offending source
+position. A handful of names are predefined and count as bound
+everywhere — `print`, `debug`, `range`, `string`, `len`, `int`, `float`
+and `bool` — since no
+Pyking program
+declares them; every other unbound name is an error. They are host
+*operations*, not values: each may be called, and using one as a value
+(`f = print`) is an error. `range(n)` yields a list of `Int`, which is
+what the language has — there is no lazy-sequence type — though
+iterating one with `for` need not build it. `print` produces no
+value: it yields unit, `()`, so it is meaningful as a statement and not
+as something to bind or return. Unit prints as `()` — the same in every
+backend, whatever the host language calls its own absence of a value.
+
+**Compiling preserves this.** A backend whose own scoping is coarser than
+Pyking's has to work to keep these rules; how each one does is a compiler
+concern rather than a language one, described in
+[docs/targets.md](docs/targets.md).
+
+## Mutable state
+
+> **Available:** with `use mutation` (pointers with `use mutation,
+> pointers`) · **Compared with Python:** differs -- a variable is
+> declared with `var` and changed with `:=`
+
+State that changes over time is written explicitly. A `var` is the one
+kind of name that may change, `:=` is the one way to change it, and a
+`mutable struct` is the one kind of record whose fields may be written.
 
 ### Mutable variables (`var` and `:=`) — Pyking extension
 
@@ -2053,6 +1673,1261 @@ that held the old list keeps it. Like `:=`, a compound assignment is a
 statement with no value of its own: `print(count += 1)` is refused.
 There is no `++`, and no `and=`/`or=`. `-t pyking` prints one back as
 it was written.
+
+### Mutable structs (`mutable struct`) — Pyking extension
+
+A **`mutable struct`** is a struct whose fields are written in place. Its
+values are *shared*: every name, parameter, element and field holding
+one holds the same struct, so a write through any of them is seen
+through all -- Java's objects and Python's class instances work this
+way. A plain `struct` stays a value that never changes. Declaring,
+making and writing a `mutable struct` need `use mutation`; reading, passing,
+returning and holding one do not.
+
+```pyking
+use mutation
+
+mutable struct Point(x: Int, y: Int = 0)
+
+p = Point(5)
+p.x := 10
+p.y += 1
+q = p
+q.x *= 3
+print(p, same(p, q))        # Point(30, 1) true
+```
+
+**Declaring one.** `mutable` goes in front of `struct`, and makes every
+field writable. `mutable` is a keyword, and the old spelling, `var
+struct`, is refused with a hint; the rest is as "Structs" says -- fields in parentheses
+or on indented lines, defaults, type parameters, `public`. A `mutable
+struct` has at least one field, since one with none has nothing to
+write. Only a struct is written in place: `mutable datatype` is refused, and
+a datatype's or a plain struct's field is never written.
+
+**Writing a field.** `p.x := e` writes the field `x` of the struct `p`
+holds, and the compound forms (`p.x += 1`, every one "Mutable variables"
+lists) read it and write it back. The left side is any expression
+giving a `mutable struct`, followed by a field: `points[i].x := 0`,
+`player().score += 1`, `box.inner.y := 8` -- the last needs `inner` to
+be a `mutable struct` too.
+
+- **`var` is for rebinding, not for writing.** `p = Point(1, 2)` binds
+  `p` once, and `p.x := 3` still writes the struct: whether a field may
+  be written is its type's question, as an array's element is. A
+  function's parameter, never a `var`, writes the struct it was given.
+  `var p = ...` is what lets `p := Point(0, 0)` make `p` name another
+  struct.
+- **A write runs in a fixed order.** `p.x := e` works out `p`, then
+  `e`, and writes into the struct `p` was, even if `e` made `p` name
+  another one. A compound form reads the field between the two.
+- **`=` does not write.** `p.x = 1` is refused with "did you mean `p.x
+  := v`?". Writing a plain struct's field is refused with how to build a
+  changed copy, `Point(x = ..., ..old)`, or to declare it `mutable struct`.
+
+**Making one.** A `mutable struct`'s constructor is called as any struct's,
+with defaults and named arguments, and makes a new, separate struct
+each time. `Point(x = 1, ..p)` makes a new struct too: `p` is not
+changed, and a mutable field the two would hold -- an array, another
+`mutable struct` -- is shared by both. Making one needs `use mutation` in
+the module that makes it, wherever it was declared; a module without it
+may still hold, read and pass on one another module made.
+
+**Reading one.** `p.x` reads the field as it is now, and a pattern
+`case Point(x, y):` reads every field it names as the struct is when it
+is matched; a guard that writes a field is seen by the cases after it.
+
+**Identity.** `same(p, q)` asks whether two names hold one struct, as it
+does for arrays. `==` compares no structs: whether two hold the same
+fields is a function the program writes.
+
+```pyking
+use mutation
+
+mutable struct Counter(n: Int)
+
+def bump(c: Counter) -> ():
+    c.n += 1
+
+a = Counter(0)
+b = a
+bump(b)
+print(a.n, same(a, b), same(a, Counter(1)))     # 1 true false
+```
+
+**Linked structures.** A `mutable struct` may hold a value of its own type,
+through a datatype that can also hold nothing -- there is no null --
+which is how linked lists, trees and graphs are built, cycles and all:
+
+```pyking
+use mutation
+
+datatype Link:
+    End
+    Next(node: Node)
+
+mutable struct Node(value: Int, next: Link)
+
+a = Node(1, End)
+b = Node(2, Next(a))
+a.next := Next(b)
+print(a)        # Node(1, Next(Node(2, Next(...))))
+```
+
+**Printing** is as for a struct, `Point(30, 1)`. A struct -- or an
+array -- met again *inside itself*, a cycle, prints `...` where it
+repeats, so printing always ends; one that is only shared, the same
+struct twice in an array, prints in full each time. `string(p)`, the
+REPL and the debugger show the same text. `print(p, f(p))` works out
+every argument before it writes any, so a change `f` makes to `p` is
+printed.
+
+**Types.** A `mutable struct` with a type parameter, `mutable struct Cell(value:
+a)`, is one type once made: the first use that decides its parameter
+decides it everywhere. One that nothing decides, `c = Cell([])`, is
+`Cell([a])`, as an empty array is `Array(a)`.
+
+**Targets.** Every target compiles them: a class with fields that can be
+written on Python and JavaScript, a final class on Java, a record with
+`mutable` fields on OCaml, and on C a pointer to a struct, which plain C
+mallocs and never frees and `c23-gc` takes from the collector.
+
+### Pointers — Pyking extension
+
+`use pointers` adds C's pointers -- without null, arithmetic or freeing
+-- for teaching how memory is addressed. It needs `use mutation` in the
+same module: a pointer is a way to write to a variable.
+
+```pyking
+use mutation, pointers
+
+def swap(a: Ptr(Int), b: Ptr(Int)) -> ():
+    t = *a
+    *a := *b
+    *b := t
+
+var x = 1
+var y = 2
+swap(&x, &y)
+print(x, y)            # 2 1
+```
+
+- **`&place`** is a pointer to a place something may write: a `var`, an
+  element of an array or of a view (`&a[i]`, which is the array's), a
+  field of a `mutable struct` (`&p.x`), or what a pointer points at (`&*p`
+  is `p`). Its type is `Ptr(T)`. An `=` binding, a list's or a DynArray's
+  element, a plain struct's field, a call's result and a literal have
+  no address, and `&` of one is refused with the reason.
+- **`*p`** reads what `p` points at, now; **`*p := v`** and the compound
+  forms (`*p += 1`) write it, the pointer worked out before the value.
+  A field through a pointer is written `(*pp).x`, as in C; there is no
+  `->` and no automatic dereferencing.
+- **`&` and `*` are prefix** where an operand starts, and bitwise and
+  and times between two operands, as `-` is negation or subtraction. A
+  line starting with `*` or `&` is a statement of its own: `*p := 5`.
+- **Equality.** `p == q` is true when both name one place. A pointer is
+  never a MutMap's key.
+- **Printing** writes what a pointer points at, `Ptr(12)`, never an
+  address, so every target prints the same.
+- **Lifetime.** A `var` whose address is taken lives as long as a
+  pointer to it, even after its function returns -- except on plain C,
+  which refuses a pointer to a local that would outlive its function
+  (C would leave it dangling); `c23-gc` keeps such a variable on its
+  collected heap.
+- **None.** A pointer that may point nowhere is `Option(Ptr(T))`:
+  `None`, or `Some(&x)`, matched before it is used.
+
+docs/pointers.md has the whole story, with each target's
+representation.
+
+## Functions
+
+> **Available:** in every module · **Compared with Python:** mostly the
+> same; a body's last statement is its value, and default and named
+> arguments are checked at compile time
+
+A function is defined with `def`. Annotations are optional: where they
+are left out, the checker infers the most general type. A function body
+answers the value of its last statement, so `return` is needed only to
+leave early.
+
+### Function definitions (`def`)
+
+`def name(params):` introduces a function with a comma-separated parameter
+list, followed by an indented block of statements as its body.
+
+```python
+def average(a, b):
+    return (a + b) / 2
+
+
+print(average(4, 8))
+```
+
+A body that is one expression may be written on the header's own line,
+after the `:` (see "A block on its header's own line" in the Grammar). It is the
+same body: one statement, in tail position, so it supplies the
+function's value exactly as an indented one does. A body that does
+anything else — returns, binds a name, branches as a statement — goes
+under the header, where it is plain.
+
+```pyking
+def average(a, b): (a + b) / 2
+def swap(a, b): b, a
+
+print(average(4, 8))
+print(swap(1, 2))
+```
+
+Annotations are unaffected — the `:` that opens the block is the one
+that was always there:
+
+```pyking
+def average(a:Int, b:Int) -> Int: (a + b) / 2
+```
+
+When the body stops fitting beside the header, indent it under the
+header instead. Nothing else changes:
+
+```pyking
+def scaled(a, b):
+    (a + b) * 2
+
+
+def sign(n: Int) -> String:
+    if n < 0 then "negative" else "positive"
+
+
+print(scaled(1, 2), sign(-3))
+```
+
+### Default parameters
+
+A parameter may be given a **default**: an expression used when a call
+leaves that argument out.
+
+```pyking
+def greet(who: String = "world", times: Int = 1) -> Int:
+    print("hello, " + who)
+    return times
+
+
+print(greet())               # hello, world
+print(greet("pyking"))       # hello, pyking
+print(greet("a", 3))         # hello, a
+```
+
+Every parameter after the first one with a default has one too, so a
+positional call is never ambiguous about which parameter it filled:
+
+```pyking error
+def f(a: Int = 1, b: Int) -> Int: a + b     # refused
+```
+
+A default is an ordinary expression, and it is evaluated **in the scope
+the `def` is written in, at each call that omits the argument**. Both
+halves matter. Rebinding a name after the definition does not change
+what the default is worth:
+
+```pyking
+size = 10
+
+
+def scaled(x: Int = size) -> Int:
+    return x * 2
+
+
+size = 20
+
+print(scaled())              # 20 -- the first `size`, not the second
+```
+
+and a default that has an effect has it once per call that omits it,
+not once when the `def` is reached:
+
+```pyking
+use mutation
+
+var counter = 0
+
+
+def tick(from_: Int = counter) -> Int:
+    return from_ + 1
+
+
+print(tick())                # 1
+counter := 40
+print(tick())                # 41
+```
+
+A default may name anything in scope where the definition stands,
+including a function written further down — a `def` name is visible
+throughout its block, so a default may call one:
+
+```pyking
+def padded(amount: Int = width()) -> Int:
+    return amount + 1
+
+
+def width() -> Int:
+    return 7
+```
+
+**A default is not part of a function's type.** `greet` above has type
+`(String, Int) -> Int`, exactly as it would without the defaults, and
+nothing that holds the function as a value carries them:
+
+```pyking norun
+g = greet
+print(g())                   # refused: `g` is a binding, not a definition
+```
+
+The same rule settles where the sugar is available at all: a call may
+leave an argument out only where the callee is a `def` this module can
+see the parameters of — written directly by name, or reached as
+`module.name` through an imported Pyking module. A builtin has no
+parameter names, and an external module's function is written in another
+language, so neither takes one.
+
+An **exported** function's defaulted parameter must carry a type
+annotation:
+
+```pyking error
+public def greet(who: String = "world") -> String: "hi " + who
+public def greet(who = "world") -> String: "hi " + who     # refused
+```
+
+An exported function carries its complete type in the source, and a
+parameter's type is part of that whether or not it also has a default
+(see "What a module may export").
+
+A default may be written on a parameter of a nested `def`, in a loop
+body, or anywhere else a definition may stand; what it captures is what
+is bound where the definition is written, as any body is.
+
+### Named arguments
+
+An argument may be written `name = expr`, naming the parameter it fills:
+
+```pyking
+def box(width: Int = 1, height: Int = 2, depth: Int = 3) -> Int:
+    return (width * 100) + (height * 10) + depth
+
+
+print(box(height = 9))          # 193 -- width and depth default
+print(box(4, depth = 6))        # 426
+print(box(width = 4, depth = 6))
+```
+
+Three rules:
+
+- **Every positional argument comes first.** A positional argument after
+  a named one has no position left to mean.
+- **Names may be written in any order.** `box(depth = 6, width = 4)`
+  is `box(4, 2, 6)`. The arguments still run in the order they are
+  written (see "Evaluation order"): the depth's before the width's.
+- **A parameter is filled once.** Naming one that a positional argument
+  already filled is refused, as is naming the same one twice.
+
+A name may be given to a parameter that has no default — it is a way of
+saying at the call site what an argument is for:
+
+```pyking
+def join(left: String, right: String) -> String: left + "-" + right
+
+print(join("a", right = "c"))
+```
+
+but a name does not make a parameter optional: every parameter without a
+default still has to be given something.
+
+Named arguments are available exactly where defaults are — the callee
+must be a `def` this module can see the parameters of, since neither is
+part of a function's type.
+
+An omitted argument is worth its default **in its own position**, so a
+default with an effect has that effect between the supplied arguments
+around it rather than before or after all of them -- where the names
+are written in the parameters' order. Where they are not, every
+argument written runs first, in the order written, and then the
+defaults of the parameters left out, in the parameters' order:
+
+```pyking
+def note(label: String, n: Int) -> Int:
+    print(label)
+    n
+
+def box(width: Int, height: Int = note("height", 1), depth: Int = 2) -> Int:
+    width * 100 + height * 10 + depth
+
+print(box(depth = note("depth", 6), width = note("width", 4)))
+```
+
+```
+depth
+width
+height
+416
+```
+
+### Type annotations
+
+An immutable binding may be annotated on its name, `x: Int = 1`:
+
+```pyking
+count: Int = 42
+name: String = "pyking"
+total: Int = count + 1
+```
+
+Parameters and the return value may optionally be annotated with a type:
+`Int`, `Float`, `String`, `Char`, `Bool`, a list type `[T]`, a tuple type `(T1, T2, ...)`
+or `(T,)`, or a function type `(T1, T2, ...) -> T` (all nesting freely,
+e.g. `[(Int, Bool)]` or `[(Int) -> Bool]`). `()`, the zero-element tuple
+type, is the Unit type, and `(T)` with no comma is grouping rather than
+a tuple. Annotations are entirely optional and independent per
+parameter/return value — a function can mix annotated and unannotated
+parameters freely.
+
+```pyking
+use mutation
+
+def add(a:Int, b:Int) -> Int:
+    return a + b
+
+
+def sum_list(xs:[Int]) -> Int:
+    var total = 0
+    for x in xs:
+        total := total + x
+    return total
+
+
+def scale(x, factor:Int) -> Int:
+    return x * factor
+
+
+print(add(2, 3))
+print(sum_list([1, 2, 3, 4]))
+print(scale(3, 4))
+```
+
+**Function types.** `(T1, T2, ...) -> T` is the type of a function, and
+may be written wherever a type may. The parentheses are the parameter
+*list*'s, not a tuple's, so the count of parameters is what they show: a
+function of two parameters is `(Int, Bool) -> Int`, and one of a single
+parameter that happens to be a pair is `((Int, Bool)) -> Int`. Without an
+arrow after it, the same parenthesized list is an ordinary tuple type.
+The result is a type in its turn, so `->` groups to the right and a
+function returning a function needs no parentheses of its own.
+
+```python
+def inc(n:Int) -> Int:
+    return n + 1
+
+
+def apply(f:(Int) -> Int, x:Int) -> Int:
+    return f(x)
+
+
+# Returning a function: the return type is `(Int) -> Int`.
+def stepper(up:Bool) -> (Int) -> Int:
+    return inc
+
+
+# Nested: a list of them, a pair holding one, one taken by another.
+def each(fs:[(Int) -> Int], first:((Int) -> Int, Int)) -> Int:
+    return apply(inc, 0)
+
+
+def under(f:((Int) -> Int) -> Int) -> Int:
+    return 0
+
+
+step:(Int) -> Int = inc
+
+print(apply(inc, 1), apply(step, 1), apply(stepper(true), 1))
+```
+
+Annotations are parsed and stored in the AST (see `Param`,
+`SFunctionDef.return_type` and `SLet.type` in `src/syntax.ml`) and
+pretty-printed back out in Pyking's own syntax. Compiling erases every
+one of them: no generated code carries type syntax at all.
+
+Nothing verifies an annotation in an ordinary compile. There *is* a type
+checker, opt-in and covering only part of the language so far; what it
+accepts, what it refuses, and which annotations it treats as declarations
+rather than as decoration are in "Types and type inference". How the pass itself is built is a compiler matter, described
+in [docs/architecture.md](docs/architecture.md).
+
+### `return` statements
+
+`return expr` evaluates `expr` and returns it as the function's result.
+
+```python
+def first(x, y):
+    return x
+
+
+print(first(1, 2))
+```
+
+### Tail position
+
+A function body's **last statement is in tail position**, and whatever
+value it produces is the function's result — there is no need to write
+`return` for it. The rule is recursive, so it reaches through branches
+rather than only the outermost statement:
+
+| last statement | the function's value |
+|---|---|
+| an expression | that expression |
+| an `if`/`else` | each branch's own tail, recursively |
+| a `match` | each `case` arm's own tail, recursively |
+| a `loop` | the accumulator it stopped with |
+| an explicit `return` | what it returns |
+| anything else (`for`, `while`, `=`, `var`, `:=`) | unit, `()` |
+
+```pyking
+def add(x, y):
+    x + y
+
+
+def pick(x, y, z):
+    if z > 5:
+        x + y
+    else:
+        2 * x
+
+
+def name_of(n):
+    match n:
+        case 0: "zero"
+        case _:
+            "many"
+
+
+print(add(1, 2), pick(2, 3, 9), name_of(0))
+```
+
+Because the rule recurses, an `if` nested inside a `match` nested inside
+an `if` needs nothing special: every branch of every level is itself in
+tail position. An `else if` ladder works for the same reason — a ladder
+*is* a nested `if` in the else branch (see "`if`/`else` statements").
+
+Only the **last** statement is in tail position. An `if` with something
+after it is an ordinary statement run for its effect -- its branches
+need not even agree on a type (see "Types and type inference") -- and the trailing
+expression is the value:
+
+```pyking
+use mutation
+
+def not_last(n):
+    var acc = 0
+    if n > 0:
+        acc := 1
+    else:
+        acc := 2
+    acc + 10
+
+
+print(not_last(1))
+```
+
+A branch that produces no value simply does not return one, and the
+function yields unit for that path — an `if` with no `else`, or a body
+ending in a `for` or `while` that carries no accumulator:
+
+```pyking
+def only_then(n):
+    if n > 0:
+        "positive"
+
+
+print(only_then(1), only_then(-1))
+```
+
+### `return` with an `if`/`match`
+
+`return` also accepts a value-form `if`/`match` directly, so each
+branch's tail expression becomes the returned value. This says
+explicitly what tail position says implicitly — and, unlike the implicit
+rule, it works *before* the end of a body:
+
+```pyking
+def sign(x):
+    return if x < 0:
+        "negative"
+    else:
+        "not negative"
+
+
+def classify(n):
+    return match n:
+        case 0: "zero"
+        case _: "many"
+
+
+print(sign(-2), classify(0))
+```
+
+The same two rules a value-form binding obeys apply here: a `return if`
+must have its `else`, and every branch must end in an expression — there
+would otherwise be a path with nothing to return.
+
+### Tail calls
+
+A call in tail position is one nothing is waiting for: its answer is the
+answer. So a function that calls *itself* in tail position is a loop
+written as a recursion, and Pyking runs it as one -- the compiler
+rewrites it into a `loop` carrying the parameters. A tail-recursive
+function therefore runs in constant space on every target and in the
+interpreter, however deep it goes:
+
+```pyking
+def climb(x):
+    if x >= 20000:
+        1000 + x
+    else:
+        climb(x + 1)       # a tail call: nothing waits for it
+
+
+print(climb(0))            # 21000, in one frame
+```
+
+Functions that tail-call *each other* get the same treatment: the group
+becomes one loop they share, as wide as its widest member. Nothing about
+this changes what a program means -- only how much room it needs to
+run -- and `pyk --no-tail-call-opt` turns it off, which is worth doing
+only to read a program back as it was written.
+
+The rewrite applies to programs the **type checker accepts**: what a
+group can share, and what a slot one member has no argument for is
+entered with, are questions about types. A program outside that fragment
+(see "Types and type inference") is compiled as written and recurses as any other
+language would. What counts as a tail call, what is left alone and why,
+are in [docs/optimization.md](docs/optimization.md).
+
+A call that is *not* in tail position is an ordinary recursion and stays
+one: in `n * factorial(n - 1)` the multiplication is still waiting, so
+there is nothing to turn into a loop.
+
+### `if`/`match` statements as bound values
+
+An `=` binding may take a block-form `if` or `match` on its right-hand
+side instead of an expression. The construct stays a statement — it is
+written and indented exactly as it would be on its own — but the branch
+that runs supplies the bound value, which is its **last expression**.
+Python has no statement that evaluates to a value, so the examples in
+this section are Pyking source, not valid Python.
+
+```pyking
+y = 3
+my = 2
+
+x = if 7 > my:
+    78 + y
+else:
+    tt = 5 + y
+    tt + 8
+
+print(x)
+```
+
+Only the *last* statement of a branch is its value; everything before it
+is an ordinary statement run for its effect, as `tt = 5 + y` is above. A
+branch may equally print, or update an enclosing `var` — nothing is
+hidden inside a new scope, because the compiled Python is the very same
+`if` statement with each branch's final expression assigned to `x`:
+
+```python
+if 7 > my:
+    x = 78 + y
+else:
+    tt = 5 + y
+    x = tt + 8
+```
+
+A bound `if` must have an `else` (there would otherwise be no value to
+bind when no condition holds), including at the end of an `else if`
+ladder. Every branch must end in an expression; the parser rejects both
+mistakes rather than binding something undefined.
+
+`match` works the same way, with either style of `case` arm — `-> expr`
+gives the value directly, and a block arm gives its last expression:
+
+```pyking
+def describe(point):
+    text = match point:
+        case (0, 0): "origin"
+        case (0, y):
+            side = if y > 0 then "up" else "down"
+            "on the y axis, " + side
+        case (x, y): "at " + string(x) + "," + string(y)
+    return text
+
+
+print(describe((0, 0)), describe((0, 5)), describe((3, 4)))
+```
+
+The last statement of a branch may itself be a bound-value `if`/`match`
+rather than a plain expression, in which case *its* branches supply the
+value — this is also what lets an `else if` ladder be bound, a ladder
+being a nested `if` statement in the `else` branch:
+
+```pyking
+n = 7
+
+k = if n > 5:
+    match n:
+        case 7: "seven"
+        case _: "big"
+else if n > 0:
+    "small"
+else:
+    "none"
+
+print(k)
+```
+
+The value form belongs to `=` alone: `var name = ...` and `name := ...`
+still take an ordinary expression (use `=` for the value form, or an
+`if ... then ... else ...` expression). A tuple `target` destructures the
+bound value exactly as it does in a plain binding.
+
+Finally, the bound value may begin on the line *after* the `=`, indented
+one level — which reads better when a `match` subject or `if` condition
+would otherwise crowd the binding, and is the only way to keep a long
+header off the `=` line. The indented block holds exactly one value:
+
+```pyking
+y = 2
+
+z =
+    match y:
+        case 2: "hi"
+        case xx: string(xx)
+
+print(z)
+```
+
+This is just a layout choice, not a different construct: it applies to
+any bound value (an ordinary expression, and `var`/`:=` too), and both
+pretty-printers print it back on the `=` line, since the two spellings
+produce the identical AST.
+
+### Expression statements
+
+Any expression, most commonly a function call, may be used directly as a
+statement. Its value is discarded — *unless* the statement is in **tail
+position**, where it becomes the enclosing function's return value (see
+"Tail position").
+
+```python
+print("hello, pyking")
+```
+
+## Control flow
+
+> **Available:** in every module · **Compared with Python:** mostly the
+> same; `else if` instead of `elif`, no `while … else`, and the `loop`
+> loop is new
+
+`if`, `for` and `while` are Python's. `loop` is Pyking's own: a loop
+that carries an accumulator from one turn to the next and answers its
+final value, which is how a functional module adds things up.
+
+### `if`/`else` statements
+
+`if cond:` runs its indented body when `cond` holds. An optional
+`else:` with its own indented body runs otherwise.
+
+```python
+def classify(x):
+    if x >= 10:
+        return 1
+    else:
+        return 0
+
+
+print(classify(12), classify(3))
+```
+
+Further conditions chain with `else if` — two ordinary keywords, since
+Pyking has no `elif`. Each `else if` takes its own condition and
+indented body, and the first branch whose condition holds is the only
+one that runs. The trailing `else:` stays optional: without it, a value
+matching none of the conditions runs no branch at all. The example below
+is therefore Pyking source, not valid Python — it compiles to Python's
+`elif`.
+
+```pyking
+def grade(score):
+    if score >= 90:
+        return "A"
+    else if score >= 80:
+        return "B"
+    else if score >= 70:
+        return "C"
+    else:
+        return "F"
+
+
+print(grade(95), grade(85), grade(75), grade(65))
+```
+
+Because `else if` is just an `else` block holding one nested `if`
+statement (see the notes on the Grammar), the two forms below mean
+exactly the same thing; the flat one is preferred, and is the form the
+Pyking pretty-printer produces for either.
+
+```pyking norun
+if a:
+    print(1)
+else if b:
+    print(2)
+
+if a:
+    print(1)
+else:
+    if b:
+        print(2)
+```
+
+### `for`/`in` loops
+
+`for name in iterable:` binds `name` to each successive element produced
+by `iterable`, running the indented body once per element. The iterable
+is a list, or a String, whose elements are its characters, each a
+`Char`; a comprehension walks a String the same way.
+
+```python
+for i in range(3):
+    print(i)
+for c in "ok":
+    print(c)
+```
+
+### `while` loops
+
+`while cond:` runs its indented body repeatedly for as long as `cond`
+holds.
+
+```pyking
+use mutation
+
+var i = 0
+while i < 3:
+    print(i)
+    i := i + 1
+```
+
+### `loop` loops -- Pyking extension
+
+`loop` is a loop whose state is a *binding* rather than a mutable
+variable, and which is worth something when it stops. Python has no
+equivalent, so everything in this section is Pyking source rather than
+valid Python.
+
+`loop x = 5:` evaluates `5` once and binds `x` to it for the first turn.
+What the body ends in is the next turn's `x`, and `break` ends the loop,
+which is then worth the `x` the turn it stopped on started with:
+
+```pyking
+counted = loop x = 5:
+    if x <= 10:
+        x + 1
+    else:
+        break
+
+print(counted)          # 11
+```
+
+The body's last statement is the accumulator, recursively through the
+branches of a trailing `if` or `match` -- the same tail-position rule a
+function body follows. A path ending in `break`, `continue` or `return`
+says nothing, since none of them reaches the end of the body.
+
+**What a loop carries is what it is worth.** The accumulator is the
+state -- the initializer's type, and what the body must end in -- and it
+is the loop's value when it stops, whichever way it stops. So a loop
+answers with what it carries, and a loop that carries two things answers
+with the pair:
+
+```pyking
+def factorial(n, acc) -> Int:
+    (left, product) = loop n, acc = n, acc:   # carries (Int, Int)
+        if n == 0:
+            break                             # and is worth (Int, Int)
+        else:
+            (n - 1, n * acc)
+    return product
+
+
+print(factorial(10, 1))        # 3628800
+```
+
+`continue` says "go round again" from wherever it is written, skipping
+the rest of the body; the next turn starts with the accumulator this one
+started with, so it is a way to leave the accumulator alone for a turn:
+
+```pyking
+def total_positive(xs:[Int]) -> Int:
+    return loop acc = 0 for x in xs:
+        if x < 0:
+            continue        # this element adds nothing
+        acc + x
+
+
+print(total_positive([1, 0 - 5, 2]))    # 3
+```
+
+**A jump may carry the accumulator.** `break x` stops the loop worth
+`x`, and `continue x` goes round with `x` as the next turn's
+accumulator -- so a loop can stop with something other than what the
+turn started with, or go round early with a new value, without arranging
+for the body to end in it. The value is written the way the header's
+initializer is, a tuple with or without its parentheses:
+
+```pyking
+def first_over(xs:[Int], limit:Int) -> Int:
+    return loop found = 0 - 1 for x in xs:
+        if x > limit:
+            break x         # the loop is worth this element
+        found
+
+
+def saturating_sum(xs:[Int]) -> Int:
+    return loop acc = 0 for x in xs:
+        if acc + x > 10:
+            continue 10     # the next turn starts from 10
+        acc + x
+
+
+steps, last = loop steps, n = 0, 6:
+    if n == 1:
+        break steps, n
+    else if n % 2 == 0:
+        continue steps + 1, n / 2
+    steps + 1, 3 * n + 1
+
+
+print(first_over([1, 5, 9, 12], 6))      # 9
+print(saturating_sum([3, 4, 5, 6]))      # 10
+print(steps, last)                       # 8 1
+```
+
+The value must have the accumulator's type (`this loop carries Int,
+but this 'break' gives it String`), and a loop that carries nothing --
+`loop:`, or a plain `for`/`while` -- takes none.
+
+**A loop is worth its accumulator**, so it stands wherever a value-form
+`if`/`match` does -- bound with `=`, returned with `return`, or left as
+a function's last statement:
+
+```pyking
+def doubled_over(limit) -> Int:
+    loop n = 1:
+        if n > limit:
+            break
+        else:
+            n * 2
+
+
+print(doubled_over(50))   # 64
+```
+
+**Several values are one tuple.** The accumulator is a single value, so
+a loop carrying two things carries a pair: the header takes it apart on
+every turn, and what the body ends in has to give the whole tuple back.
+
+```pyking
+foo, bar = loop x, y = 0, true:
+    if x <= 10:
+        (x + 1, y)
+    else:
+        break
+
+
+print(foo, bar)         # 11 true
+```
+
+**`loop:` carries nothing.** Written with no accumulator its body may
+end in anything -- there is no accumulator to say, so nothing is asked
+of its last statement -- and the loop is worth `()`. The only way out
+is `break`.
+
+```pyking norun
+loop:
+    print("forever")
+```
+
+That program is perfectly valid and never finishes, which is the point:
+nothing about a loop requires it to end.
+
+**Where `break` and `continue` belong.** Each belongs to the innermost
+`loop` it is written in, and may not reach out of a `for`, a `while` or
+a `def` to find one -- both checked at compile time (see the notes on the
+Grammar). `for` and `while` have no exit of their own, so a `break`
+written inside one is an error rather than that loop's exit.
+
+**Scope.** The accumulator is bound in the loop's own body and nowhere
+else: it is gone after the loop, and a name it shadows means what it
+meant again. Every turn binds it afresh, as a `for` variable is bound
+afresh, so a `def` written inside a loop body keeps the turn it was
+written on (see "Names and scoping").
+
+```pyking
+x = "outer"
+
+shadowed = loop x = 1:
+    if x > 2:
+        break
+    else:
+        x + 1
+
+print(shadowed, x)      # 3 outer
+```
+
+### One loop, three halves — Pyking extension
+
+`for`, `while` and `loop` are the same construct with different halves
+written: an **accumulator** and an **iteration clause**, either of which
+may be left out. So they combine, and `break` and `continue` mean the
+same thing in every combination.
+
+```pyking
+def total(xs:[Int]) -> Int:
+    return loop acc = 0 for x in xs:
+        acc + x
+
+
+def countdown(from_:Int) -> Int:
+    return loop i = from_ while i > 0:
+        i - 1
+```
+
+A `for`/`while` is a loop, so a `break` in one belongs to *it* — there
+is no crossing out of a loop any more. A `def` is the one thing a
+`break` still may not reach out of.
+
+**Going round.** A loop that carries an accumulator carries what its
+body *ends in*: the body's last statement is the next turn's
+accumulator, recursively through the branches of a trailing `if` or
+`match`, exactly as tail position works everywhere else. A path that
+`break`s, `continue`s or `return`s says nothing, since none of them
+reaches the end of the body.
+
+```pyking
+def total(xs:[Int]) -> Int:
+    return loop acc = 0 for x in xs:
+        acc + x                 # the next turn's `acc`
+```
+
+A loop carrying nothing asks nothing of its body: there is no next
+accumulator for it to give, so it may end in any type at all.
+
+**Leaving a loop.** `break` ends the loop. Written bare, the loop is
+worth the accumulator the turn it stopped on started with. `continue`
+is the other way round -- it starts the next turn at once, with that
+same accumulator unchanged.
+
+Either may instead say what the accumulator is from then on: `break x`
+ends the loop worth `x`, and `continue x` starts the next turn with
+`x`, just as a body ending in `x` would. `x` is held to the
+accumulator's type, as what the body ends in is. A loop that carries
+nothing has no accumulator for a value to be, so there both are written
+bare.
+
+**What a loop is worth.** One rule:
+
+> the accumulator it stopped with, if one is written; else `()`.
+
+A `break x` stops it with `x`; a `continue x` on the last turn of a
+`for`/`while` leaves it with `x` too, since that is what the next turn
+would have started with.
+
+However it stops -- on a `break`, or by a `for`/`while` running out of
+turns -- the answer is the same, so a loop that can stop both ways
+still has one value rather than two. A plain `loop:` that never breaks
+never stops, and nothing ever asks.
+
+## Collections
+
+> **Available:** lists, tuples and Maps in every module; Arrays,
+> DynArrays, MutMaps and views with `use mutation` · **Compared with
+> Python:** differs -- lists are immutable, and each collection has one
+> element type
+
+| Collection | Changes in place | Needs |
+|---|---|---|
+| list `[T]` | no | nothing |
+| tuple `(A, B, …)` | no | nothing |
+| `Map(K, V)` | no | nothing |
+| `Array(T)` | its elements | `use mutation` |
+| `DynArray(T)` | its elements and its length | `use mutation` |
+| `MutMap(K, V)` | its entries | `use mutation` |
+| view `Slice(T)` | the elements it shares | `use mutation` |
+
+Every collection is made and converted the same way (`list(...)`,
+`array(...)`, ...), and `fmap`, `filter`, `foldl`, `foldr`, `any` and
+`all` work on all of them.
+
+### List literals
+
+`[e1, e2, ...]` builds a list from a comma-separated list of expressions,
+using the same syntax as call arguments.
+
+```pyking
+use mutation
+
+values = [1, 2, 3]
+var total = 0
+for v in values:
+    total := total + v
+print(values, total)
+```
+
+### List comprehensions
+
+`[expr for pattern in seq if cond ...]` builds a list by running `expr`
+once for every element of `seq` that matches `pattern` (with any `if`
+conditions also holding), in order. Multiple `for`/`if` clauses can be
+mixed freely, just like Python's own comprehensions, including nested
+`for`s over multiple sequences and a comprehension nested inside another
+(the `expr`, a sequence, or a condition can itself be a comprehension).
+
+```python
+values = [1, 2, 3, 4, 5]
+doubled = [x * 2 for x in values if x > 2]
+print(doubled)
+
+rows = [1, 2, 3]
+cols = [10, 20]
+products = [r * c for r in rows for c in cols]
+print(products)
+
+table = [[r * c for c in cols] for r in rows]
+print(table)
+```
+
+Unlike Python, `pattern` is a full Pyking pattern, not just a plain name
+or a simple destructuring target — it can be a literal, `_`, a tuple
+pattern, or a list pattern (see "list patterns" below), and nests
+arbitrarily.
+
+A *refutable* pattern — a literal, or a list pattern — may reject a value,
+and an element it doesn't match is filtered out of the result rather than
+raising an error:
+
+```python
+readings = [0, 5, 0, 8, 3]
+only_zero = [1 for 0 in readings]
+print(only_zero)
+
+rows = [[1, 2], [3], [4, 5], []]
+pair_sums = [a + b for [a, b] in rows]
+print(pair_sums)
+```
+
+`0 in readings` above only produces one `1` per element that literally
+equals `0` (filtering out everything else); `[a, b] in rows` only matches
+sub-lists of exactly two elements, filtering out `[3]` and `[]`.
+
+An *irrefutable* pattern — a plain name, `_`, or a tuple destructuring
+built from those — always binds and never filters, matching how the same
+target behaves in a Python comprehension. A tuple pattern is a fixed-arity
+destructuring (like its tuple type `(T1, ..., Tn)`), so a wrong-arity
+value is a shape error that surfaces at runtime the same way Python's own
+unpacking would, rather than being silently skipped:
+
+```python
+pairs = [(1, "a"), (2, "b"), (3, "c")]
+labels = [label for (_, label) in pairs]
+print(labels)
+```
+
+A refutable pattern therefore does two things at once — it *filters* and
+it *binds* — while an irrefutable one only binds. That is a statement
+about the language; how a backend achieves it is its own business, and
+the Python target's encoding is described in
+[docs/target_python.md](docs/target_python.md).
+
+`tests/list_comprehension_pattern_helper.pyk` exercises every refutable
+case; the other `list_comprehension_*` tests use irrefutable patterns.
+
+### Tuple literals
+
+`(e1, e2, ...)` builds a tuple, corresponding directly to a Python tuple.
+Three shapes need explicit parentheses: `()` is the empty tuple (also
+called Unit), `(e,)` is a singleton (the trailing comma is required — a
+plain `(e)` is just a parenthesized `e`, not a tuple), and any 2+-element
+tuple may optionally end in a trailing comma, `(e1, e2,)`. A 2+-element
+tuple can *also* be written without the enclosing parentheses at all,
+Python-style: `e1, e2, ...` — but this bare form requires at least two
+elements and never allows a trailing comma (see the notes on the Grammar
+for why). Tuples nest arbitrarily, with list literals or with themselves.
+
+```python
+unit = ()
+single = (1,)
+pair = (1, 2)
+bare_pair = 1, 2
+nested = (1, (2, 3), [4, 5])
+
+print(unit, single, pair, bare_pair, nested)
+```
+
+### Maps (`Map(K, V)`) — Pyking extension
+
+A **Map** maps keys to values as a MutMap does, and remembers the order
+its keys were put in, but it is a value that never changes, like a list:
+making one needs no `use mutation`, and a change answers a new Map,
+leaving the old one as it was. Its type is `Map(K, V)`.
+
+```pyking
+import map
+
+ages = map([("ann", 31), ("bo", 5)])
+older = map.insert(ages, "cy", 40)
+print(ages, older["cy"], get(ages, "zed", 0), len(older))
+# map([("ann", 31), ("bo", 5)]) 40 0 3
+```
+
+**Making one.** `map()` makes one with no entries, whose types its use
+or an annotation decides, `map(pairs)` one from a list of `(key,
+value)` pairs -- a key written twice keeps its first place and its last
+value -- and `map(d)` one holding a MutMap's entries as they are now
+(see "Making and converting collections").
+
+**Reading** is a MutMap's: `m[k]` (a runtime error, `the Map has no key
+"zed"`, where there is none), `get(m, k, default)`, `has(m, k)`,
+`keys(m)`, `values(m)`, `items(m)` and `len(m)`, and `for k in m` and a
+comprehension walk the keys in order. A Map is never written: `m[k] :=
+v`, `remove`, `discard` and `clear` are refused, each saying what makes
+a new Map instead.
+
+**Changing one** is lib/map's: `map.insert(m, k, v)`, `map.remove(m, k)`,
+`map.insert_with(f, m, k, v)`, `map.adjust(f, m, k)` and `map.alter(f,
+m, k)`, and `union`, `intersection`, `difference`, `map_with_key`,
+`filter_with_key`, `partition`, `lookup` and `fold_with_key`. A new key
+goes at the end, a key already there keeps its place, and one taken out
+and put back goes to the end, as in a MutMap. Each change copies the
+Map, so it takes time in proportion to its size: a Map built one entry
+at a time is better built as a list of pairs, or as a MutMap, and made
+a Map at the end.
+
+**Keys** are a MutMap's: Int, Char, String, Bool, (), and tuples, lists,
+structs and datatypes of those -- not a Float, a function, anything that
+changes, or a Map.
+
+**Equality and printing.** `==` and `!=` compare two Maps by their
+entries, in whatever order: the same keys, each with an equal value,
+which is Python's rule for a dict. A Map prints as what makes one,
+`map([("ann", 31)])`, in its order -- so two equal Maps may print
+differently. A Map has no identity for `same` to ask about, and no
+order for `<`.
 
 ### Arrays (`Array(T)`) — Pyking extension
 
@@ -2358,56 +3233,6 @@ The rest is the library `lib/mutmap`: `update`, `insert_with` (for a
 count), `extend` and `retain`, which change the MutMap, and `lookup`,
 `fold_with_key`, `find_key`, `is_empty`, `equal_by` and `copy`.
 
-### Maps (`Map(K, V)`) — Pyking extension
-
-A **Map** maps keys to values as a MutMap does, and remembers the order
-its keys were put in, but it is a value that never changes, like a list:
-making one needs no `use mutation`, and a change answers a new Map,
-leaving the old one as it was. Its type is `Map(K, V)`.
-
-```pyking
-import map
-
-ages = map([("ann", 31), ("bo", 5)])
-older = map.insert(ages, "cy", 40)
-print(ages, older["cy"], get(ages, "zed", 0), len(older))
-# map([("ann", 31), ("bo", 5)]) 40 0 3
-```
-
-**Making one.** `map()` makes one with no entries, whose types its use
-or an annotation decides, `map(pairs)` one from a list of `(key,
-value)` pairs -- a key written twice keeps its first place and its last
-value -- and `map(d)` one holding a MutMap's entries as they are now
-(see "Making and converting collections").
-
-**Reading** is a MutMap's: `m[k]` (a runtime error, `the Map has no key
-"zed"`, where there is none), `get(m, k, default)`, `has(m, k)`,
-`keys(m)`, `values(m)`, `items(m)` and `len(m)`, and `for k in m` and a
-comprehension walk the keys in order. A Map is never written: `m[k] :=
-v`, `remove`, `discard` and `clear` are refused, each saying what makes
-a new Map instead.
-
-**Changing one** is lib/map's: `map.insert(m, k, v)`, `map.remove(m, k)`,
-`map.insert_with(f, m, k, v)`, `map.adjust(f, m, k)` and `map.alter(f,
-m, k)`, and `union`, `intersection`, `difference`, `map_with_key`,
-`filter_with_key`, `partition`, `lookup` and `fold_with_key`. A new key
-goes at the end, a key already there keeps its place, and one taken out
-and put back goes to the end, as in a MutMap. Each change copies the
-Map, so it takes time in proportion to its size: a Map built one entry
-at a time is better built as a list of pairs, or as a MutMap, and made
-a Map at the end.
-
-**Keys** are a MutMap's: Int, Char, String, Bool, (), and tuples, lists,
-structs and datatypes of those -- not a Float, a function, anything that
-changes, or a Map.
-
-**Equality and printing.** `==` and `!=` compare two Maps by their
-entries, in whatever order: the same keys, each with an equal value,
-which is Python's rule for a dict. A Map prints as what makes one,
-`map([("ann", 31)])`, in its order -- so two equal Maps may print
-differently. A Map has no identity for `same` to ask about, and no
-order for `<`.
-
 ### Slices and views — Pyking extension
 
 **A slice copies.** `s[i:j]` is a new value holding elements `i` up to
@@ -2560,1608 +3385,17 @@ function first and the list last. A function comparing elements is
 written once per scalar type and once more as `..._by`, taking the
 comparison.
 
-### Option — Pyking extension
-
-`Option(a)` is a value or none: `Some(value)` or `None`. It is builtin
-in the way a library is: a module that uses `Option`, `Some` or `None`,
-and declares and imports none of them, has lib/option's -- as if it
-began `from option import Option` -- and `import option` reaches its
-functions, named as Rust's are: `is_some`, `is_none`, `unwrap_or`,
-`unwrap_or_else`, `and_then`, `or_else`, `zip`, `flatten`, `unwrap`,
-`expect`, `all_some` and `values`. `fmap`, `filter`, the folds and
-`list(o)` take an Option too (see "fmap and the folds").
-
-```pyking
-import option
-
-def first_even(xs: [Int]) -> Option(Int):
-    match xs:
-        case []: None
-        case [x, ..rest]: if x % 2 == 0 then Some(x) else first_even(rest)
-
-print(first_even([1, 4, 5]), first_even([1]), option.unwrap_or(first_even([3]), 0))
-# Some(4) None 0
-```
-
-A module declaring a datatype `Option`, or one with a constructor `Some`
-or `None`, means its own, as programs written before Option was builtin
-do. A pointer that may point nowhere is an `Option(Ptr(T))` (see
-"Pointers"): Pyking has no null.
-
-`option.or_else(o, f)` takes a function answering an Option, as Rust's
-does; until November 2026 it took the default value, which is now
-`option.unwrap_or(o, value)`, and an old call is refused with that
-named.
-
-### Result — Pyking extension
-
-`Result(t, e)` is a value or the error that stopped it: `Ok(value)` or
-`Error(error)`, as Rust's is, with `Error` for Rust's `Err`. It is
-builtin as Option is: a module that uses `Result`, `Ok` or `Error`, and
-declares and imports none of them, has lib/result's, and `import
-result` reaches its functions.
-
-```pyking
-import result
-
-def parse_age(s: String) -> Result(Int, String):
-    n = int(s)
-    if string(n) == s and n >= 0 then Ok(n) else Error("not an age: " + s)
-
-print(parse_age("31"), parse_age("x"), fmap(lam n. n + 1, parse_age("31")))
-print(result.unwrap_or(parse_age("x"), 0), result.and_then(parse_age("31"), lam n. if n < 150 then Ok(n) else Error("too old")))
-# Ok(31) Error("not an age: x") Ok(32)
-# 0 Ok(31)
-```
-
-lib/result has `is_ok`, `is_error`, `ok`, `error`, `unwrap_or`,
-`unwrap_or_else`, `and_then` (the next step, which stops at the first
-error), `or_else`, `map_error`, `unwrap`, `expect`, `unwrap_error`,
-`flatten`, `all_ok`, `partition_results`, and `ok_or`, which makes an
-Option a Result. `unwrap` of an `Error` stops the program with a runtime
-error, as `panic` does. A module declaring its own `Result`, `Ok` or
-`Error` means its own.
-
-### Pointers — Pyking extension
-
-`use pointers` adds C's pointers -- without null, arithmetic or freeing
--- for teaching how memory is addressed. It needs `use mutation` in the
-same module: a pointer is a way to write to a variable.
-
-```pyking
-use mutation, pointers
-
-def swap(a: Ptr(Int), b: Ptr(Int)) -> ():
-    t = *a
-    *a := *b
-    *b := t
-
-var x = 1
-var y = 2
-swap(&x, &y)
-print(x, y)            # 2 1
-```
-
-- **`&place`** is a pointer to a place something may write: a `var`, an
-  element of an array or of a view (`&a[i]`, which is the array's), a
-  field of a `mutable struct` (`&p.x`), or what a pointer points at (`&*p`
-  is `p`). Its type is `Ptr(T)`. An `=` binding, a list's or a DynArray's
-  element, a plain struct's field, a call's result and a literal have
-  no address, and `&` of one is refused with the reason.
-- **`*p`** reads what `p` points at, now; **`*p := v`** and the compound
-  forms (`*p += 1`) write it, the pointer worked out before the value.
-  A field through a pointer is written `(*pp).x`, as in C; there is no
-  `->` and no automatic dereferencing.
-- **`&` and `*` are prefix** where an operand starts, and bitwise and
-  and times between two operands, as `-` is negation or subtraction. A
-  line starting with `*` or `&` is a statement of its own: `*p := 5`.
-- **Equality.** `p == q` is true when both name one place. A pointer is
-  never a MutMap's key.
-- **Printing** writes what a pointer points at, `Ptr(12)`, never an
-  address, so every target prints the same.
-- **Lifetime.** A `var` whose address is taken lives as long as a
-  pointer to it, even after its function returns -- except on plain C,
-  which refuses a pointer to a local that would outlive its function
-  (C would leave it dangling); `c23-gc` keeps such a variable on its
-  collected heap.
-- **None.** A pointer that may point nowhere is `Option(Ptr(T))`:
-  `None`, or `Some(&x)`, matched before it is used.
-
-docs/pointers.md has the whole story, with each target's
-representation.
-
-### Names and scoping
-
-Pyking is **lexically scoped**: every use of a name refers to the
-innermost enclosing binding of that name, decided entirely by where the
-code is written. A scope is a function body or any indented block — the
-body of an `if`/`else` branch, a `for`, `while` or `loop` body, a `case`
-arm, a value-form branch — plus a list comprehension and the file's top
-level.
-Names bound inside a scope are not visible outside it:
-
-```pyking
-total = 0
-
-if 1 < 2:
-    inner = total + 1
-    print(inner)
-
-# `inner` is not in scope here -- using it is a compile-time error.
-```
-
-**What binds a name.** An `=` binding, a `var` declaration, a `def` (its
-own name, visible throughout the block it is written in — see "Bindings
-are sequential — except `def`" below), a parameter, a `for` variable, a
-`loop` accumulator, a pattern variable in a `case` arm or
-comprehension. All of them behave
-the same way with respect to *scope*; they differ only in when within
-that scope the name becomes visible.
-
-**Shadowing.** Any of those may reuse a name that is already in scope;
-the inner binding wins until its scope ends, and the outer one is
-untouched and visible again afterwards. Two `=` bindings of the same name
-in one scope are the same thing — the second shadows the first, which is
-why a binding may change what a name means (and even its type) without
-ever being an update:
-
-```pyking
-n = "outer"
-
-
-def describe(n):
-    "param " + string(n)
-
-
-print(describe(1), n)
-```
-
-**A `def`'s name is the exception to that.** Within one block, a
-function name means exactly one thing: two `def`s of the same name are
-an error, and so is any *other* binding of a name a `def` in that block
-uses — in either order, and whatever the binding form:
-
-```pyking
-# Each of these is a compile-time error:
-#   f = 1              def f(n): n * 2       (a binding and a function)
-#   def f(n): n * 2    f = 1                 (the same, written the other way)
-#   var f = 1          def f(n): n * 2       (a variable and a function)
-#   def f(n): n        def f(n): n * 2       (two functions)
-```
-
-This is what makes the next rule safe. A function's name is visible
-*throughout* its block, so if the name could also mean something else
-there, a use of it would have two candidates and no reason to prefer
-either — is `use()` below returning the number or the function?
-
-```pyking error
-f = 1
-
-def apply(): f          # rejected: which `f`?
-
-def f(n): n * 2
-```
-
-Nothing forbids the *name*; it forbids sharing a **block**. A nested
-block may shadow a function freely, because there the answer is never in
-doubt:
-
-```pyking
-f = 1
-
-
-def apply():
-    def f(): 5        # a different block: this shadows the binding
-    return f()
-
-
-print(apply())           # 5
-```
-
-**The other restriction:** a `var` may not be shadowed. While a mutable
-variable is in scope, no binding of any kind may reuse its name — not an
-`=` binding, parameter, `for` variable, pattern variable, `def`, or
-another `var`:
-
-```pyking
-use mutation
-
-var count = 0
-
-# Each of these is a compile-time error while `count` is in scope:
-#   count = 1                  (binding shadows the variable)
-#   def f(count): ...          (parameter shadows it)
-#   for count in range(3): ... (loop variable shadows it)
-```
-
-This is what makes `:=` unambiguous. `count := 1` updates the mutable
-variable `count` denotes; if an inner scope could rebind that name to
-something immutable, a reader would have to search every enclosing scope
-to know whether a given `:=` updates the variable, is an error, or
-reaches a *different* variable of the same name. With shadowing
-forbidden, the answer is always the nearest `var` — and correspondingly
-`:=` requires one: applying it to a binding, parameter, or pattern
-variable is an error, not a silent conversion.
-
-A `var` may itself shadow any *immutable* name, and two sibling scopes
-may each declare their own `var` of one name, since neither is in scope
-where the other is:
-
-```pyking
-use mutation
-
-count = 100
-
-
-def tally(items):
-    var count = 0
-    for item in items:
-        count := count + item
-    return count
-
-
-print(tally([1, 2, 3]), count)
-```
-
-**Bindings are sequential — except `def`.** A scope's names come into
-being in the order they are written, so a name must already be bound
-where it is used:
-
-```pyking
-# total = later + 1     -- error: `later` is not bound yet
-later = 41
-total = later + 1
-```
-
-**Functions are the exception**: every `def` in a block is in scope
-throughout that block, from its first line, not from the `def` onward.
-That is what makes a function usable before it is written — its own
-recursive calls, two functions that call each other, a helper defined at
-the bottom of the file — and it is safe to do for a `def` and not for an
-`=` binding, because a `def` says what its name means on the `def`
-itself, while a binding's meaning is whatever its right-hand side works
-out to.
-
-```pyking
-def is_even(n):
-    if n == 0:
-        true
-    else:
-        is_odd(n - 1)        # written below; in scope anyway
-
-
-def is_odd(n):
-    if n == 0:
-        false
-    else:
-        is_even(n - 1)       # and its own name, so plain recursion too
-
-
-print(is_even(10), is_odd(10))
-```
-
-It applies per block, so a `def` inside a function body — or inside one
-branch of an `if` — is in scope for that body or that branch, and
-nowhere else. Nested functions may be mutually recursive on exactly the
-same terms.
-
-**Only the *names* are visible ahead — not the values.** A function
-body sees whatever is bound *where the body is written*. Rebinding a
-name afterwards makes a new binding; it does not reach back into a
-function that already captured the old one:
-
-```pyking
-x = 1
-
-
-def show() -> Int:
-    return x
-
-
-x = "two"
-print(x, show())        # two 1
-```
-
-`show` was written where `x` was `1`, so that is the `x` it returns —
-even though the name means something else, of another type, by the time
-`show` is called. This follows from `=` being a binding rather than an
-assignment, and it is what lets the type checker say anything reliable
-about a function at all.
-
-The two rules meet like this: the *name* of a `def` written below is
-already usable, but the *bindings* it captures are the ones above it:
-
-```pyking
-x = 1
-
-
-def f():
-    return g()          # `g` is written below -- fine, it is a function
-
-
-x = 2
-
-
-def g():
-    return x            # the `x` visible here: the second binding
-
-
-print(f(), g())         # 2 2
-```
-
-A `var` is the deliberate other half: `:=` updates the one binding
-rather than making a new one, so a function reading a `var` sees the
-updates. That is what a `var` is for.
-
-```pyking
-use mutation
-
-var counter = 0
-
-
-def read(): counter
-
-
-counter := 42
-print(read())           # 42
-```
-
-A loop binds afresh on every turn — its variable and everything in its
-body — so a `def` written inside one keeps the turn it was written on,
-not the last. Functions written in the same turn that call each other
-find each other's copy from that turn, wherever in the body they are
-written:
-
-```pyking
-fns =
-loop made = [] for i in range(3):
-    def show(): i
-    made + [show]
-
-for f in fns:
-    print(f())          # 0, then 1, then 2
-```
-
-The design behind these rules, the alternatives, and how other languages
-answer the same question are in
-[docs/defshadow.md](docs/defshadow.md).
-
-Being *in scope* is not the same as having *run*, though. A function
-value comes into being when its `def` is reached, so a call that
-executes before that fails at run time, exactly as the same program
-would in Python:
-
-```pyking
-def top(n):
-    helper(n)          # fine: `top` is called below, after both defs
-
-
-def helper(n):
-    n + 1
-
-
-print(top(1))
-
-# print(later(1))     -- compiles, but fails at run time: `later` has
-# def later(n):          not been reached yet
-#     n
-```
-
-**Checking.** All of this is checked statically, before any code is
-generated, and reported as a `Name error` against the offending source
-position. A handful of names are predefined and count as bound
-everywhere — `print`, `debug`, `range`, `string`, `len`, `int`, `float`
-and `bool` — since no
-Pyking program
-declares them; every other unbound name is an error. They are host
-*operations*, not values: each may be called, and using one as a value
-(`f = print`) is an error. `range(n)` yields a list of `Int`, which is
-what the language has — there is no lazy-sequence type — though
-iterating one with `for` need not build it. `print` produces no
-value: it yields unit, `()`, so it is meaningful as a statement and not
-as something to bind or return. Unit prints as `()` — the same in every
-backend, whatever the host language calls its own absence of a value.
-
-**Compiling preserves this.** A backend whose own scoping is coarser than
-Pyking's has to work to keep these rules; how each one does is a compiler
-concern rather than a language one, described in
-[docs/targets.md](docs/targets.md).
-
-### Function definitions (`def`)
-
-`def name(params):` introduces a function with a comma-separated parameter
-list, followed by an indented block of statements as its body.
-
-```python
-def average(a, b):
-    return (a + b) / 2
-
-
-print(average(4, 8))
-```
-
-A body that is one expression may be written on the header's own line,
-after the `:` (see "A block on its header's own line" below). It is the
-same body: one statement, in tail position, so it supplies the
-function's value exactly as an indented one does. A body that does
-anything else — returns, binds a name, branches as a statement — goes
-under the header, where it is plain.
-
-```pyking
-def average(a, b): (a + b) / 2
-def swap(a, b): b, a
-
-print(average(4, 8))
-print(swap(1, 2))
-```
-
-Annotations are unaffected — the `:` that opens the block is the one
-that was always there:
-
-```pyking
-def average(a:Int, b:Int) -> Int: (a + b) / 2
-```
-
-When the body stops fitting beside the header, indent it under the
-header instead. Nothing else changes:
-
-```pyking
-def scaled(a, b):
-    (a + b) * 2
-
-
-def sign(n: Int) -> String:
-    if n < 0 then "negative" else "positive"
-
-
-print(scaled(1, 2), sign(-3))
-```
-
-### Default parameters
-
-A parameter may be given a **default**: an expression used when a call
-leaves that argument out.
-
-```pyking
-def greet(who: String = "world", times: Int = 1) -> Int:
-    print("hello, " + who)
-    return times
-
-
-print(greet())               # hello, world
-print(greet("pyking"))       # hello, pyking
-print(greet("a", 3))         # hello, a
-```
-
-Every parameter after the first one with a default has one too, so a
-positional call is never ambiguous about which parameter it filled:
-
-```pyking error
-def f(a: Int = 1, b: Int) -> Int: a + b     # refused
-```
-
-A default is an ordinary expression, and it is evaluated **in the scope
-the `def` is written in, at each call that omits the argument**. Both
-halves matter. Rebinding a name after the definition does not change
-what the default is worth:
-
-```pyking
-size = 10
-
-
-def scaled(x: Int = size) -> Int:
-    return x * 2
-
-
-size = 20
-
-print(scaled())              # 20 -- the first `size`, not the second
-```
-
-and a default that has an effect has it once per call that omits it,
-not once when the `def` is reached:
-
-```pyking
-use mutation
-
-var counter = 0
-
-
-def tick(from_: Int = counter) -> Int:
-    return from_ + 1
-
-
-print(tick())                # 1
-counter := 40
-print(tick())                # 41
-```
-
-A default may name anything in scope where the definition stands,
-including a function written further down — a `def` name is visible
-throughout its block, so a default may call one:
-
-```pyking
-def padded(amount: Int = width()) -> Int:
-    return amount + 1
-
-
-def width() -> Int:
-    return 7
-```
-
-**A default is not part of a function's type.** `greet` above has type
-`(String, Int) -> Int`, exactly as it would without the defaults, and
-nothing that holds the function as a value carries them:
-
-```pyking norun
-g = greet
-print(g())                   # refused: `g` is a binding, not a definition
-```
-
-The same rule settles where the sugar is available at all: a call may
-leave an argument out only where the callee is a `def` this module can
-see the parameters of — written directly by name, or reached as
-`module.name` through an imported Pyking module. A builtin has no
-parameter names, and an external module's function is written in another
-language, so neither takes one.
-
-An **exported** function's defaulted parameter must carry a type
-annotation:
-
-```pyking error
-public def greet(who: String = "world") -> String: "hi " + who
-public def greet(who = "world") -> String: "hi " + who     # refused
-```
-
-An exported function carries its complete type in the source, and a
-parameter's type is part of that whether or not it also has a default
-(see "What a module may export").
-
-A default may be written on a parameter of a nested `def`, in a loop
-body, or anywhere else a definition may stand; what it captures is what
-is bound where the definition is written, as any body is.
-
-### Named arguments
-
-An argument may be written `name = expr`, naming the parameter it fills:
-
-```pyking
-def box(width: Int = 1, height: Int = 2, depth: Int = 3) -> Int:
-    return (width * 100) + (height * 10) + depth
-
-
-print(box(height = 9))          # 193 -- width and depth default
-print(box(4, depth = 6))        # 426
-print(box(width = 4, depth = 6))
-```
-
-Three rules:
-
-- **Every positional argument comes first.** A positional argument after
-  a named one has no position left to mean.
-- **Names may be written in any order.** `box(depth = 6, width = 4)`
-  is `box(4, 2, 6)`. The arguments still run in the order they are
-  written (see "Evaluation order"): the depth's before the width's.
-- **A parameter is filled once.** Naming one that a positional argument
-  already filled is refused, as is naming the same one twice.
-
-A name may be given to a parameter that has no default — it is a way of
-saying at the call site what an argument is for:
-
-```pyking
-def join(left: String, right: String) -> String: left + "-" + right
-
-print(join("a", right = "c"))
-```
-
-but a name does not make a parameter optional: every parameter without a
-default still has to be given something.
-
-Named arguments are available exactly where defaults are — the callee
-must be a `def` this module can see the parameters of, since neither is
-part of a function's type.
-
-An omitted argument is worth its default **in its own position**, so a
-default with an effect has that effect between the supplied arguments
-around it rather than before or after all of them -- where the names
-are written in the parameters' order. Where they are not, every
-argument written runs first, in the order written, and then the
-defaults of the parameters left out, in the parameters' order:
-
-```pyking
-def note(label: String, n: Int) -> Int:
-    print(label)
-    n
-
-def box(width: Int, height: Int = note("height", 1), depth: Int = 2) -> Int:
-    width * 100 + height * 10 + depth
-
-print(box(depth = note("depth", 6), width = note("width", 4)))
-```
-
-```
-depth
-width
-height
-416
-```
-
-### Type annotations
-
-An immutable binding may be annotated on its name, `x: Int = 1`:
-
-```pyking
-count: Int = 42
-name: String = "pyking"
-total: Int = count + 1
-```
-
-Parameters and the return value may optionally be annotated with a type:
-`Int`, `Float`, `String`, `Char`, `Bool`, a list type `[T]`, a tuple type `(T1, T2, ...)`
-or `(T,)`, or a function type `(T1, T2, ...) -> T` (all nesting freely,
-e.g. `[(Int, Bool)]` or `[(Int) -> Bool]`). `()`, the zero-element tuple
-type, is the Unit type, and `(T)` with no comma is grouping rather than
-a tuple. Annotations are entirely optional and independent per
-parameter/return value — a function can mix annotated and unannotated
-parameters freely.
-
-```pyking
-use mutation
-
-def add(a:Int, b:Int) -> Int:
-    return a + b
-
-
-def sum_list(xs:[Int]) -> Int:
-    var total = 0
-    for x in xs:
-        total := total + x
-    return total
-
-
-def scale(x, factor:Int) -> Int:
-    return x * factor
-
-
-print(add(2, 3))
-print(sum_list([1, 2, 3, 4]))
-print(scale(3, 4))
-```
-
-**Function types.** `(T1, T2, ...) -> T` is the type of a function, and
-may be written wherever a type may. The parentheses are the parameter
-*list*'s, not a tuple's, so the count of parameters is what they show: a
-function of two parameters is `(Int, Bool) -> Int`, and one of a single
-parameter that happens to be a pair is `((Int, Bool)) -> Int`. Without an
-arrow after it, the same parenthesized list is an ordinary tuple type.
-The result is a type in its turn, so `->` groups to the right and a
-function returning a function needs no parentheses of its own.
-
-```python
-def inc(n:Int) -> Int:
-    return n + 1
-
-
-def apply(f:(Int) -> Int, x:Int) -> Int:
-    return f(x)
-
-
-# Returning a function: the return type is `(Int) -> Int`.
-def stepper(up:Bool) -> (Int) -> Int:
-    return inc
-
-
-# Nested: a list of them, a pair holding one, one taken by another.
-def each(fs:[(Int) -> Int], first:((Int) -> Int, Int)) -> Int:
-    return apply(inc, 0)
-
-
-def under(f:((Int) -> Int) -> Int) -> Int:
-    return 0
-
-
-step:(Int) -> Int = inc
-
-print(apply(inc, 1), apply(step, 1), apply(stepper(true), 1))
-```
-
-Annotations are parsed and stored in the AST (see `Param`,
-`SFunctionDef.return_type` and `SLet.type` in `src/syntax.ml`) and
-pretty-printed back out in Pyking's own syntax. Compiling erases every
-one of them: no generated code carries type syntax at all.
-
-Nothing verifies an annotation in an ordinary compile. There *is* a type
-checker, opt-in and covering only part of the language so far; what it
-accepts, what it refuses, and which annotations it treats as declarations
-rather than as decoration are in "Type checking" at the end of this
-reference. How the pass itself is built is a compiler matter, described
-in [docs/architecture.md](docs/architecture.md).
-
-### `return` statements
-
-`return expr` evaluates `expr` and returns it as the function's result.
-
-```python
-def first(x, y):
-    return x
-
-
-print(first(1, 2))
-```
-
-### `for`/`in` loops
-
-`for name in iterable:` binds `name` to each successive element produced
-by `iterable`, running the indented body once per element. The iterable
-is a list, or a String, whose elements are its characters, each a
-`Char`; a comprehension walks a String the same way.
-
-```python
-for i in range(3):
-    print(i)
-for c in "ok":
-    print(c)
-```
-
-### `while` loops
-
-`while cond:` runs its indented body repeatedly for as long as `cond`
-holds.
-
-```pyking
-use mutation
-
-var i = 0
-while i < 3:
-    print(i)
-    i := i + 1
-```
-
-### One loop, three halves — Pyking extension
-
-`for`, `while` and `loop` are the same construct with different halves
-written: an **accumulator** and an **iteration clause**, either of which
-may be left out. So they combine, and `break` and `continue` mean the
-same thing in every combination.
-
-```pyking
-def total(xs:[Int]) -> Int:
-    return loop acc = 0 for x in xs:
-        acc + x
-
-
-def countdown(from_:Int) -> Int:
-    return loop i = from_ while i > 0:
-        i - 1
-```
-
-A `for`/`while` is a loop, so a `break` in one belongs to *it* — there
-is no crossing out of a loop any more. A `def` is the one thing a
-`break` still may not reach out of.
-
-**Going round.** A loop that carries an accumulator carries what its
-body *ends in*: the body's last statement is the next turn's
-accumulator, recursively through the branches of a trailing `if` or
-`match`, exactly as tail position works everywhere else. A path that
-`break`s, `continue`s or `return`s says nothing, since none of them
-reaches the end of the body.
-
-```pyking
-def total(xs:[Int]) -> Int:
-    return loop acc = 0 for x in xs:
-        acc + x                 # the next turn's `acc`
-```
-
-A loop carrying nothing asks nothing of its body: there is no next
-accumulator for it to give, so it may end in any type at all.
-
-**Leaving a loop.** `break` ends the loop. Written bare, the loop is
-worth the accumulator the turn it stopped on started with. `continue`
-is the other way round -- it starts the next turn at once, with that
-same accumulator unchanged.
-
-Either may instead say what the accumulator is from then on: `break x`
-ends the loop worth `x`, and `continue x` starts the next turn with
-`x`, just as a body ending in `x` would. `x` is held to the
-accumulator's type, as what the body ends in is. A loop that carries
-nothing has no accumulator for a value to be, so there both are written
-bare.
-
-**What a loop is worth.** One rule:
-
-> the accumulator it stopped with, if one is written; else `()`.
-
-A `break x` stops it with `x`; a `continue x` on the last turn of a
-`for`/`while` leaves it with `x` too, since that is what the next turn
-would have started with.
-
-However it stops -- on a `break`, or by a `for`/`while` running out of
-turns -- the answer is the same, so a loop that can stop both ways
-still has one value rather than two. A plain `loop:` that never breaks
-never stops, and nothing ever asks.
-
-### `loop` loops -- Pyking extension
-
-`loop` is a loop whose state is a *binding* rather than a mutable
-variable, and which is worth something when it stops. Python has no
-equivalent, so everything in this section is Pyking source rather than
-valid Python.
-
-`loop x = 5:` evaluates `5` once and binds `x` to it for the first turn.
-What the body ends in is the next turn's `x`, and `break` ends the loop,
-which is then worth the `x` the turn it stopped on started with:
-
-```pyking
-counted = loop x = 5:
-    if x <= 10:
-        x + 1
-    else:
-        break
-
-print(counted)          # 11
-```
-
-The body's last statement is the accumulator, recursively through the
-branches of a trailing `if` or `match` -- the same tail-position rule a
-function body follows. A path ending in `break`, `continue` or `return`
-says nothing, since none of them reaches the end of the body.
-
-**What a loop carries is what it is worth.** The accumulator is the
-state -- the initializer's type, and what the body must end in -- and it
-is the loop's value when it stops, whichever way it stops. So a loop
-answers with what it carries, and a loop that carries two things answers
-with the pair:
-
-```pyking
-def factorial(n, acc) -> Int:
-    (left, product) = loop n, acc = n, acc:   # carries (Int, Int)
-        if n == 0:
-            break                             # and is worth (Int, Int)
-        else:
-            (n - 1, n * acc)
-    return product
-
-
-print(factorial(10, 1))        # 3628800
-```
-
-`continue` says "go round again" from wherever it is written, skipping
-the rest of the body; the next turn starts with the accumulator this one
-started with, so it is a way to leave the accumulator alone for a turn:
-
-```pyking
-def total_positive(xs:[Int]) -> Int:
-    return loop acc = 0 for x in xs:
-        if x < 0:
-            continue        # this element adds nothing
-        acc + x
-
-
-print(total_positive([1, 0 - 5, 2]))    # 3
-```
-
-**A jump may carry the accumulator.** `break x` stops the loop worth
-`x`, and `continue x` goes round with `x` as the next turn's
-accumulator -- so a loop can stop with something other than what the
-turn started with, or go round early with a new value, without arranging
-for the body to end in it. The value is written the way the header's
-initializer is, a tuple with or without its parentheses:
-
-```pyking
-def first_over(xs:[Int], limit:Int) -> Int:
-    return loop found = 0 - 1 for x in xs:
-        if x > limit:
-            break x         # the loop is worth this element
-        found
-
-
-def saturating_sum(xs:[Int]) -> Int:
-    return loop acc = 0 for x in xs:
-        if acc + x > 10:
-            continue 10     # the next turn starts from 10
-        acc + x
-
-
-steps, last = loop steps, n = 0, 6:
-    if n == 1:
-        break steps, n
-    else if n % 2 == 0:
-        continue steps + 1, n / 2
-    steps + 1, 3 * n + 1
-
-
-print(first_over([1, 5, 9, 12], 6))      # 9
-print(saturating_sum([3, 4, 5, 6]))      # 10
-print(steps, last)                       # 8 1
-```
-
-The value must have the accumulator's type (`this loop carries Int,
-but this 'break' gives it String`), and a loop that carries nothing --
-`loop:`, or a plain `for`/`while` -- takes none.
-
-**A loop is worth its accumulator**, so it stands wherever a value-form
-`if`/`match` does -- bound with `=`, returned with `return`, or left as
-a function's last statement:
-
-```pyking
-def doubled_over(limit) -> Int:
-    loop n = 1:
-        if n > limit:
-            break
-        else:
-            n * 2
-
-
-print(doubled_over(50))   # 64
-```
-
-**Several values are one tuple.** The accumulator is a single value, so
-a loop carrying two things carries a pair: the header takes it apart on
-every turn, and what the body ends in has to give the whole tuple back.
-
-```pyking
-foo, bar = loop x, y = 0, true:
-    if x <= 10:
-        (x + 1, y)
-    else:
-        break
-
-
-print(foo, bar)         # 11 true
-```
-
-**`loop:` carries nothing.** Written with no accumulator its body may
-end in anything -- there is no accumulator to say, so nothing is asked
-of its last statement -- and the loop is worth `()`. The only way out
-is `break`.
-
-```pyking norun
-loop:
-    print("forever")
-```
-
-That program is perfectly valid and never finishes, which is the point:
-nothing about a loop requires it to end.
-
-**Where `break` and `continue` belong.** Each belongs to the innermost
-`loop` it is written in, and may not reach out of a `for`, a `while` or
-a `def` to find one -- both checked at compile time (see the grammar
-notes). `for` and `while` have no exit of their own, so a `break`
-written inside one is an error rather than that loop's exit.
-
-**Scope.** The accumulator is bound in the loop's own body and nowhere
-else: it is gone after the loop, and a name it shadows means what it
-meant again. Every turn binds it afresh, as a `for` variable is bound
-afresh, so a `def` written inside a loop body keeps the turn it was
-written on (see "Names and scoping").
-
-```pyking
-x = "outer"
-
-shadowed = loop x = 1:
-    if x > 2:
-        break
-    else:
-        x + 1
-
-print(shadowed, x)      # 3 outer
-```
-
-### `if`/`else` statements
-
-`if cond:` runs its indented body when `cond` holds. An optional
-`else:` with its own indented body runs otherwise.
-
-```python
-def classify(x):
-    if x >= 10:
-        return 1
-    else:
-        return 0
-
-
-print(classify(12), classify(3))
-```
-
-Further conditions chain with `else if` — two ordinary keywords, since
-Pyking has no `elif`. Each `else if` takes its own condition and
-indented body, and the first branch whose condition holds is the only
-one that runs. The trailing `else:` stays optional: without it, a value
-matching none of the conditions runs no branch at all. The example below
-is therefore Pyking source, not valid Python — it compiles to Python's
-`elif`.
-
-```pyking
-def grade(score):
-    if score >= 90:
-        return "A"
-    else if score >= 80:
-        return "B"
-    else if score >= 70:
-        return "C"
-    else:
-        return "F"
-
-
-print(grade(95), grade(85), grade(75), grade(65))
-```
-
-Because `else if` is just an `else` block holding one nested `if`
-statement (see the grammar notes above), the two forms below mean
-exactly the same thing; the flat one is preferred, and is the form the
-Pyking pretty-printer produces for either.
-
-```pyking norun
-if a:
-    print(1)
-else if b:
-    print(2)
-
-if a:
-    print(1)
-else:
-    if b:
-        print(2)
-```
-
-### `if`/`then`/`else` expressions
-
-`if cond then e1 else e2` is an *expression*: it evaluates `cond`, then
-yields `e1` or `e2`, whichever the condition selects — only the chosen
-branch is evaluated. Python writes the same thing with the condition in
-the middle, so (unlike most examples in this document) the following is
-Pyking source, not valid Python; it compiles to Python's conditional
-expression `e1 if cond else e2`.
-
-Unlike the `if` *statement*, the `else` is mandatory — an expression must
-always produce a value. The branches reach as far right as they can, so
-parenthesize when mixing with operators, and an `else` branch that is
-itself an if expression chains flat, reading like an `elif` ladder.
-
-```pyking
-def sign(x): if x < 0 then "negative" else if x == 0 then "zero" else "positive"
-
-
-def clamp(x, lo, hi):
-    y = if x < lo then lo else x
-    return if y > hi then hi else y
-
-
-print(sign(-5), sign(0), sign(7))
-print(clamp(42, 1, 10))
-
-# The `+ 1` belongs to the else branch; parenthesize to apply it to the
-# whole expression instead.
-print(if 1 < 2 then 100 else 200 + 1)
-print((if 1 < 2 then 100 else 200) + 1)
-
-# Parentheses are required around an if expression used as a
-# comprehension filter (see the grammar notes above).
-print([x for x in [1, 2, 3, 4] if (if x < 3 then true else false)])
-```
-
-### Lambdas — Pyking extension
-
-`lam x. x + 1` is an expression that is a function, written as in the
-lambda calculus (`λx. x + 1`): the keyword `lam`, the parameters, a `.`
-and the body. One parameter with no type needs no parentheses, so
-`lam x. x + 1` and `lam (x). x + 1` are the same thing; several need
-them, and so does a parameter with a type -- `lam (n: Int). n - 1` --
-since a type may hold a `.` of its own (`geo.Point`, `all a. a`), and in
-parentheses it ends at the `)`. No parameters is `lam (). e`. The body
-is **one expression** — there is no block form.
-
-The body takes everything to its right that one expression can hold, so
-a lambda binds looser than every operator and associates to the right:
-`lam x. lam y. x + y` is curried. A comma ends it, since `lam x. a, b`
-is a pair whose first element is the lambda.
-
-`x => x + 1`, the spelling Pyking had before `lam`, is refused with
-`a lambda is now written 'lam x. x + 1'`; `lam x, y. e` and
-`lam x: Int. e` are refused too, each with the parenthesized form to
-write.
-
-```pyking
-double = lam x. x * 2
-add = lam (x, y). x + y
-typed = lam (n: Int). n - 1
-nothing = lam (). 7
-
-print(double(21), add(3, 4), typed(10), nothing())
-
-# A lambda answering with a lambda; a lambda associates to the right, so
-# no parentheses are needed.
-adder = lam x. lam y. x + y
-print(adder(6)(7))
-
-# An `if` expression is one expression, so it is a body like any other.
-sign = lam n. if n < 0 then 0 - 1 else 1
-print(sign(-5), sign(5))
-```
-
-A lambda captures what is bound where it is written, exactly as a `def`
-body does, and a later binding of a name is a new binding rather than a
-write to the old one — so what a lambda captured does not change under
-it (see "Names and scoping").
-
-```pyking
-base = 100
-shift = lam n. n + base
-base = 200
-print(shift(1))     # 101: the binding `shift` captured
-```
-
-**A lambda is monomorphic.** Its parameters are one type, settled
-between its body and its uses, and never generalised; a `def` with the
-same body is polymorphic and serves every type at once. That is
-Hindley-Milner's own distinction between a `let`-bound definition and a
-lambda-bound one, and it is the whole of the difference here:
-
-```pyking
-def named(x): x
-print(named(1), named("a"))     # fine: `named` is polymorphic
-
-id = lam x. x
-print(id(1))
-# print(id("a"))                -- error: `id` is Int -> Int by now
-```
-
-Two more rules follow from a lambda being an expression rather than a
-definition. A lambda parameter may not have a default value, since a
-default belongs to the scope a definition is written in. And a lambda
-parameter is a binding like any other, so it may not shadow a `var`.
-
-**A lambda argument is checked last.** In a call, every other argument
-is checked first, and a lambda's parameters with no type written take
-the ones its parameter has by then: in `apply(lam p. p.x, points)` the
-list says `p` is a Point, although the lambda is written first. Only the
-checking waits; the arguments still run in the order written (see
-"Evaluation order").
-
-### Let expressions — Pyking extension
-
-`let target = value in body` is an expression: `value` is evaluated
-once, bound to `target`, and the whole is worth `body`. The target is
-what an `=` binding takes — a name, or a tuple taken apart — with an
-optional annotation, checked as a binding's is. What it binds is seen by
-the body and nowhere else, not even by `value`.
-
-```pyking
-foo = let x = 78 in x + 1
-print(foo)                                  # 79
-
-# One binding per `let`; a later one sees the earlier.
-print(let a = 2 in let b = a * 3 in a + b)  # 8
-
-pair = (1, (2, 3))
-print(let (x, (y, z)) = pair in x + y * z)  # 7
-print(let t: (Int, String) = (4, "four") in t)
-```
-
-Like a lambda, the body takes everything to its right that one
-expression can hold, so parentheses end it: `1 + (let x = 10 in x) * 2`
-is 21. A name a `let` binds starts with a lowercase letter, may not
-shadow a `var`, and may not be bound twice in one target.
-
-### Static overloading — Pyking extension
-
-Two definitions may share a base name if a **qualifier** tells them
-apart:
-
-```pyking
-def int::twice(x: Int) -> Int: x * 2
-def string::twice(x: String) -> String: x + x
-
-print(twice(21), twice("ab"))       # 42 abab
-print(int::twice(3))                # 6
-```
-
-`int` and `float` are not special: the qualifier is part of the name and
-nothing else, and `wow::twice` works exactly as well. What it does is
-make the names unique, so both definitions may be written in one block.
-
-A call may write the whole name or leave the qualifier out. Leaving it
-out is resolved by the **arguments**: the one definition whose
-parameters they fit is the one meant. Nothing else takes part — not the
-result type, and not what the call is used for.
-
-```pyking
-def a::join(x: Int, y: Int) -> Int: x + y
-def b::join(x: String, y: String) -> String: x + y
-
-print(join(2, 3), join("hi", "!"))  # 5 hi!
-```
-
-Three rules follow, and each is refused where it is written:
-
-- **A `::` name belongs to a `def` that takes at least one argument.**
-  A binding, a `var`, a parameter, a loop variable, a pattern capture,
-  a module name and an import alias may not carry one, and neither may
-  a `def` with no parameters — there would be nothing to resolve it by.
-- **A plain definition is not a member of any set.** If a block binds
-  `twice` with no qualifier, `twice(...)` means that one and is a type
-  error if it does not fit.
-- **A builtin's name is never part of a set.** `string(1)` is the builtin
-  whatever `q::string` definitions are in scope. The exceptions are the
-  collection builtins, which *are* sets: `array` (`list::array`,
-  `fill::array`, and a conversion per collection, `dynarray::array`,
-  ...), `array_init`, `dynarray`, `mutmap` and `map` (see "Making and
-  converting collections"), and the ones written in lib/prelude,
-  `fmap`, `filter`, `foldl`, `foldr`, `any`, `all`, `list`, `list_init`,
-  `dynarray_init`, `map_init` and `mutmap_init` (see "fmap and the
-  folds"), whose members a module calling one has under their `::`
-  names. Members of one arity are told apart by their arguments' types.
-
-Resolution needs the argument types to be decided. Inside a function
-whose parameter could be anything, they are not, and the call is
-refused with the way out named:
-
-```pyking
-# def both(x): (twice(x), twice(x))
-#   -- error: nothing here decides which 'twice' is meant. Annotate it,
-#      or take the definition as an implicit parameter
-```
-
-Two definitions that both fit is an error too. There is no ordering
-between them: write the one that is meant. Where a lambda is among the
-arguments, its body may decide: `list.sort_on(lam p. p.age, people)`
-fits every key type until the body says it gives an Int, so a
-definition the lambda's body does not check against is set aside.
-
-**A default parameter counts.** It lets a definition take fewer
-arguments, so it is part of what says whether a call could mean that
-definition — and two definitions taking one call, where one of them
-needs a default, is refused:
-
-```pyking
-def b::my2(x: Bool, y: Int) -> Int: y + 100
-def c::my2(x: Bool, y: Int, z: Int = 1000) -> Int: y + z
-
-# print(my2(true, 1))
-#   -- error: 'b::my2' takes them as written and 'c::my2' takes them
-#      with its default for 'z'
-```
-
-Where only one definition can take the call that way, it is the one
-meant and its default is used. A **named argument** may not be written
-on an overloaded call at all: putting one in its parameter's place
-needs to know which definition is meant, which the arguments have not
-said yet.
-
-### Implicits — Pyking extension
-
-A parameter written `implicit` may be left out at a call, and is filled
-from the calling context by **name** and by **type**:
-
-```pyking
-def foo(x: a, implicit bar: (a) -> b) -> (b, b):
-    (bar(x), bar(x))
-
-def my1() -> ():
-    implicit def bar(z: Int) -> String: string(z) + "!"
-    print(foo(78))                  # ("78!", "78!")
-
-def my2() -> ():
-    implicit def bar(z: String) -> String: z + "!"
-    print(foo("hi"))                # ("hi!", "hi!")
-```
-
-`foo` is written once and means two things, because the implicit `bar`
-it asks for is a different definition in each scope. The name matters:
-`implicit bar` asks for something *called* `bar`, so the parameter's
-name is part of `foo`'s type —
-
-```
-foo : (a, implicit bar: (a) -> b) -> (b, b)
-```
-
-— and that is what `-t pyking` prints and what a written annotation has
-to say.
-
-**Only an `implicit` definition is ever resolved to.** A binding of the
-right name and the right type that was not written `implicit` is
-invisible to the search:
-
-```pyking error
-def my3() -> ():
-    def bar(z: Int) -> String: string(z)
-    print(foo(1))       # error: there is a 'bar', but it is not
-                        #        declared 'implicit'
-```
-
-`implicit` goes in front of a `def` or an `=` binding of one name, and
-in front of `def` it follows `public`. Any value may be implicit, not
-only a function:
-
-```pyking
-implicit width = 4
-
-def pad(text: String, implicit width: Int) -> String:
-    loop out = text while len(out) < width:
-        out + "."
-
-print(pad("a"))         # a...
-print(pad("a", 8))      # a....... -- written out, which always works
-```
-
-Implicit parameters come after every ordinary one, each needs its type
-written, and none may have a default value: an omitted implicit
-argument is resolved rather than defaulted. A call writes out every
-implicit argument or none of them, by position or by the parameter's
-name (`pad("a", width = 8)`).
-
-**A definition with implicit parameters, or one that is itself
-implicit, writes its whole type down** — resolving is a question about
-types, so there has to be a type to ask it of.
-
-**An implicit obligation does not cross a `def`.** If a body calls
-something whose type carries an implicit `bar` and that body has no
-implicit `bar` in scope, it is an error there, and the fix is to write
-`implicit bar` among its own parameters. What the body's *caller* has
-in scope does not reach inside it.
-
-What does work — and is why the parameter is part of the type — is
-passing such a function as a value and calling it elsewhere. The
-resolution happens where the **call** is written:
-
-```pyking norun
-def apply_twice(f: (Int, implicit bar: (Int) -> String) -> (String, String),
-                n: Int) -> (String, String):
-    implicit def bar(z: Int) -> String: string(z * 2)
-    f(n)
-
-print(apply_twice(foo, 5))          # ("10", "10")
-```
-
-An implicit may be resolved to a definition that takes implicits of its
-own, and those are discharged in turn, in the scope of the call. A
-chain that does not stop is cut at a fixed depth and reported.
-
-**A function carrying an implicit parameter may be passed where an
-ordinary function is wanted**, and its implicit is then resolved where
-it is *passed*:
-
-```pyking
-implicit my = 10
-
-def bar(a, f):                  # `f` is an ordinary (Int) -> a here:
-    f(a + 1)                    # a body cannot discover an implicit
-
-def foo(x: Int, implicit my: Int) -> Int: x + my
-
-print(bar(7, foo))              # 18 -- foo's `my` is the 10 above
-```
-
-Writing the implicit into `f`'s own type says the other thing: resolve
-it in `bar`'s body, against whatever is in scope there.
-
-```pyking
-def bar(a, f: (Int, implicit my: Int) -> Int):
-    implicit my = 7
-    f(a + 1)                    # 15
-```
-
-That is the whole of what the annotation decides, and it is why an
-implicit parameter is part of a function's type.
-
-The adaptation goes both ways, so the annotated `f` above still accepts
-a function that asks for nothing — `bar(2, lam x. x + 1)` works, and the
-lambda simply never sees the implicit. A function that needs less
-stands wherever one that needs more is wanted.
-
-The two features meet: an implicit definition may be overloaded, and
-the search considers every qualifier.
-
-```pyking
-implicit def int::leq(x: Int, y: Int) -> Bool: x <= y
-implicit def float::leq(x: Float, y: Float) -> Bool: x <= y
-
-implicit def list::leq(xs: [a], ys: [a],
-                       implicit leq: (a, a) -> Bool) -> Bool:
-    match (xs, ys):
-        case ([x] + xrest, [y] + yrest):
-            if leq(x, y):
-                list::leq(xrest, yrest)
-            else:
-                false
-        case ([], []): true
-        case (_, _): false
-
-print(leq(88, 100), leq(79.12, 18.2), leq([171, 10], [188]))
-# true false false
-```
-
-### `match`/`case` pattern matching
-
-`match expr:` is followed by one or more indented `case pattern:` clauses;
-the body of the first case whose pattern matches runs. A pattern is an
-integer literal, a string literal, a boolean literal, `_` (always
-matches, discards the value), a plain identifier (always matches, binds
-the value to that name), or a tuple pattern that destructures a tuple
-value element by element (with or without parentheses, nesting
-arbitrarily, and sub-patterns can themselves be literals, `_`,
-identifiers, or further tuple patterns) — see the grammar notes above,
-and the sections below for constructor patterns, or-patterns, `as` and
-guards. A `match` matches every value of its subject's type, which is
-why `describe` ends in a case that binds a name (see "Exhaustiveness").
-
-```python
-def describe(n):
-    match n:
-        case 0:
-            return "zero"
-        case 1:
-            return "one"
-        case value:
-            return "many: " + string(value)
-
-
-for i in [0, 1, 5]:
-    print(describe(i))
-```
-
-A boolean pattern matches only that exact value, the same way an integer
-or string literal pattern does:
-
-```pyking
-def describe(flag):
-    match flag:
-        case true: "yes"
-        case false: "no"
-
-
-print(describe(1 < 2), describe(3 < 2))
-```
-
-```python
-def classify_point(p):
-    match p:
-        case (0, 0):
-            return "origin"
-        case (x, 0):
-            return "on the x axis"
-        case (0, y):
-            return "on the y axis"
-        case (x, y):
-            return "elsewhere"
-
-
-print(classify_point((0, 0)))
-print(classify_point((3, 0)))
-print(classify_point((0, 3)))
-print(classify_point((3, 4)))
-```
-
-A list pattern destructures a list value, and — unlike a tuple pattern —
-may include **one** `..`/`..name` "rest" marker anywhere among its
-elements, matching a run of zero or more elements there: `..` matches and
-discards them, `..name` matches and binds them (as a list) to `name`.
-Patterns before the marker are a required prefix, patterns after it are
-a required suffix, and with no marker at all the list pattern matches
-only a list of exactly that length. A plain `_` still matches (and
-discards) a single element, exactly as in a tuple pattern.
-
-```python
-def describe(xs):
-    match xs:
-        case []:
-            return "empty"
-        case [x]:
-            return "exactly one: " + string(x)
-        case [a, b, c]:
-            return "exactly three"
-        case [first, ..rest]:
-            return "prefix + rest, first=" + string(first)
-
-
-print(describe([]))
-print(describe([1]))
-print(describe([1, 2, 3]))
-```
-
-A case that no value can reach -- every value it matches is taken by a
-case above it -- is refused, so after `[first, ..rest]`, which takes
-every list of one element or more, nothing more may be written. The
-other forms, `[..init, last]`, `[p, q, ..mid, r]`, `[u, v, ..]` and
-`[_, ..w]`, are each shown in a function of their own in
-`tests/list_pattern_match.pyk`.
-
-**Splitting with `+`.** A pattern may be written as pieces joined with
-`+`, the concatenation operator read backwards: a pattern says how the
-value was put together. Every piece but one has a fixed length, and the
-one name in the middle takes whatever is left:
-
-```pyking norun
-[x] + xs               is  [x, ..xs]
-first + [x, y, z]      is  [..first, x, y, z]
-[x, y] + m + [k1, k2]  is  [x, y, ..m, k1, k2]
-```
-
-For a list the two spellings are the same pattern, and the printed
-program uses the `..` one whichever was written. For a **string** this is the only
-spelling, and the only way to match a string by anything but equality:
-
-```pyking
-def command(line:String) -> String:
-    match line:
-        case "get " + rest:
-            return "GET(" + rest + ")"
-        case "<" + body + ">":
-            return body
-        case other:
-            return "?" + other
-```
-
-Only *literal* text can be stripped this way. `_ + rest` leaves two
-parts open and is refused, and so is a chain mixing a list with a
-string, or one whose pieces are not all of fixed length (`[x, ..r] + ys`
-would need two rest markers).
-
-A `case` clause opens a block like any other header, so an arm whose
-body is one expression can be written on the clause's own line (see "A
-block on its header's own line" below). The arm then supplies its value
-the way any branch tail does: it is the function's value directly inside
-a function, and the bound value when the whole `match` is bound with `=`
-(see "`if`/`match` statements as bound values" below). Arms written each
-way mix freely within one `match`.
-
-```pyking
-def describe(n):
-    match n:
-        case 0: "zero"
-        case 1: "one"
-        case _: "many"
-
-
-for i in [0, 1, 5]:
-    print(describe(i))
-```
-
-### Or-patterns, `as` and guards
-
-`p1 | p2` matches what either alternative matches. The alternatives
-bind the same names, at the same types, so the arm after it sees one set
-of bindings whichever matched:
-
-```pyking
-def on_axis(p: (Int, Int)) -> String:
-    match p:
-        case (0, 0): "origin"
-        case (x, 0) | (0, x): "on an axis at " + string(x)
-        case _: "elsewhere"
-
-
-print(on_axis((3, 0)), on_axis((0, -4)), on_axis((1, 1)))
-```
-
-`pattern as name` binds the whole value the pattern matched, beside
-what the pattern takes apart:
-
-```pyking
-match (1, (2, 3)):
-    case (x, (y, z) as inner):
-        print(x, y, z, inner)
-```
-
-A **guard**, `case pattern if condition:`, is asked once the pattern has
-matched, with what the pattern bound in scope. A guard that is false
-goes on to the next case, as a pattern that does not match does. The
-guard is a `Bool`:
-
-```pyking
-def sign(n: Int) -> String:
-    match n:
-        case 0: "zero"
-        case m if m > 0: "positive"
-        case _: "negative"
-
-
-print(sign(5), sign(0), sign(-5))
-```
-
-Guards are asked in order, and only as far as the first that holds, so
-one that calls a function calls it only when every case above it was
-passed over.
+## Datatypes, structs and pattern matching
+
+> **Available:** in every module (`mutable struct` with `use mutation`) ·
+> **Compared with Python:** `match` is Python's; datatypes and structs are
+> new in Pyking
+
+A datatype lists the shapes a value may have, each a constructor with
+fields; a struct is a datatype with one constructor. `match` takes a
+value apart by its shape, and the checker makes sure every shape is
+handled. `Option` and `Result` are datatypes of the standard library,
+used where Python would use `None` or an exception.
 
 ### Datatypes — Pyking extension
 
@@ -4392,123 +3626,265 @@ field, and in a call to a `def`, which has no fields to fill. Where the
 datatype has parameters, the fields written may change them:
 `Pair(first = true, ..Pair(1, "one"))` is a `Pair(Bool, String)`.
 
-### Mutable structs (`mutable struct`) — Pyking extension
+### `match`/`case` pattern matching
 
-A **`mutable struct`** is a struct whose fields are written in place. Its
-values are *shared*: every name, parameter, element and field holding
-one holds the same struct, so a write through any of them is seen
-through all -- Java's objects and Python's class instances work this
-way. A plain `struct` stays a value that never changes. Declaring,
-making and writing a `mutable struct` need `use mutation`; reading, passing,
-returning and holding one do not.
+`match expr:` is followed by one or more indented `case pattern:` clauses;
+the body of the first case whose pattern matches runs. A pattern is an
+integer literal, a string literal, a boolean literal, `_` (always
+matches, discards the value), a plain identifier (always matches, binds
+the value to that name), or a tuple pattern that destructures a tuple
+value element by element (with or without parentheses, nesting
+arbitrarily, and sub-patterns can themselves be literals, `_`,
+identifiers, or further tuple patterns) — see the notes on the Grammar,
+and the sections below for constructor patterns, or-patterns, `as` and
+guards. A `match` matches every value of its subject's type, which is
+why `describe` ends in a case that binds a name (see "Exhaustiveness").
 
-```pyking
-use mutation
+```python
+def describe(n):
+    match n:
+        case 0:
+            return "zero"
+        case 1:
+            return "one"
+        case value:
+            return "many: " + string(value)
 
-mutable struct Point(x: Int, y: Int = 0)
 
-p = Point(5)
-p.x := 10
-p.y += 1
-q = p
-q.x *= 3
-print(p, same(p, q))        # Point(30, 1) true
+for i in [0, 1, 5]:
+    print(describe(i))
 ```
 
-**Declaring one.** `mutable` goes in front of `struct`, and makes every
-field writable. `mutable` is a keyword, and the old spelling, `var
-struct`, is refused with a hint; the rest is as "Structs" says -- fields in parentheses
-or on indented lines, defaults, type parameters, `public`. A `mutable
-struct` has at least one field, since one with none has nothing to
-write. Only a struct is written in place: `mutable datatype` is refused, and
-a datatype's or a plain struct's field is never written.
-
-**Writing a field.** `p.x := e` writes the field `x` of the struct `p`
-holds, and the compound forms (`p.x += 1`, every one "Mutable variables"
-lists) read it and write it back. The left side is any expression
-giving a `mutable struct`, followed by a field: `points[i].x := 0`,
-`player().score += 1`, `box.inner.y := 8` -- the last needs `inner` to
-be a `mutable struct` too.
-
-- **`var` is for rebinding, not for writing.** `p = Point(1, 2)` binds
-  `p` once, and `p.x := 3` still writes the struct: whether a field may
-  be written is its type's question, as an array's element is. A
-  function's parameter, never a `var`, writes the struct it was given.
-  `var p = ...` is what lets `p := Point(0, 0)` make `p` name another
-  struct.
-- **A write runs in a fixed order.** `p.x := e` works out `p`, then
-  `e`, and writes into the struct `p` was, even if `e` made `p` name
-  another one. A compound form reads the field between the two.
-- **`=` does not write.** `p.x = 1` is refused with "did you mean `p.x
-  := v`?". Writing a plain struct's field is refused with how to build a
-  changed copy, `Point(x = ..., ..old)`, or to declare it `mutable struct`.
-
-**Making one.** A `mutable struct`'s constructor is called as any struct's,
-with defaults and named arguments, and makes a new, separate struct
-each time. `Point(x = 1, ..p)` makes a new struct too: `p` is not
-changed, and a mutable field the two would hold -- an array, another
-`mutable struct` -- is shared by both. Making one needs `use mutation` in
-the module that makes it, wherever it was declared; a module without it
-may still hold, read and pass on one another module made.
-
-**Reading one.** `p.x` reads the field as it is now, and a pattern
-`case Point(x, y):` reads every field it names as the struct is when it
-is matched; a guard that writes a field is seen by the cases after it.
-
-**Identity.** `same(p, q)` asks whether two names hold one struct, as it
-does for arrays. `==` compares no structs: whether two hold the same
-fields is a function the program writes.
+A boolean pattern matches only that exact value, the same way an integer
+or string literal pattern does:
 
 ```pyking
-use mutation
+def describe(flag):
+    match flag:
+        case true: "yes"
+        case false: "no"
 
-mutable struct Counter(n: Int)
 
-def bump(c: Counter) -> ():
-    c.n += 1
-
-a = Counter(0)
-b = a
-bump(b)
-print(a.n, same(a, b), same(a, Counter(1)))     # 1 true false
+print(describe(1 < 2), describe(3 < 2))
 ```
 
-**Linked structures.** A `mutable struct` may hold a value of its own type,
-through a datatype that can also hold nothing -- there is no null --
-which is how linked lists, trees and graphs are built, cycles and all:
+```python
+def classify_point(p):
+    match p:
+        case (0, 0):
+            return "origin"
+        case (x, 0):
+            return "on the x axis"
+        case (0, y):
+            return "on the y axis"
+        case (x, y):
+            return "elsewhere"
+
+
+print(classify_point((0, 0)))
+print(classify_point((3, 0)))
+print(classify_point((0, 3)))
+print(classify_point((3, 4)))
+```
+
+A list pattern destructures a list value, and — unlike a tuple pattern —
+may include **one** `..`/`..name` "rest" marker anywhere among its
+elements, matching a run of zero or more elements there: `..` matches and
+discards them, `..name` matches and binds them (as a list) to `name`.
+Patterns before the marker are a required prefix, patterns after it are
+a required suffix, and with no marker at all the list pattern matches
+only a list of exactly that length. A plain `_` still matches (and
+discards) a single element, exactly as in a tuple pattern.
+
+```python
+def describe(xs):
+    match xs:
+        case []:
+            return "empty"
+        case [x]:
+            return "exactly one: " + string(x)
+        case [a, b, c]:
+            return "exactly three"
+        case [first, ..rest]:
+            return "prefix + rest, first=" + string(first)
+
+
+print(describe([]))
+print(describe([1]))
+print(describe([1, 2, 3]))
+```
+
+A case that no value can reach -- every value it matches is taken by a
+case above it -- is refused, so after `[first, ..rest]`, which takes
+every list of one element or more, nothing more may be written. The
+other forms, `[..init, last]`, `[p, q, ..mid, r]`, `[u, v, ..]` and
+`[_, ..w]`, are each shown in a function of their own in
+`tests/list_pattern_match.pyk`.
+
+**Splitting with `+`.** A pattern may be written as pieces joined with
+`+`, the concatenation operator read backwards: a pattern says how the
+value was put together. Every piece but one has a fixed length, and the
+one name in the middle takes whatever is left:
+
+```pyking norun
+[x] + xs               is  [x, ..xs]
+first + [x, y, z]      is  [..first, x, y, z]
+[x, y] + m + [k1, k2]  is  [x, y, ..m, k1, k2]
+```
+
+For a list the two spellings are the same pattern, and the printed
+program uses the `..` one whichever was written. For a **string** this is the only
+spelling, and the only way to match a string by anything but equality:
 
 ```pyking
-use mutation
-
-datatype Link:
-    End
-    Next(node: Node)
-
-mutable struct Node(value: Int, next: Link)
-
-a = Node(1, End)
-b = Node(2, Next(a))
-a.next := Next(b)
-print(a)        # Node(1, Next(Node(2, Next(...))))
+def command(line:String) -> String:
+    match line:
+        case "get " + rest:
+            return "GET(" + rest + ")"
+        case "<" + body + ">":
+            return body
+        case other:
+            return "?" + other
 ```
 
-**Printing** is as for a struct, `Point(30, 1)`. A struct -- or an
-array -- met again *inside itself*, a cycle, prints `...` where it
-repeats, so printing always ends; one that is only shared, the same
-struct twice in an array, prints in full each time. `string(p)`, the
-REPL and the debugger show the same text. `print(p, f(p))` works out
-every argument before it writes any, so a change `f` makes to `p` is
-printed.
+Only *literal* text can be stripped this way. `_ + rest` leaves two
+parts open and is refused, and so is a chain mixing a list with a
+string, or one whose pieces are not all of fixed length (`[x, ..r] + ys`
+would need two rest markers).
 
-**Types.** A `mutable struct` with a type parameter, `mutable struct Cell(value:
-a)`, is one type once made: the first use that decides its parameter
-decides it everywhere. One that nothing decides, `c = Cell([])`, is
-`Cell([a])`, as an empty array is `Array(a)`.
+A `case` clause opens a block like any other header, so an arm whose
+body is one expression can be written on the clause's own line (see "A
+block on its header's own line" in the Grammar). The arm then supplies its value
+the way any branch tail does: it is the function's value directly inside
+a function, and the bound value when the whole `match` is bound with `=`
+(see "`if`/`match` statements as bound values"). Arms written each
+way mix freely within one `match`.
 
-**Targets.** Every target compiles them: a class with fields that can be
-written on Python and JavaScript, a final class on Java, a record with
-`mutable` fields on OCaml, and on C a pointer to a struct, which plain C
-mallocs and never frees and `c23-gc` takes from the collector.
+```pyking
+def describe(n):
+    match n:
+        case 0: "zero"
+        case 1: "one"
+        case _: "many"
+
+
+for i in [0, 1, 5]:
+    print(describe(i))
+```
+
+### Or-patterns, `as` and guards
+
+`p1 | p2` matches what either alternative matches. The alternatives
+bind the same names, at the same types, so the arm after it sees one set
+of bindings whichever matched:
+
+```pyking
+def on_axis(p: (Int, Int)) -> String:
+    match p:
+        case (0, 0): "origin"
+        case (x, 0) | (0, x): "on an axis at " + string(x)
+        case _: "elsewhere"
+
+
+print(on_axis((3, 0)), on_axis((0, -4)), on_axis((1, 1)))
+```
+
+`pattern as name` binds the whole value the pattern matched, beside
+what the pattern takes apart:
+
+```pyking
+match (1, (2, 3)):
+    case (x, (y, z) as inner):
+        print(x, y, z, inner)
+```
+
+A **guard**, `case pattern if condition:`, is asked once the pattern has
+matched, with what the pattern bound in scope. A guard that is false
+goes on to the next case, as a pattern that does not match does. The
+guard is a `Bool`:
+
+```pyking
+def sign(n: Int) -> String:
+    match n:
+        case 0: "zero"
+        case m if m > 0: "positive"
+        case _: "negative"
+
+
+print(sign(5), sign(0), sign(-5))
+```
+
+Guards are asked in order, and only as far as the first that holds, so
+one that calls a function calls it only when every case above it was
+passed over.
+
+### Option — Pyking extension
+
+`Option(a)` is a value or none: `Some(value)` or `None`. It is builtin
+in the way a library is: a module that uses `Option`, `Some` or `None`,
+and declares and imports none of them, has lib/option's -- as if it
+began `from option import Option` -- and `import option` reaches its
+functions, named as Rust's are: `is_some`, `is_none`, `unwrap_or`,
+`unwrap_or_else`, `and_then`, `or_else`, `zip`, `flatten`, `unwrap`,
+`expect`, `all_some` and `values`. `fmap`, `filter`, the folds and
+`list(o)` take an Option too (see "fmap and the folds").
+
+```pyking
+import option
+
+def first_even(xs: [Int]) -> Option(Int):
+    match xs:
+        case []: None
+        case [x, ..rest]: if x % 2 == 0 then Some(x) else first_even(rest)
+
+print(first_even([1, 4, 5]), first_even([1]), option.unwrap_or(first_even([3]), 0))
+# Some(4) None 0
+```
+
+A module declaring a datatype `Option`, or one with a constructor `Some`
+or `None`, means its own, as programs written before Option was builtin
+do. A pointer that may point nowhere is an `Option(Ptr(T))` (see
+"Pointers"): Pyking has no null.
+
+`option.or_else(o, f)` takes a function answering an Option, as Rust's
+does; until November 2026 it took the default value, which is now
+`option.unwrap_or(o, value)`, and an old call is refused with that
+named.
+
+### Result — Pyking extension
+
+`Result(t, e)` is a value or the error that stopped it: `Ok(value)` or
+`Error(error)`, as Rust's is, with `Error` for Rust's `Err`. It is
+builtin as Option is: a module that uses `Result`, `Ok` or `Error`, and
+declares and imports none of them, has lib/result's, and `import
+result` reaches its functions.
+
+```pyking
+import result
+
+def parse_age(s: String) -> Result(Int, String):
+    n = int(s)
+    if string(n) == s and n >= 0 then Ok(n) else Error("not an age: " + s)
+
+print(parse_age("31"), parse_age("x"), fmap(lam n. n + 1, parse_age("31")))
+print(result.unwrap_or(parse_age("x"), 0), result.and_then(parse_age("31"), lam n. if n < 150 then Ok(n) else Error("too old")))
+# Ok(31) Error("not an age: x") Ok(32)
+# 0 Ok(31)
+```
+
+lib/result has `is_ok`, `is_error`, `ok`, `error`, `unwrap_or`,
+`unwrap_or_else`, `and_then` (the next step, which stops at the first
+error), `or_else`, `map_error`, `unwrap`, `expect`, `unwrap_error`,
+`flatten`, `all_ok`, `partition_results`, and `ok_or`, which makes an
+Option a Result. `unwrap` of an `Error` stops the program with a runtime
+error, as `panic` does. A module declaring its own `Result`, `Ok` or
+`Error` means its own.
+
+## Objects
+
+> **Available:** with `use objects` · **Compared with Python:** differs --
+> Java's semantics (single inheritance, interfaces, dynamic dispatch) in
+> Python's spelling
 
 ### Classes and interfaces — Pyking extension
 
@@ -4677,449 +4053,11 @@ type, and OCaml cannot write a generic class whose method gives the class
 at other type arguments than its own (`swap` answering `Pair(b, a)`):
 both are refused with a message saying so.
 
-### `if`/`match` statements as bound values
+## Types and type inference
 
-An `=` binding may take a block-form `if` or `match` on its right-hand
-side instead of an expression. The construct stays a statement — it is
-written and indented exactly as it would be on its own — but the branch
-that runs supplies the bound value, which is its **last expression**.
-Python has no statement that evaluates to a value, so the examples in
-this section are Pyking source, not valid Python.
+> **Available:** in every module · **Compared with Python:** differs --
+> every program is type-checked before it runs
 
-```pyking
-y = 3
-my = 2
-
-x = if 7 > my:
-    78 + y
-else:
-    tt = 5 + y
-    tt + 8
-
-print(x)
-```
-
-Only the *last* statement of a branch is its value; everything before it
-is an ordinary statement run for its effect, as `tt = 5 + y` is above. A
-branch may equally print, or update an enclosing `var` — nothing is
-hidden inside a new scope, because the compiled Python is the very same
-`if` statement with each branch's final expression assigned to `x`:
-
-```python
-if 7 > my:
-    x = 78 + y
-else:
-    tt = 5 + y
-    x = tt + 8
-```
-
-A bound `if` must have an `else` (there would otherwise be no value to
-bind when no condition holds), including at the end of an `else if`
-ladder. Every branch must end in an expression; the parser rejects both
-mistakes rather than binding something undefined.
-
-`match` works the same way, with either style of `case` arm — `-> expr`
-gives the value directly, and a block arm gives its last expression:
-
-```pyking
-def describe(point):
-    text = match point:
-        case (0, 0): "origin"
-        case (0, y):
-            side = if y > 0 then "up" else "down"
-            "on the y axis, " + side
-        case (x, y): "at " + string(x) + "," + string(y)
-    return text
-
-
-print(describe((0, 0)), describe((0, 5)), describe((3, 4)))
-```
-
-The last statement of a branch may itself be a bound-value `if`/`match`
-rather than a plain expression, in which case *its* branches supply the
-value — this is also what lets an `else if` ladder be bound, a ladder
-being a nested `if` statement in the `else` branch:
-
-```pyking
-n = 7
-
-k = if n > 5:
-    match n:
-        case 7: "seven"
-        case _: "big"
-else if n > 0:
-    "small"
-else:
-    "none"
-
-print(k)
-```
-
-The value form belongs to `=` alone: `var name = ...` and `name := ...`
-still take an ordinary expression (use `=` for the value form, or an
-`if ... then ... else ...` expression). A tuple `target` destructures the
-bound value exactly as it does in a plain binding.
-
-Finally, the bound value may begin on the line *after* the `=`, indented
-one level — which reads better when a `match` subject or `if` condition
-would otherwise crowd the binding, and is the only way to keep a long
-header off the `=` line. The indented block holds exactly one value:
-
-```pyking
-y = 2
-
-z =
-    match y:
-        case 2: "hi"
-        case xx: string(xx)
-
-print(z)
-```
-
-This is just a layout choice, not a different construct: it applies to
-any bound value (an ordinary expression, and `var`/`:=` too), and both
-pretty-printers print it back on the `=` line, since the two spellings
-produce the identical AST.
-
-### Expression statements
-
-Any expression, most commonly a function call, may be used directly as a
-statement. Its value is discarded — *unless* the statement is in **tail
-position**, where it becomes the enclosing function's return value (see
-"Tail position" below).
-
-```python
-print("hello, pyking")
-```
-
-### Tail position
-
-A function body's **last statement is in tail position**, and whatever
-value it produces is the function's result — there is no need to write
-`return` for it. The rule is recursive, so it reaches through branches
-rather than only the outermost statement:
-
-| last statement | the function's value |
-|---|---|
-| an expression | that expression |
-| an `if`/`else` | each branch's own tail, recursively |
-| a `match` | each `case` arm's own tail, recursively |
-| a `loop` | the accumulator it stopped with |
-| an explicit `return` | what it returns |
-| anything else (`for`, `while`, `=`, `var`, `:=`) | unit, `()` |
-
-```pyking
-def add(x, y):
-    x + y
-
-
-def pick(x, y, z):
-    if z > 5:
-        x + y
-    else:
-        2 * x
-
-
-def name_of(n):
-    match n:
-        case 0: "zero"
-        case _:
-            "many"
-
-
-print(add(1, 2), pick(2, 3, 9), name_of(0))
-```
-
-Because the rule recurses, an `if` nested inside a `match` nested inside
-an `if` needs nothing special: every branch of every level is itself in
-tail position. An `else if` ladder works for the same reason — a ladder
-*is* a nested `if` in the else branch (see "`if`/`else` statements").
-
-Only the **last** statement is in tail position. An `if` with something
-after it is an ordinary statement run for its effect -- its branches
-need not even agree on a type (see "Type checking") -- and the trailing
-expression is the value:
-
-```pyking
-use mutation
-
-def not_last(n):
-    var acc = 0
-    if n > 0:
-        acc := 1
-    else:
-        acc := 2
-    acc + 10
-
-
-print(not_last(1))
-```
-
-A branch that produces no value simply does not return one, and the
-function yields unit for that path — an `if` with no `else`, or a body
-ending in a `for` or `while` that carries no accumulator:
-
-```pyking
-def only_then(n):
-    if n > 0:
-        "positive"
-
-
-print(only_then(1), only_then(-1))
-```
-
-### Tail calls
-
-A call in tail position is one nothing is waiting for: its answer is the
-answer. So a function that calls *itself* in tail position is a loop
-written as a recursion, and Pyking runs it as one -- the compiler
-rewrites it into a `loop` carrying the parameters. A tail-recursive
-function therefore runs in constant space on every target and in the
-interpreter, however deep it goes:
-
-```pyking
-def climb(x):
-    if x >= 20000:
-        1000 + x
-    else:
-        climb(x + 1)       # a tail call: nothing waits for it
-
-
-print(climb(0))            # 21000, in one frame
-```
-
-Functions that tail-call *each other* get the same treatment: the group
-becomes one loop they share, as wide as its widest member. Nothing about
-this changes what a program means -- only how much room it needs to
-run -- and `pyk --no-tail-call-opt` turns it off, which is worth doing
-only to read a program back as it was written.
-
-The rewrite applies to programs the **type checker accepts**: what a
-group can share, and what a slot one member has no argument for is
-entered with, are questions about types. A program outside that fragment
-(see "Type checking") is compiled as written and recurses as any other
-language would. What counts as a tail call, what is left alone and why,
-are in [docs/optimization.md](docs/optimization.md).
-
-A call that is *not* in tail position is an ordinary recursion and stays
-one: in `n * factorial(n - 1)` the multiplication is still waiting, so
-there is nothing to turn into a loop.
-
-### `return` with an `if`/`match`
-
-`return` also accepts a value-form `if`/`match` directly, so each
-branch's tail expression becomes the returned value. This says
-explicitly what tail position says implicitly — and, unlike the implicit
-rule, it works *before* the end of a body:
-
-```pyking
-def sign(x):
-    return if x < 0:
-        "negative"
-    else:
-        "not negative"
-
-
-def classify(n):
-    return match n:
-        case 0: "zero"
-        case _: "many"
-
-
-print(sign(-2), classify(0))
-```
-
-The same two rules a value-form binding obeys apply here: a `return if`
-must have its `else`, and every branch must end in an expression — there
-would otherwise be a path with nothing to return.
-
-### Indentation-based blocks
-
-Blocks are delimited purely by indentation, in 4-space increments — there
-are no `{ }` or `begin`/`end` keywords. Increasing the indentation opens a
-nested block (after a line ending in `:`); returning to a shallower
-indentation closes it, and a single line may close several nested blocks
-at once.
-
-```python
-def bucket(x):
-    for limit in range(3):
-        if x < limit:
-            return limit
-    return 3
-
-
-print(bucket(0), bucket(5))
-```
-
-A non-breaking space (U+00A0) is a space wherever a space may stand:
-in indentation, where it counts as one space, and between the words
-of a line. Code copied out of a PDF, a slide or a web page often has
-them in place of ordinary spaces, and it runs as it looks. Inside a
-string or a comment one is kept as written. A tab is not a space. `pyk highlight`, and the
-playground's Copy for slides, write indentation with them for this
-reason (see the documentation's "Code on slides" page,
-`sitesrc/documentation/slides.md`).
-
-### Lines and continuation
-
-A statement ends where the tokens stop being able to continue it, and
-each line's leading whitespace is what opens and closes blocks — but
-**not while a bracket is open**. Inside an unclosed `(` or `[` the
-indentation rules are suspended entirely, so a parameter list, a call's
-arguments, a list literal, a comprehension and a tuple may each span
-several lines:
-
-```pyking
-def window(
-        start: Int,
-        size: Int,
-        step: Int) -> Int:
-    return start + (size * step)
-
-
-numbers = [
-    1,
-    2,
-    3,
-    4]
-
-print(window(
-    1,
-    2,
-    3))
-```
-
-The continuation lines are part of the same statement, and their own
-indentation means nothing at all — it is there for the reader. Nesting
-one bracket inside another keeps the line open until the outermost one
-closes. Outside brackets, indentation means exactly what it did.
-
-There is no backslash continuation: a line is continued by an open
-bracket or not at all.
-
-### A block on its header's own line
-
-Any header ending in `:` may carry its block on that same line instead
-of indenting it, provided what it carries is **one expression**. Python
-allows something similar but wider — any *simple* statement, and `;` to
-write several; Pyking's line holds a value and nothing else.
-
-```pyking
-def square(x): x * x
-def twice(x): x + x
-
-if square(3) > 5: print("big")
-else: print("small")
-
-for i in range(3): print(i)
-```
-
-**It is the same program either way.** `def square(x): x * x` parses to
-exactly what
-
-```pyking
-def square(x):
-    x * x
-```
-
-parses to — one block, one statement — so nothing after the parser can
-tell which was written, and the pretty-printer prints both indented. The
-form is a layout, not a second kind of definition: what the body means,
-where its names come from, whether its last expression is in tail
-position (it is) are all unchanged.
-
-It works for every header, because the rule belongs to the *block*:
-`def`, `if` and its `else`, `for`, `while`, `loop`, and a `case` clause.
-
-```pyking
-def name_of(n):
-    match n:
-        case 0: "zero"
-        case 1: "one"
-        case _: "many"
-
-
-print(name_of(0), name_of(7))
-```
-
-A `match`'s clause list is the one thing that looks like a block and is
-not one: `match e:` opens a list of `case` clauses rather than a list of
-statements, and a clause is not an expression, so there is nothing its
-line could carry. The clauses are always indented under it.
-
-#### What may be written there
-
-An **expression**, and only an expression. A `return`, an `=` binding, a
-`:=` mutation, or a nested header is not one, and is refused where it
-stands:
-
-```
-'prog.pyk' 4:14-4:22 Parsing error: a block written on its header's
-  own line must be one expression, and 'return a' is not; write it in
-  an indented block instead
-```
-
-That is the whole point of the restriction. A line ending in `:` is a
-promise that a value follows; letting a statement follow instead would
-mean control flow and new names could hide behind a `:` at the end of a
-line, and every such line would have to be read to the end to find out
-what it did. So the value-producing forms stay on one line and
-everything else goes under its header:
-
-```pyking
-def first_positive(a, b):
-    if a > 0:
-        return a
-    b
-```
-
-Note that a function ending in a value needs no `return` at all (see
-"Tail position"), so the shorthand is rarely what a one-line body wanted
-in the first place. And `if` written inline is the `if`/`then`/`else`
-*expression*, which is an expression like any other:
-
-```pyking
-def describe(n): if n < 0 then "negative" else "positive"
-```
-
-#### The line ends there
-
-An inline block is the end of its line, and two rules follow. Each is
-reported where it is written:
-
-- **Nothing may be indented under it.** The header's line already held
-  the block, so an indented line after it belongs to nothing — `if c:
-  print(1)` with a second `print` indented below is refused rather than
-  read as a two-statement body.
-- **Nothing may continue the construct on that line.** An `else`
-  belonging to the `if` starts the *next* line (see below).
-
-So an `if` and its `else` each carry their own line:
-
-```pyking
-x = 2
-
-if x > 1: print(7)
-else: print(8)
-```
-
-Written `if x > 1: print(7) else: print(8)`, one line would hold an
-`if`, its whole then-block, and the start of another block; that is the
-run-on the one-statement-per-line rule exists to prevent, and it is
-refused (`'else' must start on a new line: the block written on the
-header's own line ends that line`). The same holds for an `else if`
-rung.
-
-A second *statement* sharing the line is caught by that
-one-statement-per-line rule itself (see "Indentation-based blocks"
-above): `if c: print(1) print(2)` puts the second `print` beside the
-`if`, not inside it.
-
-A block that begins on the *next* line without being indented is neither
-form, and is the error it always was — `expected an indented block`.
-
-## Type checking
 
 **Pyking is statically typed.** Every program is checked before anything
 is printed, compiled or run — there is no flag for it and no way round
@@ -5559,99 +4497,6 @@ Nothing is taken on faith: the declared type is what the body is checked
 *against*, and a body that does not honour it is refused. The same
 applies to nested functions, per block.
 
-**Builtins.** `print`, `debug`, `range`, `string`, `len`, `int`,
-`float`, `bool`, `char` and `panic` are checked at the call, each by its own rule,
-because none of them is a function *value*: a builtin is a host operation (see "Names
-and scoping"), it has no type that can be written down, and it may be
-called and nothing else.
-
-| call | accepts | gives |
-|---|---|---|
-| `print(…)` | any number of arguments, of any type | `()` |
-| `debug(…)` | any number of arguments, of any type | `()` |
-| `string(x)` | one `Int`, `Float`, `String`, `Char`, `Bool`, list or tuple | `String` |
-| `len(x)` | one list, array, DynArray, view, Map, MutMap or `String` (counted in characters) | `Int` |
-| `panic(m)` | one `String`: stops the program with it as a runtime error | any type, since it never answers |
-| `range(n)` | one to three `Int`s | `[Int]` |
-| `int(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Int` |
-| `float(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Float` |
-| `bool(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Bool` |
-| `char(x)` | one `Int`, `String` or `Char` | `Char` |
-
-```pyking
-count = len("hello")          # Int
-label = "n = " + string(count)   # String
-numbers = range(4)            # [Int]
-ratio = float(count) / 2.0    # Float
-
-print(label, numbers, count, ratio)  # anything, any number of them
-```
-
-**Conversions.** `string`, `int`, `float`, `bool` and `char` are how a
-value of one type becomes another — Pyking converts nothing on its own.
-`string` writes a value exactly as `print` would. The other four answer
-every argument they accept, and where there is no right answer they
-answer a **default**: 0 for `int`, NaN for `float`, false for `bool`,
-`'\0'` for `char`. A Char converts to and from its code point: `int(c)`,
-`float(c)`, `char(n)`; `bool(c)` is false for `'\0'` only, and
-`char(s)` is a String's first character.
-
-- `int` truncates a Float toward zero, takes true to 1 and false to 0,
-  and reads a String written as an optional `+` or `-` and decimal digits,
-  with nothing around them — not a space, not a point, not `0x`. An
-  answer outside the signed 32-bit range, and a Float with no Int to
-  truncate to (a NaN, an infinity), is 0.
-- `float` widens an Int, takes true to 1.0 and false to 0.0, and reads a
-  String written the way a Float literal is — digits, an optional
-  fraction, an optional exponent, and an optional sign — or as `inf`,
-  `-inf` or `nan`, which is how `print` writes those. So
-  `float(string(x))` is `x`.
-- `bool` is true for `true`, the String `"true"`, the Int 1 and the Float
-  1.0, and false for anything else — `"True"` and 2 included.
-
-Each accepts its own type too, and answers it unchanged.
-
-```pyking
-print(int("42"), int("4 2"), int(-2.9), int(true))   # 42 0 -2 1
-print(float("1e3"), float("one"), float(false))       # 1000.0 nan 0.0
-print(bool("true"), bool("yes"), bool(1), bool(2.0))  # true false true false
-print(string(1.5) + "!", string([1, 2]))             # 1.5! [1, 2]
-```
-
-The defaults stand in for an answer Pyking cannot yet give. Once it has
-an **option type**, `int`, `float` and `bool` will answer either no value
-or the value converted, so a program can tell `int("0")` from
-`int("zero")`; until then it has to check the String itself.
-
-Using one as a value rather than calling it is an error — `shout = print`
-is refused — which is also what the C and Java backends do with `print`.
-
-`debug` is `print`'s twin for diagnostic output — Pyking extension. It
-takes and formats its arguments exactly as `print` does, and writes the
-line where diagnostics go rather than to the program's output, so
-tracing a program never changes what it prints. A program built in
-**release mode** has every call to `debug` removed, arguments and all,
-and `print` kept:
-
-```pyking
-def square(x: Int) -> Int:
-    debug("square of", x)       # a diagnostic line, gone in release mode
-    return x * x
-
-print(square(7))                # 49, in both modes
-```
-
-A call removed in release mode is worth the unit it always was, so a
-program means the same thing in both modes except for its diagnostics —
-and for anything an argument to `debug` would have done, which does not
-happen at all. That difference is also the reason `debug` exists beside
-`print`: writing a diagnostic is not something a program is *observed*
-to do, so `debug` will be allowed in a pure function, where `print` will
-not.
-
-A program may define a `debug` of its own, like any other name; a call to
-it is an ordinary call, and release mode leaves it alone.
-
 Anything of function type may be called, not only a `def`'s own name, so
 a parameter annotated with a function type is callable inside the body
 and higher-order functions check like anything else:
@@ -5759,7 +4604,7 @@ print(scale(6, 7))
 **A single parameter needs no parentheses**: `x -> x` and `(x) -> x` are
 one type — the `->` after the `)` is what makes the parenthesized list a
 parameter list. With no arrow after it, one type in parentheses is
-*grouping*, `(x)` being `x`, as the grammar notes above say; a
+*grouping*, `(x)` being `x`, as the notes on the Grammar say; a
 one-element tuple is `(x,)`, written with the comma the value `(1,)` is
 written with.
 
@@ -6195,6 +5040,243 @@ refused as `Construct is not supported` rather than as an unbound name,
 since the name is perfectly well bound; it is the *type* that is
 missing.
 
+## Overloading and implicits
+
+> **Available:** in every module · **Compared with Python:** new in Pyking
+
+Two features let one name stand for several functions, both settled at
+compile time: static overloading, where the types at a call pick the
+definition, and implicit parameters, which the compiler fills in from
+the definitions in scope. Both are advanced; a program need use neither.
+
+### Static overloading — Pyking extension
+
+Two definitions may share a base name if a **qualifier** tells them
+apart:
+
+```pyking
+def int::twice(x: Int) -> Int: x * 2
+def string::twice(x: String) -> String: x + x
+
+print(twice(21), twice("ab"))       # 42 abab
+print(int::twice(3))                # 6
+```
+
+`int` and `float` are not special: the qualifier is part of the name and
+nothing else, and `wow::twice` works exactly as well. What it does is
+make the names unique, so both definitions may be written in one block.
+
+A call may write the whole name or leave the qualifier out. Leaving it
+out is resolved by the **arguments**: the one definition whose
+parameters they fit is the one meant. Nothing else takes part — not the
+result type, and not what the call is used for.
+
+```pyking
+def a::join(x: Int, y: Int) -> Int: x + y
+def b::join(x: String, y: String) -> String: x + y
+
+print(join(2, 3), join("hi", "!"))  # 5 hi!
+```
+
+Three rules follow, and each is refused where it is written:
+
+- **A `::` name belongs to a `def` that takes at least one argument.**
+  A binding, a `var`, a parameter, a loop variable, a pattern capture,
+  a module name and an import alias may not carry one, and neither may
+  a `def` with no parameters — there would be nothing to resolve it by.
+- **A plain definition is not a member of any set.** If a block binds
+  `twice` with no qualifier, `twice(...)` means that one and is a type
+  error if it does not fit.
+- **A builtin's name is never part of a set.** `string(1)` is the builtin
+  whatever `q::string` definitions are in scope. The exceptions are the
+  collection builtins, which *are* sets: `array` (`list::array`,
+  `fill::array`, and a conversion per collection, `dynarray::array`,
+  ...), `array_init`, `dynarray`, `mutmap` and `map` (see "Making and
+  converting collections"), and the ones written in lib/prelude,
+  `fmap`, `filter`, `foldl`, `foldr`, `any`, `all`, `list`, `list_init`,
+  `dynarray_init`, `map_init` and `mutmap_init` (see "fmap and the
+  folds"), whose members a module calling one has under their `::`
+  names. Members of one arity are told apart by their arguments' types.
+
+Resolution needs the argument types to be decided. Inside a function
+whose parameter could be anything, they are not, and the call is
+refused with the way out named:
+
+```pyking
+# def both(x): (twice(x), twice(x))
+#   -- error: nothing here decides which 'twice' is meant. Annotate it,
+#      or take the definition as an implicit parameter
+```
+
+Two definitions that both fit is an error too. There is no ordering
+between them: write the one that is meant. Where a lambda is among the
+arguments, its body may decide: `list.sort_on(lam p. p.age, people)`
+fits every key type until the body says it gives an Int, so a
+definition the lambda's body does not check against is set aside.
+
+**A default parameter counts.** It lets a definition take fewer
+arguments, so it is part of what says whether a call could mean that
+definition — and two definitions taking one call, where one of them
+needs a default, is refused:
+
+```pyking
+def b::my2(x: Bool, y: Int) -> Int: y + 100
+def c::my2(x: Bool, y: Int, z: Int = 1000) -> Int: y + z
+
+# print(my2(true, 1))
+#   -- error: 'b::my2' takes them as written and 'c::my2' takes them
+#      with its default for 'z'
+```
+
+Where only one definition can take the call that way, it is the one
+meant and its default is used. A **named argument** may not be written
+on an overloaded call at all: putting one in its parameter's place
+needs to know which definition is meant, which the arguments have not
+said yet.
+
+### Implicits — Pyking extension
+
+A parameter written `implicit` may be left out at a call, and is filled
+from the calling context by **name** and by **type**:
+
+```pyking
+def foo(x: a, implicit bar: (a) -> b) -> (b, b):
+    (bar(x), bar(x))
+
+def my1() -> ():
+    implicit def bar(z: Int) -> String: string(z) + "!"
+    print(foo(78))                  # ("78!", "78!")
+
+def my2() -> ():
+    implicit def bar(z: String) -> String: z + "!"
+    print(foo("hi"))                # ("hi!", "hi!")
+```
+
+`foo` is written once and means two things, because the implicit `bar`
+it asks for is a different definition in each scope. The name matters:
+`implicit bar` asks for something *called* `bar`, so the parameter's
+name is part of `foo`'s type —
+
+```
+foo : (a, implicit bar: (a) -> b) -> (b, b)
+```
+
+— and that is what `-t pyking` prints and what a written annotation has
+to say.
+
+**Only an `implicit` definition is ever resolved to.** A binding of the
+right name and the right type that was not written `implicit` is
+invisible to the search:
+
+```pyking error
+def my3() -> ():
+    def bar(z: Int) -> String: string(z)
+    print(foo(1))       # error: there is a 'bar', but it is not
+                        #        declared 'implicit'
+```
+
+`implicit` goes in front of a `def` or an `=` binding of one name, and
+in front of `def` it follows `public`. Any value may be implicit, not
+only a function:
+
+```pyking
+implicit width = 4
+
+def pad(text: String, implicit width: Int) -> String:
+    loop out = text while len(out) < width:
+        out + "."
+
+print(pad("a"))         # a...
+print(pad("a", 8))      # a....... -- written out, which always works
+```
+
+Implicit parameters come after every ordinary one, each needs its type
+written, and none may have a default value: an omitted implicit
+argument is resolved rather than defaulted. A call writes out every
+implicit argument or none of them, by position or by the parameter's
+name (`pad("a", width = 8)`).
+
+**A definition with implicit parameters, or one that is itself
+implicit, writes its whole type down** — resolving is a question about
+types, so there has to be a type to ask it of.
+
+**An implicit obligation does not cross a `def`.** If a body calls
+something whose type carries an implicit `bar` and that body has no
+implicit `bar` in scope, it is an error there, and the fix is to write
+`implicit bar` among its own parameters. What the body's *caller* has
+in scope does not reach inside it.
+
+What does work — and is why the parameter is part of the type — is
+passing such a function as a value and calling it elsewhere. The
+resolution happens where the **call** is written:
+
+```pyking norun
+def apply_twice(f: (Int, implicit bar: (Int) -> String) -> (String, String),
+                n: Int) -> (String, String):
+    implicit def bar(z: Int) -> String: string(z * 2)
+    f(n)
+
+print(apply_twice(foo, 5))          # ("10", "10")
+```
+
+An implicit may be resolved to a definition that takes implicits of its
+own, and those are discharged in turn, in the scope of the call. A
+chain that does not stop is cut at a fixed depth and reported.
+
+**A function carrying an implicit parameter may be passed where an
+ordinary function is wanted**, and its implicit is then resolved where
+it is *passed*:
+
+```pyking
+implicit my = 10
+
+def bar(a, f):                  # `f` is an ordinary (Int) -> a here:
+    f(a + 1)                    # a body cannot discover an implicit
+
+def foo(x: Int, implicit my: Int) -> Int: x + my
+
+print(bar(7, foo))              # 18 -- foo's `my` is the 10 above
+```
+
+Writing the implicit into `f`'s own type says the other thing: resolve
+it in `bar`'s body, against whatever is in scope there.
+
+```pyking
+def bar(a, f: (Int, implicit my: Int) -> Int):
+    implicit my = 7
+    f(a + 1)                    # 15
+```
+
+That is the whole of what the annotation decides, and it is why an
+implicit parameter is part of a function's type.
+
+The adaptation goes both ways, so the annotated `f` above still accepts
+a function that asks for nothing — `bar(2, lam x. x + 1)` works, and the
+lambda simply never sees the implicit. A function that needs less
+stands wherever one that needs more is wanted.
+
+The two features meet: an implicit definition may be overloaded, and
+the search considers every qualifier.
+
+```pyking
+implicit def int::leq(x: Int, y: Int) -> Bool: x <= y
+implicit def float::leq(x: Float, y: Float) -> Bool: x <= y
+
+implicit def list::leq(xs: [a], ys: [a],
+                       implicit leq: (a, a) -> Bool) -> Bool:
+    match (xs, ys):
+        case ([x] + xrest, [y] + yrest):
+            if leq(x, y):
+                list::leq(xrest, yrest)
+            else:
+                false
+        case ([], []): true
+        case (_, _): false
+
+print(leq(88, 100), leq(79.12, 18.2), leq([171, 10], [188]))
+# true false false
+```
+
 ### Overloading and implicits, resolved
 
 Two more things the checker settles, and the only two where it decides
@@ -6221,115 +5303,8 @@ call is written. Nothing is deferred to a caller and nothing is decided
 at run time: a program that compiles has one definition per call site,
 chosen before anything runs.
 
-## Warnings
-
-A program that checks may still say something its writer did not mean.
-The compiler reports what it can see of that as **warnings**: each is
-printed before the program runs, and the program then runs as usual.
-Today they are about names bound and never used.
-
-```pyking
-x = 5
-if true:
-    x = 10
-
-def helper(n: Int) -> Int:
-    return n + 1
-
-print("done")
-```
-
-```
-'prog.pyk' 1:0-1:1 Warning: Unused binding 'x', bound on line 1: it is
-  never used in its scope. [-Wunused-binding]
-'prog.pyk' 3:4-3:5 Warning: Unused binding 'x', bound on line 3: it is
-  never used in its scope. Did you try to update x as a variable? Name
-  x is bound on line 1, but is not defined as a mutable variable. The
-  declaration on line 3 is shadowing x, and then never used in the
-  scope. [-Wshadowed-update]
-'prog.pyk' 5:4-5:10 Warning: Function 'helper' is defined but never
-  used. [-Wunused-function]
-done
-```
-
-The second is the one worth knowing about. `x = 10` inside the `if` is
-a *new* binding of `x` for that block -- `=` never updates (see
-"Immutable bindings") -- so the `x` outside is still 5 after it. Where
-such a binding shadows a name from an enclosing block and is then never
-used, an update is almost certainly what was meant, and the warning
-asks whether it was. An update is written with a `var` and `:=` (see
-"Mutable variables").
-
-### What is reported
-
-Each warning has a name, which is what its flag is called:
-
-| warning | on by default | reports |
-|---|---|---|
-| `unused-binding` | yes | a name bound with `=`, or by a `let`, that nothing in its scope uses |
-| `unused-function` | yes | a function defined with `def` that is never called or passed on |
-| `unused-var` | yes | a `var` that is never read -- writing to it with `:=` does not count |
-| `shadowed-update` | yes | an unused `=` binding in a block that shadows a name bound outside it, as above |
-| `unused-pattern-var` | no | a name a `case` pattern binds that its arm never uses |
-| `unused-parameter` | no | a parameter of a `def` or a lambda that its body never uses |
-| `unused-loop-var` | no | a `for` variable, a loop's accumulator, or a name a comprehension binds, that is never used |
-| `shared-fill` | yes | `array(n, v)` where `v` is itself an array, so every element is one and the same array (see "Arrays"); not for a size of 0 or 1 |
-
-A function is used when something that runs calls it, or passes it on
-as a value. A function that only calls itself is reported, and so is a
-group of functions that only call one another; one called only by an
-unused function is not reported as well, since the unused function is
-the one to look at. A call that overloading or an implicit argument
-resolves uses the definition it reaches, though its name is not
-written there (see "Static overloading" and "Implicits"). A `var` read
-anywhere is used, in the value of its own update too
-(`count := count + 1`).
-
-**A name starting with `_` is never reported**, which is how to say
-that a name is meant to go unused: `_, second = pair`,
-`for _ in range(3)`, `def handler(_event: String)`. Neither is a
-module's `public` name, which another module uses, nor anything in a
-module of a library.
-
-### Flags
-
-Which warnings are reported, and which are errors, is said with the
-flags GCC uses, applied in the order they are written, so a later one
-wins:
-
-| flag | what it does |
-|---|---|
-| `-W<name>` | turns one warning on: `-Wunused-parameter` |
-| `-Wno-<name>` | turns one off: `-Wno-unused-function` |
-| `-Wall` | turns every warning on |
-| `-w` | turns every warning off |
-| `-Werror` | makes every warning that is on an error |
-| `-Werror=<name>` | makes one an error, and turns it on |
-| `-Wno-error` / `-Wno-error=<name>` | makes every warning, or one, a warning again |
-
-```
-pyk -Wall prog.pyk
-pyk compile -Werror -Wno-error=unused-binding prog.pyk
-```
-
-**An error stops the program.** Every warning is still printed, those
-that are errors as `Error:` with the flag that made them so, and then
-nothing runs and nothing is written:
-
-```
-'prog.pyk' 5:4-5:10 Error: Function 'helper' is defined but never
-  used. [-Werror=unused-function]
-```
-
-The flags are taken by `pyk <file>`, `pyk compile`, `pyk repl`, `pyk
-lsp`, `pyk dap` and `pyk notebook`, and `pyk --help` lists every
-warning. At the REPL an entry's own top-level names are never reported,
-since a later entry may use them. An editor shows warnings under the
-names they are about, set with its `warnings` setting (see "Editors"
-on the website), and the playground has a Warnings tab in its settings
-that says each flag and what it means.
-
 ## Modules
+
 
 **One file is one module.** A file called `list.pyk` is the module
 `list`, and a program is that file together with every module it
@@ -6753,3 +5728,1316 @@ print(next("seven"))
 A public function whose type was never written down has the type the
 checker worked out for it, including its type variables, so a
 polymorphic function stays polymorphic across the boundary.
+
+## Builtins and I/O
+
+> **Available:** in every module · **Compared with Python:** similar --
+> `print`, `len`, `range` and the conversions are Python's; `debug` is new
+
+A few operations are built into the language rather than defined in a
+library: printing, `len`, `range`, the conversions and `panic`. A
+builtin may only be called: it is not a value that can be stored or
+passed.
+
+### Builtin functions
+
+`print`, `debug`, `range`, `string`, `len`, `int`,
+`float`, `bool`, `char` and `panic` are checked at the call, each by its own rule,
+because none of them is a function *value*: a builtin is a host operation (see "Names
+and scoping"), it has no type that can be written down, and it may be
+called and nothing else.
+
+| call | accepts | gives |
+|---|---|---|
+| `print(…)` | any number of arguments, of any type | `()` |
+| `debug(…)` | any number of arguments, of any type | `()` |
+| `string(x)` | one `Int`, `Float`, `String`, `Char`, `Bool`, list or tuple | `String` |
+| `len(x)` | one list, array, DynArray, view, Map, MutMap or `String` (counted in characters) | `Int` |
+| `panic(m)` | one `String`: stops the program with it as a runtime error | any type, since it never answers |
+| `range(n)` | one to three `Int`s | `[Int]` |
+| `int(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Int` |
+| `float(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Float` |
+| `bool(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Bool` |
+| `char(x)` | one `Int`, `String` or `Char` | `Char` |
+
+```pyking
+count = len("hello")          # Int
+label = "n = " + string(count)   # String
+numbers = range(4)            # [Int]
+ratio = float(count) / 2.0    # Float
+
+print(label, numbers, count, ratio)  # anything, any number of them
+```
+
+### Conversions
+
+`string`, `int`, `float`, `bool` and `char` are how a
+value of one type becomes another — Pyking converts nothing on its own.
+`string` writes a value exactly as `print` would. The other four answer
+every argument they accept, and where there is no right answer they
+answer a **default**: 0 for `int`, NaN for `float`, false for `bool`,
+`'\0'` for `char`. A Char converts to and from its code point: `int(c)`,
+`float(c)`, `char(n)`; `bool(c)` is false for `'\0'` only, and
+`char(s)` is a String's first character.
+
+- `int` truncates a Float toward zero, takes true to 1 and false to 0,
+  and reads a String written as an optional `+` or `-` and decimal digits,
+  with nothing around them — not a space, not a point, not `0x`. An
+  answer outside the signed 32-bit range, and a Float with no Int to
+  truncate to (a NaN, an infinity), is 0.
+- `float` widens an Int, takes true to 1.0 and false to 0.0, and reads a
+  String written the way a Float literal is — digits, an optional
+  fraction, an optional exponent, and an optional sign — or as `inf`,
+  `-inf` or `nan`, which is how `print` writes those. So
+  `float(string(x))` is `x`.
+- `bool` is true for `true`, the String `"true"`, the Int 1 and the Float
+  1.0, and false for anything else — `"True"` and 2 included.
+
+Each accepts its own type too, and answers it unchanged.
+
+```pyking
+print(int("42"), int("4 2"), int(-2.9), int(true))   # 42 0 -2 1
+print(float("1e3"), float("one"), float(false))       # 1000.0 nan 0.0
+print(bool("true"), bool("yes"), bool(1), bool(2.0))  # true false true false
+print(string(1.5) + "!", string([1, 2]))             # 1.5! [1, 2]
+```
+
+The defaults stand in for an answer Pyking cannot yet give. Once it has
+an **option type**, `int`, `float` and `bool` will answer either no value
+or the value converted, so a program can tell `int("0")` from
+`int("zero")`; until then it has to check the String itself.
+
+Using one as a value rather than calling it is an error — `shout = print`
+is refused — which is also what the C and Java backends do with `print`.
+
+### `print` and `debug`
+
+`debug` is `print`'s twin for diagnostic output — Pyking extension. It
+takes and formats its arguments exactly as `print` does, and writes the
+line where diagnostics go rather than to the program's output, so
+tracing a program never changes what it prints. A program built in
+**release mode** has every call to `debug` removed, arguments and all,
+and `print` kept:
+
+```pyking
+def square(x: Int) -> Int:
+    debug("square of", x)       # a diagnostic line, gone in release mode
+    return x * x
+
+print(square(7))                # 49, in both modes
+```
+
+A call removed in release mode is worth the unit it always was, so a
+program means the same thing in both modes except for its diagnostics —
+and for anything an argument to `debug` would have done, which does not
+happen at all. That difference is also the reason `debug` exists beside
+`print`: writing a diagnostic is not something a program is *observed*
+to do, so `debug` will be allowed in a pure function, where `print` will
+not.
+
+A program may define a `debug` of its own, like any other name; a call to
+it is an ordinary call, and release mode leaves it alone.
+
+### Input and output
+
+`print` writes to standard output and `debug` to standard error.
+Everything else a program reads or writes goes through the standard
+library: `io` reads standard input and writes without a newline, `sys`
+gives the program's arguments and environment and ends it with an exit
+code, and `fs` reads and writes files.
+
+```stdin
+3
+4
+```
+
+```pyking
+import io
+
+a = int(io.read_line())
+b = int(io.read_line())
+io.write_line("sum: " + string(a + b))
+```
+
+Each library's functions are listed on its page under Libraries.
+
+## Warnings
+
+
+A program that checks may still say something its writer did not mean.
+The compiler reports what it can see of that as **warnings**: each is
+printed before the program runs, and the program then runs as usual.
+Today they are about names bound and never used.
+
+```pyking
+x = 5
+if true:
+    x = 10
+
+def helper(n: Int) -> Int:
+    return n + 1
+
+print("done")
+```
+
+```
+'prog.pyk' 1:0-1:1 Warning: Unused binding 'x', bound on line 1: it is
+  never used in its scope. [-Wunused-binding]
+'prog.pyk' 3:4-3:5 Warning: Unused binding 'x', bound on line 3: it is
+  never used in its scope. Did you try to update x as a variable? Name
+  x is bound on line 1, but is not defined as a mutable variable. The
+  declaration on line 3 is shadowing x, and then never used in the
+  scope. [-Wshadowed-update]
+'prog.pyk' 5:4-5:10 Warning: Function 'helper' is defined but never
+  used. [-Wunused-function]
+done
+```
+
+The second is the one worth knowing about. `x = 10` inside the `if` is
+a *new* binding of `x` for that block -- `=` never updates (see
+"Immutable bindings") -- so the `x` outside is still 5 after it. Where
+such a binding shadows a name from an enclosing block and is then never
+used, an update is almost certainly what was meant, and the warning
+asks whether it was. An update is written with a `var` and `:=` (see
+"Mutable variables").
+
+### What is reported
+
+Each warning has a name, which is what its flag is called:
+
+| warning | on by default | reports |
+|---|---|---|
+| `unused-binding` | yes | a name bound with `=`, or by a `let`, that nothing in its scope uses |
+| `unused-function` | yes | a function defined with `def` that is never called or passed on |
+| `unused-var` | yes | a `var` that is never read -- writing to it with `:=` does not count |
+| `shadowed-update` | yes | an unused `=` binding in a block that shadows a name bound outside it, as above |
+| `unused-pattern-var` | no | a name a `case` pattern binds that its arm never uses |
+| `unused-parameter` | no | a parameter of a `def` or a lambda that its body never uses |
+| `unused-loop-var` | no | a `for` variable, a loop's accumulator, or a name a comprehension binds, that is never used |
+| `shared-fill` | yes | `array(n, v)` where `v` is itself an array, so every element is one and the same array (see "Arrays"); not for a size of 0 or 1 |
+
+A function is used when something that runs calls it, or passes it on
+as a value. A function that only calls itself is reported, and so is a
+group of functions that only call one another; one called only by an
+unused function is not reported as well, since the unused function is
+the one to look at. A call that overloading or an implicit argument
+resolves uses the definition it reaches, though its name is not
+written there (see "Static overloading" and "Implicits"). A `var` read
+anywhere is used, in the value of its own update too
+(`count := count + 1`).
+
+**A name starting with `_` is never reported**, which is how to say
+that a name is meant to go unused: `_, second = pair`,
+`for _ in range(3)`, `def handler(_event: String)`. Neither is a
+module's `public` name, which another module uses, nor anything in a
+module of a library.
+
+### Flags
+
+Which warnings are reported, and which are errors, is said with the
+flags GCC uses, applied in the order they are written, so a later one
+wins:
+
+| flag | what it does |
+|---|---|
+| `-W<name>` | turns one warning on: `-Wunused-parameter` |
+| `-Wno-<name>` | turns one off: `-Wno-unused-function` |
+| `-Wall` | turns every warning on |
+| `-w` | turns every warning off |
+| `-Werror` | makes every warning that is on an error |
+| `-Werror=<name>` | makes one an error, and turns it on |
+| `-Wno-error` / `-Wno-error=<name>` | makes every warning, or one, a warning again |
+
+```
+pyk -Wall prog.pyk
+pyk compile -Werror -Wno-error=unused-binding prog.pyk
+```
+
+**An error stops the program.** Every warning is still printed, those
+that are errors as `Error:` with the flag that made them so, and then
+nothing runs and nothing is written:
+
+```
+'prog.pyk' 5:4-5:10 Error: Function 'helper' is defined but never
+  used. [-Werror=unused-function]
+```
+
+The flags are taken by `pyk <file>`, `pyk compile`, `pyk repl`, `pyk
+lsp`, `pyk dap` and `pyk notebook`, and `pyk --help` lists every
+warning. At the REPL an entry's own top-level names are never reported,
+since a later entry may use them. An editor shows warnings under the
+names they are about, set with its `warnings` setting (see "Editors"
+on the website), and the playground has a Warnings tab in its settings
+that says each flag and what it means.
+
+## Grammar
+
+This page is Pyking's syntax and nothing else: what may be written, and
+how it is read. What each construct means is in the Language reference.
+
+### Lexical structure
+
+A source file is UTF-8 text. The lexer reads it into tokens and turns
+its indentation into block structure.
+
+- **Identifiers** start with a letter or `_` and go on with letters,
+  digits and `_`. A name a program binds starts with a lowercase letter
+  or `_`; a name starting with an uppercase letter is a type or a
+  constructor.
+- **Keywords**, which may not be used as names: `and`, `as`, `break`,
+  `case`, `continue`, `datatype`, `def`, `else`, `false`, `for`, `from`,
+  `if`, `implicit`, `import`, `in`, `lam`, `let`, `loop`, `match`,
+  `mutable`, `not`, `or`, `public`, `return`, `struct`, `then`, `true`,
+  `use`, `var`, `while`, `xor`, and the type names `Bool`, `Char`,
+  `Float`, `Int` and `String`.
+- **Reserved words** of objects, also never names: `abstract`, `class`,
+  `extends`, `implements`, `interface`, `override`, `private`, `self`
+  and `super`.
+- **Literals**: integers (decimal, `0x` hexadecimal, `0b` binary),
+  floats, `'c'` Chars and `"…"` Strings, written as "Values and basic
+  types" in the Language reference says.
+- **Comments** start with `#`; see below.
+
+### Comments
+
+A `#` starts a line comment that runs to the end of the line. It may appear
+on its own line or trail after other tokens.
+
+```python
+# This is a line comment.
+x = 1  # comments may also trail after other tokens
+print(x)
+```
+
+### Layout
+
+Blocks are written by indentation, four spaces a level, as in Python. A
+line goes on while a bracket is open, and a block may be written on its
+header's own line.
+
+#### Indentation-based blocks
+
+Blocks are delimited purely by indentation, in 4-space increments — there
+are no `{ }` or `begin`/`end` keywords. Increasing the indentation opens a
+nested block (after a line ending in `:`); returning to a shallower
+indentation closes it, and a single line may close several nested blocks
+at once.
+
+```python
+def bucket(x):
+    for limit in range(3):
+        if x < limit:
+            return limit
+    return 3
+
+
+print(bucket(0), bucket(5))
+```
+
+A non-breaking space (U+00A0) is a space wherever a space may stand:
+in indentation, where it counts as one space, and between the words
+of a line. Code copied out of a PDF, a slide or a web page often has
+them in place of ordinary spaces, and it runs as it looks. Inside a
+string or a comment one is kept as written. A tab is not a space. `pyk highlight`, and the
+playground's Copy for slides, write indentation with them for this
+reason (see the documentation's "Code on slides" page,
+`sitesrc/documentation/slides.md`).
+
+#### Lines and continuation
+
+A statement ends where the tokens stop being able to continue it, and
+each line's leading whitespace is what opens and closes blocks — but
+**not while a bracket is open**. Inside an unclosed `(` or `[` the
+indentation rules are suspended entirely, so a parameter list, a call's
+arguments, a list literal, a comprehension and a tuple may each span
+several lines:
+
+```pyking
+def window(
+        start: Int,
+        size: Int,
+        step: Int) -> Int:
+    return start + (size * step)
+
+
+numbers = [
+    1,
+    2,
+    3,
+    4]
+
+print(window(
+    1,
+    2,
+    3))
+```
+
+The continuation lines are part of the same statement, and their own
+indentation means nothing at all — it is there for the reader. Nesting
+one bracket inside another keeps the line open until the outermost one
+closes. Outside brackets, indentation means exactly what it did.
+
+There is no backslash continuation: a line is continued by an open
+bracket or not at all.
+
+#### A block on its header's own line
+
+Any header ending in `:` may carry its block on that same line instead
+of indenting it, provided what it carries is **one expression**. Python
+allows something similar but wider — any *simple* statement, and `;` to
+write several; Pyking's line holds a value and nothing else.
+
+```pyking
+def square(x): x * x
+def twice(x): x + x
+
+if square(3) > 5: print("big")
+else: print("small")
+
+for i in range(3): print(i)
+```
+
+**It is the same program either way.** `def square(x): x * x` parses to
+exactly what
+
+```pyking
+def square(x):
+    x * x
+```
+
+parses to — one block, one statement — so nothing after the parser can
+tell which was written, and the pretty-printer prints both indented. The
+form is a layout, not a second kind of definition: what the body means,
+where its names come from, whether its last expression is in tail
+position (it is) are all unchanged.
+
+It works for every header, because the rule belongs to the *block*:
+`def`, `if` and its `else`, `for`, `while`, `loop`, and a `case` clause.
+
+```pyking
+def name_of(n):
+    match n:
+        case 0: "zero"
+        case 1: "one"
+        case _: "many"
+
+
+print(name_of(0), name_of(7))
+```
+
+A `match`'s clause list is the one thing that looks like a block and is
+not one: `match e:` opens a list of `case` clauses rather than a list of
+statements, and a clause is not an expression, so there is nothing its
+line could carry. The clauses are always indented under it.
+
+###### What may be written there
+
+An **expression**, and only an expression. A `return`, an `=` binding, a
+`:=` mutation, or a nested header is not one, and is refused where it
+stands:
+
+```
+'prog.pyk' 4:14-4:22 Parsing error: a block written on its header's
+  own line must be one expression, and 'return a' is not; write it in
+  an indented block instead
+```
+
+That is the whole point of the restriction. A line ending in `:` is a
+promise that a value follows; letting a statement follow instead would
+mean control flow and new names could hide behind a `:` at the end of a
+line, and every such line would have to be read to the end to find out
+what it did. So the value-producing forms stay on one line and
+everything else goes under its header:
+
+```pyking
+def first_positive(a, b):
+    if a > 0:
+        return a
+    b
+```
+
+Note that a function ending in a value needs no `return` at all (see
+"Tail position"), so the shorthand is rarely what a one-line body wanted
+in the first place. And `if` written inline is the `if`/`then`/`else`
+*expression*, which is an expression like any other:
+
+```pyking
+def describe(n): if n < 0 then "negative" else "positive"
+```
+
+###### The line ends there
+
+An inline block is the end of its line, and two rules follow. Each is
+reported where it is written:
+
+- **Nothing may be indented under it.** The header's line already held
+  the block, so an indented line after it belongs to nothing — `if c:
+  print(1)` with a second `print` indented below is refused rather than
+  read as a two-statement body.
+- **Nothing may continue the construct on that line.** An `else`
+  belonging to the `if` starts the *next* line (see below).
+
+So an `if` and its `else` each carry their own line:
+
+```pyking
+x = 2
+
+if x > 1: print(7)
+else: print(8)
+```
+
+Written `if x > 1: print(7) else: print(8)`, one line would hold an
+`if`, its whole then-block, and the start of another block; that is the
+run-on the one-statement-per-line rule exists to prevent, and it is
+refused (`'else' must start on a new line: the block written on the
+header's own line ends that line`). The same holds for an `else if`
+rung.
+
+A second *statement* sharing the line is caught by that
+one-statement-per-line rule itself (see "Indentation-based blocks"
+above): `if c: print(1) print(2)` puts the second `print` beside the
+`if`, not inside it.
+
+A block that begins on the *next* line without being indented is neither
+form, and is the error it always was — `expected an indented block`.
+
+### The grammar
+
+
+EBNF for the subset currently accepted by `parse()` in `src/parser.ml`.
+`INDENT`/`DEDENT` are not literal characters — they are synthesized by the
+lexer from 4-space indentation changes (see "Indentation-based blocks"
+below). Comments are stripped by the lexer and don't appear here.
+
+```ebnf
+(* An import and a `public` belong to a module's top level, so they are
+   here rather than in `statement`, which is what a block holds. The
+   `use` lines come before everything else. *)
+program     = { use_stmt } , { top_statement } ;
+use_stmt    = "use" , feature , { "," , feature } ;
+feature     = "mutation" | "pointers" | "objects" ;
+top_statement = import_stmt
+            | from_stmt
+            | public_stmt
+            | datatype_stmt
+            | struct_stmt
+            | class_stmt
+            | statement ;
+
+import_stmt = "import" , module_item , { "," , module_item } ;
+module_item = module_path , [ "as" , ident ] ;
+from_stmt   = "from" , module_path , "import" , field_item , { "," , field_item } ;
+(* A module, or a submodule of one: `hello`, `hello.mymod`. *)
+module_path = ident , { "." , ident } ;
+field_item  = ident , [ "as" , ident ] ;
+public_stmt = "public" , ( function_def | function_sig | datatype_stmt
+                          | struct_stmt | assignment ) ;
+
+(* A datatype belongs to a module's top level. Its name and every
+   constructor's start with an uppercase letter; its parameters are type
+   variables. Its constructors follow the ':' on its own line, or on
+   indented lines under it, or both; a line holds one or more,
+   separated by commas. *)
+datatype_stmt = "datatype" , [ sub_path , "." ] , upper_ident , [ "(" , type_var , { "," , type_var } , ")" ] ,
+                ":" , ( constructor_line , [ INDENT , { constructor_line } , DEDENT ]
+                      | INDENT , constructor_line , { constructor_line } , DEDENT ) ;
+constructor_line = constructor , { "," , constructor } ;
+constructor = upper_ident , [ "(" , [ field , { "," , field } ] , ")" ] ;
+(* A field is a type alone (positional only), or named; a named field's
+   type may be left to its default. Unnamed fields come first, and every
+   field after one with a default has one too. *)
+field       = type
+            | ident , ":" , type , [ "=" , expr ]
+            | ident , "=" , expr ;
+upper_ident = ? an ident beginning with an uppercase letter ? ;
+
+(* A struct is a datatype of one constructor, named as the type is. Its
+   fields are in parentheses on its own line -- every type variable they
+   name is then a parameter -- or on indented lines under its ':', a
+   line holding one or more separated by commas, after the parameters
+   written in parentheses. With neither it has no fields. "mutable"
+   makes it a mutable struct, whose fields are written in place: it has
+   at least one field, and needs `use mutation`. *)
+struct_stmt = [ "mutable" ] , "struct" , [ sub_path , "." ] , upper_ident ,
+              [ "(" , [ field , { "," , field } ] , ")"
+              | [ "(" , type_var , { "," , type_var } , ")" ] , ":" ,
+                INDENT , field_line , { field_line } , DEDENT ] ;
+field_line  = field , { "," , field } ;
+
+(* A class, an abstract class or an interface belongs to a module's top
+   level and needs `use objects` (see "Classes and interfaces"). A
+   class's header holds its type parameters (bare lowercase names) and
+   its fields, which are its constructor's parameters; a parent class is
+   written with its constructor's arguments, an interface with its type
+   arguments. Its members are on indented lines under its ':'. *)
+class_stmt  = ( [ "abstract" ] , "class" , upper_ident ,
+                "(" , [ header_item , { "," , header_item } ] , ")" ,
+                [ "extends" , class_name , "(" , [ args ] , ")" ] ,
+                [ "implements" , iface , { "," , iface } ]
+              | "interface" , upper_ident , [ "(" , type_var , { "," , type_var } , ")" ] ,
+                [ "extends" , iface , { "," , iface } ] ) ,
+              [ ":" , INDENT , member , { member } , DEDENT ] ;
+header_item = type_var | member_field ;
+class_name  = [ sub_path , "." ] , upper_ident ;
+iface       = class_name , [ "(" , type , { "," , type } , ")" ] ;
+member      = member_field | method ;
+(* A header field has a default only where every one after it has; a
+   body field always has its first value. *)
+member_field = [ "private" ] , [ "var" ] , ident , ( ":" , type , [ "=" , expr ] | "=" , literal ) ;
+(* A method's parameters after `self` all say their types; one with no
+   body is abstract (in an abstract class) or an interface's. *)
+method      = [ "private" ] , [ "override" ] , [ "abstract" ] ,
+              "def" , ident , "(" , "self" , { "," , param } , ")" , [ "->" , type ] ,
+              [ ":" , block ] ;
+
+(* A block is indented under its header, or is the single expression
+   written on the header's own line -- which the EBNF cannot say, since
+   it cannot see where a line ends; see the notes below. *)
+block       = INDENT , { statement } , DEDENT
+            | expr_stmt ;
+
+statement   = function_def
+            | function_sig
+            | return_stmt
+            | loop_stmt
+            | break_stmt
+            | continue_stmt
+            | if_stmt
+            | match_stmt
+            | var_decl
+            | assignment
+            | mutation
+            | expr_stmt ;
+
+(* `implicit` marks a definition an implicit argument may be resolved
+   to; a definition's own name may carry a `::` qualifier, which is what
+   makes two definitions of one base name distinct. *)
+function_def = [ "implicit" ] , "def" , def_name ,
+               "(" , [ params ] , ")" , [ "->" , type ] , ":" , block ;
+(* The second form names its parameters; it ends its line, every
+   parameter has a type and none a default, and it means the first form
+   with the parameter types in order. *)
+function_sig = "def" , def_name , ":" , type
+             | "def" , def_name , "(" , [ named_type , { "," , named_type } ] ,
+               ")" , "->" , type ;
+named_type   = ident , ":" , type ;
+(* A dotted name defines in a submodule: `mymod.foo`, `mymod.deep.foo`. *)
+def_name     = [ sub_path , "." ] , ( ident | qualified_name ) ;
+sub_path     = ident , { "." , ident } ;
+(* No whitespace is permitted on either side of the "::", and neither
+   half may be a keyword. *)
+qualified_name = ident , "::" , ident ;
+(* Every parameter after the first one with a default has one too, and
+   every implicit parameter comes after every ordinary one. *)
+params       = param , { "," , param } , { "," , implicit_param }
+             | implicit_param , { "," , implicit_param } ;
+param        = ident , [ ":" , type ] , [ "=" , expr ] ;
+implicit_param = "implicit" , ident , ":" , type ;
+
+type         = type_atom , [ "->" , type ] ;
+type_atom    = "Int" | "Float" | "String" | "Char" | "Bool"
+             | type_var
+             | [ sub_path , "." ] , upper_ident , [ "(" , type , { "," , type } , ")" ]
+             | "all" , type_var , { type_var } , "." , type
+             | "[" , type , "]"
+             | type_paren ;
+(* One parenthesized list, three readings, decided by the token after
+   ")" and by whether a comma is written -- exactly as `tuple_lit` and a
+   parenthesized expression are told apart among values. *)
+type_paren   = "(" , [ type , { "," , type } ,
+                       { "," , implicit_param } , [ "," ] ] , ")" ,
+               "->" , type
+             | "(" , implicit_param , { "," , implicit_param } , ")" ,
+               "->" , type
+             | "(" , type , ")"
+             | "(" , ")"
+             | "(" , type , "," , ")"
+             | "(" , type , ( "," , type )+ , [ "," ] , ")" ;
+type_var     = ? an ident beginning with a lowercase letter ? ;
+
+return_stmt = "return" , bound_value ;
+
+(* `for`, `while` and the accumulator loop are one construct with
+   different halves written; every combination of them is a loop_stmt. *)
+loop_stmt   = ( "loop" , accumulator , [ iteration ]
+              | iteration ) , ":" , block ;
+accumulator = target , [ ":" , type ] , "=" , tuple_or_expr ;
+iteration   = "for" , ident , "in" , expr | "while" , expr ;
+
+(* The value, written on the `break`/`continue` line itself, is the
+   accumulator the jump leaves with. *)
+break_stmt    = "break" , [ tuple_or_expr ] ;
+continue_stmt = "continue" , [ tuple_or_expr ] ;
+
+if_stmt     = "if" , expr , ":" , block ,
+              { "else" , "if" , expr , ":" , block } ,
+              [ "else" , ":" , block ] ;
+
+(* Always indented: a `match` opens a list of clauses rather than a
+   block of statements, and a `case` clause is not an expression, so
+   there is nothing its header's line could carry. *)
+match_stmt  = "match" , expr , ":" , INDENT , case_clause , { case_clause } , DEDENT ;
+case_clause = "case" , pattern , [ "if" , expr ] , ":" , block ;
+pattern     = pattern_as , { "," , pattern_as } ;
+pattern_as  = pattern_or , [ "as" , ident ] ;
+pattern_or  = pattern_join , { "|" , pattern_join } ;
+pattern_join = pattern_atom , { "+" , pattern_atom } ;
+pattern_atom = int | "-" , int | string | char | bool | "_" | ident
+             | constructor_pattern
+             | "(" , ")"
+             | "(" , pattern_as , ")"
+             | "(" , pattern_as , "," , ")"
+             | "(" , pattern_as , ( "," , pattern_as )+ , [ "," ] , ")"
+             | list_pattern ;
+(* Positional sub-patterns first, then named ones in any order; a field
+   not mentioned matches anything. *)
+constructor_pattern = [ sub_path , "." ] , upper_ident ,
+                      [ "(" , [ field_pattern , { "," , field_pattern } ] , ")" ] ;
+field_pattern = pattern_as | ident , "=" , pattern_as ;
+
+list_pattern = "[" , [ list_pattern_items ] , "]" ;
+list_pattern_items = list_pattern_item , { "," , list_pattern_item } ;
+list_pattern_item  = pattern_as | rest_marker ;
+rest_marker        = ".." , [ ident ] ;
+
+var_decl    = "var" , ident , ( "=" | ":=" ) , bound_expr ;   (* ":=" is accepted as "=" *)
+assignment  = [ "implicit" ] , target , [ ":" , type ] , "=" , bound_value ;
+mutation    = ident , ":=" , bound_expr
+            | target , ":=" , bound_expr            (* a tuple of names *)
+            | ident , compound_op , bound_expr
+            | atom , ( ":=" | compound_op ) , bound_expr
+                       (* an array's element, an atom ending in an
+                          index_tail, or a mutable struct's field, an atom
+                          ending in "." ident *)
+            | "*" , unary , ( ":=" | compound_op ) , bound_expr ;
+                       (* what a pointer points at *)
+compound_op = "+=" | "-=" | "*=" | "/=" | "%=" | "^="
+            | "&=" | "|=" | "<<=" | ">>=" | "xor" "=" ;   (* no space in "xor=" *)
+
+(* A bound value may start on the line after its "=", indented -- the
+   lexer wraps it in the same INDENT/DEDENT any other block gets. *)
+bound_value = tuple_or_expr | value_stmt | INDENT , bound_value , DEDENT ;
+bound_expr  = tuple_or_expr | INDENT , bound_expr , DEDENT ;
+
+value_stmt  = value_if | match_stmt | loop_stmt ;
+value_if    = "if" , expr , ":" , block ,
+              { "else" , "if" , expr , ":" , block } ,
+              "else" , ":" , block ;
+
+target      = target_atom , { "," , target_atom } ;
+target_atom = ident
+            | sub_path , "." , ident
+            | "(" , ")"
+            | "(" , target_atom , "," , ")"
+            | "(" , target_atom , ( "," , target_atom )+ , [ "," ] , ")" ;
+
+expr_stmt   = tuple_or_expr ;
+
+tuple_or_expr = expr , { "," , expr } ;
+
+expr        = lambda | if_expr | let_expr | disjunction ;
+
+(* A lambda takes everything to its right that one expression can hold,
+   so it associates to the right and binds looser than every operator;
+   a comma ends it, since `lam x. a, b` is a pair. A parameter with a
+   type, and more than one, are written in parentheses. *)
+lambda      = "lam" , lambda_params , "." , expr ;
+lambda_params = ident
+            | "(" , [ param , { "," , param } ] , ")" ;
+
+if_expr     = "if" , expr , "then" , expr , "else" , expr ;
+
+(* Like a lambda, the body takes everything to its right that one
+   expression can hold. *)
+let_expr    = "let" , target , [ ":" , type ] , "=" , expr , "in" , expr ;
+
+(* `and`/`or`/`not` and their symbol spellings bind looser than a
+   comparison; the bitwise operators bind tighter, as Python's do. *)
+disjunction = conjunction , { ( "or" | "||" ) , conjunction } ;
+conjunction = negation , { ( "and" | "&&" ) , negation } ;
+negation    = "not" , negation | comparison ;
+
+comparison  = bit_or , [ comp_op , bit_or ] ;
+comp_op     = "<" | "<=" | ">" | ">=" | "==" | "!=" ;
+
+bit_or      = bit_xor , { "|" , bit_xor } ;
+bit_xor     = bit_and , { "xor" , bit_and } ;
+bit_and     = shift , { "&" , shift } ;
+shift       = additive , { ( "<<" | ">>" ) , additive } ;
+additive    = multiplicative , { ( "+" | "-" ) , multiplicative } ;
+multiplicative = unary , { ( "*" | "/" | "%" ) , unary } ;
+unary       = ( "-" | "!" | "~" | "&" | "*" ) , unary | power ;
+                       (* "&" and "*" are a pointer's, under
+                          `use pointers`: an address and what a pointer
+                          points at *)
+(* `^` associates to the right, and its right operand may be negated:
+   `2 ^ -1`. It binds tighter than unary minus: `-2 ^ 2` is `-(2 ^ 2)`. *)
+power       = atom , [ "^" , unary ] ;
+
+atom        = ( float | int | string | char | bool | ident | list_lit | list_comp
+              | tuple_lit | construct
+              | "(" , expr , ")" ) ,
+              { call_tail | field_tail | index_tail } ;
+(* `xs[i]`: the `[` on the row the indexed expression ends on. *)
+index_tail  = "[" , expr , "]"
+            | "[" , [ expr ] , ":" , [ expr ] , "]" ;   (* a slice: a copy *)
+(* A constructor applied to its fields, with a call's arguments; one with
+   no fields is written bare. *)
+construct   = [ sub_path , "." ] , upper_ident , [ call_tail ] ;
+field_tail  = "." , ident ;
+(* Every named argument comes after every positional one; the named
+   ones may be written in any order. A constructor's arguments may end
+   in `..expr`, which gives every field not written before it. *)
+call_tail   = "(" , [ call_args ] , ")" ;
+call_args   = expr , { "," , expr } , { "," , named_arg } , [ "," , update ]
+            | named_arg , { "," , named_arg } , [ "," , update ]
+            | update ;
+named_arg   = ident , "=" , expr ;
+update      = ".." , expr ;
+args        = expr , { "," , expr } ;
+
+list_lit    = "[" , [ args ] , "]" ;
+
+list_comp   = "[" , expr , comp_for , { comp_for | comp_if } , "]" ;
+comp_for    = "for" , pattern , "in" , expr ;
+comp_if     = "if" , expr ;
+
+tuple_lit   = "(" , ")"
+            | "(" , expr , "," , ")"
+            | "(" , expr , ( "," , expr )+ , [ "," ] , ")" ;
+
+ident       = letter , { letter | digit } ;
+int         = digit , { digit }
+            | "0" , ( "x" | "X" ) , hex_digit , { [ "_" ] , hex_digit }
+            | "0" , ( "b" | "B" ) , bin_digit , { [ "_" ] , bin_digit } ;
+hex_digit   = digit | "a" | "b" | "c" | "d" | "e" | "f"
+            | "A" | "B" | "C" | "D" | "E" | "F" ;
+bin_digit   = "0" | "1" ;
+(* A point needs a digit on each side, so `1.` and `.5` are not floats.
+   An exponent alone makes one: `1e9` is a Float. *)
+float       = digits , "." , digits , [ exponent ]
+            | digits , exponent ;
+digits      = digit , { digit } ;
+exponent    = ( "e" | "E" ) , [ "+" | "-" ] , digits ;
+bool        = "true" | "false" ;
+(* A String is in double quotes; a Char is exactly one character -- one
+   Unicode code point, or one escape -- in single quotes. *)
+string      = '"' , { string_char } , '"' ;
+char        = "'" , char_char , "'" ;
+string_char = any_char_except_double_quote_or_backslash
+            | "\" , escape ;
+char_char   = any_char_except_single_quote_or_backslash
+            | "\" , escape ;
+escape      = "n" | "t" | "r" | "0" | "\" | "'" | '"' ;
+```
+
+### Notes on the grammar
+
+Notes that don't fall out of the grammar alone:
+
+- **A statement starts a line of its own**, and so does a `case` clause.
+  There is no statement separator in Pyking: a statement ends where the
+  tokens stop being able to continue it, which by itself would make
+
+  ```
+  print h
+  ```
+
+  *two* statements — a bare `print`, then a bare `h` — and so a program
+  that reads as though it prints and does not. The rule cannot be stated
+  in the EBNF, because the grammar cannot see line boundaries: the lexer
+  turns indentation into block structure and emits nothing at all for the
+  end of a line. It is checked against the source positions the tokens
+  carry, and reported as an ordinary `Parsing error`:
+
+  ```
+  'prog.pyk' 2:6-2:7 Parsing error: each statement must start on a new
+    line. In this case, 'print' and 'h' are seen as two different
+    statements
+  ```
+
+  Both are quoted back, because the mistake is not that something is in
+  the wrong place but that *two* things were read where one was meant.
+
+  One line may still hold a whole statement whose header opens a block
+  (`x = if c:`), and a statement may still span as many lines as its
+  blocks need. What one line may not hold is *two* statements.
+- Two rules about `break`/`continue` cannot be stated in the grammar and
+  are checked in `src/parser.ml` beside the others, so they hold in
+  every mode and are reported as a `Parsing error`. First, each may only
+  appear in the body of a `loop`, and may not reach out of a `for`, a
+  `while` or a `def` to find one:
+
+  ```
+  'prog.pyk' 3:8-3:13 Parsing error: 'break' may only appear in the
+    body of a 'loop', and this one is inside a 'for', which it may not
+    reach out of
+  ```
+
+  Second, nothing may be written after one in the same block, since
+  nothing there can run:
+
+  ```
+  'prog.pyk' 3:4-3:17 Parsing error: this statement cannot be reached:
+    'continue' has already left the loop, so nothing written after it
+    in the same block runs
+  ```
+
+  A `return` is deliberately not part of that second rule: statements
+  after one are legal Pyking, and a branch that returns is an ordinary
+  way to leave a body early.
+
+  Third, a `break x`/`continue x` gives the loop it belongs to an
+  accumulator, so the loop must have one to give: a value is refused in
+  a `loop:` with none written, and in a plain `for`/`while`:
+
+  ```
+  'prog.pyk' 2:10-2:12 Parsing error: this loop carries nothing, so
+    'break' takes no value: give the loop an accumulator ('loop acc =
+    ...') for 'break' to give one
+  ```
+
+  The value is whatever follows the keyword on its own line, a bare
+  tuple included (`break n, acc`), exactly as a loop header's
+  initializer is written. A second thing after it on the line is two
+  statements on one line, refused as such.
+- A `loop_stmt` is a `value_stmt`, so a loop may be bound with `=` or
+  returned with `return`, exactly as a value-form `if`/`match` may. It
+  needs none of the rules those two obey -- every loop has an
+  accumulator (unit where none was written), so there is no way through
+  one that produces nothing.
+- `comp_op` does not repeat — `1 < 2 < 3` is not a valid `expr`
+  (comparisons don't chain), and the parser says what to write instead:
+  `'prog.pyk' 1:12-1:13 Parsing error: comparisons do not chain: write
+  'a < b and b < c' rather than 'a < b < c'`.
+- Three spellings Pyking no longer has are refused where they stand,
+  each with the one it has instead: `++` (`'++' is now written '+'`),
+  `=>` (`a lambda is now written 'lam x. x + 1'`) and `**` (`a power is
+  written with '^'`).
+- A `use` line is written before anything else in a module, comments
+  aside; one written later is refused (`'use' turns on a feature for
+  the whole module, so it is written before anything else`), and so is
+  a feature `use` does not know, or one named twice. What a feature
+  turns on is parsed in every module and refused, as a `Parsing error`,
+  in one that has not turned it on: see "Features turned on with
+  `use`".
+- `while_stmt` has no `else` clause (unlike Python's `while`/`else`).
+- An `if_stmt`'s chain is written `else if`, two ordinary keywords —
+  there is no `elif` keyword to reserve. The chained header must be the
+  *statement* form, i.e. end in `:`; `else if c then a else b` is an
+  error, since an `if_expr` may not start an `else` tail. This makes
+  `else if` exactly equivalent to an `else` block holding one nested
+  `if_stmt`, and that is how it is parsed: `src/parser.ml` builds no
+  ladder node, just an `SIf` whose `else_body` is a one-element list
+  holding the next `SIf`. Both pretty-printers undo the nesting when
+  printing (as `else if` in Pyking's own syntax), so
+  a ladder round-trips flat instead of stepping one level right per
+  branch — and an `else:` block a program *did* write with a single
+  nested `if_stmt` inside prints as an `else if` chain, the two being
+  the same AST.
+- A trailing `else` is optional at every point in the chain, so a ladder
+  may end after its last `else if` block and run no branch at all.
+- `if_expr` sits at the very bottom of the precedence ladder, below
+  `comparison`, and its three sub-expressions are each a full `expr`. Two
+  consequences: the branches extend as far right as they can (`if c then
+  1 else 2 + 1` has `2 + 1` as its else branch, not `(if ...) + 1`), and
+  an `if_expr` cannot be an operand without parentheses (`1 + if c then a
+  else b` is a syntax error; write `1 + (if c then a else b)`).
+- The branches are `expr`, not `tuple_or_expr`, so a comma ends the
+  `if_expr` instead of being absorbed into it: `if c then a else b, d` is
+  a two-element tuple whose first element is the `if_expr`. This matches
+  how Python reads `a if c else b, d`.
+- `if_expr` is right-associative, so an `else` branch that is itself an
+  `if_expr` chains flat, with the very same `else if` keyword pair the
+  `if_stmt` ladder uses, only inline:
+  `if a then 1 else if b then 2 else 3`.
+- Unlike `if_stmt`, `if_expr`'s `else` is **mandatory**, and that is what
+  makes the two `if`s coexist without ambiguity. Because every `else`
+  therefore has exactly one possible owner, even
+  `if a then if b then c else d else e` has a single valid parse (the
+  inner `if` must claim the first `else`, so the outer claims the
+  second). The classic dangling-else ambiguity comes from `else` being
+  *optional* — true of Pyking's `if_stmt`, deliberately not of its
+  `if_expr`. The two also never compete for the same token in practice:
+  an `if_stmt`'s `else` always starts a line after a DEDENT, an
+  `if_expr`'s is always inline. This holds for the `else if` pair too,
+  and what follows it separates the two cases the same way a leading
+  `if` is separated at `statement` (see the next note): a `:` ends an
+  `if_stmt` chain's condition, a `then` an `if_expr` chain's.
+- A `statement` beginning with `if` is where the real parsing difficulty
+  lies: it may be an `if_stmt` or an `expr_stmt` holding an `if_expr`,
+  and the two share the entire `"if" , expr` prefix. Since that `expr`
+  can be arbitrarily long, no bounded lookahead separates them — the
+  grammar is not LL(1) at `statement`. `src/parser.ml` handles this
+  without backtracking by parsing the shared prefix once and then
+  dispatching on the single token that follows it: `:` means `if_stmt`,
+  `then` means `if_expr`. (An `if_stmt` whose *condition* is an `if_expr`
+  needs no special handling — `expr` already covers it, so
+  `if if a then b else c:` parses.)
+- The right-hand side of an `assignment` faces that same standoff and
+  resolves it the same way: `x = if c:` is a `value_stmt`, `x = if c
+  then a else b` an ordinary `expr`, and only the token after the shared
+  `"if" , expr` prefix (`:` or `then`) tells them apart. A `match` on
+  the right of `=` needs no such care — `match` is a reserved keyword,
+  so it can never begin an `expr`.
+- Two restrictions on a `value_stmt` are not expressible in the grammar
+  and are checked by the parser instead, since every backend depends on
+  both: every branch's `block` must **end in an expression**
+  (an `expr_stmt`, or a nested `value_stmt` that recursively ends in
+  one), and a `value_if`'s final `else` is **mandatory** — a binding
+  cannot be left without a value when no condition holds. A `match_stmt`
+  needs no such existence rule: it already requires at least one
+  `case_clause`, and a subject matching none of them is a runtime error,
+  not a silently skipped branch. The nested-`value_stmt` case is also
+  what makes an `else if` ladder work in value form, a ladder being
+  exactly a nested `if_stmt` as its `else` branch's only statement.
+- `assignment` and `return_stmt` accept a `value_stmt`; `var_decl` and
+  `mutation` keep taking a plain `tuple_or_expr`, and the parser says so
+  explicitly if you try. The value form works by pushing something into
+  each branch's tail — an assignment to the target for `assignment`, a
+  `return` for `return_stmt` — and both of those are single, unambiguous
+  things to push. `var`/`:=` distinguish *declaring* from *updating*,
+  and a form that expands to one of them per branch has no way to say
+  which of the two each of those is.
+- The indented `bound_value`/`bound_expr` form holds exactly **one**
+  value: anything left in the block before its DEDENT is an error
+  (`expected a single value in the indented block after '='`). It exists
+  mainly for a `value_stmt` whose header would otherwise share the `=`
+  line, but nothing restricts it to those — `x =` followed by an
+  indented `1 + 2` is the same rule, as is `var`/`:=` (both take a
+  `bound_expr`: the next-line layout, but no `value_stmt`). Both
+  pretty-printers
+  normalize it away, printing the value back on the `=` line; the two
+  spellings are the same AST.
+- A `value_stmt` is rejected in each `bound_expr` position with an error
+  naming it (`a 'var' declaration takes an expression; a value-form
+  'if'/'match' can only be bound with '='`). A value form binds its
+  target in every branch tail, which is what `var` declares and `:=`
+  updates — neither of which the branches can decide between.
+- Statements before a branch's last one are ordinary statements, run for
+  their effect: a branch may bind local names, print, or update an
+  enclosing `var` before yielding its value. This is a consequence of
+  how a `value_stmt` compiles — it stays one `if`/`match` *statement*,
+  with only the branch tails turned into assignments to the target — and
+  is why the value form is not the same as an `if_expr` spread over
+  several lines.
+- `comp_if` and `comp_for`'s sequence are the one place an `if_expr`
+  needs parentheses: `[x for x in xs if (if a then b else c)]`. Written
+  bare, the comprehension's own `if`/`in` would run straight into the
+  `if_expr`'s keywords. Python restricts these exact two positions for
+  exactly this reason (its grammar admits only an `or_test` there,
+  excluding the conditional expression), so `[x for x in xs if b if a
+  else c]` is a syntax error in Python too. Pyking's parser is in fact
+  lenient enough to recover in some of these cases, but both
+  pretty-printers always emit the parentheses.
+- `additive`, `multiplicative`, `shift`, `bit_and`, `bit_xor`, `bit_or`,
+  `conjunction` and `disjunction` are left-associative; `power` is
+  right-associative.
+- `call_tail` can repeat after any atom, so `f(1)(2)` parses (a call
+  result can itself be called), even though no example in this document
+  uses that. This chaining only applies to a `(` on the *same source row*
+  as the atom it follows — a `(` that starts a new row is always treated
+  as the start of the next statement instead, never as a continuation of
+  the previous one. (There are no statement-separator tokens in this
+  grammar at all — see the parser module comment in `src/parser.ml` —
+  so without this row check, a statement immediately followed by one
+  starting with `(`, e.g. a parenthesized tuple destructuring assignment,
+  would be misparsed as one giant chained call.)
+- `unary` is where the prefix operators are: `-expr` negates, `!expr`
+  is `not` and `~expr` is a bitwise not, and each nests (`- -x`). It
+  sits between `multiplicative` and `power`, so it binds tighter than
+  `*`/`/` and looser than `^` and a `call_tail` — `-x * y` is
+  `(-x) * y`, `-2 ^ 2` is `-(2 ^ 2)`, and `-f(x)` negates the call's
+  *result*, not `f`. `not`, the word, binds as loosely as Python's
+  instead: `not a == b` is `not (a == b)`, where `!a == b` is
+  `(!a) == b`. It
+  applies to the operand it precedes and no further, so parentheses are
+  what extend it over a sum: `-x + 1` is `(-x) + 1`, not `-(x + 1)`.
+- The same `-` token serves both operators and they never compete: a
+  binary `-` can only appear where an expression has just ended, a unary
+  one only where an expression is about to begin, so spacing never
+  matters (`10 - -3`, `10 - - 3` and `10 - -3` all subtract minus three).
+  One consequence of the grammar having no statement separators (see
+  `call_tail` above) does follow: a statement *starting* with `-` on the
+  line after an expression statement continues that expression instead
+  of starting a new one, exactly as a leading `(` does.
+- A `pattern_atom` admits a negative integer, matching Python
+  (`case -1:`). Only a literal — a pattern is matched, never evaluated,
+  so there is no expression there for the general `unary` rule to apply
+  to.
+- `match_stmt` requires at least one `case_clause`.
+- Unlike Python, where `match`/`case` are context-sensitive ("soft")
+  keywords, they're always reserved in Pyking — a variable or parameter
+  can't be named `match` or `case`. The same is true of `Int`, `String`,
+  and `Bool` (the atomic type names): they're reserved everywhere, not
+  just in type position, so no identifier may be named after one of them
+  either; of `then` and `let`, which have no Python counterpart at all; and of
+  `true`/`false`, which do have a Python counterpart (`True`/`False`) but
+  not this spelling of one — a Pyking program cannot use `true`, `false`,
+  `True`, or `False` as an identifier (the first two because they're
+  keywords, the last two because they're simply unbound: Pyking has no
+  binding for Python's capitalised spelling). `use`, `lam`, `and`, `or`,
+  `not`, `xor` and `mutable` (of `mutable struct`) are keywords too, and `class`, `interface`, `extends`,
+  `self` and `super` are reserved for a later part of the language:
+  nothing uses them yet, and no program may bind one (`'class' is
+  reserved for a later part of the language, so it cannot be used as a
+  name`).
+- `assignment`'s `[ ":" , type ]` annotates the *binding*, e.g.
+  `x: Int = 1`. Like every other annotation it is optional and nothing
+  verifies it (see "Type annotations"), but it is the one the type
+  checker writes back into: `pyk compile -t pyking` prints each binding
+  with the type it inferred, in exactly this syntax, so that output can
+  be fed back to the compiler. A destructuring target takes one
+  annotation for the whole binding, not one per name.
+- `param`'s `[ ":" , type ]` and `function_def`'s `[ "->" , type ]` are
+  both optional and independent — a function may annotate none, some, or
+  all of its parameters, with or without a return type. Annotations are
+  purely syntactic in an ordinary compile: they're parsed, stored in the
+  AST, and pretty-printed back out, and every backend erases them
+  completely — no generated code carries type syntax at all. Whether
+  anything is *verified* against them is a separate question, answered by
+  "Types and type inference" in the Language reference.
+- **A tuple type is written the way the tuple value is.** A tuple `type`
+  with zero elements, `()`, is the Unit type; one with a single element
+  is `(Int,)`, carrying the same comma the singleton value `(1,)`
+  carries; and `(Int, Bool)` upwards needs no comma to be a tuple, with
+  a trailing one allowed as it is among values. So `(1,)` has type
+  `(Int,)` and `(1, true)` has type `(Int, Bool)`, each spelled like the
+  value it describes. Tuple and list types nest arbitrarily, e.g.
+  `[(Int, Bool)]`, `(Int, [String], (Bool, Bool))` or `((Int,),)`.
+- **Parentheses around one type are grouping**, exactly as they are
+  around one expression: `(Int)` is `Int`, `((Int))` is `Int` again, and
+  `(1)` is likewise just `1`. The comma is the whole difference between
+  grouping and a singleton, in types and in values alike — which is why
+  a singleton must be written with it in both.
+- The trailing `[ "->" , type ]` in `type` is what makes a **function
+  type**, `(Int, Bool) -> Int`. The parenthesized list before the arrow
+  is the *parameter list*, and the same list without an arrow after it is
+  a tuple — which is the whole rule, decided by the one token after `)`.
+  So `(Int, Bool)` is a pair, `(Int, Bool) -> Int` takes two parameters,
+  and `((Int, Bool)) -> Int` takes one parameter that is a pair. The
+  arrow settles the singleton too: `(Int) -> Int` and `(Int,) -> Int`
+  both take one `Int` — the comma is a list's, and there is no tuple
+  there for it to make — while `((Int,)) -> Int` takes one parameter
+  that *is* a one-tuple. The
+  result is a `type` in its turn, so `->` groups to the right:
+  `(Int) -> (Int) -> Int` returns a function and needs no parentheses of
+  its own. A function type may appear wherever a type may, including
+  nested inside list and tuple types — `[(Int) -> Bool]`,
+  `((Int) -> Int, Int)` — and as another function type's parameter,
+  `((Int) -> Int) -> Int`.
+- The same is true of `tuple_lit`, `target_atom`, and `pattern_atom` —
+  and of `type_paren` above, which is the point of writing them alike:
+  `()` is the empty tuple, and a *parenthesized* single element followed
+  by a comma, e.g. `(1,)`, `(x,)`, `case (p,):` or `(Int,)`, is a genuine
+  singleton tuple/target/pattern/type, distinct from a plain
+  parenthesized `(1)`/`(x)`/`(p)`/`(Int)` (which is just grouping,
+  unwrapped by the parser). Tuples nest arbitrarily in all four
+  positions.
+- `tuple_or_expr`, `target`, and `pattern` all also accept a *bare*
+  (unparenthesized) form — `1, 2`, `a, b`, `case a, b:` — but deliberately
+  require at least two elements and forbid a trailing comma there: a
+  singleton must be written with explicit parens, `(e,)`/`(name,)`/
+  `case (p,):`. This isn't just a style rule — since (as noted above)
+  there are no statement-separator tokens, a bare trailing comma is
+  genuinely ambiguous with the start of the next statement, and the
+  parser doesn't detect or reject it: `x = 1,` followed by `print(x)` on
+  the next line silently parses as the single statement
+  `x = (1, print(x))` instead of two statements. Always use the
+  parenthesized singleton form when there's any doubt.
+- `pattern_atom` is intentionally minimal beyond tuples and lists: an
+  integer, string, or boolean literal matches only that exact value; `_`
+  always matches, discarding the value; a plain `ident` also always
+  matches, but binds the value to that name; a parenthesized group
+  destructures a tuple value element-by-element; a `list_pattern`
+  destructures a list value; a `constructor_pattern` destructures a
+  datatype's value. All of these nest arbitrarily (e.g.
+  `case (a, [b, ..c]):`). An identifier starting with an uppercase
+  letter is a constructor wherever a pattern holds it, so `case Red:`
+  matches the constructor `Red` rather than binding a name.
+- `|` binds looser than `+` and tighter than `as`, which binds looser
+  than everything but the comma: `case 1 | 2, x as y:` is
+  `case (1 | 2), (x as y):`. Every alternative of a `|` binds the same
+  names, refused at parse time otherwise:
+
+  ```
+  'prog.pyk' 3:22-3:28 Parsing error: every alternative of '|' binds
+    the same names, and 'x' is bound in one of them but not in this one
+  ```
+- A guard is any expression, read after the pattern and up to the
+  `:`. It is asked only once its pattern has matched, and it sees the
+  names the pattern binds.
+- A `datatype` is written at a module's top level only; inside a block
+  it is a parse error. Two constructors on one line are separated by a
+  comma, and a line of them after the header's starts a line of its
+  own. A field written
+  `name = default` with no type takes its default's type (see
+  "Datatypes"). A `struct` is written at the top level too, and two
+  fields on one of its lines are separated by a comma.
+- `..expr` is written only as the last argument of a constructor, and
+  at most once; in a call to a `def` it is a parse error.
+- An uppercase identifier in an expression is a constructor. Every
+  name a program binds -- with `=`, `var` or `def`, as a parameter, a
+  loop variable, in a pattern, or as an import's alias -- starts with a
+  lowercase letter or `_`; one starting with an uppercase letter is
+  refused at parse time, since an uppercase name is a type or a
+  constructor. A constant is written `pi = 3.14`, not `PI = 3.14`. A
+  `from` line renaming a datatype or a constructor gives it a name
+  starting with an uppercase letter, as the name it renames does.
+- `x.name` reads a field where `x` is a value, and reaches a module's
+  public name where `x` is an imported module; the two are told apart by
+  what `x` is bound to. The `.` and the field name are on the line the
+  value ends on.
+- No pattern (tuple, list, or nested combination of either) may bind the
+  same name more than once — e.g. `case [a, ..b, a]:` is rejected at
+  parse time with "duplicate binding 'a' in pattern". This mirrors
+  Python's own restriction on repeated names within one `match` pattern,
+  mirroring Python's own restriction on repeated names within one
+  `match` pattern.
+- `list_pattern_items` may contain **at most one** `rest_marker`,
+  appearing anywhere among the items — patterns before it are a prefix
+  that must match the start of the list, patterns after it are a suffix
+  that must match the end, and `rest_marker` itself consumes everything
+  in between (possibly nothing). A bare `..` matches and discards that
+  middle portion; `..name` matches and binds it (as a list) to `name`.
+  With no rest marker at all, `list_pattern` matches only a list of
+  exactly that length. `[]` matches only the empty list.
+- `comp_for`'s `pattern` is `pattern` (i.e. the *full* pattern grammar,
+  same as a `case_clause`'s), not just a name or Python's assignment-like
+  targets — this is Pyking's one deliberate departure from Python's own
+  comprehension grammar. An element the pattern doesn't match (a literal
+  that doesn't equal it, or a list pattern whose shape doesn't fit) is
+  silently filtered out of the result — it never raises an error. (A
+  `match`, unlike a comprehension, has to match every value; see
+  "Exhaustiveness".) `list_comp` always starts with a `comp_for`; `comp_for`/
+  `comp_if` may then repeat in any order, matching Python's own
+  multi-clause comprehensions (nested `for`s, interspersed `if`s).
+- A `qualified_name` may be a **definition's** name and nothing else --
+  not a binding, a `var`, a parameter, a loop variable, a pattern
+  capture, a module name or an import alias -- and the definition must
+  take at least one argument, since the arguments of a call are what
+  resolve which of them is meant. Both are refused where they are
+  written (`'int::zero' takes no argument, so nothing could say which
+  definition of 'zero' a call means`). A module-qualified name is
+  `m.int::leq`: the module is written with a `.` and the definition's
+  own qualifier with a `::`, and the two never mix.
+- A **dotted** `def_name`, datatype name or `=` target -- `mymod.foo` --
+  defines a name in a submodule (see "Submodules"), and is written only
+  at a module's top level: inside a block it is refused. A
+  `qualified_name` goes last, `mymod.int::abs`. Every `.` in a dotted
+  name, in a `module_path` and in a `sub_path` is on the row the name
+  before it ended on.
+- `implicit` in front of a statement marks a `def` or an `=` binding of
+  one name, and nothing else. It is a statement's prefix rather than a
+  top-level one, so a definition inside a function may be implicit
+  there and nowhere else; `public implicit def ...` is written in that
+  order.
+- An `implicit_param` needs both its name and its type written: the
+  pair is what resolves it. It may not carry a default value, and a
+  lambda may not have one at all.
+- `lambda_params` shares `param` with `function_def`, but a lambda
+  parameter may **not** carry a default value: a default is evaluated in
+  the scope the definition is written in, and a lambda is an expression
+  written wherever it stands. Writing one is refused (`the lambda
+  parameter 'x' may not have a default value; only a 'def' parameter
+  may`).
+- A lambda starts with `lam`, so nothing has to be tried to tell one
+  from a parenthesized expression: `(x)` after `lam` is a parameter
+  list, and anywhere else the expression `x`. The `.` ending the
+  parameters is the first one after them, which is why a parameter with
+  a type is parenthesized: `lam x: geo.Point. x` would end its type at
+  the wrong `.`.
+- In a pattern, `+` joins pieces (`[x] + xs`) and `|` separates
+  alternatives; `||` there is refused as the slip it is (`alternatives
+  in a pattern are separated by '|', not '||'`). A pattern holds no
+  expressions, so its `|` and an expression's bitwise `|` never meet --
+  a guard is an expression, and its `|` is bitwise or.
+- **A line may be continued while a bracket is open.** The lexer
+  synthesizes `INDENT`/`DEDENT` from each physical line's leading
+  whitespace (see "Indentation-based blocks" below), and suspends that
+  entirely while an `(` or `[` is unclosed — so a parameter list, a
+  call's arguments, a list literal, a comprehension and a tuple may each
+  span several lines. The continuation lines are part of the same
+  statement and their own indentation means nothing; outside brackets,
+  indentation means exactly what it did. See "Lines and continuation".
+- `block`'s bare-`expr_stmt` alternative is taken **only** when that
+  expression begins on the row the header's `:` ends on. The EBNF cannot
+  state this, for the same reason it cannot state "a statement starts a
+  line of its own": the lexer emits no token for a line break, so both
+  are checked in `src/parser.ml` against the positions the tokens
+  already carry. A block that begins on the *next* line without being
+  indented is therefore not an inline block but the error it always was
+  (`expected an indented block`).
+- It is an `expr_stmt`, not a `statement`: only a value may be written
+  there. A `return`, a binding, a `:=`, or a nested header is refused
+  where it stands (`a block written on its header's own line must be
+  one expression, and 'return a' is not; write it in an indented block
+  instead`), so no line ever hides control flow or a new name behind
+  its `:`. An `if` written there is the `if_expr`, which is an
+  expression; the statement form is not.
+- An inline block **ends its line**. Nothing may be indented under it
+  (`a block written on its header's own line is the whole block, so
+  nothing may be indented under it`), and nothing may continue the
+  construct on the same line — an `else` has to start the next one
+  (`'else' must start on a new line: the block written on the header's
+  own line ends that line`). A second *statement* after it on the line
+  is caught by the one-statement-per-line rule instead, since it is a
+  sibling of the header rather than part of its block.
+- The two layouts are the same program. `def add(a, b): a + b` parses to
+  exactly what `def add(a, b):` followed by an indented `a + b` parses
+  to, so nothing after the parser can tell them apart — including the
+  pretty-printer, which prints every block indented.
+- The rule is the *block's*, so it holds wherever a block does:
+  `function_def`, `if_stmt` and its `else`, `for_stmt`, `while_stmt`,
+  `loop_stmt` and `case_clause`. A `match_stmt`'s clause list is not a
+  block and has no inline form.
+
+### Syntax by mode
+
+One parser reads every module. A `use` line adds no syntax; it allows
+what the parser already reads:
+
+| Mode | Allows |
+|---|---|
+| `use mutation` | `var_decl`, `:=` and compound assignment, `mutable struct`, and the calls that make and write Arrays, DynArrays, MutMaps and views |
+| `use pointers` (with `mutation`) | `&` and `*` in expressions, and `*p := v` |
+| `use objects` | `class`, `abstract class` and `interface` declarations |
+
+A construct of a mode the module has not turned on is refused as a
+`Parsing error` that names the `use` line it needs.
+
+### Compared with Python
+
+**The same as Python:** indentation-based blocks, `def`, `if`/`else`,
+`for … in`, `while`, `return`, list comprehensions, `match`/`case`,
+indexing and slicing, `import`, `from … import … as`, `#` comments, and
+most operators (`+ - * / %`, comparisons, `and`/`or`/`not`, bitwise
+operators).
+
+**Different:**
+
+| Python | Pyking |
+|---|---|
+| `True`, `False` | `true`, `false` |
+| `elif` | `else if` |
+| `a ** b` | `a ^ b` |
+| `lambda x: x + 1` | `lam x. x + 1` |
+| `a if c else b` | `if c then a else b` |
+| `'text'` or `"text"` | `"text"`; `'c'` is a Char |
+| `1 < 2 < 3` | refused: `1 < 2 and 2 < 3` |
+| `x = x + 1` updating `x` | `x := x + 1`, on a `var x` |
+| `(y := 3)`, the walrus | `:=` is a statement, never an expression |
+| `class A:` with fields assigned in `__init__` | `class A(x: Int):`, under `use objects` |
+
+**New in Pyking:** `use`, `var`, `datatype`, `struct`, `mutable struct`,
+`let … in`, `loop`, `public`, `implicit`, `Type::name` overloading, type
+annotations that are checked, and pointers (`&`, `*`).
+
+**Not in Pyking:** `try`/`except`/`raise` (use `Result` and `panic`),
+`with`, decorators (`@` is not a character Pyking reads), `*args` and
+`**kwargs`, `yield`, `async`, `global`/`nonlocal`, `assert`, `del`,
+f-strings, dict and set literals (`{` is not read; use `map(...)`), the
+`in` and `is` operators, `//` (Int `/` already truncates), and
+`while … else`. Where the parser can tell what was meant -- `elif`,
+`**`, a chained comparison, a String in single quotes -- the error says
+what to write instead.

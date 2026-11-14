@@ -33,9 +33,14 @@ a filesystem without symbolic links (a network mount, for one) works.
 sitesrc/                    the pages, by hand (at the repository root)
   index.md                  the start page
   install.md                Install
-  getstarted/               Getting started: one page per file
-  documentation/            Documentation: Editors (the language reference
-                            is PYKING.md)
+  getstarted/               Getting started: Pyking in 20 minutes,
+                            Setting up Pyking, Debugging
+  documentation/            Documentation: the Tools pages (Editors,
+                            Playground, Notebook, Command line, REPL,
+                            Compiler targets, Code on slides), Pyking
+                            vs. other languages, Styling tinyweb (the
+                            language reference and the grammar are
+                            PYKING.md, split by tools/help/help.py)
   404.md
   pics/                     pictures the site's stylesheet names, staged
                             into build/pics/ for Astro to bundle:
@@ -246,8 +251,17 @@ A page is Markdown with Starlight's front matter (`title`, `description`,
 and `sidebar.order` for its place in its section, then `sidebar.label`
 or `title`). A new file under `sitesrc/getstarted/` appears in Getting
 started by itself, in the left menu and in the playground's Help tab,
-and one under `sitesrc/documentation/` in Documentation. Its `##`
-headings are the menu's links into it.
+and one under `sitesrc/documentation/` in Documentation. Its
+`sidebar.group` (Tools, Language or tinyweb) says which pages the Help
+tab shows; it adds no heading to the left menu.
+
+The left menu has two levels and no more. A main page is listed in
+bold; the pages whose `sidebar.parent` it is (the language reference's
+pages, tinyweb's pages for other languages) are listed under it, smaller,
+while it or one of them is shown. A main page without pages of its own
+lists its `##` headings under it instead while it is shown; a sub-page's
+headings are never in the menu. The structure of the whole site is
+`design/website.md`.
 
 A ```` ```pyking ```` block is a **cell**: a whole program a reader can edit
 and run. The fences are the notebook's (`tools/notebook/README.md`):

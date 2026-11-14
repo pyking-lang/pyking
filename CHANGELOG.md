@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Changed
+
+- The website's documentation is reorganized (design/website.md).
+  Getting started is three pages: "Pyking in 20 minutes", a tour of the
+  language, its three modes (`use mutation`, `use objects`) and its
+  tools; "Setting up Pyking", installing and editor support; and
+  "Debugging", `debug`, the playground's Debug tab and `pyk dap`.
+  Documentation lists the tools (Editors, and new pages for the
+  Playground, Notebooks, the command line, the REPL and the compiler
+  targets, and Code on slides), then the language (the Language
+  reference, a new "Pyking vs. other languages" comparing Pyking with
+  Python, JavaScript, C, Java and OCaml and showing what the compiler
+  writes for each, and the Grammar), then tinyweb. The old Getting
+  started pages redirect to their new places.
+- The website's left menu has two levels and no more: main pages in
+  bold, and a main page's own pages (the Language reference's pages,
+  tinyweb's other languages) smaller under it. A sub-page's headings
+  are no longer listed in the menu.
+- PYKING.md is reorganized into the parts the Language reference shows
+  as pages -- Overview, Programs, modes and `use`, Values, Operators and
+  expressions, Names, Mutable state, Functions, Control flow,
+  Collections, Datatypes, Objects, Types, Overloading and implicits,
+  Modules, Builtins and I/O, Warnings -- each opening with when it is
+  available and how it compares with Python, and the Grammar a part of
+  its own, with the lexical structure, the syntax each `use` allows and
+  a comparison with Python's. No section's text was dropped. It is
+  still the one source of the language's documentation:
+  `tools/help/help.py` splits it into the pages.
+
+### Fixed
+
+- The grammar's `use` line names `pointers` as well as `mutation` and
+  `objects`.
+
 ## [0.1.11] - 2026-11-14
 
 ### Added

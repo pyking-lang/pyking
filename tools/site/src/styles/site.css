@@ -292,11 +292,27 @@
 .pyking-sidebar a[aria-current="page"] {
   color: var(--sl-color-white); font-weight: 600; background: var(--sl-color-accent-low);
 }
-.pyking-sidebar-headings {
-  margin: .15rem 0 .45rem .7rem !important;
-  border-inline-start: 1px solid var(--sl-color-gray-5);
+/* Two levels: a main page in bold and full size, its sub-pages (or, on
+   a page without any, its headings) smaller and quieter, indented
+   behind a rule. A page with sub-pages shows a chevron, open or shut. */
+.pyking-sidebar-main > li + li { margin-top: .1rem; }
+.pyking-sidebar-main > li > a {
+  font-weight: 600; color: var(--sl-color-gray-1);
 }
-.pyking-sidebar-headings a { padding: .2rem .7rem; font-size: var(--sl-text-xs); }
+.pyking-sidebar-parent > a { display: flex !important; justify-content: space-between; }
+.pyking-sidebar-parent > a::after {
+  content: "\203A"; color: var(--sl-color-gray-3); transition: transform .15s;
+}
+.pyking-sidebar-open > a::after { transform: rotate(90deg); }
+.pyking-sidebar-sub {
+  margin: .15rem 0 .5rem .8rem !important; padding-inline-start: .1rem !important;
+  border-inline-start: 2px solid var(--sl-color-gray-5);
+}
+.pyking-sidebar-sub a {
+  padding: .2rem .7rem; font-size: var(--sl-text-xs); font-weight: 400;
+  color: var(--sl-color-gray-3);
+}
+.pyking-sidebar-sub a[aria-current="page"] { font-weight: 600; }
 
 /* A library's functions and values, each in a box, as rustdoc boxes
    one (tools/help/libdoc.py writes the markup). The headings inside are

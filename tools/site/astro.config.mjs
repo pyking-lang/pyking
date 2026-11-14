@@ -24,6 +24,13 @@ export default defineConfig({
   publicDir: STAGE + "/public",
   cacheDir: STAGE + "/cache",
   trailingSlash: "always",
+  // Pages that moved, so old links and the section a reader left open
+  // (shell.js) still arrive: Getting started's tour and tinyweb's styles
+  // (design/website.md).
+  redirects: {
+    "/getstarted/overview/": "/getstarted/pyking-in-20-minutes/",
+    "/getstarted/tinyweb-styles/": "/documentation/tinyweb-styles/",
+  },
   markdown: { processor: unified({ remarkPlugins: [remarkPykingCells] }) },
   integrations: [
     starlight({

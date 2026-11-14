@@ -2,7 +2,8 @@
 title: Editors
 description: Set up your editor to use the Pyking language server, pyk lsp, and the Pyking debugger, pyk dap.
 sidebar:
-  order: 2
+  order: 1
+  group: Tools
 ---
 
 `pyk` includes a language server, `pyk lsp`, and a debugger, `pyk dap`.
@@ -97,33 +98,10 @@ lets the editor set breakpoints, step through the program, and show the
 calls in progress, their variables, and the value of an expression
 where the program stopped. It speaks DAP on standard input and output;
 `--stdio` and `--log` are as for `pyk lsp`. The editor's *launch*
-request says what to run:
-
-| argument | default | meaning |
-|---|---|---|
-| `program` | | the Pyking file to run |
-| `args` | `[]` | the program's own arguments, what `sys.args()` answers |
-| `stdin` | | a file the program reads as its standard input; without one it reads nothing |
-| `cwd` | | the directory the program runs in |
-| `stopOnEntry` | `false` | stop at the first statement |
-| `justMyCode` | `true` | step over the code of the standard library and of `-L` libraries |
-| `libPath` | `[]` | more library directories, searched after `-L` |
-| `release` | `false` | debug the program as `--release` compiles it, every `debug()` removed |
-| `warnings` | `[]` | `pyk`'s -W flags for the program's check, after those `pyk dap` was started with; its warnings are written to the debug console, and one made an error stops the launch |
-
-A breakpoint stops at the first statement starting on its line or after
-it, and may have a condition (a Bool expression), a hit count (`3` for
-the third time only, `>= 3`, `% 2`) or a log message, which is printed
-instead of stopping, with each `{expression}` in it replaced by its
-value. A runtime error stops the program where it happens unless the
-editor turns off the **Runtime errors** breakpoint. An expression
-evaluated where the program stopped -- a watch, the debug console, a
-hover -- is type-checked against the names in scope there. Only a `var`
-can be given a new value. A tinyweb program's callbacks are debugged
-too: a breakpoint in one stops when its event arrives.
-
-The program's standard output and its `debug` lines arrive in the
-editor's debug console, as standard output and standard error.
+request says what to run: `program`, and options such as `args`,
+`stdin`, `stopOnEntry` and `justMyCode`, which
+[Debugging](/getstarted/debugging/#launch-options) lists with the kinds
+of breakpoint.
 
 The examples below assume `pyk` is on your `PATH`. If it is not, write
 its full path in place of `pyk`.

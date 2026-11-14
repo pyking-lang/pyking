@@ -3,7 +3,7 @@
 // relative to the site's base.
 export const SECTIONS = [
   { label: "Install", path: "/install/", prefix: "/install/" },
-  { label: "Getting started", path: "/getstarted/overview/", prefix: "/getstarted/" },
+  { label: "Getting started", path: "/getstarted/pyking-in-20-minutes/", prefix: "/getstarted/" },
   { label: "Documentation", path: "/documentation/language/", prefix: "/documentation/" },
   { label: "Libraries", path: "/libraries/", prefix: "/libraries/" },
   { label: "Playground", path: "/playground/", prefix: "/playground/" },

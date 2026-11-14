@@ -62,6 +62,10 @@ import tinywebdoc  # noqa: E402
 
 # Where tinyweb's pages for other languages go, under Documentation.
 TINYWEB = "documentation/tinyweb"
+# The `sidebar.group` of sitesrc/'s tinyweb pages: in Documentation's
+# menu, "Tinyweb without Pyking" and its pages for other languages are
+# listed where the first of them is.
+TINYWEB_GROUP = "tinyweb"
 OUTPUT = REPO / "website"
 PICTURES = REPO / "sitesrc" / "pics"
 STAGE = HERE / "build"
@@ -243,26 +247,33 @@ def sidebar_items(directory, path):
 
 def sidebar(index, tinyweb):
     """The left menu of every section, by the section's id: its label,
-    the path of its first page, and its pages -- each with a link and its
-    headings, and tinyweb's pages for other languages as a group under
-    Documentation. {...} -> [{...}] -> {String: {...}}"""
+    the path of its first page, and its entries, two levels and no more:
+    each page with a link and its headings, and a page's own pages (a
+    page of the language reference, one of tinyweb's submodules) as its
+    items. tinyweb's pages for other languages are the items of "Tinyweb
+    without Pyking", listed in Documentation where its tinyweb pages are.
+    A page's `sidebar.group` orders nothing here; it chooses what the
+    Help tab shows (tools/help/help.py).
+    {...} -> [{...}] -> {String: {...}}"""
     menus = {}
     for section in index["sections"]:
-        # A page with a parent -- one of tinyweb's submodules -- is listed
-        # under it rather than beside it.
-        pages = []
+        pages, links = [], {}
+        tinyweb_at = None
         for page in section["pages"]:
             entry = {"label": page["label"], "link": f"/{page['slug']}/",
                      "headings": page["headings"]}
-            parent = next((p for p in pages if page.get("parent")
-                           and p["link"] == f"/{page['parent']}/"), None)
+            links[entry["link"]] = entry
+            parent = links.get(f"/{page['parent']}/") if page.get("parent") else None
             if parent is not None:
                 parent.setdefault("items", []).append(entry)
             else:
+                if page.get("group") == TINYWEB_GROUP and tinyweb_at is None:
+                    tinyweb_at = len(pages)
                 pages.append(entry)
         if section["id"] == "documentation":
-            pages.append({"label": "Tinyweb without Pyking", "link": f"/{TINYWEB}/",
-                          "headings": [], "items": tinyweb})
+            pages.insert(len(pages) if tinyweb_at is None else tinyweb_at, {
+                "label": "Tinyweb without Pyking", "link": f"/{TINYWEB}/",
+                "headings": [], "items": tinyweb})
         menus[section["id"]] = {"label": section["label"],
                                 "path": pages[0]["link"] if pages else "/",
                                 "pages": pages}
