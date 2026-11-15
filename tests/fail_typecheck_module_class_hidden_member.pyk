@@ -1,0 +1,6 @@
+# A public class's members name public types only, unless private.
+use objects
+
+class Inner(n: Int)
+
+public class Outer(inner: Inner)

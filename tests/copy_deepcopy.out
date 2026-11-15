@@ -1,0 +1,16 @@
+1 2.5 text c true ()
+(1, "a") (2, 'b')
+array([1, 2, 3]) array([10, 2, 3]) array([1, 20, 3]) false false
+array([Point(100, 1), Point(2, 2)]) array([Point(100, 1), Point(2, 2)]) array([Point(1, 1), Point(200, 2)])
+true false
+Point(2, 2) Point(9, 9)
+Point(3, 4) Point(30, 4) false
+Pair(Point(11, 2), Point(3, 4)) Pair(Point(11, 2), Point(3, 4)) Pair(Point(1, 2), Point(3, 44))
+array([Dot(Point(0, 0)), Line(Point(1, 1), Point(2, 2))]) array([Dot(Point(0, 0)), Line(Point(5, 1), Point(2, 6))])
+dynarray([Point(1, 0)]) dynarray([Point(1, 0), Point(2, 0)]) dynarray([Point(1, 9)]) 1 2 1
+mutmap([("b", Point(10, 1)), ("a", Point(2, 2))]) mutmap([("b", Point(10, 1)), ("a", Point(2, 2)), ("c", Point(3, 3))]) mutmap([("b", Point(1, 1)), ("a", Point(2, 20))])
+2 2 true
+array([1, 2, 3, 4, 5]) view([2, 3, 4]) view([20, 3, 4]) view([2, 30, 4]) 3
+array([1, 2, 3, 4, 5]) array([1, 99, 3, 4, 5]) view([99, 3, 4])
+array([Point(8, 0), Point(8, 0)]) true false
+array([array([10, 2]), array([3, 4])]) array([array([10, 2]), array([3, 4])]) array([array([1, 2]), array([3, 40])])

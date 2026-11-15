@@ -1375,3 +1375,34 @@ methods call and that build its objects, which Pyking's are. So:
 - OCaml's class types are regular, so a generic class whose method gives
   the class at other type arguments (`swap` answering `Pair(b, a)`) is
   refused.
+
+### Classes across modules
+
+A public class's class type, its exception for class patterns, its
+constructor (`rect__new`), the function setting up its fields
+(`rect__init`) and each method body (`rect__area`) are in its module's
+`.mli`, and another module names them through it: `Shapes.rect`,
+`Shapes.rect__new`, `Shapes.Pyk_obj_Rect` (`class_function`). A class
+pattern tests an object's `pyk_up` list for one of those exceptions:
+`exn` is the one extensible type every module of a program shares, so
+an object of another module's class is seen as each class of every
+module it is. A generic class's constructor takes a printer per type
+parameter first, which its `.mli` writes. A field or method whose name
+is an OCaml keyword is written with an underscore (`method_label`).
+
+## Copying
+
+`copy(x)` is made for the type at the call: `Array.copy` for an array,
+a new cell and storage for a DynArray, `Hashtbl.copy` and a new counter
+for a MutMap, a copy of the array behind a view, `Obj.dup` of a mutable
+struct's record and `Oo.copy` of an object, which gives it an identity
+of its own. Anything else is its own copy.
+
+`deepcopy(x)` is `pyk_deepcopy`, which walks the value's own blocks: a
+string, a boxed Float and a function are kept, a float array is
+duplicated, an object is copied with `Oo.copy` and then its instance
+variables, and every other block is duplicated and its fields copied --
+the last one in a loop, so a long list copies in constant stack. The
+table of copies is by identity, bucketed by a hash of what each block
+holds, which the copy never changes. An object without `pyk_up` in its
+method table is a pointer, which stops the copy.

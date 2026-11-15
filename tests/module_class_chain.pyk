@@ -1,0 +1,26 @@
+# Three modules: this one imports only the second, whose classes build on
+# the first's. A method, a default body and a class pattern reach back
+# through both (PYKING.md, "Classes across modules").
+use objects
+import module_class_chain_b_mod as b
+from module_class_chain_b_mod import Dog, Puppy
+
+class Cat(called: String) extends Dog(called):
+    override def sound(self) -> String:
+        "meow"
+    override def greet(self) -> String:
+        "purr. " + super.greet()
+
+d = Dog("rex")
+p = Puppy("bit")
+c = Cat("tom")
+print(d.greet())
+print(p.greet())
+print(c.greet())
+pets: [Dog] = [d, p, c]
+print(b.chorus(pets))
+for x in pets:
+    match x:
+        case q: Puppy: print(q.name, "is a puppy")
+        case k: Cat: print(k.name, "is a cat")
+        case _: print(x.name, "is a dog")

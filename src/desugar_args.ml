@@ -1415,6 +1415,23 @@ and imported signatures statement =
                   | _ -> [])
                 (List.map fst fields @ constructors)
           in
+          (* A class brings the defs holding its methods' defaults, which
+             a call of one of its methods from here fills a parameter left
+             out with (PYKING.md, "Classes across modules"). *)
+          let extra =
+            extra
+            @ List.concat_map
+                (fun (name, _) ->
+                  let prefix = method_default_name name "" "" in
+                  let prefix = String.sub prefix 0 (String.length prefix - 2) in
+                  SMap.fold
+                    (fun f meta out ->
+                      if meta.exported && String.length f > String.length prefix && String.sub f 0 (String.length prefix) = prefix
+                      then out @ [ f ]
+                      else out)
+                    info_.functions [])
+                fields
+          in
           let extra =
             List.filter (fun name -> not (List.mem_assoc name fields)) extra
           in
@@ -1468,7 +1485,17 @@ let desugar signatures name stmts =
       scope (imported @ stmts)
   in
   let out = block signatures scope stmts in
-  let definitions = block_definitions stmts in
+  (* The defs holding a class's methods' defaults are its module's too: a
+     `from` line naming the class brings them (`imported`). *)
+  let method_prefix = "method" ^ marker in
+  let definitions =
+    block_definitions stmts
+    @ List.filter
+        (fun (n, _) ->
+          String.length n > String.length method_prefix
+          && String.sub n 0 (String.length method_prefix) = method_prefix)
+        (block_definitions out)
+  in
   let functions =
     List.fold_left
       (fun functions (name, meta) -> SMap.add name meta functions)

@@ -1375,9 +1375,11 @@ and parse_pattern_atom eof tokens =
       parse_constructor_pattern eof (combine_info i ni) (Some module_) name rest
   | TokIdent (i, name) :: rest when is_constructor_name name ->
       parse_constructor_pattern eof i None name rest
-  | TokIdent (i, name) :: TokColon colon :: (TokIdent (ti, tname) :: _ as after)
+  | TokIdent (i, name) :: TokColon colon :: (TokIdent (ti, tname) :: more as after)
     when colon.row1 = i.row2 && ti.row1 = colon.row2
-         && is_constructor_name (List.hd (List.rev (String.split_on_char '.' tname)))
+         && (is_constructor_name (List.hd (List.rev (String.split_on_char '.' tname)))
+            || (* another module's class, `case r: shapes.Rect:` *)
+            match more with TokDot _ :: TokIdent (_, cname) :: _ -> is_constructor_name cname | _ -> false)
          && typed_pattern_follows eof after ->
       (* `case c: Circle:` -- an object of that class or interface. The
          type is followed by what may follow a pattern: the case's `:`,
@@ -3540,15 +3542,11 @@ let made_public stmt public_info =
       SFunctionSig (i, name, type_, sym, true)
   | SDatatype (_, name, params, constructors, sym, _, writable) ->
       SDatatype (i, name, params, constructors, sym, true, writable)
-  | SClass (_, c, _) ->
-      (* What another module would need of a class -- its table, its
-         constructor, its methods, on every target -- is not written yet. *)
-      raise
-        (Parse_error
-           ( i,
-             Printf.sprintf
-               "a class is used in the module declaring it: '%s' cannot be exported yet"
-               c.c_name ))
+  | SClass (_, c, sym) ->
+      (* A class or an interface another module may use, implement and
+         extend: its name, its constructor and its members that are not
+         `private` (PYKING.md, "Classes across modules"). *)
+      SClass (i, { c with c_public = true }, sym)
   | SLet (_, (TargetName _ as target), e, annotation, sym, _, implicit) ->
       SLet (i, target, e, annotation, sym, true, implicit)
   | SLetStmt (_, (TargetName _ as target), inner, annotation, sym, _) ->

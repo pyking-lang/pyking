@@ -1,0 +1,9 @@
+use objects
+import shapes_lib
+from shapes_lib import Rect
+
+r = Rect(2, 3)
+print(r.area(), shapes_lib.Rect(1, 1).grow())
+class Sq(s: Int) extends Rect(s, s):
+    override def area(self) -> Int:
+        self.s * self.s

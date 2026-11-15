@@ -1,0 +1,12 @@
+Point(11, 0) Point(11, 0) Point(101, 0)
+1 2 2
+false false true false
+rect 2
+square 9
+Point(7, 2) 1
+Point(2, 2) 0
+square 16 false
+bob true false
+bob ada
+2 2 2
+array([false, false]) array([true, false]) array([false, false])

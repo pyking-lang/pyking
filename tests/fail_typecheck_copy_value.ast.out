@@ -1,0 +1,2 @@
+'tests/fail_typecheck_copy_value.pyk' 2:4-2:8 Type error: 'copy' is a
+  builtin operation: it can be called, but not used as a value

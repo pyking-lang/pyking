@@ -1,0 +1,4 @@
+2 2 1 2 100
+Cell(array([1, 2])) Cell(array([10, 2]))
+Node(Leaf, Cell(1), Node(Leaf, Cell(2), Leaf)) Node(Leaf, Cell(50), Node(Leaf, Cell(2), Leaf))
+Cell(5) Cell(6)

@@ -1,0 +1,8 @@
+# A class extending another module's abstract class defines its abstract
+# methods.
+use objects
+from module_class_shapes_mod import Counter
+
+class Laps(n: Int) extends Counter(n)
+
+print(Laps(1).report())

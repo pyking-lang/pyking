@@ -1,0 +1,7 @@
+# deepcopy refuses a pointer: the place it points at is not part of
+# the value, so a deep copy has nothing to copy it into.
+use mutation, pointers
+
+var x = 1
+p = &x
+q = deepcopy(p)

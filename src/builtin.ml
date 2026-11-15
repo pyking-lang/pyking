@@ -164,6 +164,28 @@ let all =
          compares none of them.";
     };
     {
+      name = "copy";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc =
+        "Answer a shallow copy: a new array, DynArray, MutMap, view, mutable \
+         struct or object holding the same elements, entries or fields as the \
+         one given -- the parts themselves are shared. Any other value is \
+         answered as it is, since it never changes.";
+    };
+    {
+      name = "deepcopy";
+      min_args = 1;
+      max_args = Some 1;
+      crosses_host = false;
+      doc =
+        "Answer a deep copy: a value equal to the one given that shares \
+         nothing writable with it -- every array, DynArray, MutMap, view, \
+         mutable struct and object in it is copied, keeping what is shared \
+         and cycles as they are. Functions are shared; a pointer is refused.";
+    };
+    {
       name = "push";
       min_args = 2;
       max_args = Some 2;
@@ -405,9 +427,10 @@ let writers = [ "push"; "pop"; "insert"; "remove"; "clear"; "discard"; "view"; "
 
 (** The builtins younger than the programs and libraries that use the
     name for something of their own -- tinyweb's `push` and `remove`,
-    `color.same` -- so a module's own definition or import of the name
+    `color.same`, the collection libraries' `copy` -- so a module's own
+    definition or import of the name
     is allowed, and then means itself there. [string] *)
-let yielding = [ "same"; "get"; "has"; "keys"; "values"; "items"; "panic" ] @ writers
+let yielding = [ "same"; "get"; "has"; "keys"; "values"; "items"; "panic"; "copy" ] @ writers
 
 (** The plain names the members of the builtin overload sets compile to.
     [string] *)

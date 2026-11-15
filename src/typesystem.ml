@@ -95,6 +95,10 @@ type resolution =
          method's parameters, as for Method_call *)
   | Object_eq of bool
       (* `a == b` (true) or `a != b` (false) on objects: a call of `eq` *)
+  | Class_named of string
+      (* a class's constructor call or pattern: the class's canonical
+         name, `module.Name` for another module's, which elaborate.ml
+         writes in place of the name as the source spelled it *)
 
 and argument =
   | Direct of string * typ
@@ -356,32 +360,6 @@ type frame = { returns : given list }
     nothing to return from. *)
 type expected = No_function | Inferring | Declared of typ
 
-(** What the checker knows of one class or interface (PYKING.md, "Classes
-    and interfaces"): every type in it written in terms of the class's own
-    parameters, which are rigid. *)
-type class_info = {
-  cl_name : string;
-  cl_kind : class_kind;
-  cl_params : string list;
-  cl_parent : (string * typ list) option; (* the parent class, at its arguments *)
-  cl_interfaces : (string * typ list) list; (* the interfaces named in the header *)
-  cl_header : (string * typ) list; (* what the constructor takes *)
-  cl_fields : field_info list; (* the fields it declares itself *)
-  cl_methods : method_info list; (* the methods it declares itself *)
-  cl_info : info;
-}
-
-and field_info = { fd_name : string; fd_type : typ; fd_var : bool; fd_private : bool; fd_info : info }
-
-and method_info = {
-  md_name : string;
-  md_params : (string * typ * expr option) list; (* each with its default, where it has one *)
-  md_return : typ;
-  md_abstract : bool; (* no body: an abstract method, or an interface's signature *)
-  md_private : bool;
-  md_override : bool;
-  md_info : info;
-}
 
 (** Everything inference has worked out, threaded through the pass as a
     value.
@@ -443,6 +421,12 @@ type store = {
   constructors : string SMap.t;
   field_defaults : (typ * string) SMap.t;
   pending_plus : (typ * info) list;
+  pending_copies : (string * typ * info) list;
+      (* each `copy(x)` and `deepcopy(x)`: the builtin, the type of x and
+         where x is. What the type holds is checked once the module is
+         done (`settle_copies`), and until then a definition does not
+         generalise over it, since each target makes the copy for the
+         type it is at. *)
   open_kinds : string list;
       (* every kind variable handed out, decided at the end if nothing
          else did (`settle_kinds`) *)
@@ -480,6 +464,7 @@ let empty_store sigmaps =
     constructors = SMap.empty;
     field_defaults = SMap.empty;
     pending_plus = [];
+    pending_copies = [];
     open_kinds = [];
     kind_origins = SMap.empty;
     mutation = true;
@@ -1405,6 +1390,7 @@ let learned store inner =
     (* A `+` whose operands the inner check left open is still to be
        decided, here or further out. *)
     pending_plus = inner.pending_plus;
+    pending_copies = inner.pending_copies;
     open_kinds = inner.open_kinds;
     kind_origins = inner.kind_origins;
     upcasts = inner.upcasts;
@@ -2155,6 +2141,122 @@ let all_supers store start =
     one. store -> (string * [typ]) -> string -> [typ]? *)
 let super_as store start target = List.assoc_opt target (all_supers store start)
 
+(** What stops `copy` or `deepcopy` (PYKING.md, "Copying") making a copy
+    of a value of type_, described, or None. Each target makes the copy
+    for the type it is at, so a type variable is an obstacle to both:
+    `def f(x: a) -> a: copy(x)` has nothing to make it for. A pointer is
+    one to `deepcopy` (`pointers`): the place it points at is not part of
+    the value, so a deep copy has nothing to copy it into. A class or an
+    interface may be any class below it, so every class known here that
+    is below it is looked through as well; one this module cannot see is
+    stopped when the copy is made instead. The answer names where it is:
+    "the field 'p' of Node is a Ptr(Int)", with whether it is a pointer.
+    pointers:bool -> store -> typ -> (bool * string) option *)
+let copy_obstacle ~pointers store type_ =
+  let field_name owner (name, index) =
+    match name with
+    | Some n -> Printf.sprintf "the field '%s' of %s" n owner
+    | None -> Printf.sprintf "field %d of %s" (index + 1) owner
+  in
+  let rec go seen where t =
+    let t = zonk t store in
+    let here pointer what =
+      let shown_ = printed t in
+      match where with
+      | Some w -> Some (pointer, Printf.sprintf "%s %s" w what)
+      | None -> Some (pointer, Printf.sprintf "%s %s" shown_ what)
+    in
+    match t with
+    | TVar (_, name, _, true) -> here false (if where = None then "is a type variable" else Printf.sprintf "is the type variable %s" name)
+    | TCon (_, c, _, _) when pointers && c = ptr_name -> if where = None then Some (true, "") else here true (Printf.sprintf "is a %s" (printed t))
+    | TList (_, element, _) -> go seen where element
+    | TTuple (_, elements, _) -> first seen where elements
+    | TFunction _ -> None
+    | TForall (_, _, body, _) -> go seen where body
+    | TCon (_, c, args, _) when SMap.mem c store.classes ->
+        if List.mem c seen then None
+        else
+          let seen = c :: seen in
+          let own =
+            List.fold_left
+              (fun found (k, kargs) ->
+                match found with
+                | Some _ -> found
+                | None -> (
+                    match class_named store k with
+                    | Some ci ->
+                        let mapping = if List.length ci.cl_params = List.length kargs then List.combine ci.cl_params kargs else [] in
+                        List.fold_left
+                          (fun found f ->
+                            match found with
+                            | Some _ -> found
+                            | None -> go seen (Some (field_name k (Some f.fd_name, 0))) (substitute f.fd_type mapping))
+                          None ci.cl_fields
+                    | None -> None))
+              None (class_chain store (c, args))
+          in
+          if own <> None || not pointers then own
+          else
+            (* A class below it, holding a pointer in a field of its own. *)
+            SMap.fold
+              (fun k ki found ->
+                match found with
+                | Some _ -> found
+                | None when k = c -> None
+                | None ->
+                    let params = List.map (fun v -> TVar (ki.cl_info, v, 0, true)) ki.cl_params in
+                    if super_as store (k, params) c = None then None
+                    else
+                      List.fold_left
+                        (fun found f ->
+                          match found with
+                          | Some _ -> found
+                          | None -> (
+                              match go_pointer f.fd_type with
+                              | Some what -> Some (true, Printf.sprintf "%s, a class below %s, %s" (field_name k (Some f.fd_name, 0)) c what)
+                              | None -> None))
+                        None ki.cl_fields)
+              store.classes None
+    | TCon (_, c, args, _) -> (
+        match SMap.find_opt c store.datatypes with
+        | Some (Datatype (_, params, constructors, _)) when not (List.mem c seen) ->
+            let seen = c :: seen in
+            let mapping = if List.length params = List.length args then List.combine params args else [] in
+            List.fold_left
+              (fun found (cname, fields) ->
+                match found with
+                | Some _ -> found
+                | None ->
+                    let owner = if cname = c then c else Printf.sprintf "%s (of %s)" cname c in
+                    let _, found =
+                      List.fold_left
+                        (fun (index, found) (name, ft) ->
+                          match found with
+                          | Some _ -> (index + 1, found)
+                          | None -> (index + 1, go seen (Some (field_name owner (name, index))) (substitute ft mapping)))
+                        (0, None) fields
+                    in
+                    found)
+              None constructors
+        | Some _ -> None
+        | None -> first seen where args)
+    | _ -> None
+  and first seen where ts =
+    List.fold_left (fun found t -> match found with Some _ -> found | None -> go seen where t) None ts
+  (* A pointer anywhere in a field's written type, the class's own
+     variables standing for anything. *)
+  and go_pointer t =
+    let rec has t =
+      match t with
+      | TCon (_, c, _, _) when c = ptr_name -> Some (Printf.sprintf "is a %s" (printed t))
+      | TCon (_, _, args, _) | TTuple (_, args, _) -> List.fold_left (fun f a -> match f with Some _ -> f | None -> has a) None args
+      | TList (_, e, _) -> has e
+      | _ -> None
+    in
+    has t
+  in
+  go [] None type_
+
 (** A method's types with a class's parameters given.
     [(string, typ)] -> method_info -> method_info *)
 let method_at mapping m =
@@ -2273,12 +2375,53 @@ let signature_text m =
     (String.concat ", " ("self" :: List.map (fun (n, t, _) -> n ^ ": " ^ printed t) m.md_params))
     (match m.md_return with TTuple (_, [], _) -> "" | t -> " -> " ^ printed t)
 
+(** store knowing the classes and interfaces other modules export to this
+    one (PYKING.md, "Classes across modules"): each by its canonical name,
+    `module.Name`, in `classes`, as a datatype is in `datatypes`; and
+    under the names an import gives it -- `Name` from a `from` line, or
+    `alias.Name` -- in `types`, so a type, a constructor call, a class
+    pattern and an `extends` or `implements` find it. A signature also
+    carries the classes the module's own classes stand on, from modules
+    this one may not import (`Module.sigmaps_for`): those are known by
+    their canonical names alone. [stmt] -> store -> store *)
+let declare_imported_classes stmts store =
+  let all_entries =
+    List.concat_map
+      (fun (_, sigmap) -> List.filter_map (fun (_, t, _) -> match t with TClass (_, c, _) -> Some c | _ -> None) sigmap)
+      store.modules
+  in
+  let store =
+    List.fold_left (fun store c -> { store with classes = SMap.add c.cl_name c store.classes }) store all_entries
+  in
+  List.fold_left
+    (fun store statement ->
+      match statement with
+      | SImport (_, module_, alias, selected, fields, _) -> (
+          match List.assoc_opt module_ store.modules with
+          | None -> store
+          | Some sigmap ->
+              let entries = List.filter_map (fun (n, t, _) -> match t with TClass (_, c, _) -> Some (n, c) | _ -> None) sigmap in
+              let name_it store local c = { store with types = SMap.add local c.cl_name store.types } in
+              if selected then
+                List.fold_left
+                  (fun store (exported, local) ->
+                    match List.assoc_opt exported entries with Some c -> name_it store local c | None -> store)
+                  store fields
+              else
+                List.fold_left
+                  (fun store (exported, c) ->
+                    if String.length exported > 0 && exported.[0] = '%' then store else name_it store (alias ^ "." ^ exported) c)
+                  store entries)
+      | _ -> store)
+    store stmts
+
 (** store knowing every class and interface these statements declare:
     their names first, so they may name each other in any order, then
     what each says, then the rules a declaration must keep -- every one
     checked here, at the class, before any body is.
     [stmt] -> store -> store *)
 let declare_classes stmts store =
+  let store = declare_imported_classes stmts store in
   let own = List.filter_map (function SClass (i, c, _) -> Some (i, c) | _ -> None) stmts in
   (* A class declared again -- a REPL entry redefining one -- replaces it. *)
   let store =
@@ -2500,6 +2643,14 @@ let declare_classes stmts store =
           let t = resolve c (Option.get t) in
           match inherited n with
           | Some (owner, f) when passed && printed f.fd_type = printed t && not var && not private_ -> ignore owner; None
+          | Some (owner, f) when f.fd_private ->
+              raise
+                (Type_error
+                   ( fi,
+                     Printf.sprintf
+                       "'%s' is a private field of '%s', which '%s' extends; a class below it never \
+                        declares a member of that name, so give this field another"
+                       n owner name ))
           | Some (owner, _) ->
               raise
                 (Type_error
@@ -2659,7 +2810,39 @@ let declare_classes stmts store =
                 | _ -> ()))
           (all_methods store self))
     own;
-  store
+  (* An override takes its parameters' defaults from where the method is
+     first declared, which is the one place they are written (PYKING.md,
+     "Methods"): `B().g()` gives `by` the default `A` declared. *)
+  List.fold_left
+    (fun store (i, c) ->
+      let info = SMap.find c.c_name store.classes in
+      let self = (c.c_name, List.map (t_var i) info.cl_params) in
+      let above = List.tl (all_supers store self) in
+      let first_declared name =
+        List.find_map
+          (fun (n, _) ->
+            match class_named store n with
+            | Some k -> List.find_opt (fun md -> md.md_name = name && not md.md_override) k.cl_methods
+            | None -> None)
+          above
+      in
+      let methods =
+        List.map
+          (fun m ->
+            if not m.md_override then m
+            else
+              match first_declared m.md_name with
+              | Some theirs when List.length theirs.md_params = List.length m.md_params ->
+                  {
+                    m with
+                    md_params =
+                      List.map2 (fun (n, t, d) (_, _, d') -> (n, t, match d with Some _ -> d | None -> d')) m.md_params theirs.md_params;
+                  }
+              | _ -> m)
+          info.cl_methods
+      in
+      { store with classes = SMap.add c.c_name { info with cl_methods = methods } store.classes })
+    store own
 
 (** What a constructor builds, from how the source spells it: the
     canonical datatype, the constructor's field types and the type of
@@ -2803,7 +2986,7 @@ let import_env stmts env store =
               match type_ with
               (* A datatype and its constructors are not values; the
                  store's own tables hold them (`declare_datatypes`). *)
-              | TData _ -> env
+              | TData _ | TClass _ -> env
               | _ ->
               (* A public implicit is found by an unqualified call as
                  well, and automatically -- an ordering a module defines
@@ -2923,14 +3106,69 @@ let check_exports stmts store =
 let check_exported_datatypes stmts store =
   let public_types =
     List.filter_map
-      (function SDatatype (_, name, _, _, _, true, _) -> Some name | _ -> None)
+      (function
+        | SDatatype (_, name, _, _, _, true, _) -> Some name
+        | SClass (_, c, _) when c.c_public -> Some c.c_name
+        | _ -> None)
       stmts
   in
   let own =
     List.filter_map
-      (function SDatatype (_, name, _, _, _, _, _) -> Some name | _ -> None)
+      (function SDatatype (_, name, _, _, _, _, _) -> Some name | SClass (_, c, _) -> Some c.c_name | _ -> None)
       stmts
   in
+  let kind n = if SMap.mem n store.classes then "class" else "datatype" in
+  (* A public class: what it extends and implements is public, and so is
+     every type its members other modules may reach are written with
+     (PYKING.md, "Classes across modules"). *)
+  List.iter
+    (function
+      | SClass (info, c, _) when c.c_public -> (
+          match SMap.find_opt c.c_name store.classes with
+          | None -> ()
+          | Some ci ->
+              List.iter
+                (fun (super, _) ->
+                  if List.mem super own && not (List.mem super public_types) then
+                    raise
+                      (Type_error
+                         ( info,
+                           Printf.sprintf
+                             "'%s' is public, and builds on '%s', which is not: make '%s' public too, so that \
+                              a module using '%s' can see everything it is"
+                             c.c_name super super c.c_name )))
+                (Option.to_list ci.cl_parent @ ci.cl_interfaces);
+              let rec hidden t =
+                match t with
+                | TCon (_, n, args, _) -> if List.mem n own && not (List.mem n public_types) then Some n else List.find_map hidden args
+                | TList (_, e, _) -> hidden e
+                | TTuple (_, es, _) -> List.find_map hidden es
+                | TFunction (_, ps, r, _, _, _, _) -> List.find_map hidden (ps @ [ r ])
+                | _ -> None
+              in
+              let members =
+                List.filter_map (fun f -> if f.fd_private then None else Some (f.fd_name, f.fd_info, f.fd_type)) ci.cl_fields
+                @ List.filter_map
+                    (fun m ->
+                      if m.md_private then None
+                      else Some (m.md_name, m.md_info, TFunction (m.md_info, List.map (fun (_, t, _) -> t) m.md_params, m.md_return, 0, 0, None, [])))
+                    ci.cl_methods
+              in
+              List.iter
+                (fun (n, i, t) ->
+                  match hidden t with
+                  | Some h ->
+                      raise
+                        (Type_error
+                           ( i,
+                             Printf.sprintf
+                               "'%s' of the public class '%s' names the %s '%s', which is not public: make '%s' \
+                                public too, or make '%s' private"
+                               n c.c_name (kind h) h h n ))
+                  | None -> ())
+                members)
+      | _ -> ())
+    stmts;
   let rec hidden t =
     match t with
     | TCon (_, n, args, _) ->
@@ -2966,10 +3204,10 @@ let check_exported_datatypes stmts store =
                 (Type_error
                    ( info,
                      Printf.sprintf
-                       "'%s' is public, and its type names the datatype '%s', \
+                       "'%s' is public, and its type names the %s '%s', \
                         which is not: make '%s' public too, so that a module \
                         holding the value can name its type"
-                       name datatype datatype ))
+                       name (kind datatype) datatype datatype ))
           | None -> ())
       | None -> ())
     stmts
@@ -3212,6 +3450,22 @@ let builtin_argument_error name argument actual accepted =
       Printf.sprintf "'%s' cannot be applied to %s; it accepts %s" name
         (printed actual) accepted )
 
+(** Why `copy` or `deepcopy` refuses a value of type actual: what
+    `copy_obstacle` found in it, a pointer or a type variable, and where.
+    string -> expr -> typ -> (bool * string) -> exn *)
+let copy_error name argument actual (pointer, why) =
+  let shown_ = printed actual in
+  let reason =
+    if pointer then
+      Printf.sprintf
+        "a pointer cannot be deep-copied, since the place it points at is not \
+         part of the value%s; copy(x) copies only the outermost value, sharing \
+         what it holds"
+        (if why = "" then "" else ", and " ^ why)
+    else Printf.sprintf "it copies a value of a type known where it is called, and %s" why
+  in
+  Type_error (expr_info argument, Printf.sprintf "'%s' cannot be applied to %s; %s" name shown_ reason)
+
 (** Every kind variable in type_, through the metavariables' solutions,
     and every one each links on to. typ -> store -> [string] *)
 let kind_names_in type_ store =
@@ -3374,6 +3628,20 @@ let settle_plus store =
                    shown_ shown_ )))
     { store with pending_plus = [] }
     (List.rev store.pending_plus)
+
+(** Every `copy` and `deepcopy` checked again with the module done, when
+    each argument's type is as known as it will be: a type variable or a
+    pointer (`copy_obstacle`) that arrived since the call is refused at
+    the argument. What is still open then holds nothing, as an empty
+    array's element type does, and needs nothing copied. store -> unit *)
+let settle_copies store =
+  List.iter
+    (fun (name, type_, info) ->
+      let type_ = zonk type_ store in
+      match copy_obstacle ~pointers:(name = "deepcopy") store type_ with
+      | Some why -> raise (copy_error name (EVar (info, name, 0)) type_ why)
+      | None -> ())
+    (List.rev store.pending_copies)
 
 (** The store with every kind variable nothing decided decided: a list
     where it may be one, as an index with nothing else to go on always
@@ -4838,8 +5106,9 @@ and expr_type e env store =
       let value_type = zonk value_type store in
       let inner, store = check_target target value_type env store in
       check_expr body inner store
-  | EConstruct (info, module_, name, args, _) when object_class store module_ name <> None ->
+  | EConstruct (info, module_, name, args, csym) when object_class store module_ name <> None ->
       let c = Option.get (object_class store module_ name) in
+      let store = record_resolution store csym (Class_named c.cl_name) in
       if c.cl_kind <> ClassPlain then
         raise
           (Type_error
@@ -5432,10 +5701,26 @@ and check_method_call call (owner, m) written env store =
   if m.md_private && store.current_class <> Some owner then
     raise (Type_error (info, Printf.sprintf "'%s' is private to '%s'" m.md_name (base_name owner)));
   let store = check_method_arguments info m.md_name m written env store in
+  let store = foreign_defaults m store in
   let store =
     record_resolution store (expr_sym call) (Method_call (owner, List.map (fun (n, _, d) -> (n, d)) m.md_params))
   in
   (zonk m.md_return store, store)
+
+(** store knowing the types of a method's defaults that another module
+    wrote -- each a call of the def desugar_args made of it there,
+    `module.def()` -- which elaborate.ml fills in where a call leaves the
+    argument out: the def takes nothing and answers the parameter's type.
+    method_info -> store -> store *)
+and foreign_defaults m store =
+  List.fold_left
+    (fun store (_, t, d) ->
+      match d with
+      | Some (ECall (i, EVar (_, name, vs), [], cs)) when String.contains name '.' ->
+          let store = record store vs (TFunction (i, [], t, 0, 0, None, [])) in
+          record store cs t
+      | _ -> store)
+    store m.md_params
 
 (** `super.name(args)`: the implementation the class inherited, from its
     parent's chain first, then a default of one of its interfaces.
@@ -5479,6 +5764,7 @@ and check_super info name written sym env store =
       in
       let owner, m = found in
       let store = check_method_arguments info name m written env store in
+      let store = foreign_defaults m store in
       let store = record_resolution store sym (Super_owner (owner, List.map (fun (n, _, d) -> (n, d)) m.md_params)) in
       (zonk m.md_return store, store)
 
@@ -6337,6 +6623,17 @@ and check_builtin_call name call env store =
         | _ -> store
       in
       ((match name with "pop" | "remove" -> zonk element store | _ -> unit_type info), store)
+  | ("copy" | "deepcopy"), [ value ] ->
+      (* A copy of the value, of its own type (PYKING.md, "Copying"):
+         `copy` a new outermost store, `deepcopy` one that shares nothing
+         writable with it. What the type holds is checked now, as far as
+         it is known, and again once the module is done
+         (`settle_copies`). *)
+      check_builtin_arity name info given;
+      (match copy_obstacle ~pointers:(name = "deepcopy") store value with
+      | Some why -> raise (copy_error name (List.hd args) value why)
+      | None -> ());
+      (value, { store with pending_copies = (name, value, expr_info (List.hd args)) :: store.pending_copies })
   | "same", [ first; second ] ->
       (* Whether two values are one: identity, which `==` does not ask
          (PYKING.md, "Arrays", "Mutable structs"). Both are arrays of one
@@ -6769,6 +7066,14 @@ and infer_definition func_type store =
             | _ -> found)
           StringSet.empty store.pending_plus
       in
+      (* Nor is the type a `copy` or a `deepcopy` copies: each target makes
+         the copy for the type it is at, so the definition's first use
+         decides it, as for a `+` (PYKING.md, "Copying"). *)
+      let undecided =
+        List.fold_left
+          (fun found (_, copied, _) -> List.fold_left (fun found m -> StringSet.add m found) found (metas_in copied store))
+          undecided store.pending_copies
+      in
       (* Generalise the whole group and remember every scheme *before*
          verifying any of them: a body re-checked while a name it calls
          is still unworked would work that one out all over again, which
@@ -7152,6 +7457,7 @@ and check_pattern pattern type_ env store =
           (Type_error
              ( info,
                Printf.sprintf "'%s' is an interface, which has no fields to match: write 'case x: %s:'" name name ));
+      let store = record_resolution store sym (Class_named c.cl_name) in
       let instance, store = object_pattern_type info c [] type_ store in
       if List.length fields <> List.length c.cl_header then
         raise
@@ -7184,6 +7490,7 @@ and check_pattern pattern type_ env store =
                          (List.length written) ));
               let instance, store = object_pattern_type info c written type_ store in
               let instance = zonk instance store in
+              let store = record_resolution store sym (Class_named c.cl_name) in
               (bind env name instance, record store sym instance)
           | _ ->
               raise
@@ -7298,7 +7605,9 @@ let exhaustive_datatype store canonical =
 let check_matches stmts store =
   let tmap = IntMap.map (fun type_ -> zonk type_ store) store.tmap in
   try
-    Exhaustive.check (exhaustive_datatype store) tmap stmts
+    Exhaustive.check
+      ~classes:(fun s -> match IntMap.find_opt s store.qmap with Some (Class_named c) -> Some c | _ -> None)
+      (exhaustive_datatype store) tmap stmts
   with Exhaustive.Refused (info, message) -> raise (Type_error (info, message))
 
 (** One resolution with every type in it read back through what has
@@ -7317,7 +7626,7 @@ let rec resolved_types answer store =
           passed,
           List.map (fun one -> resolved_argument one store) supplied )
   | Upcast type_ -> Upcast (zonk type_ store)
-  | Method_call _ | Method_value _ | Super_owner _ | Object_eq _ -> answer
+  | Method_call _ | Method_value _ | Super_owner _ | Object_eq _ | Class_named _ -> answer
 
 (** One resolved argument, read back the same way.
     argument -> store -> argument *)
@@ -7406,7 +7715,7 @@ let defaulted tmap qmap =
         Call (Option.map (fun (name, type_) -> (name, fix type_)) target, List.map argument supplied)
     | Adapted (type_, passed, supplied) -> Adapted (fix type_, passed, List.map argument supplied)
     | Upcast type_ -> Upcast (fix type_)
-    | Method_call _ | Method_value _ | Super_owner _ | Object_eq _ -> answer
+    | Method_call _ | Method_value _ | Super_owner _ | Object_eq _ | Class_named _ -> answer
   in
   (IntMap.map fix tmap, IntMap.map resolution qmap)
 
@@ -7437,10 +7746,24 @@ let type_check ?(declared = []) ?(mutation = true) stmts sigmaps =
   in
   let store = settle_plus store in
   let store = settle_kinds store in
+  settle_copies store;
   check_binding_keys stmts store;
   check_exports stmts store;
   check_exported_datatypes stmts store;
   check_matches stmts store;
+  (* A public class is exported whole: what the checker knows of it,
+     under its declaration's symbol, for Module.make_sigmap. *)
+  let store =
+    List.fold_left
+      (fun store statement ->
+        match statement with
+        | SClass (i, c, sym) when c.c_public -> (
+            match SMap.find_opt c.c_name store.classes with
+            | Some info -> { store with tmap = IntMap.add sym (TClass (i, info, sym)) store.tmap }
+            | None -> store)
+        | _ -> store)
+      store stmts
+  in
   (* Every type is read back once the whole module has been checked,
      because a metavariable open where it was recorded may have been
      solved by something written further down -- a definition worked out

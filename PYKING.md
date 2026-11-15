@@ -216,7 +216,13 @@ restriction of it, but these are genuinely new.
   signatures and defaults, and a class `extends` one parent and
   `implements` any number of interfaces. Java's semantics in Python's
   spelling: objects are shared, dispatch is dynamic, `override` is
-  written, and `==` calls a class's `eq`. See "Classes and interfaces".
+  written, and `==` calls a class's `eq`. A `public class` is another
+  module's to use, implement and extend. See "Classes and interfaces"
+  and "Classes across modules".
+- **`copy` and `deepcopy`**: a shallow and a deep copy of any value, as
+  Python's `copy.copy` and `copy.deepcopy`, built in. A deep copy keeps
+  what the original shares and its cycles, copies an object as the class
+  it is, and is checked at compile time. See "Copying".
 - **Uppercase is for types and constructors**: every name a program
   binds starts with a lowercase letter or `_`, so a constant is
   `pi = 3.14` rather than Python's `PI = 3.14`, and an uppercase name is
@@ -402,8 +408,12 @@ Statements:
   class` and `interface`, header and body fields (`var` ones with `use
   mutation`), methods with `self`, `private`, `extends`, `implements`,
   `override`, `super`, `eq` and `show`, upcasts where a type is written,
-  and class patterns (`case Square(side):`, `case c: Circle:`) — Pyking
-  extension (see "Classes and interfaces")
+  and class patterns (`case Square(side):`, `case c: Circle:`), and
+  `public` ones used, implemented and extended from other modules —
+  Pyking extension (see "Classes and interfaces", "Classes across
+  modules")
+- Shallow and deep copies of any value, `copy(x)` and `deepcopy(x)`
+  (see "Copying")
 - Patterns of every kind may be combined with `|` (`case 1 | 2:`), bind
   the whole value as well with `as` (`case Node(l, r) as whole:`), and
   carry a guard (`case n if n > 0:`); every `match` matches every
@@ -1797,7 +1807,9 @@ is matched; a guard that writes a field is seen by the cases after it.
 
 **Identity.** `same(p, q)` asks whether two names hold one struct, as it
 does for arrays. `==` compares no structs: whether two hold the same
-fields is a function the program writes.
+fields is a function the program writes. A new struct holding the same
+fields is `copy(p)`, and one sharing nothing writable with `p` is
+`deepcopy(p)` (see "Copying").
 
 ```pyking
 use mutation
@@ -1849,6 +1861,123 @@ decides it everywhere. One that nothing decides, `c = Cell([])`, is
 written on Python and JavaScript, a final class on Java, a record with
 `mutable` fields on OCaml, and on C a pointer to a struct, which plain C
 mallocs and never frees and `c23-gc` takes from the collector.
+
+### Copying (`copy` and `deepcopy`)
+
+An array, a DynArray, a MutMap, a view, a `mutable struct` and an
+object are *shared*: `b = a` and passing `a` to a function hand over
+the same one, so a change through either name is seen through both
+(see "Mutable structs" and "Classes and interfaces"). Two builtins make
+a separate one instead. Both work on a value of any type, in every
+module, with no `use` line:
+
+- **`copy(x)`** makes a *shallow* copy: a new outermost array,
+  DynArray, MutMap, `mutable struct` or object, holding the same
+  elements, entries or fields as `x`. What those hold is shared by the
+  original and the copy.
+- **`deepcopy(x)`** makes a *deep* copy: a value equal to `x` that
+  shares nothing writable with it. Every array, DynArray, MutMap, view,
+  `mutable struct` and object reachable from `x` is copied.
+
+```pyking
+use mutation
+
+mutable struct Point(x: Int, y: Int)
+
+points = array([Point(1, 1), Point(2, 2)])
+shallow = copy(points)
+deep = deepcopy(points)
+
+shallow[0] := Point(9, 9)    # changes only the shallow copy's array
+deep[1].x := 20              # changes only the deep copy's point
+shallow[1].x := 30           # changes the point both arrays share
+
+print(points)                # array([Point(1, 1), Point(30, 2)])
+print(shallow)               # array([Point(9, 9), Point(30, 2)])
+print(deep)                  # array([Point(1, 1), Point(20, 2)])
+print(same(points[1], shallow[1]), same(points[1], deep[1]))   # true false
+```
+
+What each gives, by the value copied:
+
+| The value | `copy(x)` | `deepcopy(x)` |
+|---|---|---|
+| Int, Float, String, Char, Bool, `()` | `x` itself | `x` itself |
+| a list, tuple, Map, plain `struct`, datatype | `x` itself: it never changes, so a copy could not be told from it | a new one whose parts are deep-copied |
+| an Array, a DynArray | a new one holding the same elements | a new one, each element deep-copied |
+| a MutMap | a new one holding the same entries, in the same order | a new one, the same keys, each value deep-copied |
+| a view | a view with the same bounds, of a copy of the whole array behind it | the same, the array deep-copied |
+| a `mutable struct` | a new struct holding the same fields | a new struct, each field deep-copied |
+| an object | a new object of the class it *is* (a `Shape` holding a `Square` copies to a `Square`), holding the same fields, private and inherited ones included | a new object of that class, each field deep-copied |
+| a function | `x` itself | `x` itself: a function is shared, as in Python's `copy.deepcopy` |
+| a pointer | `x` itself | refused (below) |
+
+**Sharing and cycles are kept.** A deep copy copies each array, struct
+and object once. If one is reached twice in `x`, the copy reaches its
+copy twice. A cycle (`a.next` leading back to `a`) gives a copy with the
+same cycle, and copying it always ends. A view and the array behind it,
+both inside `x`, give a view of the new array:
+
+```pyking
+use mutation
+
+mutable struct Cell(value: Int)
+
+shared = Cell(0)
+pair = array([shared, shared])
+copied = deepcopy(pair)
+copied[0].value := 5
+print(copied, same(copied[0], copied[1]), same(copied[0], shared))
+# array([Cell(5), Cell(5)]) true false
+```
+
+**A deep copy copies everything reachable.** An object that holds a
+reference to a large structure -- a `Player` holding the whole `Game` it
+is in -- drags a copy of all of it along. Where only the outermost value
+should be new, `copy` is the one to use, and a struct's own fields can
+be copied by hand with `Point(..p)`.
+
+**Where each is refused.** Both are made for the type at the call, so
+the type must be known there: `def f(x: a) -> a: copy(x)` is refused,
+since a type variable says nothing about what to copy. A definition
+with no annotations is not generalised over a type it copies; its first
+use decides that type, as for `+`. `deepcopy` also refuses a pointer
+anywhere in the type, since the place a pointer points at is not part
+of the value. `copy` takes one, and the copy holds the same pointer.
+
+```pyking error
+use mutation, pointers
+
+mutable struct Node(value: Int, at: Ptr(Int))
+
+var x = 1
+n = deepcopy(Node(1, &x))
+```
+
+```
+'node.pyk' 6:13-6:24 Type error: 'deepcopy' cannot be applied to Node;
+  a pointer cannot be deep-copied, since the place it points at is not
+  part of the value, and the field 'at' of Node is a Ptr(Int);
+  copy(x) copies only the outermost value, sharing what it holds
+```
+
+A class below an interface may hold a pointer that the module copying
+the interface cannot see: a class of another module (see "Classes across
+modules"). A deep copy that meets one stops the program with `deepcopy
+met a pointer, which cannot be deep-copied`.
+
+**Identity and equality.** A copy of a shared value is a new one, so
+`same(copy(a), a)` is `false`. Where `==` compares the type, it answers
+`true` for a copy of a value that has not been changed since.
+
+**Targets.** Every target makes both copies:
+
+- Python, JavaScript and Java by walking the value at run time, with a
+  table of what has been copied.
+- C by a copy function written for each type, and each class's
+  descriptor holding the function that copies one of its objects.
+- OCaml makes `copy` for the type at the call, and `deepcopy` by walking
+  the value's own blocks.
 
 ### Pointers — Pyking extension
 
@@ -4010,7 +4139,8 @@ a value it does not return is fine in a method answering `()`.
 
 **Objects are references.** Every object is shared by each name, element
 and field holding it, as in Java and Python; `same(a, b)` asks whether
-two names hold one object. An object with no `var` field never changes.
+two names hold one object. An object with no `var` field never changes. `copy(o)` and `deepcopy(o)` make a new object of the class `o` is (see
+"Copying").
 
 **Equality and printing.** `a == b` and `a != b` call the class's `eq`,
 written `def eq(self, other: C) -> Bool`, and are refused where it has
@@ -4100,16 +4230,123 @@ print(describe(Cat("Tom")))       # a cat called Tom
 | JavaScript, web | an ES class, an interface's defaults copied into the classes without them |
 | Java | a nested class, an interface a Java interface with `default` methods |
 | OCaml | a class type, objects immediate objects built by a function, each method a function taking `self` |
-| C | a struct starting with its class descriptor, a method table per class, one slot per method name |
+| C | a struct starting with its class descriptor, a method table per class, one slot per method name of the program |
 | interpreter | a value with its class's name and fields; methods kept by name |
-
-A class is used in the module declaring it: `public class` is refused
-for now, since what another module would need of one is not written yet.
 
 A generic class is not compiled to C, which would need one copy of it per
 type, and OCaml cannot write a generic class whose method gives the class
 at other type arguments than its own (`swap` answering `Pair(b, a)`):
 both are refused with a message saying so.
+
+### Classes across modules — Pyking extension
+
+`public class`, `public abstract class` and `public interface` export a
+class or an interface. Another module may then use it, implement it and
+extend it, as the module declaring it does:
+
+```pyking norun
+# shapes.pyk
+use objects, mutation
+
+public interface Shape:
+    def area(self) -> Int
+    def name(self) -> String
+    def describe(self) -> String:
+        self.name() + " of area " + string(self.area())
+
+public class Rect(width: Int, height: Int = 1) implements Shape:
+    private var moves: Int = 0
+    override def area(self) -> Int:
+        self.width * self.height
+    override def name(self) -> String:
+        "rectangle"
+    def grow(self, by: Int = 2) -> ():
+        self.moves := self.moves + by
+```
+
+```pyking norun
+# main.pyk
+use objects
+import shapes
+from shapes import Rect
+
+class Circle(r: Int) implements shapes.Shape:
+    override def area(self) -> Int:
+        3 * self.r * self.r
+    override def name(self) -> String:
+        "circle"
+
+class Square(side: Int) extends Rect(side, side):
+    override def name(self) -> String:
+        "square, a " + super.name()
+
+all: [shapes.Shape] = [Rect(2), shapes.Rect(3, 4), Circle(1), Square(2)]
+for s in all:
+    print(s.describe())
+match all[3]:
+    case q: Square: print("a square of side", q.side)
+    case _: print("something else")
+```
+
+prints `rectangle of area 2`, `rectangle of area 12`, `circle of area
+3`, `square, a rectangle of area 4` and `a square of side 2`.
+
+**What `public` exports.** The class or interface, its constructor (a
+class's, not an abstract class's or an interface's), and every member
+that is not `private`. A `private` member stays reachable only from the
+methods of the class declaring it, wherever the object is, and a class
+in another module extending it never declares a member of that name.
+
+**How it is named.** As a datatype of another module is: `shapes.Rect`
+through `import shapes`, the alias through `import shapes as sh`
+(`sh.Rect`), and `Rect` through `from shapes import Rect`. That holds in
+a type, a constructor call, a class pattern (`case shapes.Rect(w, h)`,
+`case r: shapes.Rect`), and after `extends` and `implements`.
+
+**Everything else is as within one module.** Defaults and named
+arguments of constructors and methods work from the importing module,
+an override takes its defaults from where the method is first declared,
+`super.m(...)` reaches a body in another module, and an interface's
+default bodies are inherited. `==` calls `eq`, printing calls `show`,
+and `copy` and `deepcopy` copy an object as its own class. A class of
+another module is open: any module may extend it or implement it, so a
+`match` on one needs a `case _` unless a case covers the class itself.
+
+**What a public class may name.** A module importing a class has to be
+able to name everything it is. So a public class builds only on public
+classes and interfaces, and its members that are not `private` name
+only public classes and datatypes. A public function, binding or
+datatype naming a class follows the same rule:
+
+```pyking error
+use objects
+
+interface Sized:
+    def size(self) -> Int
+
+public class Box(n: Int) implements Sized:
+    override def size(self) -> Int: self.n
+```
+
+```
+'box.pyk' 6:0-7:42 Type error: 'Box' is public, and builds on 'Sized',
+  which is not: make 'Sized' public too, so that a module using 'Box'
+  can see everything it is
+```
+
+**One class name per module.** Two modules may each declare a class of
+the same name, private or public: each module's code means its own,
+and another module names a public one through its module.
+
+**Targets.** Every target compiles classes across modules:
+
+| Target | Another module's class is |
+|---|---|
+| Python, JavaScript | its module's class, `shapes.Rect`, extended and implemented as its own |
+| Java | a public nested class of its module's class, `Shapes.Rect`; a public class is not `final` |
+| OCaml | its module's class type and functions, `Shapes.rect` and `Shapes.rect__new`, which its `.mli` declares; a class pattern tests one of its exceptions, since `exn` is the one extensible type every module shares |
+| C | its module's descriptor and object struct, which its header declares; every module numbers an object's method table the same way |
+| interpreter | its class by the name `module.Name`, so two modules' classes of one name are two classes |
 
 ## Types and type inference
 
@@ -5453,6 +5690,11 @@ A `public datatype` or `public struct` says its fields' types the same
 way: a field whose default is not a literal has its type written beside
 it (`value: Int = start()`).
 
+A `public class`, `public abstract class` or `public interface` exports
+the class with its constructor and every member that is not `private`
+(see "Classes across modules"). Its members say their types already: a
+method writes every parameter's type, and a field its own.
+
 A written type is the type it always was, so an exported function is as
 general as its annotation says. `identity` here is exported as
 `(a) -> a` and may be used at every type:
@@ -5794,14 +6036,14 @@ polymorphic function stays polymorphic across the boundary.
 > `eprint`, `eprintsl` and `debug` are new
 
 A few operations are built into the language rather than defined in a
-library: printing, `len`, `range`, the conversions and `panic`. A
+library: printing, `len`, `range`, the conversions, copying and `panic`. A
 builtin may only be called: it is not a value that can be stored or
 passed.
 
 ### Builtin functions
 
 `print`, `printsl`, `eprint`, `eprintsl`, `debug`, `range`, `string`,
-`len`, `int`, `float`, `bool`, `char` and `panic` are checked at the call, each by its own rule,
+`len`, `int`, `float`, `bool`, `char`, `copy`, `deepcopy` and `panic` are checked at the call, each by its own rule,
 because none of them is a function *value*: a builtin is a host operation (see "Names
 and scoping"), it has no type that can be written down, and it may be
 called and nothing else.
@@ -5816,6 +6058,8 @@ called and nothing else.
 | `string(x)` | one `Int`, `Float`, `String`, `Char`, `Bool`, list or tuple | `String` |
 | `len(x)` | one list, array, DynArray, view, Map, MutMap or `String` (counted in characters) | `Int` |
 | `panic(m)` | one `String`: stops the program with it as a runtime error | any type, since it never answers |
+| `copy(x)` | one value of any type known at the call | a shallow copy, of the same type (see "Copying") |
+| `deepcopy(x)` | one value of any type known at the call, holding no pointer | a deep copy, of the same type (see "Copying") |
 | `range(n)` | one to three `Int`s | `[Int]` |
 | `int(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Int` |
 | `float(x)` | one `Int`, `Float`, `String`, `Char` or `Bool` | `Float` |
@@ -6322,7 +6566,7 @@ from_stmt   = "from" , module_path , "import" , field_item , { "," , field_item 
 module_path = ident , { "." , ident } ;
 field_item  = ident , [ "as" , ident ] ;
 public_stmt = "public" , ( function_def | function_sig | datatype_stmt
-                          | struct_stmt | assignment ) ;
+                          | struct_stmt | class_stmt | assignment ) ;
 
 (* A datatype belongs to a module's top level. Its name and every
    constructor's start with an uppercase letter; its parameters are type
@@ -7127,6 +7371,7 @@ operators).
 | `x = x + 1` updating `x` | `x := x + 1`, on a `var x` |
 | `(y := 3)`, the walrus | `:=` is a statement, never an expression |
 | `class A:` with fields assigned in `__init__` | `class A(x: Int):`, under `use objects` |
+| `copy.copy(x)`, `copy.deepcopy(x)` | `copy(x)`, `deepcopy(x)`: builtins, no import |
 
 **New in Pyking:** `use`, `var`, `datatype`, `struct`, `mutable struct`,
 `$name` interpolation without braces, `printsl`/`eprint`/`eprintsl`,

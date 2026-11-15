@@ -338,6 +338,14 @@ let tvar ctx v =
 (** How the class of another module is written. string -> string *)
 let module_class name = default_class_name name
 
+(** A class or interface as written here: this module's own by its name,
+    another module's as a member of that module's class, `Shapes.Rect`
+    (PYKING.md, "Classes across modules"). ctx -> string -> string *)
+let class_ref ctx canonical =
+  match split_canonical canonical with
+  | Some m, n -> module_class m ^ "." ^ ctor_class (module_class m) n
+  | None, n -> ctor_class ctx.own_class n
+
 (** A datatype's type as written here. ctx -> string -> string *)
 let datatype_ref ctx canonical =
   match (SMap.find_opt canonical ctx.datatypes, split_canonical canonical) with
@@ -410,7 +418,7 @@ let rec jt ctx ?(boxed = false) ?(erase = false) t =
       let k, v = Option.get (map_parts t) in
       runtime_class ^ ".PykMap<" ^ jt ctx ~boxed:true k ^ ", " ^ jt ctx ~boxed:true v ^ ">"
   | TCon (_, canonical, args, _) when Classes.find ctx.classes canonical <> None ->
-      ctor_class ctx.own_class canonical ^ if args = [] then "" else "<" ^ targs ctx args ^ ">"
+      class_ref ctx canonical ^ if args = [] then "" else "<" ^ targs ctx args ^ ">"
   | TCon (_, canonical, args, _) ->
       datatype_ref ctx canonical ^ if args = [] then "" else "<" ^ targs ctx args ^ ">"
   | TForall _ as p ->
@@ -991,7 +999,7 @@ let rec pattern ctx st p (s : jexpr) (t : typ) binding =
       (* An object of that class or one below it: an `instanceof`, and
          its header's fields read through a cast. *)
       let c = Option.get (Classes.find ctx.classes name) in
-      let cls = ctor_class ctx.own_class name in
+      let cls = class_ref ctx name in
       let same = match t with TCon (_, n, args, _) when n = name -> Some args | _ -> None in
       let typed = match same with Some (_ :: _ as args) -> cls ^ "<" ^ targs ctx args ^ ">" | _ -> cls in
       let mapping = match same with Some args when List.length args = List.length c.Classes.params -> List.combine c.Classes.params args | _ -> [] in
@@ -1008,7 +1016,7 @@ let rec pattern ctx st p (s : jexpr) (t : typ) binding =
       let conds, binds, st = parts ctx st fields places types binding in
       (test :: conds, binds, st)
   | PTyped (_, name, target, _) ->
-      let cls = match target with TCon (_, n, _, _) -> ctor_class ctx.own_class n | _ -> "Object" in
+      let cls = match target with TCon (_, n, _, _) -> class_ref ctx n | _ -> "Object" in
       let test = mk p_rel (Printf.sprintf "%s instanceof %s" (at p_rel s) cls) in
       ([ test ], [ (name, atom (Printf.sprintf "((%s) %s)" cls (at p_unary s)), target) ], st)
   | PConstructor (_, _, name, fields, _, _) -> (
@@ -1286,7 +1294,7 @@ let rec expr ctx st scope e =
       let values, st = exprs ctx st scope (arg_exprs args) in
       let values = List.map2 (fun a v -> typed_value ctx (type_of ctx scope a) v) (arg_exprs args) values in
       ( atom
-          (Printf.sprintf "new %s%s(%s)" (ctor_class ctx.own_class name)
+          (Printf.sprintf "new %s%s(%s)" (class_ref ctx name)
              (if c.Classes.params = [] then "" else "<>")
              (String.concat ", " (List.map (fun v -> v.text) values))),
         st )
@@ -1303,7 +1311,7 @@ let rec expr ctx st scope e =
       let values = List.map2 (fun a v -> typed_value ctx (type_of ctx scope a) v) (arg_exprs args) values in
       let target =
         match Classes.find ctx.classes owner with
-        | Some { Classes.kind = ClassInterface; _ } -> ctor_class ctx.own_class owner ^ ".super"
+        | Some { Classes.kind = ClassInterface; _ } -> class_ref ctx owner ^ ".super"
         | _ -> "super"
       in
       let text = Printf.sprintf "%s.%s(%s)" target (method_ident name) (String.concat ", " (List.map (fun v -> v.text) values)) in
@@ -1699,6 +1707,7 @@ and builtin ctx st scope e name args =
       let explicit = if settled ctx t && type_vars t = [] && not (is_unit t) then "<" ^ jt ctx ~boxed:true t ^ ">" else "" in
       (atom ~boxed:true (Printf.sprintf "%s.%spanic(%s)" runtime_class explicit m.text), st)
   | "copy_into", [ dst; src ] -> (atom (Printf.sprintf "%s(%s, %s)" (rt "copyInto") dst.text src.text), st)
+  | ("copy" | "deepcopy"), [ v ] -> (atom (Printf.sprintf "%s(%s)" (rt name) v.text), st)
   | "same", [ a; b ] ->
       (* Two arrays, or two mutable structs, are the same when they are one
          object. *)
@@ -2792,6 +2801,7 @@ type jdatatype = {
   d_ctors : (string * string * (string * string) list) list; (* class, Pyking name, fields *)
   d_writable : bool; (* a mutable struct: one constructor, fields written in place *)
   d_public : bool;
+  d_copies : bool; (* whether the program copies, so its classes say how *)
 }
 
 type jprogram = {
@@ -2810,6 +2820,7 @@ type jprogram = {
   polys_ : (string * string) list;
   capture_table : (string * capture) list;
   takes_args : bool;
+  copies_ : bool; (* whether the program copies (PYKING.md, "Copying") *)
 }
 
 (** A datatype of this module as the classes it is declared as.
@@ -2834,6 +2845,7 @@ let jdatatype ctx (Datatype (_, params, ctors, writable) as d) public =
     d_ctors = List.map2 (fun (c, _) fs -> (ctor_class ctx.own_class c, c, fs)) ctors all;
     d_public = public;
     d_writable = writable;
+    d_copies = ctx.context.copies;
   }
 
 (** A top-level binding: a static field for each name, assigned in the
@@ -2943,10 +2955,13 @@ let render_class ctx st scope info c =
   let ifaces = List.map (fun (_, s) -> jt ctx ~boxed:true (type_at s)) k.Classes.interfaces in
   let ifaces = if k.Classes.parent = None then ifaces @ [ runtime_class ^ ".Obj" ] else ifaces in
   let head =
-    if interface then Printf.sprintf "    interface %s%s extends %s {" cls generic (String.concat ", " ifaces)
+    if interface then Printf.sprintf "    %sinterface %s%s extends %s {" (if c.c_public then "public " else "") cls generic (String.concat ", " ifaces)
     else
-      Printf.sprintf "    static %sclass %s%s%s%s {"
-        (if c.c_kind = ClassAbstract then "abstract " else if Classes.extended table c.c_name then "" else "final ")
+      Printf.sprintf "    %sstatic %sclass %s%s%s%s {"
+        (if c.c_public then "public " else "")
+        (if c.c_kind = ClassAbstract then "abstract "
+         else if Classes.extended table c.c_name || c.c_public then ""
+         else "final ")
         cls generic parent
         (if ifaces = [] then "" else " implements " ^ String.concat ", " ifaces)
   in
@@ -3069,12 +3084,58 @@ let render_class ctx st scope info c =
         [ Printf.sprintf "        public String pykShow() { return %s(); }" (method_ident "show") ]
       else []
   in
-  (String.concat "\n" ([ head ] @ fields @ constructor @ methods @ data @ [ "    }" ]), st)
+  (* `copy` and `deepcopy` (PYKING.md, "Copying"): a constructor making
+     an object from another of its class, field by field -- the parent's
+     part by the parent's, so a private field is copied where it can be
+     read -- deep-copying each field where it is given the table of
+     copies, which it puts the new object in first. The class the object
+     is answers for it, so a Shape copies as the Square it is. *)
+  let copier =
+    if interface || not ctx.context.copies then []
+    else
+      let primitive t = List.mem t [ "int"; "double"; "boolean" ] in
+      [
+        "        @SuppressWarnings(\"unchecked\")";
+        Printf.sprintf "        protected %s(final %s%s other, final java.util.IdentityHashMap<Object, Object> memo) {" cls cls generic;
+      ]
+      @ (match k.Classes.parent with
+        | Some _ -> [ "            super(other, memo);" ]
+        | None -> [ "            if (memo != null) memo.put(other, this);" ])
+      @ List.map
+          (fun f ->
+            let n = fname f.Classes.f_name in
+            let t = jt ctx (type_at f.Classes.f_sym) in
+            if primitive t then Printf.sprintf "            this.%s = other.%s;" n n
+            else
+              Printf.sprintf "            this.%s = memo == null ? other.%s : (%s) %s.deepcopyIn(other.%s, memo);" n n t runtime_class n)
+          k.Classes.fields
+      @ [ "        }" ]
+      @
+      if c.c_kind = ClassAbstract then []
+      else
+        [
+          Printf.sprintf "        public Object pykCopy() { return new %s%s(this, null); }" cls generic;
+          Printf.sprintf "        public Object pykDeepcopy(java.util.IdentityHashMap<Object, Object> memo) { return new %s%s(this, memo); }" cls
+            generic;
+        ]
+  in
+  (String.concat "\n" ([ head ] @ fields @ constructor @ copier @ methods @ data @ [ "    }" ]), st)
 
 (** One module of a program as a jprogram. `context` says what is true of
     it only as part of a program. [stmt] -> typ IntMap.t -> Module.context
     -> string -> jprogram *)
 let translate_program stmts tmap (context : Module.context) version =
+  let context =
+    {
+      context with
+      copies =
+        context.copies
+        || Walk.exists_stmts
+             (function Walk.NExpr (ECall (_, EVar (_, ("copy" | "deepcopy"), _), [ _ ], _)) -> true | _ -> false)
+             stmts;
+    }
+  in
+  let classes, tmap = Classes.program stmts tmap context.sigmaps in
   let class_texts = ref [] in
   let own_class = default_class_name context.context_name in
   if own_class = runtime_class then
@@ -3120,7 +3181,7 @@ let translate_program stmts tmap (context : Module.context) version =
       class_names = List.fold_left (fun set c -> StringSet.add (ctor_class own_class c) set) class_names (List.filter_map (function SClass (_, c, _) -> Some c.c_name | _ -> None) stmts);
       erase = false;
       addressed = addressed_vars stmts;
-      classes = Classes.table stmts;
+      classes;
     }
   in
   let top = { ctx with erase = true } in
@@ -3317,6 +3378,7 @@ let translate_program stmts tmap (context : Module.context) version =
     main_body = reachable body;
     datatypes_ = List.map (fun (d, public) -> jdatatype ctx d public) own_datatypes;
     shape_ = ctx.shape;
+    copies_ = context.copies;
     tuples_ = st.tuples;
     fns_ = st.fns;
     polys_ = st.polys;
@@ -3400,6 +3462,36 @@ let structural_methods pad =
     pad ^ Printf.sprintf "public int hashCode() { return %s.hash(this); }" runtime_class;
   ]
 
+(** What `copy` and `deepcopy` (PYKING.md, "Copying") call on a value of
+    a datatype, a mutable struct or a tuple, each field (n, its Java type)
+    of the class `cls` at `params`: a mutable struct's `pykCopy` makes a new
+    one holding the same fields, and its `pykDeepcopy` puts the new one in
+    the table of copies before copying its fields, so a cycle through it
+    ends; a value that never changes is copied field by field. A class
+    with no fields keeps `Data`'s, which answer the value itself.
+    string -> string -> (string * string) list -> bool -> [string] *)
+let copy_methods cls params fields writable =
+  let primitive t = List.mem t [ "int"; "double"; "boolean"; "long"; "char"; "float" ] in
+  let deep (n, t) = if primitive t then n else Printf.sprintf "(%s) %s.deepcopyIn(%s, memo)" t runtime_class n in
+  let names = String.concat ", " (List.map fst fields) in
+  if fields = [] then []
+  else if writable then
+    [
+      Printf.sprintf "        public Object pykCopy() { return new %s%s(%s); }" cls params names;
+      "        @SuppressWarnings(\"unchecked\")";
+      "        public Object pykDeepcopy(java.util.IdentityHashMap<Object, Object> memo) {";
+      Printf.sprintf "            final %s%s copy = new %s%s(%s);" cls params cls params names;
+      "            memo.put(this, copy);";
+    ]
+    @ List.filter_map (fun (n, t) -> if primitive t then None else Some (Printf.sprintf "            copy.%s = %s;" n (deep (n, t)))) fields
+    @ [ "            return copy;"; "        }" ]
+  else
+    [
+      "        @SuppressWarnings(\"unchecked\")";
+      Printf.sprintf "        public Object pykDeepcopy(java.util.IdentityHashMap<Object, Object> memo) { return new %s%s(%s); }" cls params
+        (String.concat ", " (List.map deep fields));
+    ]
+
 (** A datatype's classes, in the shape the version gives them.
     shape -> jdatatype -> string *)
 let pprint_datatype shape d =
@@ -3433,6 +3525,7 @@ let pprint_datatype shape d =
         @ List.map (fun (n, _) -> Printf.sprintf "            this.%s = %s;" n n) fields
         @ [ "        }" ]
         @ data_methods name fields
+        @ (if d.d_copies then copy_methods cls params fields true else [])
         (* Field i written, for a pointer to it. *)
         @ [ "        @SuppressWarnings(\"unchecked\")"; "        public void pykSet(int i, Object value) {"; "            switch (i) {" ]
         @ List.mapi (fun i (n, t) -> Printf.sprintf "                case %d: %s = (%s) value; break;" i n (boxed t)) fields
@@ -3445,7 +3538,7 @@ let pprint_datatype shape d =
         @ List.map (fun (n, _) -> Printf.sprintf "            this.%s = %s;" n n) fields
         @ [ "        }" ]
         @ List.map (fun (n, t) -> Printf.sprintf "        public %s %s() { return %s; }" t n n) d.d_shared
-        @ data_methods name fields @ structural_methods "        " @ [ "    }" ])
+        @ data_methods name fields @ (if d.d_copies then copy_methods cls params fields false else []) @ structural_methods "        " @ [ "    }" ])
   | _, [ (cls, name, fields) ] ->
       String.concat "\n"
         ([
@@ -3453,7 +3546,7 @@ let pprint_datatype shape d =
              (String.concat ", " (List.map (fun (n, t) -> t ^ " " ^ n) fields))
              runtime_class;
          ]
-        @ data_methods name fields @ [ "    }" ])
+        @ data_methods name fields @ (if d.d_copies then copy_methods cls params fields false else []) @ [ "    }" ])
   | Java8, _ ->
       let base =
         Printf.sprintf "    %s static abstract class %s%s implements %s.Data {\n%s    }" visibility d.d_type params runtime_class
@@ -3469,7 +3562,7 @@ let pprint_datatype shape d =
           @ List.map (fun (n, _) -> Printf.sprintf "            this.%s = %s;" n n) fields
           @ [ "        }" ]
           @ List.map (fun (n, t) -> Printf.sprintf "        public %s %s() { return %s; }" t n n) (List.filter (fun f -> List.mem f d.d_shared) fields)
-          @ data_methods name fields @ structural_methods "        " @ [ "    }" ])
+          @ data_methods name fields @ (if d.d_copies then copy_methods cls params fields false else []) @ structural_methods "        " @ [ "    }" ])
       in
       String.concat "\n\n" (base :: List.map ctor d.d_ctors)
   | _, _ ->
@@ -3487,7 +3580,7 @@ let pprint_datatype shape d =
                (String.concat ", " (List.map (fun (n, t) -> t ^ " " ^ n) fields))
                d.d_type params;
            ]
-          @ data_methods name fields @ [ "    }" ])
+          @ data_methods name fields @ (if d.d_copies then copy_methods cls params fields false else []) @ [ "    }" ])
       in
       String.concat "\n\n" (base :: List.map ctor d.d_ctors)
 
@@ -3549,6 +3642,7 @@ let pprint_java_program (program : jprogram) version class_name source =
     module may call. [jprogram] -> string -> string *)
 let runtime_source programs version =
   let shape = shape_of version in
+  let copies = List.exists (fun p -> p.copies_) programs in
   let tuples = List.sort_uniq compare (List.init 7 (fun i -> i + 2) @ List.concat_map (fun p -> p.tuples_) programs) in
   let fns = List.sort_uniq compare (List.init 6 (fun i -> i + 3) @ List.concat_map (fun p -> p.fns_) programs) in
   let polys =
@@ -3560,6 +3654,17 @@ let runtime_source programs version =
       Printf.sprintf "        public Object[] pykItems() { return new Object[] { %s }; }"
         (String.concat ", " (List.mapi (fun i _ -> Printf.sprintf "a%d" i) params))
     in
+    (* A tuple deep-copied is a new one of its parts deep-copied. *)
+    let deep =
+      if not copies then []
+      else
+      [
+        "        @SuppressWarnings(\"unchecked\")";
+        Printf.sprintf "        public Object pykDeepcopy(java.util.IdentityHashMap<Object, Object> memo) { return new T%d<%s>(%s); }" n
+          (String.concat ", " params)
+          (String.concat ", " (List.mapi (fun i p -> Printf.sprintf "(%s) deepcopyIn(a%d, memo)" p i) params));
+      ]
+    in
     match shape with
     | Java8 ->
         String.concat "\n"
@@ -3569,11 +3674,11 @@ let runtime_source programs version =
               Printf.sprintf "        public T%d(%s) {" n (String.concat ", " (List.mapi (fun i p -> Printf.sprintf "%s a%d" p i) params));
             ]
           @ List.mapi (fun i _ -> Printf.sprintf "            this.a%d = a%d;" i i) params
-          @ [ "        }"; items ] @ structural_methods "        " @ [ "    }" ])
+          @ [ "        }"; items ] @ deep @ structural_methods "        " @ [ "    }" ])
     | _ ->
-        Printf.sprintf "    public record T%d<%s>(%s) implements Tuple {\n%s\n    }" n (String.concat ", " params)
+        Printf.sprintf "    public record T%d<%s>(%s) implements Tuple {\n%s\n%s\n    }" n (String.concat ", " params)
           (String.concat ", " (List.mapi (fun i p -> Printf.sprintf "%s a%d" p i) params))
-          items
+          items (String.concat "\n" deep)
   in
   let fn n =
     let params = List.init n (fun i -> Printf.sprintf "A%d" i) in
@@ -3592,6 +3697,19 @@ let runtime_source programs version =
        "    public interface Data {";
        "        String pykTag();";
        "        Object[] pykFields();";
+     ]
+    @ (if copies then
+         [
+           "";
+           "        // copy(v) and deepcopy(v) of a value of it: one that never changes";
+           "        // is its own copy; a mutable struct, an object, or a value holding";
+           "        // one, says otherwise (PYKING.md, \"Copying\").";
+           "        default Object pykCopy() { return this; }";
+           "";
+           "        default Object pykDeepcopy(java.util.IdentityHashMap<Object, Object> memo) { return this; }";
+         ]
+       else [])
+    @ [
        "    }";
        "";
        "    // An object of a class: printed as its `show` says, where it has one,";
@@ -3608,6 +3726,9 @@ let runtime_source programs version =
        "    // A tuple, as print writes it.";
        "    public interface Tuple {";
        "        Object[] pykItems();";
+     ]
+    @ (if copies then [ ""; "        Object pykDeepcopy(java.util.IdentityHashMap<Object, Object> memo);" ] else [])
+    @ [
        "    }";
      ]
     @ List.concat_map (fun n -> [ ""; tuple n ]) tuples
@@ -3638,6 +3759,91 @@ let runtime_source programs version =
         "        System.err.print(text);";
         "        return null;";
         "    }";
+      ]
+    @ (if not copies then []
+       else
+      [
+        "";
+        "    // copy(v) (PYKING.md, \"Copying\"): a new outermost store holding what";
+        "    // v's holds; a value that never changes is its own copy.";
+        "    @SuppressWarnings(\"unchecked\")";
+        "    public static <T> T copy(T v) {";
+        "        Object c = v;";
+        "        if (v instanceof PykArray) {";
+        "            c = new PykArray<Object>(((PykArray<?>) v).items.clone());";
+        "        } else if (v instanceof PykView) {";
+        "            PykView<?> w = (PykView<?>) v;";
+        "            c = new PykView<Object>(new PykArray<Object>(w.owner.items.clone()), w.offset, w.length);";
+        "        } else if (v instanceof PykDynArray) {";
+        "            c = new PykDynArray<Object>(new java.util.ArrayList<Object>(((PykDynArray<?>) v).items));";
+        "        } else if (v instanceof PykMutMap && !(v instanceof PykMap)) {";
+        "            PykMutMap<Object, Object> m = new PykMutMap<Object, Object>();";
+        "            m.entries.putAll(((PykMutMap<?, ?>) v).entries);";
+        "            c = m;";
+        "        } else if (v instanceof Data) {";
+        "            c = ((Data) v).pykCopy();";
+        "        }";
+        "        return (T) c;";
+        "    }";
+        "";
+        "    // deepcopy(v): a value equal to v sharing nothing writable with it.";
+        "    @SuppressWarnings(\"unchecked\")";
+        "    public static <T> T deepcopy(T v) {";
+        "        return (T) deepcopyIn(v, new java.util.IdentityHashMap<Object, Object>());";
+        "    }";
+        "";
+        "    // Each store met is copied once, by identity, through `memo`, so what";
+        "    // v shares and its cycles its copy shares too. Functions are shared;";
+        "    // a pointer stops the copy, since the place it points at is not part";
+        "    // of the value.";
+        "    public static Object deepcopyIn(Object v, java.util.IdentityHashMap<Object, Object> memo) {";
+        "        if (v == null || v instanceof Integer || v instanceof Double || v instanceof Boolean";
+        "                || v instanceof String || v instanceof PykChar) return v;";
+        "        Object known = memo.get(v);";
+        "        if (known != null) return known;";
+        "        if (v instanceof PykArray) {";
+        "            Object[] items = ((PykArray<?>) v).items;";
+        "            Object[] made = new Object[items.length];";
+        "            PykArray<Object> c = new PykArray<Object>(made);";
+        "            memo.put(v, c);";
+        "            for (int i = 0; i < items.length; i++) made[i] = deepcopyIn(items[i], memo);";
+        "            return c;";
+        "        }";
+        "        if (v instanceof PykView) {";
+        "            PykView<?> w = (PykView<?>) v;";
+        "            @SuppressWarnings(\"unchecked\")";
+        "            PykView<Object> c = new PykView<Object>((PykArray<Object>) deepcopyIn(w.owner, memo), w.offset, w.length);";
+        "            memo.put(v, c);";
+        "            return c;";
+        "        }";
+        "        if (v instanceof PykDynArray) {";
+        "            java.util.ArrayList<Object> made = new java.util.ArrayList<Object>();";
+        "            PykDynArray<Object> c = new PykDynArray<Object>(made);";
+        "            memo.put(v, c);";
+        "            for (Object x : ((PykDynArray<?>) v).items) made.add(deepcopyIn(x, memo));";
+        "            return c;";
+        "        }";
+        "        if (v instanceof PykMutMap) {";
+        "            PykMutMap<Object, Object> c = v instanceof PykMap ? new PykMap<Object, Object>() : new PykMutMap<Object, Object>();";
+        "            memo.put(v, c);";
+        "            for (java.util.Map.Entry<Object, Object> e : ((PykMutMap<?, ?>) v).entries.entrySet())";
+        "                c.entries.put(e.getKey(), deepcopyIn(e.getValue(), memo));";
+        "            return c;";
+        "        }";
+        "        if (v instanceof PykPtr)";
+        "            throw fail(\"deepcopy met a pointer, which cannot be deep-copied: the place it points at is not part of the value\");";
+        "        if (v instanceof java.util.List) {";
+        "            java.util.ArrayList<Object> out = new java.util.ArrayList<Object>();";
+        "            for (Object x : (java.util.List<?>) v) out.add(deepcopyIn(x, memo));";
+        "            return java.util.Collections.unmodifiableList(out);";
+        "        }";
+        "        if (v instanceof Tuple) return ((Tuple) v).pykDeepcopy(memo);";
+        "        if (v instanceof Data) return ((Data) v).pykDeepcopy(memo);";
+        "        return v;";
+        "    }";
+      ])
+    @ [
+
         "";
         "    // A call to a method answering nothing, where a value is wanted.";
         "    public static Void unit(Runnable call) {";

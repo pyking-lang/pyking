@@ -1,0 +1,4 @@
+'tests/fail_typecheck_module_class_hidden_function.pyk' 6:0-7:12 Type
+  error: 'make' is public, and its type names the class 'Inner', which
+  is not: make 'Inner' public too, so that a module holding the value
+  can name its type

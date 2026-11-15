@@ -1,0 +1,10 @@
+use objects
+
+public interface Shape:
+    def area(self) -> Int
+
+public class Rect(width: Int, height: Int) implements Shape:
+    override def area(self) -> Int:
+        self.width * self.height
+    def grow(self, by: Int = 1) -> Int:
+        self.width + by

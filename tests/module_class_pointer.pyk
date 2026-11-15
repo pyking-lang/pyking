@@ -1,0 +1,18 @@
+# A class of this module holding a pointer, handed to another module's
+# function that deep-copies it as the interface it is: that module's
+# checker never saw the class, so the copy stops at run time, where it
+# meets the pointer (PYKING.md, "Copying").
+use objects, mutation, pointers
+import module_class_shapes_mod as shapes
+
+class Gauge(at: Ptr(Int)) implements shapes.Shape:
+    override def area(self) -> Int:
+        *self.at
+    override def name(self) -> String:
+        "gauge"
+
+var level = 4
+g = Gauge(&level)
+print(g.describe())
+copied = shapes.twin(g)
+print("never printed", copied.area())

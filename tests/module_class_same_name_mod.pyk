@@ -1,0 +1,9 @@
+# A module with a class of the same name as one the program declares.
+use objects
+
+class Thing(n: Int):
+    def who(self) -> String:
+        "the library's Thing " + string(self.n)
+
+public def made() -> String:
+    Thing(1).who()

@@ -1,0 +1,4 @@
+'tests/fail_typecheck_module_class_hidden_parent.pyk' 8:0-9:42 Type
+  error: 'Box' is public, and builds on 'Sized', which is not: make
+  'Sized' public too, so that a module using 'Box' can see everything
+  it is

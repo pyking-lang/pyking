@@ -164,8 +164,12 @@ type scope = {
      (docs/target_js.md, "Pointers"). *)
   addressed : StringSet.t;
   (* The program's classes and interfaces (PYKING.md, "Classes and
-     interfaces"). *)
+     interfaces"): this module's, and every one other modules export. *)
   classes : Classes.table;
+  (* How this module's code reaches each class another module exports
+     (`Classes.reached`): through a plain import's alias or by the name a
+     `from` line gave it. *)
+  foreign_classes : (string * (string option * string)) list;
 }
 
 (** A scope for a nested block: it sees the enclosing names, and what it
@@ -344,6 +348,20 @@ let walked_sequence info js_sequence sequence scope in_for =
     string -> scope -> string *)
 let lookup name scope =
   match SMap.find_opt name scope.names with Some found -> found | None -> name
+
+(** A class as this module's JavaScript names it: its own by its binding,
+    another module's through the import that brings it.
+    string -> scope -> string *)
+let class_text name scope =
+  match List.assoc_opt name scope.foreign_classes with
+  | Some (Some alias, n) -> lookup alias scope ^ "." ^ n
+  | Some (None, local) -> lookup local scope
+  | None -> lookup name scope
+
+(** A class's name as every module of a program says it in `pykClasses`,
+    which class patterns test: `module.Name`, so that two modules may each
+    declare a class of one name. string -> scope -> string *)
+let program_class name scope = if Classes.is_foreign name then name else scope.own_module ^ "." ^ name
 
 (* Legal Pyking identifiers that are reserved words in JavaScript (see
    docs/target_js.md, "Names that are keywords in JavaScript").
@@ -786,6 +804,10 @@ let rec translate_expr e scope =
       (* `panic(message)`: the runtime error any other is, as a call that
          never answers, so it stands for a value of any type. *)
       JsCall (info, JsVar (info, "pykFail"), [ translate_expr message scope ])
+  | ECall (info, EVar (_, (("copy" | "deepcopy") as name), _), [ (_, argument) ], _)
+    when not (SMap.mem name scope.names) ->
+      (* A copy, made by a helper walking the value (PYKING.md, "Copying"). *)
+      JsCall (info, JsVar (info, if name = "copy" then "pykCopy" else "pykDeepcopy"), [ translate_expr argument scope ])
   | ECall (info, EVar (_, "same", _), [ (_, left); (_, right) ], _)
     when not (SMap.mem "same" scope.names) ->
       (* Two arrays (DynArrays, mutable structs) are the same when they are one
@@ -890,15 +912,20 @@ let rec translate_expr e scope =
           List.map (fun a -> translate_expr a scope) (arg_exprs args) )
   | EConstruct (info, None, name, args, _) when Classes.find scope.classes name <> None ->
       (* An object: its class's constructor. *)
-      JsCall (info, JsVar (info, "new " ^ lookup name scope), List.map (fun a -> translate_expr a scope) (arg_exprs args))
+      JsCall (info, JsVar (info, "new " ^ class_text name scope), List.map (fun a -> translate_expr a scope) (arg_exprs args))
   | EMethod (info, obj, name, args, _) ->
       JsCall (info, JsMember (info, translate_expr obj scope, name), List.map (fun a -> translate_expr a scope) (arg_exprs args))
   | ESuper (info, owner, name, args, _) ->
       (* The implementation the checker chose, called on self by its
          class: `Owner.prototype.name.call(self, ...)`. *)
+      if Classes.is_foreign owner && not (List.mem_assoc owner scope.foreign_classes) then
+        (* A class of a module this one does not import: JavaScript's own
+           `super` finds the same body up the prototype chain. *)
+        JsCall (info, JsMember (info, JsVar (info, "super"), name), List.map (fun a -> translate_expr a scope) (arg_exprs args))
+      else
       JsCall
         ( info,
-          JsMember (info, JsMember (info, JsMember (info, JsVar (info, lookup owner scope), "prototype"), name), "call"),
+          JsMember (info, JsMember (info, JsMember (info, JsVar (info, class_text owner scope), "prototype"), name), "call"),
           JsVar (info, lookup "self" scope) :: List.map (fun a -> translate_expr a scope) (arg_exprs args) )
   | EUpcast (_, inner, _, _) -> translate_expr inner scope
   | EConstruct (info, module_, name, args, _) ->
@@ -1171,13 +1198,13 @@ and pattern_test pattern subject scope =
          read by name. *)
       let c = Option.get (Classes.find scope.classes name) in
       let test =
-        JsCall (info, JsMember (info, JsMember (info, subject, "pykClasses"), "includes"), [ JsStr (info, name) ])
+        JsCall (info, JsMember (info, JsMember (info, subject, "pykClasses"), "includes"), [ JsStr (info, program_class name scope) ])
       in
       pattern_parts fields (List.map (fun (h, _) -> JsMember (info, subject, h)) c.Classes.header) (Some test) scope
   | PTyped (_, bound, t, _) ->
       let target = match t with TCon (_, n, _, _) -> n | _ -> "" in
       let js_name, scope = bind bound scope in
-      ( Some (JsCall (info, JsMember (info, JsMember (info, subject, "pykClasses"), "includes"), [ JsStr (info, target) ])),
+      ( Some (JsCall (info, JsMember (info, JsMember (info, subject, "pykClasses"), "includes"), [ JsStr (info, program_class target scope) ])),
         [ JsConst (info, JsTargetName (info, js_name), subject) ],
         scope )
   | PConstructor (_, _, name, fields, _, _) ->
@@ -1809,7 +1836,7 @@ and translate_class info c scope =
             Some (JsFunc (mi, name, List.tl names, self_line body_scope :: translate_tail_stmts body body_scope)))
       c.c_methods
   in
-  JsClass (info, lookup c.c_name scope, Option.map (fun p -> lookup p scope) k.Classes.parent, constructor @ methods)
+  JsClass (info, lookup c.c_name scope, Option.map (fun p -> class_text p scope) k.Classes.parent, constructor @ methods)
 
 (** The assignment a `break x`/`continue x` makes before it jumps: x
     into the variable carrying the loop's accumulator. Nothing for a
@@ -1976,7 +2003,13 @@ and translate_loop_tail s js_target scope =
     declared.
     [stmt] -> [string] -> ([jsstmt], [(string, string)]) *)
 let translate_program ?(taken = []) ?(external_fields = []) ?(externals = [])
-    ?(own = "") stmts tmap =
+    ?(own = "") ?(sigmaps = []) stmts tmap =
+  let classes, tmap = Classes.program stmts tmap sigmaps in
+  let foreign_classes =
+    Classes.SMap.fold
+      (fun name _ out -> if Classes.is_foreign name then match Classes.reached stmts name with Some r -> (name, r) :: out | None -> out else out)
+      classes []
+  in
   let statements, scope =
     translate_stmts stmts
       {
@@ -2010,13 +2043,13 @@ let translate_program ?(taken = []) ?(external_fields = []) ?(externals = [])
               | SImport (_, module_, local, false, _, _) -> Some (local, module_)
               | _ -> None)
             stmts;
-        classes = Classes.table stmts;
+        classes;
+        foreign_classes;
       }
   in
   (* A class is not hoisted as a function is, and one names its parent
      when its own statement runs: every class goes after the imports, a
      parent before its child, with what each needs set up after it. *)
-  let classes = Classes.table stmts in
   let order = Classes.ordered classes stmts in
   let is_class = function JsClass _ -> true | _ -> false in
   let rank = function
@@ -2059,18 +2092,22 @@ let translate_program ?(taken = []) ?(external_fields = []) ?(externals = [])
                             str name;
                             JsArray (at, List.map (fun (h, _) -> str h) c.Classes.header);
                             shape;
-                            JsArray (at, List.map str (Classes.supers classes name));
+                            JsArray (at, List.map (fun n -> str (program_class n scope)) (Classes.supers classes name));
                             JsBool (at, Classes.resolve classes name "show" <> None && Classes.has_method classes name "show");
                           ] ) );
                 ]
             in
             own
             @ List.map
-                (fun i -> JsExprStmt (at, JsCall (at, JsVar (at, "pykMixin"), [ JsVar (at, js); JsVar (at, lookup i scope) ])))
+                (fun i -> JsExprStmt (at, JsCall (at, JsVar (at, "pykMixin"), [ JsVar (at, js); JsVar (at, class_text i scope) ])))
                 (* every interface above it, nearest first: a default it
                    has no body for, from its own chain or a nearer
                    interface, is copied in *)
-                (List.filter (fun i -> i <> name) (Classes.interfaces classes name)))
+                (* An interface of a module this one does not import was
+                   copied into the class above that reaches it, there. *)
+                (List.filter
+                   (fun i -> i <> name && ((not (Classes.is_foreign i)) || List.mem_assoc i scope.foreign_classes))
+                   (Classes.interfaces classes name)))
       order
   in
   let statements = imports @ List.stable_sort (fun a b -> compare (rank a) (rank b)) made @ set_up @ rest in
@@ -2936,6 +2973,95 @@ let array_helpers =
           "// `for x in w`: each element read as its turn comes.";
           "function* pykViewWalk(view) {";
           "  for (let i = 0; i < view.length; i++) yield view.owner[view.offset + i];";
+          "}";
+        ] );
+    ( "pykCopy",
+      [],
+      String.concat "\n"
+        [
+          "// `copy(v)` (PYKING.md, \"Copying\"): a new outermost store holding";
+          "// what v's holds -- an array's elements, a MutMap's entries, a";
+          "// mutable struct's or an object's fields. A value that never changes";
+          "// is its own copy.";
+          "function pykCopy(v) {";
+          "  if (v === null || typeof v !== 'object') return v;";
+          "  if (Array.isArray(v)) {";
+          "    if (v.pykArray !== true && v.pykDynArray !== true) return v;";
+          "    const c = v.slice();";
+          "    if (v.pykArray === true) c.pykArray = true; else c.pykDynArray = true;";
+          "    return c;";
+          "  }";
+          "  if (v instanceof Map) {";
+          "    if (v.pykMap === true) return v;";
+          "    const c = new Map();";
+          "    for (const [code, [key, value]] of v) c.set(code, [key, value]);";
+          "    c.pykMutMap = true;";
+          "    c.pykVersion = 0;";
+          "    return c;";
+          "  }";
+          "  if (v.pykView === true) {";
+          "    const owner = v.owner.slice();";
+          "    owner.pykArray = true;";
+          "    return { pykView: true, owner, offset: v.offset, length: v.length };";
+          "  }";
+          "  if (v.pykPtr === true) return v;";
+          "  // A datatype's value holds its fields in its own pykValues; a";
+          "  // mutable struct works them out from its properties, and an object's";
+          "  // class does.";
+          "  const own = Object.getOwnPropertyDescriptor(v, 'pykValues');";
+          "  if (own !== undefined && 'value' in own) return v;";
+          "  return Object.create(Object.getPrototypeOf(v), Object.getOwnPropertyDescriptors(v));";
+          "}";
+        ] );
+    ( "pykDeepcopy",
+      [ "pykFail" ],
+      String.concat "\n"
+        [
+          "// `deepcopy(v)` (PYKING.md, \"Copying\"): a value equal to v sharing";
+          "// nothing writable with it. Each object met is copied once, by";
+          "// identity, so what v shares and its cycles its copy shares too.";
+          "// Functions are shared; a pointer stops the copy, since the place it";
+          "// points at is not part of the value.";
+          "function pykDeepcopy(v, memo = new Map()) {";
+          "  if (v === null || typeof v !== 'object') return v;";
+          "  const known = memo.get(v);";
+          "  if (known !== undefined) return known;";
+          "  if (v.pykPtr === true) {";
+          "    pykFail('deepcopy met a pointer, which cannot be deep-copied: the place it points at is not part of the value');";
+          "  }";
+          "  if (Array.isArray(v)) {";
+          "    const c = [];";
+          "    memo.set(v, c);";
+          "    for (const marker of ['pykList', 'pykArray', 'pykDynArray']) if (v[marker] === true) c[marker] = true;";
+          "    for (const x of v) c.push(pykDeepcopy(x, memo));";
+          "    return c;";
+          "  }";
+          "  if (v instanceof Map) {";
+          "    const c = new Map();";
+          "    memo.set(v, c);";
+          "    c.pykMutMap = true;";
+          "    c.pykVersion = 0;";
+          "    if (v.pykMap === true) c.pykMap = true;";
+          "    for (const [code, [key, value]] of v) c.set(code, [key, pykDeepcopy(value, memo)]);";
+          "    return c;";
+          "  }";
+          "  if (v.pykView === true) {";
+          "    const c = { pykView: true, owner: null, offset: v.offset, length: v.length };";
+          "    memo.set(v, c);";
+          "    c.owner = pykDeepcopy(v.owner, memo);";
+          "    return c;";
+          "  }";
+          "  // A datatype's value, a mutable struct or an object: its own";
+          "  // properties, each copied, its prototype -- an object's class -- kept.";
+          "  const c = Object.create(Object.getPrototypeOf(v));";
+          "  memo.set(v, c);";
+          "  for (const [name, d] of Object.entries(Object.getOwnPropertyDescriptors(v))) {";
+          "    if ('value' in d && name !== 'pykShape' && name !== 'pykFields' && name !== 'pykTag') {";
+          "      d.value = pykDeepcopy(d.value, memo);";
+          "    }";
+          "    Object.defineProperty(c, name, d);";
+          "  }";
+          "  return c;";
           "}";
         ] );
     ( "pykCopyInto",

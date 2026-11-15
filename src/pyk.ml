@@ -1251,7 +1251,7 @@ let compile_unit ?c_program (unit : Module.t) tmap target path options checked =
         try
           Target_python.translate_program
             ~external_fields:context.external_fields
-            ~externals:context.externals ~own:context.context_name ~target program
+            ~externals:context.externals ~own:context.context_name ~target ~sigmaps:context.sigmaps program
             (Option.value tmap ~default:Syntax.IntMap.empty)
         with Target_python.Unsupported (info, message) ->
           fail_unsupported target info message
@@ -1556,6 +1556,7 @@ let compile_program checked target output_path options =
                  Target_js_core.translate_program ~taken
                    ~external_fields:context.external_fields
                    ~externals:context.externals ~own:context.context_name
+                   ~sigmaps:context.sigmaps
                    (Analyses.apply_signatures unit.stmts)
                    (Option.value tmap ~default:Syntax.IntMap.empty)
                with Target_js_core.Unsupported (info, message) ->

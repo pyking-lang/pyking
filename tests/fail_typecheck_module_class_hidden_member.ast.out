@@ -1,0 +1,4 @@
+'tests/fail_typecheck_module_class_hidden_member.pyk' 6:19-6:31 Type
+  error: 'inner' of the public class 'Outer' names the class 'Inner',
+  which is not public: make 'Inner' public too, or make 'inner'
+  private

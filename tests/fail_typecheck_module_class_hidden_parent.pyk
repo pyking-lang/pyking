@@ -1,0 +1,9 @@
+# A public class builds on public classes and interfaces only: another
+# module using it has to see everything it is.
+use objects
+
+interface Sized:
+    def size(self) -> Int
+
+public class Box(n: Int) implements Sized:
+    override def size(self) -> Int: self.n

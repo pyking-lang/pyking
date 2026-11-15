@@ -15,8 +15,9 @@
 >   OCaml.
 > - **C** (§6.5, §11.14): an object is a thin `pyk_obj *` and every call
 >   goes through its class's method table, which has one slot per method
->   name of the module -- the alternative B of §11.14, simpler than fat
->   pointers since every object then has one C type. A generic class is
+>   name of the program, numbered alike in every module -- the
+>   alternative B of §11.14, simpler than fat pointers since every
+>   object then has one C type. A generic class is
 >   refused on C rather than monomorphised.
 > - **Python** (§6.2): each method is a def at the module's top level,
 >   named for its class, which the class body names (`area =
@@ -33,10 +34,11 @@
 > - **A parent class's type arguments** (§3.12) are worked out from the
 >   arguments its constructor is given in the header -- a header
 >   parameter or a literal for each field that names one.
-> - **Across modules** (§3.7): a class is used in the module declaring
->   it; `public class` is refused with a message saying so. Exporting one
->   -- its table in the module's signature, and each target reaching its
->   constructor and methods in another file -- is the next step.
+> - **Across modules** (§3.7): done since, by
+>   design/plan-copy-public-classes.md. A `public class` exports its
+>   table in the module's signature, and every target reaches its
+>   constructor and methods in another file; another module may use,
+>   implement and extend it (PYKING.md, "Classes across modules").
 
 This plan adds classes, interfaces and inheritance to Pyking, turned on
 per module with `use objects`, the same way `use mutation` turns on

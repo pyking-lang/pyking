@@ -1,0 +1,11 @@
+# The first of three modules: an interface and an abstract class.
+use objects
+
+public interface Animal:
+    def sound(self) -> String
+    def speak(self) -> String:
+        self.sound() + "!"
+
+public abstract class Pet(name: String) implements Animal:
+    def greet(self) -> String:
+        "I am " + self.name + ", " + self.speak()

@@ -1,0 +1,7 @@
+# A public function's type names public classes only.
+use objects
+
+class Inner(n: Int)
+
+public def make() -> Inner:
+    Inner(1)

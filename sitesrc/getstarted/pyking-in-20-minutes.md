@@ -179,6 +179,29 @@ count = 1
 count := count + 1
 ```
 
+An array, a DynArray, a MutMap and a `mutable struct` are shared: `b =
+a` gives the same one a second name, so a change through `b` is seen
+through `a`. `copy(a)` makes a new one holding the same elements or
+fields, and `deepcopy(a)` one that shares nothing writable with `a`,
+however deep:
+
+```pyking
+use mutation
+
+mutable struct Point(x: Int, y: Int)
+
+a = array([Point(1, 1), Point(2, 2)])
+b = a                  # the same array
+c = copy(a)            # a new array, holding the same points
+d = deepcopy(a)        # a new array of new points
+
+b[0] := Point(0, 0)    # seen through a, since b is a
+c[1].x := 20           # seen through a: the point is shared
+d[1].y := 30           # seen nowhere else
+print(a)               # array([Point(0, 0), Point(20, 2)])
+print(c, d)
+```
+
 `use mutation, pointers` adds C-style pointers, for teaching how
 memory is addressed. See [Mutable state](/documentation/language/mutable-state/).
 
@@ -212,6 +235,11 @@ shapes: [Shape] = [Circle(1.0), Rect(2.0, 3.0)]
 for s in shapes:
     print(s.name(), s.area())
 ```
+
+`public class` and `public interface` make a class another module may
+use, implement and extend: `class Square(side: Float) extends
+shapes.Rect(side, side):` in a module that imports `shapes`. See
+[Objects](/documentation/language/objects/).
 
 ## Language tour
 

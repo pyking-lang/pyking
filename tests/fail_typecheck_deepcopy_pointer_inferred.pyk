@@ -1,0 +1,9 @@
+# A pointer that arrives once the definition is used is refused too:
+# the copy's type is decided by the first call, not generalised.
+use mutation, pointers
+
+def twin(x):
+    deepcopy(x)
+
+var y = 1
+print(*twin(&y))

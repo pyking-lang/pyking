@@ -1,0 +1,7 @@
+# Replacing another module's method is written 'override def'.
+use objects
+from module_class_shapes_mod import Rect
+
+class Square(side: Int) extends Rect(side, side):
+    def area(self) -> Int:
+        self.side * self.side

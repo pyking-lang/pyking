@@ -537,6 +537,7 @@ let lone_context () =
       sigmaps = [];
       externals = [];
       own_declared = [];
+      copies = false;
     }
 
 (** The program's files, as the module system reads them: supplied by
@@ -919,7 +920,7 @@ let compile_modules main target =
               Target_python.pprint_py_program
                 (Target_python.translate_program
                    ~external_fields:context.external_fields
-                   ~externals:context.externals ~own:context.context_name ~target
+                   ~externals:context.externals ~own:context.context_name ~target ~sigmaps:context.sigmaps
                    (Analyses.apply_signatures unit.stmts) (types tmap))
               ^ "\n" ) ])
   | Targets.C | Targets.Cgc ->
@@ -987,6 +988,7 @@ let compile_modules main target =
                  Target_js_core.translate_program ~taken
                    ~external_fields:context.external_fields
                    ~externals:context.externals ~own:context.context_name
+                   ~sigmaps:context.sigmaps
                    (Analyses.apply_signatures unit.stmts) (types tmap)
                in
                (unit, js, renames))
@@ -1115,7 +1117,7 @@ let compile_source source target name =
             let js, renames =
               Target_js_core.translate_program
                 ~external_fields:(lone_context ()).external_fields
-                ~externals:(lone_context ()).externals program tmap
+                ~externals:(lone_context ()).externals ~own:stem program tmap
             in
             let out = stem ^ Targets.extension target in
             let unit =

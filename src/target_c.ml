@@ -338,12 +338,55 @@ let is_unit t = match t with TTuple (_, [], _) -> true | _ -> false
 (** A canonical datatype name as part of a C identifier. string -> string *)
 let ident_of canonical = String.map (fun c -> if c = '.' then '_' else c) canonical
 
-(** A type's code: what names the C type a compound type is declared as,
-    and every instance of a polymorphic function. Raises Unsupported for
-    a type C cannot be given. info -> typ -> string *)
+(** The type declarations in an order C accepts: each after every struct
+    it holds by value. They are made in the order they are first needed,
+    and a type declared ahead (a datatype reaching itself through a
+    pointer) is completed only after the types its fields name, so a
+    `mutable struct` holding such a datatype by value can be made
+    before it -- `datatype Link: End | Next(node: Node)` with `mutable
+    struct Node(value: Int, next: Link)`, when `Link` is met first. A
+    member names a type by value as `T name;`, and through a pointer as
+    `T *name;`, and `struct T` (a forward declaration, or a struct's
+    own opening) is no use of it. The order is otherwise kept: each step takes the first
+    declaration whose by-value types are all written, or the first one
+    left if none is (which C would refuse in any order).
+    (string * string) list -> (string * string) list *)
+let in_dependency_order (types : (string * string) list) =
+  let names = List.map fst types in
+  let ident c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c = '_' in
+  (* Whether `decl` holds `n` by value: `n`, a space, then a name. *)
+  let holds decl n =
+    let ln = String.length n and ld = String.length decl in
+    let rec from i =
+      if i + ln + 2 > ld then false
+      else if
+        String.sub decl i ln = n
+        && (i = 0 || not (ident decl.[i - 1]))
+        && not (i >= 7 && String.sub decl (i - 7) 7 = "struct ")
+        && decl.[i + ln] = ' '
+        && ident decl.[i + ln + 1]
+      then true
+      else from (i + 1)
+    in
+    from 0
+  in
+  let deps = List.map (fun (n, decl) -> (n, List.filter (fun m -> m <> n && holds decl m) names)) types in
+  let rec go written pending acc =
+    match pending with
+    | [] -> List.rev acc
+    | first :: _ ->
+        let ready (n, _) = List.for_all (fun m -> List.mem m written || not (List.exists (fun (p, _) -> p = m) pending)) (List.assoc n deps) in
+        let chosen = match List.find_opt ready pending with Some e -> e | None -> first in
+        go (fst chosen :: written) (List.filter (fun e -> e != chosen) pending) (chosen :: acc)
+  in
+  go [] types []
+
 (* The classes and interfaces of the module being written, by name: what
    `code` asks, which is given nothing else. Every object, whatever its
    class, is a `pyk_obj *` (docs/target_c.md, "Classes"). *)
+(** A type's code: what names the C type a compound type is declared as,
+    and every instance of a polymorphic function. Raises Unsupported for
+    a type C cannot be given. info -> typ -> string *)
 let object_types : (string, unit) Hashtbl.t = Hashtbl.create 8
 
 let rec code own info t =
@@ -581,6 +624,27 @@ let lookup scope info name =
 
 (** The structs every object and class descriptor is, and the test a
     class pattern makes, ahead of their first use. state -> state *)
+(* Whether the program copies values with `copy` or `deepcopy` in any of
+   its modules: then every class descriptor holds the function copying
+   one of its objects, so an object copies as its own class wherever it
+   was made (PYKING.md, "Copying"). Set for the whole program before its
+   modules are translated, every module's descriptors alike. *)
+let copying_program = ref false
+
+(* Every method name of a program's classes, in one order every module
+   agrees on, whatever order the modules are translated in: an object's table has a slot for each, so an object made in
+   one module is called through it in another (PYKING.md, "Classes across
+   modules"). Set by `translate_all` for a program of several modules. *)
+let program_slots : string list option ref = ref None
+
+(** The method names of the classes these statements declare, each once,
+    in the order their classes are declared. Classes.table -> [stmt] ->
+    [string] *)
+let own_slots table stmts =
+  List.fold_left
+    (fun names c -> List.fold_left (fun names m -> if List.mem m names then names else names @ [ m ]) names (Classes.method_names table c))
+    [] (Classes.ordered table stmts)
+
 let rec need_objects st =
   if List.mem_assoc "pyk_obj" st.types then st
   else
@@ -592,7 +656,8 @@ let rec need_objects st =
           @ [
               ( "pyk_obj",
                 String.concat "\n"
-                  [
+                  ((if !copying_program then [ "struct pyk_copies;" ] else [])
+                  @ [
                     "typedef struct pyk_class pyk_class;";
                     "typedef struct pyk_obj {";
                     "    const pyk_class *cls;";
@@ -603,8 +668,11 @@ let rec need_objects st =
                     "    const pyk_class *const *ifaces;";
                     "    void (*const *vt)(void);";
                     "    const char *(*show)(pyk_obj *);";
+                  ]
+                @ (if !copying_program then [ "    pyk_obj *(*copy)(pyk_obj *, struct pyk_copies *);" ] else [])
+                @ [
                     "};";
-                  ] );
+                  ]) );
             ];
       }
     in
@@ -1314,7 +1382,8 @@ let rec ctype ctx st info t =
   | TCon (_, c, [ elem ], _) when c = slice_name ->
       (* A view is a pointer to its struct -- so two views are `same` only
          where they are one -- holding the array's elements, where its
-         run starts and its length. `view` makes it (`view_helper`). *)
+         run starts, its length, and the whole array's length, which
+         `copy` and `deepcopy` copy. `view` makes it (`view_helper`). *)
       let wcode = code ctx.own info t in
       let name = "pyk_w_" ^ wcode in
       let shown = name ^ " *" in
@@ -1324,7 +1393,7 @@ let rec ctype ctx st info t =
         if List.mem_assoc name st.types then (shown, st)
         else
           let decl =
-            Printf.sprintf "typedef struct %s {\n    int len;\n    int start;\n    %s;\n} %s;" name
+            Printf.sprintf "typedef struct %s {\n    int len;\n    int start;\n    int whole;\n    %s;\n} %s;" name
               (declaration (pointer_to ect) "items") name
           in
           (shown, { st with types = st.types @ [ (name, decl) ] })
@@ -1945,6 +2014,284 @@ let rec shower_at ctx st info t =
 let shower ctx st info t =
   let show, st = shower_at ctx st info t in
   ((fun v -> show v "NULL"), st)
+
+(* --- copying (PYKING.md, "Copying") ---
+   `copy(v)` and `deepcopy(v)` are written per type, as printing is:
+   pyk_copy_<code>(v) makes a new outermost store holding what v's holds,
+   and pyk_deepcopy_<code>(v, memo) copies every store v reaches, once
+   each -- `memo`, a table from each store copied to its copy, by
+   address, is what keeps what v shares, and its cycles, in the copy. An
+   array's identity is its elements' address, which a view of it shares;
+   a view holds the whole array's length, so a view copied copies the
+   array behind it. An object copies as its own class, through the
+   function its descriptor holds. A type holding nothing that changes is
+   its own copy, and no function is written for it. *)
+
+let copies_type =
+  String.concat "\n"
+    [
+      "typedef struct pyk_copies {";
+      "    size_t cap;";
+      "    size_t used;";
+      "    const void **from;";
+      "    void **to;";
+      "} pyk_copies;";
+    ]
+
+let copies_helpers =
+  [
+    ( "pyk_copies_new",
+      String.concat "\n"
+        [
+          "static pyk_copies *pyk_copies_new(size_t cap)";
+          "{";
+          "    size_t i;";
+          "    pyk_copies *m = \001M:scanned:\001(sizeof *m);";
+          "    m->cap = cap;";
+          "    m->used = 0;";
+          "    m->from = \001M:scanned:\001(cap * sizeof *m->from);";
+          "    m->to = \001M:scanned:\001(cap * sizeof *m->to);";
+          "    for (i = 0; i < cap; i++) {";
+          "        m->from[i] = NULL;";
+          "    }";
+          "    return m;";
+          "}";
+        ] );
+    ( "pyk_copies_at",
+      String.concat "\n"
+        [
+          "static size_t pyk_copies_at(const pyk_copies *m, const void *from)";
+          "{";
+          "    size_t i = (((size_t)from >> 4) * 2654435761u) & (m->cap - 1);";
+          "    while (m->from[i] != NULL && m->from[i] != from) {";
+          "        i = (i + 1) & (m->cap - 1);";
+          "    }";
+          "    return i;";
+          "}";
+        ] );
+    ( "pyk_copied",
+      String.concat "\n"
+        [
+          "static void *pyk_copied(const pyk_copies *m, const void *from)";
+          "{";
+          "    size_t i;";
+          "    if (from == NULL) {";
+          "        return NULL;";
+          "    }";
+          "    i = pyk_copies_at(m, from);";
+          "    return m->from[i] == NULL ? NULL : m->to[i];";
+          "}";
+        ] );
+    ( "pyk_remember",
+      String.concat "\n"
+        [
+          "static void pyk_remember(pyk_copies *m, const void *from, void *to)";
+          "{";
+          "    size_t i;";
+          "    if (from == NULL) {";
+          "        return;";
+          "    }";
+          "    if (2 * (m->used + 1) > m->cap) {";
+          "        pyk_copies *bigger = pyk_copies_new(2 * m->cap);";
+          "        for (i = 0; i < m->cap; i++) {";
+          "            if (m->from[i] != NULL) {";
+          "                size_t j = pyk_copies_at(bigger, m->from[i]);";
+          "                bigger->from[j] = m->from[i];";
+          "                bigger->to[j] = m->to[i];";
+          "            }";
+          "        }";
+          "        bigger->used = m->used;";
+          "        *m = *bigger;";
+          "    }";
+          "    i = pyk_copies_at(m, from);";
+          "    m->from[i] = from;";
+          "    m->to[i] = to;";
+          "    m->used++;";
+          "}";
+        ] );
+    ( "pyk_copy_pointer",
+      String.concat "\n"
+        [
+          "static void pyk_copy_pointer(void)";
+          "{";
+          "    fflush(stdout);";
+          "    fprintf(stderr, \"error: deepcopy met a pointer, which cannot be deep-copied: the place it points at is not part of the value\\n\");";
+          "    exit(1);";
+          "}";
+        ] );
+  ]
+
+(** The table of copies, declared once. state -> state *)
+let need_copies st =
+  let st = if List.mem_assoc "pyk_copies" st.types then st else { st with types = st.types @ [ ("pyk_copies", copies_type) ] } in
+  List.fold_left (fun st (n, text) -> if n = "pyk_copy_pointer" then st else need_helper st n text) st copies_helpers
+
+(** A value whose type is t, copied: shallow (`copy`) or `deep`, as an
+    expression of its text -- a deep one names `memo`, the table of
+    copies, which every deep function takes -- or None where the value is
+    its own copy. ctx -> state -> info -> deep:bool -> typ ->
+    ((string -> string) option, state) *)
+let rec copier ctx st info ~deep t =
+  let t = match substitute ctx.sigma t with TVar (i, _, _, _) -> TTuple (i, [], 0) | t -> t in
+  let shared u =
+    match u with
+    | TCon (_, c, _, _) when Classes.find ctx.classes c <> None -> true
+    | TCon (_, c, _, _) when is_store c -> c <> map_name || deep
+    | TCon _ -> var_struct ctx u
+    | _ -> false
+  in
+  let needed = if deep then reaches_type ctx shared t else shared t in
+  if not needed then (None, st)
+  else
+    let kind = if deep then "deepcopy" else "copy" in
+    let fname = Printf.sprintf "pyk_%s_%s" kind (code ctx.own info t) in
+    let call v = if deep then Printf.sprintf "%s(%s, memo)" fname v else Printf.sprintf "%s(%s)" fname v in
+    let ct, st = ctype ctx st info t in
+    let signature = Printf.sprintf "static %s(%s%s)" (declaration ct fname) (declaration ct "v") (if deep then ", pyk_copies *memo" else "") in
+    let st = if deep then need_copies st else st in
+    if List.mem_assoc fname st.helpers then (Some call, st)
+    else if StringSet.mem fname st.building then
+      let st = if List.mem_assoc fname st.helper_protos then st else { st with helper_protos = st.helper_protos @ [ (fname, signature ^ ";") ] } in
+      (Some call, st)
+    else
+      let st = { st with building = StringSet.add fname st.building } in
+      let part st u v =
+        let f, st = if deep then copier ctx st info ~deep u else (None, st) in
+        ((match f with Some f -> f v | None -> v), f <> None, st)
+      in
+      let alloc what = Printf.sprintf "\001M:scanned:\001(%s)" what in
+      let known v ret = if deep then [ Printf.sprintf "    void *known = pyk_copied(memo, %s);" v; "    if (known != NULL) {" ] @ ret @ [ "    }" ] else [] in
+      let remember from made = if deep then [ Printf.sprintf "    pyk_remember(memo, %s, %s);" from made ] else [] in
+      let elements_kind e = if holds_pointers ctx [] e then "scanned" else "atomic" in
+      let body, st =
+        match t with
+        | TCon (_, c, _, _) when Classes.find ctx.classes c <> None ->
+            ([ Printf.sprintf "    return v->cls->copy(v, %s);" (if deep then "memo" else "NULL") ], st)
+        | TCon (_, c, _, _) when c = ptr_name ->
+            (* Only a deep copy reaches here: a pointer is its own shallow copy. *)
+            ([ "    pyk_copy_pointer();"; "    return v;" ], need_helper st "pyk_copy_pointer" (List.assoc "pyk_copy_pointer" copies_helpers))
+        | TCon (_, c, [ elem ], _) when c = array_name ->
+            let acode = code ctx.own info t in
+            let item, _, st = part st elem "v.items[i]" in
+            ( [ Printf.sprintf "    %s;" (declaration ct "made"); "    int i;" ]
+              @ known "v.items" [ "        made.len = v.len;"; "        made.items = known;"; "        return made;" ]
+              @ [ Printf.sprintf "    made = pyk_new_%s(v.len);" acode ]
+              @ remember "v.items" "made.items"
+              @ [ "    for (i = 0; i < v.len; i++) {"; Printf.sprintf "        made.items[i] = %s;" item; "    }"; "    return made;" ],
+              st )
+        | TCon (_, c, [ elem ], _) when c = dynarray_name ->
+            let vcode = code ctx.own info t in
+            let item, _, st = part st elem "v->items[i]" in
+            ( [ Printf.sprintf "    %s;" (declaration ct "made"); "    int i;" ]
+              @ known "v" [ "        return known;" ]
+              @ [ Printf.sprintf "    made = pyk_new_%s(v->len);" vcode ]
+              @ remember "v" "made"
+              @ [ "    for (i = 0; i < v->len; i++) {"; Printf.sprintf "        made->items[i] = %s;" item; "    }"; "    return made;" ],
+              st )
+        | TCon (_, c, [ elem ], _) when c = slice_name ->
+            let array_t = TCon (no_info, array_name, [ elem ], 0) in
+            let act, st = ctype ctx st info array_t in
+            let acode = code ctx.own info array_t in
+            let item, _, st = part st elem "v->items[i]" in
+            ( [ Printf.sprintf "    %s;" (declaration ct "made"); Printf.sprintf "    %s;" (declaration act "owner"); "    int i;" ]
+              @ known "v" [ "        return known;" ]
+              @ [ Printf.sprintf "    made = %s;" (alloc "sizeof *made"); "    made->len = v->len;"; "    made->start = v->start;"; "    made->whole = v->whole;" ]
+              @ remember "v" "made"
+              @ (if deep then [ "    made->items = pyk_copied(memo, v->items);"; "    if (made->items != NULL) {"; "        return made;"; "    }" ] else [])
+              @ [ Printf.sprintf "    owner = pyk_new_%s(v->whole);" acode ]
+              @ remember "v->items" "owner.items"
+              @ [ "    for (i = 0; i < v->whole; i++) {"; Printf.sprintf "        owner.items[i] = %s;" item; "    }"; "    made->items = owner.items;"; "    return made;" ],
+              st )
+        | TCon (_, c, [ key; value ], _) when c = mutmap_name || c = map_name ->
+            let item, _, st = part st value "v->values[i]" in
+            ( [ Printf.sprintf "    %s;" (declaration ct "made"); "    int i;" ]
+              @ known "v" [ "        return known;" ]
+              @ [ Printf.sprintf "    made = %s;" (alloc "sizeof *made"); "    *made = *v;" ]
+              @ remember "v" "made"
+              @ [
+                  Printf.sprintf "    made->keys = \001M:%s:\001(made->cap * sizeof *made->keys);" (elements_kind key);
+                  Printf.sprintf "    made->values = \001M:%s:\001(made->cap * sizeof *made->values);" (elements_kind value);
+                  "    for (i = 0; i < v->len; i++) {";
+                  "        made->keys[i] = v->keys[i];";
+                  Printf.sprintf "        made->values[i] = %s;" item;
+                  "    }";
+                ]
+              @ (if ctx.gc then
+                   [
+                     "    made->slots = GC_MALLOC_ATOMIC(made->nslots * sizeof *made->slots);";
+                     "    for (i = 0; i < v->nslots; i++) {";
+                     "        made->slots[i] = v->slots[i];";
+                     "    }";
+                   ]
+                 else [])
+              @ [ "    return made;" ],
+              st )
+        | TList (_, elem, _) ->
+            (* Only a deep copy reaches here: a list never changes. *)
+            let lcode = code ctx.own info t in
+            let item, _, st = part st (list_element elem) "v->head" in
+            ( [
+                Printf.sprintf "    %s = NULL;" (declaration ct "made");
+                Printf.sprintf "    %s = &made;" (declaration (pointer_to ct) "end");
+                "    for (; v != NULL; v = v->tail) {";
+                Printf.sprintf "        *end = pyk_cons_%s(%s, NULL);" lcode item;
+                "        end = &(*end)->tail;";
+                "    }";
+                "    return made;";
+              ],
+              st )
+        | TTuple (_, es, _) ->
+            let lines, st =
+              List.fold_left
+                (fun (out, st) (i, e) ->
+                  let v = Printf.sprintf "v.a%d" i in
+                  let item, changed, st = part st e v in
+                  ((if changed then out @ [ Printf.sprintf "    %s = %s;" v item ] else out), st))
+                ([], st)
+                (List.mapi (fun i e -> (i, e)) es)
+            in
+            (lines @ [ "    return v;" ], st)
+        | TCon (_, canonical, args, _) ->
+            let Datatype (_, _, ctors, _), bound = datatype_of ctx info canonical args in
+            let sole = List.length ctors = 1 in
+            let is_boxed = boxed ctx t in
+            let target = if is_boxed then "made->" else "v." in
+            let arms, st =
+              List.fold_left
+                (fun (out, st) (tag, (cname, fields)) ->
+                  let lines, st =
+                    List.fold_left2
+                      (fun (out, st) member (_, ft) ->
+                        let path = target ^ member_path sole cname member in
+                        let item, changed, st = part st (substitute bound ft) path in
+                        ((if changed then out @ [ Printf.sprintf "%s = %s;" path item ] else out), st))
+                      ([], st) (member_names sole fields) fields
+                  in
+                  (out @ [ (tag, lines) ], st))
+                ([], st)
+                (List.mapi (fun i c -> (i, c)) ctors)
+            in
+            let copied =
+              if sole then List.concat_map (fun (_, lines) -> List.map (fun l -> "    " ^ l) lines) arms
+              else if List.for_all (fun (_, lines) -> lines = []) arms then []
+              else
+                [ Printf.sprintf "    switch (%stag) {" target ]
+                @ List.concat_map
+                    (fun (tag, lines) -> if lines = [] then [] else (Printf.sprintf "    case %d:" tag :: List.map (fun l -> "        " ^ l) lines) @ [ "        break;" ])
+                    arms
+                @ [ "    }" ]
+            in
+            if is_boxed then
+              ( [ Printf.sprintf "    %s;" (declaration ct "made") ]
+                @ known "v" [ "        return known;" ]
+                @ [ Printf.sprintf "    made = %s;" (alloc "sizeof *made"); "    *made = *v;" ]
+                @ remember "v" "made" @ copied @ [ "    return made;" ],
+                st )
+            else (copied @ [ "    return v;" ], st)
+        | _ -> ([ "    return v;" ], st)
+      in
+      let st = { st with building = StringSet.remove fname st.building } in
+      (Some call, need_helper st fname (String.concat "\n" ([ signature; "{" ] @ body @ [ "}" ])))
 
 (* --- structural equality and hashing ---
    `==` on a list, a tuple, a struct or a datatype compares part by part
@@ -2676,7 +3023,8 @@ let run_helper ctx st info t kind =
           ( [ fn wt [ declaration ct "a"; "int i"; "int j" ]; "{"; Printf.sprintf "    int n = a%slen;" (if is_view then "->" else ".");
               Printf.sprintf "    %s = \001M:scanned:\001(sizeof *w);" (declaration wt "w") ]
             @ bounds (if is_view then "a view" else "an array") "i" "j"
-            @ (if is_view then [ "    w->items = a->items;"; "    w->start = a->start + i;" ] else [ "    w->items = a.items;"; "    w->start = i;" ])
+            @ (if is_view then [ "    w->items = a->items;"; "    w->start = a->start + i;"; "    w->whole = a->whole;" ]
+               else [ "    w->items = a.items;"; "    w->start = i;"; "    w->whole = a.len;" ])
             @ [ "    w->len = j - i;"; "    return w;"; "}" ],
             st )
       | "place", _ when slice_element t = None ->
@@ -2996,7 +3344,12 @@ let marker kind name more = Printf.sprintf "\001%s:%s:%s\001" kind name more
 (** What a class's struct, descriptor, constructor and the rest are
     called in C: `pyk_<kind>_<module>_<Class>`. ctx -> string -> string ->
     string *)
-let class_symbol ctx kind cls = Printf.sprintf "pyk_%s_%s_%s" kind (ident_of ctx.own) cls
+let class_symbol ctx kind cls =
+  match String.rindex_opt cls '.' with
+  | Some k ->
+      (* another module's class: named as that module names it *)
+      Printf.sprintf "pyk_%s_%s_%s" kind (ident_of (String.sub cls 0 k)) (String.sub cls (k + 1) (String.length cls - k - 1))
+  | None -> Printf.sprintf "pyk_%s_%s_%s" kind (ident_of ctx.own) cls
 
 (** A field of an object, read through the struct of the class declaring
     it: a parent's fields come first in every struct below it.
@@ -4172,6 +4525,7 @@ and builtin ctx st scope e name args =
   let values, steps, st = in_order ctx st scope args in
   let arg_type i = type_of ctx scope (List.nth args i) in
   let wrap v = (sequenced steps v, st) in
+  let wrap_in st v = (sequenced steps v, st) in
   match (name, values) with
   | "range", bounds when ctx.gc ->
       (* A list of the Ints counted, made as it is asked for. *)
@@ -4229,6 +4583,15 @@ and builtin ctx st scope e name args =
       let d, acc = held 0 dst (steps, st) in
       let s_, (steps, st) = held 1 src acc in
       (sequenced steps (atom (Printf.sprintf "(%s(%s, %s), 0)" helper d s_)), st)
+  | ("copy" | "deepcopy"), [ v ] -> (
+      (* A copy written for the type at the call (PYKING.md, "Copying"): a
+         deep one starts its table of copies here. *)
+      let deep = name = "deepcopy" in
+      match copier ctx st info ~deep (arg_type 0) with
+      | None, st -> (sequenced steps v, st)
+      | Some _, st ->
+          let fname = Printf.sprintf "pyk_%s_%s" name (code ctx.own info (arg_type 0)) in
+          wrap_in st (atom (if deep then Printf.sprintf "%s(%s, pyk_copies_new(64))" fname v.text else Printf.sprintf "%s(%s)" fname v.text)))
   | "same", [ a; b ] when Typesystem.array_element (arg_type 0) <> None ->
       (* One array is one block of elements: never empty, even for no
          elements, so two arrays never share one. *)
@@ -5346,6 +5709,7 @@ type cprogram = {
   includes_math : bool;
   uses_bool : bool;
   public_types : string list;
+  class_externs : string list; (* the descriptors of the public classes, for the header *)
   requests_ : (string * (string * typ) list) list;
   protos_ : string list;
 }
@@ -5555,7 +5919,7 @@ let class_functions ctx st scope info c =
                 (Param (mi, "self", None, None, 0) :: List.map (fun (Param (pi, pn, pt, _, psym)) -> Param (pi, pn, pt, None, psym)) params)
                 body t false false
             in
-            (out @ [ fn ], st))
+            (out @ [ { fn with f_public = c.c_public } ], st))
       ([], st) c.c_methods
   in
   if interface then
@@ -5564,7 +5928,8 @@ let class_functions ctx st scope info c =
       String.concat "\n"
         [
           Printf.sprintf "static const pyk_class *const %s[] = { %s };" (sym "if") (String.concat ", " (ifaces @ [ "NULL" ]));
-          Printf.sprintf "const pyk_class %s = { %s, NULL, %s, NULL, NULL };" (sym "class") (quote c.c_name) (sym "if");
+          Printf.sprintf "const pyk_class %s = { %s, NULL, %s, NULL, NULL%s };" (sym "class") (quote c.c_name) (sym "if")
+            (if !copying_program then ", NULL" else "");
         ]
     in
     let ahead =
@@ -5624,7 +5989,7 @@ let class_functions ctx st scope info c =
     let init =
       {
         f_name = sym "init";
-        f_public = false;
+        f_public = c.c_public;
         f_result = "void";
         f_params = ("pyk_obj *", self_name) :: cparams;
         f_captures = false;
@@ -5637,7 +6002,7 @@ let class_functions ctx st scope info c =
         [
           {
             f_name = sym "new";
-            f_public = false;
+            f_public = c.c_public;
             f_result = "pyk_obj *";
             f_params = cparams;
             f_captures = false;
@@ -5681,17 +6046,59 @@ let class_functions ctx st scope info c =
             in
             (Printf.sprintf "    return pyk_concat(pyk_concat(%s, %s), \")\");" (quote (c.c_name ^ "(")) joined, st)
     in
+    (* `copy` and `deepcopy` of one of its objects (PYKING.md, "Copying"):
+       a new object holding the same fields, each deep-copied where it is
+       given the table of copies, which the new one goes in first. *)
+    let copying = !copying_program && c.c_kind <> ClassAbstract in
+    let copy_text, st =
+      if not copying then ([], st)
+      else
+        let st = need_copies st in
+        let lines, st =
+          List.fold_left
+            (fun (out, st) f ->
+              match copier ctx st info ~deep:true (type_at f.Classes.f_sym) with
+              | Some copy, st ->
+                  let path = "made->" ^ c_ident f.Classes.f_name in
+                  (out @ [ Printf.sprintf "        %s = %s;" path (copy path) ], st)
+              | None, st -> (out, st))
+            ([], st) fields
+        in
+        ( [
+            Printf.sprintf "static pyk_obj *%s(pyk_obj *o, struct pyk_copies *memo)" (sym "copy");
+            "{";
+            Printf.sprintf "    %s *made;" (sym "o");
+            "    if (memo != NULL) {";
+            "        void *known = pyk_copied(memo, o);";
+            "        if (known != NULL) {";
+            "            return known;";
+            "        }";
+            "    }";
+            Printf.sprintf "    made = %s(sizeof *made);" (marker "M" "scanned" "");
+            Printf.sprintf "    *made = *(%s *) o;" (sym "o");
+            "    if (memo != NULL) {";
+            "        pyk_remember(memo, o, made);";
+          ]
+          @ lines
+          @ [ "    }"; "    return (pyk_obj *) made;"; "}" ],
+          st )
+    in
     let text =
       String.concat "\n"
-        [
+        ([
           Printf.sprintf "static const char *%s(pyk_obj *o);" (sym "show");
+        ]
+        @ (if copying then [ Printf.sprintf "static pyk_obj *%s(pyk_obj *o, struct pyk_copies *memo);" (sym "copy") ] else [])
+        @ [
           Printf.sprintf "static void (*const %s[])(void) = { %s };" (sym "vt") (String.concat ", " slots);
           Printf.sprintf "static const pyk_class *const %s[] = { %s };" (sym "if") (String.concat ", " (ifaces @ [ "NULL" ]));
-          Printf.sprintf "const pyk_class %s = { %s, %s, %s, %s, %s };" (sym "class") (quote c.c_name)
+          Printf.sprintf "const pyk_class %s = { %s, %s, %s, %s, %s%s };" (sym "class") (quote c.c_name)
             (match k.Classes.parent with Some p -> "&" ^ class_symbol ctx "class" p | None -> "NULL")
-            (sym "if") (sym "vt") (sym "show");
+            (sym "if") (sym "vt") (sym "show")
+            (if copying then ", " ^ sym "copy" else if !copying_program then ", NULL" else "");
           Printf.sprintf "static const char *%s(pyk_obj *o)\n{\n%s\n}" (sym "show") show_body;
         ]
+        @ copy_text)
     in
     (* every descriptor is declared ahead, so one may name another *)
     let ahead =
@@ -5701,11 +6108,24 @@ let class_functions ctx st scope info c =
     let wrappers = if List.mem_assoc "pyk_classes_ahead" st.wrappers then st.wrappers else ("pyk_classes_ahead", ahead) :: st.wrappers in
     (methods @ (init :: made), { st with wrappers = wrappers @ [ (sym "class", text) ] })
 
+(** Whether a module calls `copy` or `deepcopy` (`copying_program`).
+    [stmt] -> bool *)
+let uses_copying stmts =
+  Walk.exists_stmts
+    (function Walk.NExpr (ECall (_, EVar (_, ("copy" | "deepcopy"), _), [ _ ], _)) -> true | _ -> false)
+    stmts
+
+(* Whether any module of the program being translated by `translate_all`
+   copies: every module's class descriptors then hold a copy function. *)
+let program_copies = ref false
+
 (** One module of a program as a cprogram. [stmt] -> typ IntMap.t ->
     Module.context -> string -> cprogram *)
 let translate_program ?(requested = []) ?(foreign = []) stmts tmap (context : Module.context) target =
+  copying_program := context.copies || !program_copies || uses_copying stmts;
+  let classes, tmap = Classes.program stmts tmap context.sigmaps in
   Hashtbl.reset object_types;
-  List.iter (function SClass (_, c, _) -> Hashtbl.replace object_types c.c_name () | _ -> ()) stmts;
+  Classes.SMap.iter (fun n _ -> Hashtbl.replace object_types n ()) classes;
   let standard, gc = standard_of target in
   let own = context.context_name in
   let own_datatypes =
@@ -5741,12 +6161,18 @@ let translate_program ?(requested = []) ?(foreign = []) stmts tmap (context : Mo
       printing = Analyses.effects stmts;
       changing = changes stmts;
       sigma = [];
-      classes = Classes.table stmts;
+      classes;
       slots =
-        (let table = Classes.table stmts in
-         List.fold_left
-           (fun names c -> List.fold_left (fun names m -> if List.mem m names then names else names @ [ m ]) names (Classes.method_names table c))
-           [] (Classes.ordered table stmts));
+        (match !program_slots with
+        | Some slots -> slots
+        | None ->
+            let own = own_slots classes stmts in
+            Classes.SMap.fold
+              (fun n c names ->
+                if Classes.is_foreign n then
+                  List.fold_left (fun names m -> if List.mem m.Classes.m_name names then names else names @ [ m.Classes.m_name ]) names c.Classes.methods
+                else names)
+              classes own);
     }
   in
   let st =
@@ -6042,7 +6468,7 @@ let translate_program ?(requested = []) ?(foreign = []) stmts tmap (context : Mo
     statics;
     funcs = st.funcs;
     main_body = temps @ starts @ body;
-    types = st.types;
+    types = in_dependency_order st.types;
     helpers = st.helpers;
     helper_protos_ = List.map snd st.helper_protos;
     hands_argv = gc && context.main && List.mem_assoc "sys" context.sigmaps;
@@ -6051,6 +6477,10 @@ let translate_program ?(requested = []) ?(foreign = []) stmts tmap (context : Mo
     includes_math = st.includes_math;
     uses_bool = st.uses_bool;
     public_types;
+    class_externs =
+      List.filter_map
+        (function SClass (_, c, _) when c.c_public -> Some (Printf.sprintf "extern const pyk_class %s;" (class_symbol ctx "class" c.c_name)) | _ -> None)
+        stmts;
     requests_ = st.requests;
     protos_ = List.map snd st.protos;
   }
@@ -6060,6 +6490,15 @@ let translate_program ?(requested = []) ?(foreign = []) stmts tmap (context : Mo
     module asks for one more. [([stmt], typ IntMap.t, Module.context)] ->
     string -> [cprogram] *)
 let translate_all units standard =
+  program_copies := List.exists (fun (stmts, _, _) -> uses_copying stmts) units;
+  program_slots :=
+    (if List.length units < 2 then None
+     else
+       (* Sorted, so the numbering is the same whatever order the modules
+          are handed over in. *)
+       Some
+         (List.sort_uniq compare (List.concat_map (fun (stmts, _, _) -> own_slots (Classes.table stmts) stmts) units)));
+  Fun.protect ~finally:(fun () -> program_copies := false; program_slots := None) @@ fun () ->
   (* Every module's datatypes by the names other modules know them by,
      `module.Name`, their fields named so too: an instance one module asks
      of another can be at a datatype the other does not import. *)
@@ -6220,6 +6659,7 @@ let pprint_c_header (program : cprogram) target source =
        ]
       @ (if standard = "c99" then [ ""; "#include <stdbool.h>" ] else [])
       @ List.concat_map (fun (name, decl) -> [ ""; guarded name decl ]) types
+      @ (if program.class_externs = [] then [] else "" :: program.class_externs)
       @ (let exported = List.filter_map (fun (public, ct, n) -> if public then Some (Printf.sprintf "extern %s;" (declaration ct n)) else None) program.statics in
          if exported = [] then [] else "" :: exported)
       @ (let protos = List.filter_map (fun f -> if f.f_public then Some (signature f ^ ";") else None) program.funcs in

@@ -1,0 +1,5 @@
+'tests/fail_typecheck_deepcopy_pointer_subclass.pyk' 15:13-15:14 Type
+  error: 'deepcopy' cannot be applied to Counter; a pointer cannot be
+  deep-copied, since the place it points at is not part of the value,
+  and the field 'p' of Pointing, a class below Counter, is a Ptr(Int);
+  copy(x) copies only the outermost value, sharing what it holds

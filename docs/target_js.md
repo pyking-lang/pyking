@@ -1322,3 +1322,29 @@ an interface one too, never made:
 - `obj.m(...)` is `obj.m(...)`; `super.m(...)` is
   `Owner.prototype.m.call(self, ...)`, the body the checker chose. An
   upcast is nothing.
+
+### Classes across modules
+
+Another module's class is reached through the import, `shapes.Rect` or
+the name a `from` line gave it (`class_text`): `new shapes.Rect(...)`,
+`class Square extends Rect`, `Shape.prototype.m.call(self, ...)` for
+`super`. What `pykClasses` holds, and a class pattern tests, is each
+class's name as the whole program says it, `module.Name`
+(`program_class`), so that two modules may each declare a class of one
+name. An interface's defaults are copied into a class only where this
+module reaches the interface; one above another module's class was
+copied into that class there. A `super` call into a module this one does
+not import is JavaScript's own `super.m(...)`, up the prototype chain.
+
+## Copying
+
+`copy(x)` and `deepcopy(x)` are the helpers `pykCopy` and
+`pykDeepcopy`, which walk the value by its markers: an array marked
+`pykArray` or `pykDynArray`, a Map (`pykMutMap`, `pykMap`), a view
+(`pykView`), and an object -- a datatype's value, a mutable struct or an
+object of a class -- made with `Object.create` of the original's
+prototype and its own properties copied, so it copies as the class it
+is. A datatype's value holds its fields in its own `pykValues` and is
+its own shallow copy; a mutable struct works them out from its
+properties. The deep copy keeps a `Map` from each object to its copy; a
+function is kept, and a pointer (`pykPtr`) stops the copy.

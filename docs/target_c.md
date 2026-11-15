@@ -191,7 +191,7 @@ escaped) and a String by `pyk_quote` (`"abc"`, with `\\`, `\"`, `\n`,
 | a `mutable struct` `Point` | `pyk_d_D<module>_Point__ *`: a pointer to its struct |
 | `MutMap(String, Int)` | `pyk_m_Msi_ *`: a pointer to its entries' struct |
 | `Map(String, Int)` | `pyk_m_Nsi_ *`: the same struct, of its own code |
-| `Slice(Int)`, a view | `pyk_w_Wi_ *`: a pointer to the array's elements, a start and a length |
+| `Slice(Int)`, a view | `pyk_w_Wi_ *`: a pointer to the array's elements, a start, a length and the whole array's length |
 | `Ptr(Int)` | `int *`: C's own pointer |
 
 A compound type's name is its **code**: one letter per scalar (`i`,
@@ -442,14 +442,16 @@ slices an array, a DynArray, a view and a String (by code point, allocated
 as every String is) on every C target, and a list on c23-gc.
 
 A view, `view(a, i, j)`, is a **pointer** to a struct of the array's
-elements, where its run starts and its length, so two views are `same`
-only where they are one; a view of a view points into the same array,
-the offsets added:
+elements, where its run starts, its length and the whole array's length
+(which `copy` and `deepcopy` copy), so two views are `same` only where
+they are one; a view of a view points into the same array, the offsets
+added:
 
 ```c
 typedef struct pyk_w_Wi_ {
     int len;
     int start;
+    int whole;
     int *items;
 } pyk_w_Wi_;
 ```
@@ -961,8 +963,9 @@ programs simulate one:
   struct of the class declaring it.
 - **The descriptor**, `pyk_class_<module>_<C>`, holds the class's name,
   its parent's descriptor, its interfaces', its method table and its
-  printer. The table has one slot per method name the module's classes
-  have, so `o.m(...)` is the slot's function, cast to the method's
+  printer, and, where the program copies, the function copying one of
+  its objects. The table has one slot per method name the program's
+  classes have, numbered alike in every module, so `o.m(...)` is the slot's function, cast to the method's
   signature, called on `o`; `super.m(...)` calls the body's function
   directly.
 - **Each method** is a function taking the object first; `pyk_init_...`
@@ -973,3 +976,30 @@ programs simulate one:
   parents and the interfaces.
 - A generic class is refused: it would need one struct and table per
   type it is made at.
+
+### Classes across modules
+
+Another module's class is named as that module names it
+(`class_symbol`): `pyk_class_shapes_Rect`, `pyk_new_shapes_Rect`,
+`pyk_o_shapes_Rect`. A public class's descriptor is declared in its
+module's header and its constructor, field set-up and method functions
+are not `static`, so a class in another module can make one, extend it
+-- its struct starts with the same fields -- and put the parent's
+functions in its own table. Every module of a program numbers an
+object's method table the same way (`program_slots`), so an object made
+in one module is called through it in another.
+
+## Copying
+
+`copy(x)` and `deepcopy(x)` are written for each type (`copier`):
+`pyk_copy_<code>(v)` and `pyk_deepcopy_<code>(v, memo)`, where `memo` is
+a table from each block copied to its copy, by address. An array's
+identity is its elements' address, which a view shares; a view holds
+the whole array's length (`whole`), so copying it copies the array
+behind it. A MutMap's keys, values and, on `c23-gc`, slots are copied.
+Where any module of a program copies, every class's descriptor holds a
+function copying one of its objects (`copy`), which copies the struct
+and then, given the table, deep-copies each field, so an object copies
+as the class it is. A type holding nothing that changes is its own copy,
+and no function is written for it. A pointer stops a deep copy with the
+runtime error.

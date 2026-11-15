@@ -1,0 +1,7 @@
+# A class below another module's class never takes the name of one of
+# its private members.
+use objects, mutation
+from module_class_shapes_mod import Rect
+
+class Square(side: Int) extends Rect(side, side):
+    var moves: Int = 0

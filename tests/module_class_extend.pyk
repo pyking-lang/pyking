@@ -1,0 +1,64 @@
+# Implementing another module's interface and extending its classes,
+# an abstract one included, on every target (PYKING.md, "Classes across
+# modules"): overrides, `super`, a default inherited from where a
+# method is first declared, class patterns and copies.
+use objects, mutation
+import module_class_shapes_mod as shapes
+from module_class_shapes_mod import Rect, Counter
+
+class Circle(r: Int) implements shapes.Shape:
+    override def area(self) -> Int:
+        3 * self.r * self.r
+    override def name(self) -> String:
+        "circle"
+
+class Square(side: Int) extends Rect(side, side):
+    override def name(self) -> String:
+        "square, a " + super.name()
+    override def grow(self, by: Int) -> ():
+        super.grow(by * 10)
+
+class Steps(begin: Int) extends Counter(begin):
+    override def unit(self) -> String:
+        "steps"
+
+def kind(s: shapes.Shape) -> String:
+    match s:
+        case q: Square:
+            "square of side " + string(q.side)
+        case Rect(w, h):
+            "rect " + string(w) + "x" + string(h)
+        case c: Circle:
+            "circle of radius " + string(c.r)
+        case _:
+            "something else"
+
+c = Circle(2)
+sq = Square(3)
+r = shapes.make_rect(2)
+print(c.describe())
+print(sq.describe())
+print(r.describe())
+print(kind(c), "/", kind(sq), "/", kind(r))
+print(shapes.total(c, sq))
+
+# A default comes from where the method is first declared: Rect's.
+sq.grow()
+sq.grow(by = 1)
+print(sq.moved(), sq.area(), sq.width, sq.label)
+sq.label := "mine"
+print(sq.label, sq == Square(3), sq == Square(4))
+
+st = Steps(10)
+print(st.tick(), st.tick(5), st.report(), st)
+cs: Counter = st
+print(cs.report())
+
+# A copy is of the class the object is, wherever its class was declared.
+twin = shapes.twin(sq)
+print(kind(twin), same(twin, sq), twin.area())
+sq2 = copy(sq)
+sq3 = deepcopy(sq)
+sq2.grow(1)
+sq3.grow(2)
+print(sq.moved(), sq2.moved(), sq3.moved())

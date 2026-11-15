@@ -1,0 +1,6 @@
+# The type a deepcopy copies is not generalised: the first call decides
+# it, and a second call at another type is refused.
+def twin(x):
+    deepcopy(x)
+
+print(twin(1), twin("a"))

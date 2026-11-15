@@ -329,6 +329,7 @@ and a debugger will want the loop itself.
 a module's classes -- each class's fields and their owners, its methods,
 the body a method runs (`resolve`), where it is declared (`declaring`),
 and the order to declare them in -- read from the checked declarations,
+and from the signatures of the modules exporting classes to this one,
 below the checker and beside `walk.ml`: it needs only `syntax.ml`. The
 checker keeps its own table, with the types its annotations resolve to.
 

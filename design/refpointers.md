@@ -324,9 +324,10 @@ How this lines up with C and Java:
   in C and Java. The idiom is to return the new values and store them
   with one `:=`, as in `q, r := divmod(17, 5)` (PYKING.md, "Mutable
   variables").
-- **Copying shared things is explicit.** A slice `a[i:j]`, `array(a)`
-  and `Point(x = 1, ..p)` make new things. Each copy is *shallow*: an
-  array or `mutable struct` held inside is shared by both. A view
+- **Copying shared things is explicit.** `copy(x)`, a slice `a[i:j]`,
+  `array(a)` and `Point(x = 1, ..p)` make new things. Each of those is
+  *shallow*: an array or `mutable struct` held inside is shared by both.
+  `deepcopy(x)` shares nothing writable with `x` (PYKING.md, "Copying"). A view
   (`view(a, i, j)`) is the reverse: it aliases a run of an array on
   purpose. It is the safe replacement for C's `p + i`.
 - **There is no `null`.** A field that may hold nothing has an

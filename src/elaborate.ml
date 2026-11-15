@@ -189,6 +189,10 @@ and expression_type work e =
 
 (* --- the walk --- *)
 
+(* This module's imports, which a default another module wrote is reached
+   through (`copied_default`). Set by `program`. *)
+let imports : stmt list ref = ref []
+
 (** One expression with every name renamed and every resolved call
     filled in. expr -> resolution IntMap.t -> work -> (expr, work) *)
 let rec expression e qmap work =
@@ -230,7 +234,23 @@ and copied_default e work =
   | ECall (i, (EVar (vi, name, _) as callee), [], _) ->
       let vs, work = again callee work in
       let s, work = again e work in
-      (ECall (i, EVar (vi, plain name, vs), [], s), work)
+      (* Another module's (`module.def`, PYKING.md "Classes across
+         modules"): reached through this module's import of it. *)
+      let reached =
+        match String.rindex_opt name '.' with
+        | Some k ->
+            let m = String.sub name 0 k and f = String.sub name (k + 1) (String.length name - k - 1) in
+            List.find_map
+              (function
+                | SImport (_, m', alias, false, _, _) when m' = m -> Some (EQualified (vi, alias, f, vs))
+                | SImport (_, m', _, true, fields, _) when m' = m ->
+                    List.find_map (fun (exported, local) -> if exported = f then Some (EVar (vi, local, vs)) else None) fields
+                | _ -> None)
+              !imports
+        | _ -> None
+      in
+      let callee = match reached with Some c -> c | None -> EVar (vi, plain name, vs) in
+      (ECall (i, callee, [], s), work)
   | _ -> (e, work)
 
 (** A method call's arguments, every one in its parameter's position and
@@ -493,6 +513,11 @@ and expression_body e qmap work =
   | EConstruct (i, module_, name, args, s) ->
       let names = List.map fst args in
       let given, work = each (arg_exprs args) work in
+      (* A class's constructor by the class's canonical name: another
+         module's is `module.Name`, whatever the import called it. *)
+      let module_, name =
+        match IntMap.find_opt s qmap with Some (Class_named canonical) -> (None, canonical) | _ -> (module_, name)
+      in
       (EConstruct (i, module_, name, List.combine names given, s), work)
   | EField (i, record, name, s) -> (
       let record, work = go record work in
@@ -737,6 +762,15 @@ and statement s qmap work =
             in
             (Some (ClassRef (ri, m, n, ts, List.combine names given, rs)), work)
       in
+      (* A supertype of another module's by its canonical name, as the
+         checker recorded it, whatever the import called it. *)
+      let canonical (ClassRef (ri, _, _, ts, args, rs) as r) =
+        match IntMap.find_opt rs work.tmap with
+        | Some (TCon (_, c, _, _)) when String.contains c '.' -> ClassRef (ri, None, c, ts, args, rs)
+        | _ -> r
+      in
+      let extends = Option.map canonical extends in
+      let c = { c with c_implements = List.map canonical c.c_implements } in
       let methods, work =
         List.fold_left
           (fun (out, work) (MethodDecl (mi, n, params, ret, body, override, private_, ms)) ->
@@ -806,6 +840,7 @@ and statement s qmap work =
       let cases, work =
         List.fold_left
           (fun (out, work) (MatchCase (ci, pattern, guard, body, cs)) ->
+            let pattern = class_patterns qmap pattern in
             let guard, work =
               match guard with
               | None -> (None, work)
@@ -837,6 +872,26 @@ and statement s qmap work =
           (i, plain name, params, body, return_type, sym, public, [], false),
         work )
 
+(** A pattern with every class in it named by its canonical name, as a
+    constructor call is: `case shapes.Rect(w, h)` and `case r: Rect` from
+    a `from` line both name `shapes.Rect`. resolution IntMap.t -> pattern
+    -> pattern *)
+and class_patterns qmap p =
+  let go = class_patterns qmap in
+  match p with
+  | PConstructor (i, module_, name, fields, named, s) ->
+      let module_, name = match IntMap.find_opt s qmap with Some (Class_named c) -> (None, c) | _ -> (module_, name) in
+      PConstructor (i, module_, name, List.map go fields, List.map (fun (n, q) -> (n, go q)) named, s)
+  | PTyped (i, name, TCon (ti, spelled, args, ts), s) -> (
+      match IntMap.find_opt s qmap with
+      | Some (Class_named c) -> PTyped (i, name, TCon (ti, c, args, ts), s)
+      | _ -> PTyped (i, name, TCon (ti, spelled, args, ts), s))
+  | PTuple (i, ps, s) -> PTuple (i, List.map go ps, s)
+  | PList (i, before, rest, after, s) -> PList (i, List.map go before, rest, List.map go after, s)
+  | POr (i, ps, s) -> POr (i, List.map go ps, s)
+  | PAs (i, q, n, s) -> PAs (i, go q, n, s)
+  | p -> p
+
 (** One block. [stmt] -> resolution IntMap.t -> work -> ([stmt], work) *)
 and statements stmts qmap work =
   List.fold_left
@@ -852,6 +907,7 @@ and statements stmts qmap work =
     resolution IntMap.t -> typ IntMap.t -> [stmt] -> ([stmt], typ IntMap.t) *)
 let program ?(start = 0) qmap tmap stmts =
   check_no_rename_clash stmts;
+  imports := List.filter (function SImport _ -> true | _ -> false) stmts;
   (* Past `start` too: one numbering spans every module of a program,
      so a node built here must not take a symbol another module's node
      already has. *)

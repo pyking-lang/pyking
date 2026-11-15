@@ -167,6 +167,10 @@ and typ =
   | TData of info * datatype * int
       (* what a module's signature says about a datatype it exports.
          Never written in source, never printed. *)
+  | TClass of info * class_info * int
+      (* what a module's signature says about a class or an interface it
+         exports, every type in it named as another module names it.
+         Never written in source, never printed. *)
 
 and datatype = Datatype of string * string list * (string * (string option * typ) list) list * bool
 (* a datatype as another module sees it: its canonical name, its
@@ -175,6 +179,34 @@ and datatype = Datatype of string * string list * (string * (string option * typ
    fields are written in place. *)
 
 and implicit_param = IParam of string * typ
+
+(* What the checker knows of one class or interface (PYKING.md, "Classes
+   and interfaces"): every type in it written in terms of the class's own
+   parameters, which are rigid. A module exports it whole, as a TClass,
+   so another module may use, implement and extend the class. *)
+and class_info = {
+  cl_name : string;
+  cl_kind : class_kind;
+  cl_params : string list;
+  cl_parent : (string * typ list) option; (* the parent class, at its arguments *)
+  cl_interfaces : (string * typ list) list; (* the interfaces named in the header *)
+  cl_header : (string * typ) list; (* what the constructor takes *)
+  cl_fields : field_info list; (* the fields it declares itself *)
+  cl_methods : method_info list; (* the methods it declares itself *)
+  cl_info : info;
+}
+
+and field_info = { fd_name : string; fd_type : typ; fd_var : bool; fd_private : bool; fd_info : info }
+
+and method_info = {
+  md_name : string;
+  md_params : (string * typ * expr option) list; (* each with its default, where it has one *)
+  md_return : typ;
+  md_abstract : bool; (* no body: an abstract method, or an interface's signature *)
+  md_private : bool;
+  md_override : bool;
+  md_info : info;
+}
 
 (* A class, an abstract class or an interface (PYKING.md, "Classes and
    interfaces"). *)
@@ -454,6 +486,7 @@ let type_info t =
   | TForall (i, _, _, _) -> i
   | TCon (i, _, _, _) -> i
   | TData (i, _, _) -> i
+  | TClass (i, _, _) -> i
 
 (** The symbol of one type. typ -> int *)
 let type_sym t =
@@ -472,6 +505,7 @@ let type_sym t =
   | TForall (_, _, _, s) -> s
   | TCon (_, _, _, s) -> s
   | TData (_, _, s) -> s
+  | TClass (_, _, s) -> s
 
 (** The source span of one pattern. pattern -> info *)
 let pattern_info p =
@@ -798,6 +832,7 @@ let set_type_info i t =
   | TForall (_, vs, b, s) -> TForall (i, vs, b, s)
   | TCon (_, n, args, s) -> TCon (i, n, args, s)
   | TData (_, d, s) -> TData (i, d, s)
+  | TClass (_, c, s) -> TClass (i, c, s)
 
 (** One pattern with its span replaced. info -> pattern -> pattern *)
 let set_pattern_info i p =
@@ -981,6 +1016,11 @@ let quote_string s =
 let local_name cfg name =
   match List.assoc_opt name cfg.local_names with
   | Some local -> local
+  (* Another module's class or datatype through a plain import, written
+     with the import's alias: `shapes.Rect` as `sh.Rect`. *)
+  | None when String.contains name '.' && List.mem_assoc (String.sub name 0 (String.rindex name '.') ^ ".") cfg.local_names ->
+      let k = String.rindex name '.' in
+      List.assoc (String.sub name 0 k ^ ".") cfg.local_names ^ String.sub name (k + 1) (String.length name - k - 1)
   (* The builtin option and result are every module's, so each is
      written as one. *)
   | None when name = "option.Option" -> "Option"
@@ -1054,6 +1094,7 @@ and pprint_type_body cfg t =
   | TCon (_, name, args, _) ->
       local_name cfg name ^ "(" ^ String.concat ", " (List.map (grouped cfg) args) ^ ")"
   | TData (_, Datatype (name, _, _, _), _) -> "datatype " ^ name
+  | TClass (_, c, _) -> "class " ^ c.cl_name
 
 (** Formats a type in annotation position, without a symbol suffix when
     it came from tmap (a checker-built type has no symbol of its own).
@@ -1144,7 +1185,7 @@ and pprint_expr_body cfg e min_prec =
   | EQualified (_, module_name, name, _) -> module_name ^ "." ^ name
   | EConstruct (_, module_, name, args, _) ->
       let reached =
-        match module_ with Some m -> m ^ "." ^ name | None -> name
+        match module_ with Some m -> m ^ "." ^ name | None -> local_name cfg name
       in
       if args = [] then reached
       else Printf.sprintf "%s(%s)" reached (pprint_args cfg args)
@@ -1336,7 +1377,7 @@ and pprint_pattern_body cfg p =
       String.concat " + " parts
   | PConstructor (_, module_, name, positional, named, _) ->
       let reached =
-        match module_ with Some m -> m ^ "." ^ name | None -> name
+        match module_ with Some m -> m ^ "." ^ name | None -> local_name cfg name
       in
       let parts =
         List.map (pprint_pattern cfg) positional
@@ -1599,7 +1640,7 @@ and pprint_class cfg pad c =
      type arguments being the checker's to work out; an interface with
      its type arguments. *)
   let ref_text parent (ClassRef (_, module_, name, args, ctor, _)) =
-    let reached = match module_ with Some m -> m ^ "." ^ name | None -> name in
+    let reached = match module_ with Some m -> m ^ "." ^ name | None -> local_name cfg name in
     if parent then reached ^ "(" ^ pprint_args cfg ctor ^ ")"
     else if args = [] then reached
     else reached ^ "(" ^ String.concat ", " (List.map (pprint_type cfg) args) ^ ")"
@@ -1743,6 +1784,7 @@ let pprint_program stmts symbols tmap =
       (function
         | SImport (_, module_, _, true, fields, _) ->
             List.map (fun (field, local) -> (module_ ^ "." ^ field, local)) fields
+        | SImport (_, module_, alias, false, _, _) -> [ (module_ ^ ".", alias ^ ".") ]
         | _ -> [])
       stmts
   in

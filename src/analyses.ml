@@ -679,6 +679,9 @@ and sym_type counter t =
   | TData (i, d, s) ->
       let s, counter = assign s counter in
       (TData (i, d, s), counter)
+  | TClass (i, c, s) ->
+      let s, counter = assign s counter in
+      (TClass (i, c, s), counter)
 
 and sym_pattern counter p =
   match p with
@@ -1004,6 +1007,7 @@ and high_type t =
     | TForall (_, _, body, _) -> high_type body
     | TCon (_, _, args, _) -> high_list high_type args
     | TData _ -> 0
+    | TClass _ -> 0
   in
   max (type_sym t) children
 

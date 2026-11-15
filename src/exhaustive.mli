@@ -27,7 +27,7 @@ val open_marker : string
     nothing reaches, given the datatype each canonical name denotes and
     the types the checker worked out.
     (string -> datatype?) -> typ IntMap.t -> [stmt] -> () *)
-val check : (string -> datatype option) -> typ IntMap.t -> stmt list -> unit
+val check : ?classes:(int -> string option) -> (string -> datatype option) -> typ IntMap.t -> stmt list -> unit
 
 (** Whether these patterns between them match every value of a type,
     where the type is known. (string -> datatype?) -> typ? -> [pattern]

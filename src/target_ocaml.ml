@@ -147,10 +147,17 @@ let reserved =
         module mutable new nonrec object of open or private rec sig struct \
         then to true try type val virtual when while with _")
 
+(** A field's or a method's OCaml label: an OCaml keyword, `begin` or
+    `end`, takes an underscore, as a name does. string -> string *)
+let method_label name = if StringSet.mem name reserved then name ^ "_" else name
+
 (** name as a legal OCaml value name, before collisions are resolved.
     string -> string *)
 let mangle_base name =
-  if StringSet.mem name reserved then name ^ "_"
+  if String.contains name '.' && name.[0] >= 'A' && name.[0] <= 'Z' then
+    (* Already OCaml's: another module's class function, `Shapes.rect__new`. *)
+    name
+  else if StringSet.mem name reserved then name ^ "_"
   else if String.length name > 0 && name.[0] >= 'A' && name.[0] <= 'Z' then
     "v_" ^ name
   else name
@@ -397,7 +404,9 @@ let name_of t = pprint_type default_config t
 (** Every name a binding pattern binds. opattern -> [string] *)
 let rec pattern_names pattern =
   match pattern with
-  | OPatName name -> [ name ]
+  | OPatName name -> (
+      (* A name written with its polymorphic type, `f : 'a. ...`, binds f. *)
+      match String.index_opt name ' ' with Some k -> [ String.sub name 0 k ] | None -> [ name ])
   | OPatTuple parts -> List.concat_map pattern_names parts
 
 (** A binding pattern as OCaml source text. opattern -> string *)
@@ -1415,6 +1424,16 @@ let view_to_list_helper = "pyk_view_to_list"
 let whole_helper = "pyk_whole"
 let copy_into_helper = "pyk_copy_into"
 
+(* `copy` and `deepcopy` (PYKING.md, "Copying"). A shallow copy is made
+   for the type at the call: a new outermost store, the parts shared. A
+   deep copy walks the value's own blocks (docs/target_ocaml.md,
+   "Copying"). *)
+let copy_dynarray_helper = "pyk_copy_dynarray"
+let copy_mutmap_helper = "pyk_copy_mutmap"
+let copy_view_helper = "pyk_copy_view"
+let copy_block_helper = "pyk_copy_block"
+let deepcopy_helper = "pyk_deepcopy"
+
 (* Pointers' helpers (docs/target_ocaml.md, "Pointers"). *)
 let ptr_cell_helper = "pyk_ptr_cell"
 let ptr_elem_helper = "pyk_ptr_elem"
@@ -1473,7 +1492,7 @@ let array_helper_needs name =
     [ array_fail_helper; slice_bounds_helper; chars_helper; char_text_helper ]
   else if String.length name > 10 && String.sub name 0 10 = "pyk_slice_" && name <> slice_bounds_helper
   then [ array_fail_helper; slice_bounds_helper ]
-  else if name = ptr_elem_helper then [ array_fail_helper ]
+  else if name = ptr_elem_helper || name = deepcopy_helper then [ array_fail_helper ]
   else if name = ptr_view_elem_helper then [ array_fail_helper; ptr_elem_helper ]
   else if name = equal_helper then [ ptr_same_helper ]
   else if name = map_of_list_helper then [ mutmap_set_helper; mutmap_of_list_helper ]
@@ -1894,6 +1913,127 @@ let array_helper_lines name =
       [
         "(* An array as copy_into takes it: all of it. *)";
         Printf.sprintf "let %s a = (a, 0, Stdlib.Array.length a)" name;
+      ]
+  else if name = copy_dynarray_helper then
+    Some
+      [
+        "(* copy of a DynArray: a new cell holding a copy of its storage. *)";
+        Printf.sprintf "let %s v = let (items, n) = !v in ref (Stdlib.Array.copy items, n)" name;
+      ]
+  else if name = copy_mutmap_helper then
+    Some
+      [
+        "(* copy of a MutMap: a new table and counter, the same entries. *)";
+        Printf.sprintf "let %s (table, counter) = (Stdlib.Hashtbl.copy table, ref !counter)" name;
+      ]
+  else if name = copy_view_helper then
+    Some
+      [
+        "(* copy of a view: one with the same bounds of a copy of its array. *)";
+        Printf.sprintf "let %s (owner, offset, length) = (Stdlib.Array.copy owner, offset, length)" name;
+      ]
+  else if name = copy_block_helper then
+    Some
+      [
+        "(* copy of a mutable struct: a new record holding the same fields. *)";
+        Printf.sprintf "let %s (v : 'a) : 'a = Obj.obj (Obj.dup (Obj.repr v))" name;
+      ]
+  else if name = deepcopy_helper then
+    Some
+      [
+        "(* deepcopy: a value equal to v sharing nothing writable with it,";
+        "   made by walking its blocks. Each block met is copied once -- the";
+        "   table of copies is by identity, bucketed by a hash of what each";
+        "   block holds, which the copy never changes -- so what v shares and";
+        "   its cycles its copy shares too. Strings and boxed Floats never";
+        "   change and functions are shared, so they are kept; an object is";
+        "   copied with Oo.copy, which gives it an identity of its own, and";
+        "   then its instance variables; an extension constructor, which";
+        "   tells a class pattern what an object is, is kept. A block's last";
+        "   field is followed in a loop, so a long list copies in constant";
+        "   stack. *)";
+
+        Printf.sprintf "let %s (v : 'a) : 'a =" name;
+        "  let copies : (int, (Obj.t * Obj.t) list) Stdlib.Hashtbl.t = Stdlib.Hashtbl.create 64 in";
+        "  (* Every object of a Pyking class says what it is (`pyk_up`); the";
+        "     one object without is a pointer, which stops the copy. An";
+        "     object's table holds its methods' labels after its first two";
+        "     slots, one in every other slot. *)";
+        "  let pyk_up = Obj.repr (CamlinternalOO.public_method_label \"pyk_up\") in";
+        "  let is_class_object o =";
+        "    let methods = Obj.field o 0 in";
+        "    let last = Obj.size methods - 1 in";
+        "    let rec go i = i <= last && (Obj.field methods i == pyk_up || go (i + 2)) in";
+        "    go 3";
+        "  in";
+        "  let known o =";
+        "    match Stdlib.Hashtbl.find_opt copies (Stdlib.Hashtbl.hash o) with";
+        "    | Some bucket -> Stdlib.List.assq_opt o bucket";
+        "    | None -> None";
+        "  in";
+        "  let remember o c =";
+        "    let h = Stdlib.Hashtbl.hash o in";
+        "    let bucket = match Stdlib.Hashtbl.find_opt copies h with Some b -> b | None -> [] in";
+        "    Stdlib.Hashtbl.replace copies h ((o, c) :: bucket)";
+        "  in";
+        "  let kept o =";
+        "    let tag = Obj.tag o in";
+        "    tag = Obj.string_tag || tag = Obj.double_tag || tag = Obj.closure_tag || tag = Obj.infix_tag";
+        "    || tag = Obj.lazy_tag || tag = Obj.forward_tag || tag = Obj.abstract_tag || tag = Obj.custom_tag";
+        "    || (tag = Obj.object_tag && Obj.size o > 0 && Obj.is_block (Obj.field o 0)";
+        "        && Obj.tag (Obj.field o 0) = Obj.string_tag)";
+        "  in";
+        "  (* The copy of o, made and remembered, its fields still o's. *)";
+        "  let start o =";
+        "    let c =";
+        "      if Obj.tag o = Obj.object_tag then begin";
+        "        if not (is_class_object o) then";
+        "          pyk_array_fail \"deepcopy met a pointer, which cannot be deep-copied: the place it points at is not part of the value\";";
+        "        Obj.repr (Oo.copy (Obj.obj o : < >))";
+        "      end";
+        "      else Obj.dup o";
+        "    in";
+        "    remember o c;";
+        "    c";
+        "  in";
+        "  let rec copy o =";
+        "    if Obj.is_int o || kept o then o";
+        "    else";
+        "      match known o with";
+        "      | Some c -> c";
+        "      | None ->";
+        "          let c = start o in";
+        "          fill o c;";
+        "          c";
+        "  and fill o c =";
+        "    let o = ref o and c = ref c and going = ref true in";
+        "    while !going do";
+        "      going := false;";
+        "      let tag = Obj.tag !o in";
+        "      if tag <> Obj.double_array_tag then begin";
+        "        let first = if tag = Obj.object_tag then 2 else 0 in";
+        "        let n = Obj.size !o in";
+        "        for i = first to n - 2 do";
+        "          Obj.set_field !c i (copy (Obj.field !o i))";
+        "        done;";
+        "        if n - 1 >= first then begin";
+        "          let last = Obj.field !o (n - 1) in";
+        "          if Obj.is_int last || kept last || Obj.tag last = Obj.object_tag then";
+        "            Obj.set_field !c (n - 1) (copy last)";
+        "          else";
+        "            match known last with";
+        "            | Some made -> Obj.set_field !c (n - 1) made";
+        "            | None ->";
+        "                let made = start last in";
+        "                Obj.set_field !c (n - 1) made;";
+        "                o := last;";
+        "                c := made;";
+        "                going := true";
+        "        end";
+        "      end";
+        "    done";
+        "  in";
+        "  Obj.obj (copy (Obj.repr v))";
       ]
   else if name = copy_into_helper then
     Some
@@ -2515,15 +2655,23 @@ let rec type_text type_ name top =
            name (name_of type_))
 
 
+(** A function of a class's, by the class's canonical name: another
+    module's is reached through that module, `Shapes.rect__new` (PYKING.md,
+    "Classes across modules"). (string -> string) -> string -> string *)
+let class_function f cls =
+  match split_canonical cls with
+  | Some m, n -> ocaml_module m ^ "." ^ f n
+  | None, n -> f n
+
 (** The function holding a class's method body. string -> string -> string *)
-let method_function cls m = String.uncapitalize_ascii cls ^ "__" ^ m
+let method_function cls m = class_function (fun n -> String.uncapitalize_ascii n ^ "__" ^ m) cls
 
 (** The function computing an object's fields, its parents' first, from
     what its constructor is given. string -> string *)
-let init_function cls = String.uncapitalize_ascii cls ^ "__init"
+let init_function cls = class_function (fun n -> String.uncapitalize_ascii n ^ "__init") cls
 
 (** The function building an object of a class. string -> string *)
-let new_function cls = String.uncapitalize_ascii cls ^ "__new"
+let new_function cls = class_function (fun n -> String.uncapitalize_ascii n ^ "__new") cls
 
 (** The name of the special call standing for an object being built: its
     arguments are the fields' values, then the methods' functions.
@@ -2536,8 +2684,10 @@ let object_marker = "__pyk_object__"
 let inner_marker = "__pyk_inner__"
 
 (** The constructor of the variant an object is seen as each class it
-    is through. string -> string *)
-let up_constructor cls = "Pyk_obj_" ^ cls
+    is through: an exception, since `exn` is the one extensible type every
+    module of a program shares, so an object of another module's class is
+    seen as each class of every module it is. string -> string *)
+let up_constructor cls = class_function (fun n -> "Pyk_obj_" ^ n) cls
 
 (** A class's own type, at its own parameters. Classes.cls -> typ *)
 let class_type_of c = TCon (no_info, c.Classes.name, List.map (fun p -> TVar (no_info, p, 0, true)) c.Classes.params, 0)
@@ -3498,8 +3648,39 @@ and builtin_call ctx acc call name args =
       | _ ->
           unsupported (expr_info call)
             (Printf.sprintf "`char` of a value of type %s" (name_of type_)))
-  (* One array under two names: identity, which OCaml's `==` is. *)
+  (* One array under two names: identity, which OCaml's `==` is. Two
+     objects may be seen at different types -- a Square and the Shape it
+     is -- which `==` would refuse, so they are compared as what they
+     are underneath, which an upcast never changes. *)
+  | "same", [ left; right ]
+    when (match (type_of ctx left, type_of ctx right) with
+          | TCon (_, a, _, _), TCon (_, b, _, _) -> a <> b && Classes.find ctx.classes a <> None
+          | _ -> false) ->
+      let pieces, pin, acc = in_order ctx acc [ left; right ] in
+      (match pieces with
+      | [ o_left; o_right ] -> (pin (OBin ("==", OApp (OVar "Obj.repr", [ o_left ]), OApp (OVar "Obj.repr", [ o_right ]))), acc)
+      | _ -> binary ctx acc "==" left right)
   | "same", [ left; right ] -> binary ctx acc "==" left right
+  (* A shallow copy, made for the type at the call; a deep one, by a walk
+     over the value (PYKING.md, "Copying"). *)
+  | "copy", [ value ] -> (
+      let type_ = type_of ctx value in
+      let o_value, acc = expr ctx acc value in
+      let helper h = (OApp (OVar h, [ o_value ]), need acc h) in
+      match type_ with
+      | TCon (_, "Array", _, _) -> (OApp (OVar "Stdlib.Array.copy", [ o_value ]), acc)
+      | t when dynarray_element t <> None -> helper copy_dynarray_helper
+      | t when mutmap_parts t <> None -> helper copy_mutmap_helper
+      | t when slice_element t <> None -> helper copy_view_helper
+      | TCon (_, c, _, _) when Classes.find ctx.classes c <> None -> (OApp (OVar "Oo.copy", [ o_value ]), acc)
+      | TCon (_, c, _, _) -> (
+          match datatype_of ctx c with
+          | Some (Datatype (_, _, _, true)) -> helper copy_block_helper
+          | _ -> (o_value, acc))
+      | _ -> (o_value, acc))
+  | "deepcopy", [ value ] ->
+      let o_value, acc = expr ctx acc value in
+      (OApp (OVar deepcopy_helper, [ o_value ]), need acc deepcopy_helper)
   (* What changes a DynArray (docs/target_ocaml.md, "DynArrays"): its arguments
      worked out left to right, then the helper. *)
   | ("push" | "pop" | "insert" | "remove" | "clear"), first :: _
@@ -5223,7 +5404,7 @@ and pprint_bare e level =
                 fields)),
         p_app )
   (* `#` binds tighter than application. *)
-  | OSend (e, name) -> (Printf.sprintf "%s#%s" (pprint e p_atom level) name, p_atom)
+  | OSend (e, name) -> (Printf.sprintf "%s#%s" (pprint e p_atom level) (method_label name), p_atom)
   | OCoerce (e, t) -> (Printf.sprintf "(%s :> %s)" (pprint e p_app level) t, p_atom)
   | OObject (fields, methods) ->
       let pad = String.make (2 * (level + 1)) ' ' in
@@ -5231,7 +5412,7 @@ and pprint_bare e level =
         Printf.sprintf "%sval %s%s = %s" pad (if mutable_ then "mutable " else "") n (pprint e p_app (level + 1))
       in
       let method_ (n, params, e) =
-        Printf.sprintf "%smethod %s%s =\n%s  %s" pad n
+        Printf.sprintf "%smethod %s%s =\n%s  %s" pad (method_label n)
           (String.concat "" (List.map (fun p -> " " ^ p) params))
           pad (pprint e p_seq (level + 2))
       in
@@ -5699,9 +5880,11 @@ let datatype_printers ctx acc datatypes =
     its class's constructor function, and `super.m(...)` a call of the
     function holding the body the checker chose. The types of what is
     built here are added to tmap. [stmt] -> typ IntMap.t -> ([stmt], typ IntMap.t) *)
-let lower_classes stmts tmap =
-  let table = Classes.table stmts in
-  if Classes.SMap.is_empty table then (stmts, tmap)
+let lower_classes table stmts tmap =
+  if not (List.exists (function SClass _ -> true | _ -> false) stmts) && Classes.SMap.for_all (fun n _ -> Classes.is_foreign n) table
+     && not (Walk.exists_stmts (function Walk.NExpr (EConstruct (_, _, n, _, _) | ESuper (_, n, _, _, _)) -> Classes.find table n <> None | _ -> false) stmts)
+  then (stmts, tmap)
+  else if Classes.SMap.is_empty table then (stmts, tmap)
   else
     let tmap = ref tmap in
     let next = ref (Analyses.highest_sym stmts + 1) in
@@ -5952,7 +6135,7 @@ let class_declarations table tmap stmts =
         List.concat_map
           (fun f ->
             let t = type_text (at_owner name f.Classes.f_owner (type_at f.Classes.f_sym)) "" true in
-            [ Printf.sprintf "  method %s : %s" f.Classes.f_name t ]
+            [ Printf.sprintf "  method %s : %s" (method_label f.Classes.f_name) t ]
             @ if f.Classes.f_var then [ Printf.sprintf "  method set_%s : %s -> unit" f.Classes.f_name t ] else [])
           fields
         @ List.map
@@ -5960,34 +6143,47 @@ let class_declarations table tmap stmts =
               let declaring = Option.get (Classes.declaring table name m) in
               let x = Option.get (Classes.own_method table declaring m) in
               match at_owner name declaring (type_at x.Classes.m_sym) with
-              | TFunction (_, ps, r, _, _, _, _) -> Printf.sprintf "  method %s : %s" m (method_type ps r)
-              | _ -> Printf.sprintf "  method %s : unit" m)
+              | TFunction (_, ps, r, _, _, _, _) -> Printf.sprintf "  method %s : %s" (method_label m) (method_type ps r)
+              | _ -> Printf.sprintf "  method %s : unit" (method_label m))
             methods
         @ (if c.Classes.kind = ClassInterface then []
            else List.map (fun p -> Printf.sprintf "  method pyk_show_%s : '%s -> string" p p) c.Classes.params)
-        @ [ "  method pyk_up : pyk_obj list"; "  method pyk_show : string" ]
+        @ [ "  method pyk_up : exn list"; "  method pyk_show : string" ]
       in
       Printf.sprintf "%s%s = object\n%s\nend" (params c) (datatype_name name) (String.concat "\n" lines)
     in
+    if order = [] then []
+    else
     let decls = List.map one order in
     let ups =
       List.map
         (fun name ->
           let c = Option.get (Classes.find table name) in
-          if c.Classes.params = [] then Printf.sprintf "%s of %s" (up_constructor name) (datatype_name name)
-          else Printf.sprintf "%s of Obj.t" (up_constructor name))
+          if c.Classes.params = [] then Printf.sprintf "exception %s of %s" (up_constructor name) (datatype_name name)
+          else Printf.sprintf "exception %s of Obj.t" (up_constructor name))
         order
     in
-    [
-      "type pyk_obj = ..";
-      "class type " ^ String.concat "\nand " decls;
-      "type pyk_obj += " ^ String.concat " | " ups;
-    ]
+    ("class type " ^ String.concat "\nand " decls) :: ups
 
 let translate_program stmts tmap (context : Module.context) target =
-  let classes = Classes.table stmts in
+  let classes, tmap = Classes.program stmts tmap context.sigmaps in
   let class_types = class_declarations classes tmap stmts in
-  let stmts, tmap = lower_classes stmts tmap in
+  (* What another module needs of a public class: its constructor, the
+     function setting up its fields, which a class extending it calls,
+     and each method body, which such a class's objects run. *)
+  let class_functions =
+    List.concat_map
+      (function
+        | SClass (_, c, _) when c.c_public ->
+            (if c.c_kind = ClassInterface then [] else [ init_function c.c_name ])
+            @ (if c.c_kind = ClassPlain then [ new_function c.c_name ] else [])
+            @ List.filter_map
+                (fun (MethodDecl (_, m, _, _, body, _, _, _)) -> if body = None then None else Some (method_function c.c_name m))
+                c.c_methods
+        | _ -> [])
+      stmts
+  in
+  let stmts, tmap = lower_classes classes stmts tmap in
   let own_sigmap =
     match List.assoc_opt context.context_name context.sigmaps with
     | Some sigmap -> sigmap
@@ -6012,8 +6208,8 @@ let translate_program stmts tmap (context : Module.context) target =
         (fun (name, type_, _) ->
           match type_ with
           (* A datatype is declared in the interface rather than named as
-             a value. *)
-          | TData _ -> None
+             a value, and so is a class, whose functions are named below. *)
+          | TData _ | TClass _ -> None
           | _ ->
               if List.mem name own_external then None
               else Some (Names.renamed name))
@@ -6162,7 +6358,41 @@ let translate_program stmts tmap (context : Module.context) target =
   let keep =
     List.fold_left
       (fun set name -> StringSet.add (public_name name) set)
-      StringSet.empty exported
+      StringSet.empty (exported @ if context.main then [] else class_functions)
+  in
+  (* Each of those at the type its def was given, for the interface; a
+     generic class's constructor takes a printer per type parameter
+     first, which its def's recorded type leaves out. *)
+  let class_interface =
+    if context.main then []
+    else
+      List.filter_map
+        (fun name ->
+          match
+            Classes.SMap.fold
+              (fun cname c found ->
+                if found = None && c.Classes.params <> [] && (not (Classes.is_foreign cname)) && c.Classes.kind = ClassPlain
+                   && new_function cname = name
+                then Some c
+                else found)
+              classes None
+          with
+          | Some c ->
+              let printers = List.map (fun p -> Printf.sprintf "('%s -> string)" p) c.Classes.params in
+              let header =
+                List.map (fun (_, hs) -> type_text (Option.value (IntMap.find_opt hs tmap) ~default:(TUnknown (no_info, 0))) "" false) c.Classes.header
+              in
+              Some (mangle ctx name, String.concat " -> " (printers @ header @ [ type_text (class_type_of c) "" false ]))
+          | None ->
+          List.find_map
+            (function
+              | SFunctionDef (_, n, _, _, _, sym, _, _, _) when n = name -> (
+                  match IntMap.find_opt sym tmap with
+                  | Some t -> Some (mangle ctx name, interface_type (unqualified context.context_name t) name)
+                  | None -> None)
+              | _ -> None)
+            stmts)
+        class_functions
   in
   {
     items = polish_items built keep ((not context.main) && context.separate);
@@ -6215,5 +6445,6 @@ let translate_program stmts tmap (context : Module.context) target =
                  own_sigmap
               |> Option.get)
               name ))
-        exported;
+        exported
+      @ class_interface;
   }

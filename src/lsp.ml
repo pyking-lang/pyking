@@ -742,10 +742,19 @@ let completion state document pos =
         | [], Some (Bound (place, sym, _)), Some (unit, tmap) when sym <> 0 && place.file = unit.path -> (
             match IntMap.find_opt sym tmap with
             | Some (TCon (_, cls, _, _)) -> (
-                let table = Classes.table unit.stmts in
+                (* the module's own classes and every one another module
+                   exports to it (PYKING.md, "Classes across modules"),
+                   whose private members are not this module's to reach *)
+                let table, tmap = Classes.program unit.stmts tmap (Module.sigmaps_for unit analysis.sigmaps) in
+                let visible owner private_ = not (private_ && Classes.is_foreign owner) in
                 match Classes.find table cls with
                 | Some _ ->
-                    List.map (fun f -> item f.Classes.f_name 5 (Option.map show_type (IntMap.find_opt f.Classes.f_sym tmap))) (Classes.all_fields table cls)
+                    List.filter_map
+                      (fun f ->
+                        if visible f.Classes.f_owner f.Classes.f_private then
+                          Some (item f.Classes.f_name 5 (Option.map show_type (IntMap.find_opt f.Classes.f_sym tmap)))
+                        else None)
+                      (Classes.all_fields table cls)
                     @ List.map
                         (fun mname ->
                           let detail =
@@ -754,7 +763,12 @@ let completion state document pos =
                                     Option.map show_type (IntMap.find_opt x.Classes.m_sym tmap)))
                           in
                           item mname 2 detail)
-                        (Classes.method_names table cls)
+                        (List.filter
+                           (fun mname ->
+                             match Option.bind (Classes.declaring table cls mname) (fun owner -> Classes.own_method table owner mname) with
+                             | Some x -> visible x.Classes.m_owner x.Classes.m_private
+                             | None -> true)
+                           (Classes.method_names table cls))
                 | None -> [])
             | _ -> [])
         | _ -> []
@@ -992,6 +1006,8 @@ let builtin_signatures name =
       ]
   | "len" -> [ ("len(items) -> Int", [ "items" ]) ]
   | "same" -> [ ("same(a: t, b: t) -> Bool", [ "a: t"; "b: t" ]) ]
+  | "copy" -> [ ("copy(x: t) -> t", [ "x: t" ]) ]
+  | "deepcopy" -> [ ("deepcopy(x: t) -> t", [ "x: t" ]) ]
   | "dynarray" ->
       [
         ("dynarray() -> DynArray(t)", []);

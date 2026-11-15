@@ -726,6 +726,11 @@ let view_addr_helper = "__pyk_view_addr"
    datatype equals itself there (docs/target_python.md, "Equality"). *)
 let equal_helper = "__pyk_eq"
 
+(* `copy(x)` and `deepcopy(x)` (PYKING.md, "Copying"): one helper each,
+   walking the value at run time, by its Python class. *)
+let copy_helper = "__pyk_copy"
+let deepcopy_helper = "__pyk_deepcopy"
+
 (** The helpers a helper calls, which the prelude has to hold beside it.
     string -> [string] *)
 let conversion_needs name =
@@ -737,6 +742,8 @@ let conversion_needs name =
   else if name = view_index_helper then [ fail_helper ]
   else if name = view_get_helper then [ view_index_helper; fail_helper ]
   else if name = copy_into_helper then [ fail_helper ]
+  else if name = copy_helper then []
+  else if name = deepcopy_helper then [ fail_helper ]
   else if name = slice_helper then [ array_class; fail_helper ]
   else if name = key_helper then [ key_class; frozen_helper ]
   else if name = mutmap_list_helper then mutmap_class :: keyed
@@ -855,6 +862,83 @@ let conversion_def ?(formatter = "__pyk_str") name =
        [
          Printf.sprintf "def %s(w, k):" name;
          Printf.sprintf "    return w.owner[%s(w, k)]" view_index_helper;
+       ]
+     else if name = copy_helper then
+       [
+         Printf.sprintf "def %s(v):" name;
+         "    # A shallow copy: a new outermost store holding what v's holds.";
+         "    # A value that never changes is its own copy.";
+         "    t = type(v)";
+         "    kind = t.__name__";
+         Printf.sprintf "    if kind in ('%s', '%s'):" array_class dynarray_class;
+         "        return t(v)";
+         Printf.sprintf "    if kind == '%s':" mutmap_class;
+         "        c = t()";
+         "        c.update(v)";
+         "        return c";
+         Printf.sprintf "    if kind == '%s':" view_class;
+         "        c = t()";
+         "        c.owner, c.offset, c.length = type(v.owner)(v.owner), v.offset, v.length";
+         "        return c";
+         "    if isinstance(v, (int, float, str, list, tuple, dict)) or v is None or callable(v):";
+         "        return v";
+         "    params = getattr(t, '__dataclass_params__', None)";
+         "    if params is not None and params.frozen:";
+         "        return v";
+         "    # A mutable struct or an object: its fields, as they are, every";
+         "    # class's slots from its own up.";
+         "    c = object.__new__(t)";
+         "    for k in t.__mro__:";
+         "        for f in k.__dict__.get('__slots__', ()):";
+         "            object.__setattr__(c, f, getattr(v, f))";
+         "    return c";
+       ]
+     else if name = deepcopy_helper then
+       [
+         Printf.sprintf "def %s(v, memo=None):" name;
+         "    # A deep copy: every store in v copied once, by identity, so what";
+         "    # v shares and its cycles its copy shares too. Functions are shared;";
+         "    # a pointer stops the copy, since the place it points at is not part";
+         "    # of the value.";
+         "    if isinstance(v, (int, float, str)) or v is None:";
+         "        return v";
+         "    if memo is None:";
+         "        memo = {}";
+         "    key = id(v)";
+         "    if key in memo:";
+         "        return memo[key]";
+         "    t = type(v)";
+         "    kind = t.__name__";
+         "    if t is list:";
+         Printf.sprintf "        return [%s(x, memo) for x in v]" name;
+         "    if t is tuple:";
+         Printf.sprintf "        return tuple(%s(x, memo) for x in v)" name;
+         Printf.sprintf "    if kind in ('%s', '%s'):" array_class dynarray_class;
+         "        c = memo[key] = t()";
+         Printf.sprintf "        c.extend(%s(x, memo) for x in v)" name;
+         "        return c";
+         Printf.sprintf "    if kind in ('%s', '%s'):" mutmap_class map_class;
+         "        c = memo[key] = t()";
+         "        for k, x in v.items():";
+         Printf.sprintf "            c[k] = %s(x, memo)" name;
+         "        return c";
+         Printf.sprintf "    if kind == '%s':" view_class;
+         "        c = memo[key] = t()";
+         Printf.sprintf "        c.owner, c.offset, c.length = %s(v.owner, memo), v.offset, v.length" name;
+         "        return c";
+         Printf.sprintf "    if kind == '%s':" ptr_class;
+         Printf.sprintf
+           "        %s('deepcopy met a pointer, which cannot be deep-copied: the place it points at is not part of the value')"
+           fail_helper;
+         "    if callable(v) or not hasattr(t, '__slots__'):";
+         "        return v";
+         "    # A datatype's value, a mutable struct or an object: each field,";
+         "    # every class's slots from its own up.";
+         "    c = memo[key] = object.__new__(t)";
+         "    for k in t.__mro__:";
+         "        for f in k.__dict__.get('__slots__', ()):";
+         Printf.sprintf "            object.__setattr__(c, f, %s(getattr(v, f), memo))" name;
+         "    return c";
        ]
      else if name = copy_into_helper then
        [
@@ -1533,6 +1617,20 @@ let lookup name scope =
   match SMap.find_opt name scope.local with
   | Some found -> found
   | None -> ( match SMap.find_opt name scope.outer with Some found -> found | None -> name)
+
+(* How this module's code reaches each class another module exports
+   (`Classes.reached`), set as a module's translation starts. *)
+let foreign_classes : (string * (string option * string)) list ref = ref []
+
+(** A class as this module's Python names it: its own by its binding,
+    another module's through the import that brings it, as `alias.Name`
+    or by the name a `from` line gave it. string -> scope -> string *)
+let class_text name scope =
+  match List.assoc_opt name !foreign_classes with
+  | Some (Some alias, n) -> lookup alias scope ^ "." ^ n
+  | Some (None, local) -> lookup local scope
+  | None -> lookup name scope
+
 
 (* Legal Pyking identifiers that are reserved words in Python (see
    docs/target_python.md, "Names that are keywords in Python"):
@@ -2827,7 +2925,7 @@ let rec translate_pattern p scope =
       let reached =
         match module_ with
         | Some alias -> lookup alias scope ^ "." ^ public_py_name name
-        | None -> lookup name scope
+        | None -> class_text name scope
       in
       (PyPClass (info, reached, fields), scope)
   | POr (info, alternatives, _) ->
@@ -2864,7 +2962,7 @@ let rec translate_pattern p scope =
       (PyPAs (info, py_inner, py_name), scope)
   | PTyped (info, name, t, _) ->
       (* `case c: Circle` is Python's `case Circle() as c`. *)
-      let cls = match t with TCon (_, n, _, _) -> lookup n scope | _ -> "object" in
+      let cls = match t with TCon (_, n, _, _) -> class_text n scope | _ -> "object" in
       let py_name, scope = bind name scope in
       (PyPAs (info, PyPClass (info, cls, []), py_name), scope)
 
@@ -3369,7 +3467,7 @@ let rec translate_expr e scope gen =
          value is calling it. *)
       let callee =
         match module_ with
-        | None -> PyVar (info, lookup name scope)
+        | None -> PyVar (info, class_text name scope)
         | Some alias -> fst (translate_expr (EQualified (info, alias, name, 0)) scope gen)
       in
       let py_args, gen = translate_each (arg_exprs args) scope gen in
@@ -3385,7 +3483,17 @@ let rec translate_expr e scope gen =
       (* The implementation the checker chose, called on self by its
          class: Python's own MRO plays no part. *)
       let py_args, gen = translate_each (arg_exprs args) scope gen in
-      ( PyCall (info, PyAttr (info, PyVar (info, lookup owner scope), member_name gen (Some owner) name), PyVar (info, lookup "self" scope) :: py_args),
+      if Classes.is_foreign owner && not (List.mem_assoc owner !foreign_classes) then
+        (* A class of a module this one does not import: Python's own
+           `super` finds the same body, its order being Pyking's. *)
+        let current = match gen.class_ctx with Some c -> class_text c scope | None -> "object" in
+        ( PyCall
+            ( info,
+              PyAttr (info, PyCall (info, PyVar (info, "super"), [ PyVar (info, current); PyVar (info, lookup "self" scope) ]), member_name gen (Some owner) name),
+              py_args ),
+          gen )
+      else
+      ( PyCall (info, PyAttr (info, PyVar (info, class_text owner scope), member_name gen (Some owner) name), PyVar (info, lookup "self" scope) :: py_args),
         gen )
   | EUpcast (_, inner, _, _) -> translate_expr inner scope gen
   | EAdd (info, l, r, _) -> binary (fun i a b -> PyAdd (i, a, b)) info l r
@@ -3591,6 +3699,11 @@ let rec translate_expr e scope gen =
          helper raises, so the call answers whatever type is wanted. *)
       let py_message, gen = translate_expr message scope gen in
       (PyCall (info, PyVar (info, fail_helper), [ py_message ]), add_conversion fail_helper gen)
+  | ECall (info, EVar (_, (("copy" | "deepcopy") as name), _), [ (_, argument) ], _) when not (is_bound name scope) ->
+      (* A copy, made by a helper walking the value (PYKING.md, "Copying"). *)
+      let helper = if name = "copy" then copy_helper else deepcopy_helper in
+      let py_argument, gen = translate_expr argument scope gen in
+      (PyCall (info, PyVar (info, helper), [ py_argument ]), add_conversion helper gen)
   | ECall (info, EVar (_, "same", _), [ (_, l); (_, r) ], _) when not (is_bound "same" scope) ->
       (* Two arrays, or two mutable structs, are the same when they are one
          Python object. *)
@@ -3767,7 +3880,11 @@ and member_name gen cls name =
               (Classes.supers gen.classes c)
       in
       match private_owner with
-      | Some owner -> "_" ^ owner ^ "__" ^ name
+      | Some owner ->
+          (* Python mangles a private name by its class's own name, which
+             is the part after the module for another module's class. *)
+          let owner = match String.rindex_opt owner '.' with Some k -> String.sub owner (k + 1) (String.length owner - k - 1) | None -> owner in
+          "_" ^ owner ^ "__" ^ name
       | None -> public_py_name name)
 
 (** Every expression of a list, left to right.
@@ -4586,8 +4703,8 @@ and translate_class info c scope gen =
   let interface = c.c_kind = ClassInterface in
   let abstract_ = c.c_kind = ClassAbstract || interface in
   let bases =
-    Option.to_list (Option.map (fun p -> lookup p scope) k.Classes.parent)
-    @ List.map (fun (n, _) -> lookup n scope) k.Classes.interfaces
+    Option.to_list (Option.map (fun p -> class_text p scope) k.Classes.parent)
+    @ List.map (fun (n, _) -> class_text n scope) k.Classes.interfaces
   in
   let bases = if abstract_ && bases = [] then [ "ABC" ] else bases in
   let quoted names = PyTuple (info, List.map (fun n -> PyString (info, n)) names) in
@@ -5060,7 +5177,12 @@ and translate_loop_case (MatchCase (info, pattern, guard, body, _)) py_target sc
     what decides how a print argument is formatted.
     [stmt] -> typ IntMap.t -> pyprogram *)
 let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
-    ?(target = Targets.default) stmts tmap =
+    ?(target = Targets.default) ?(sigmaps = []) stmts tmap =
+  let classes, tmap = Classes.program stmts tmap sigmaps in
+  foreign_classes :=
+    Classes.SMap.fold
+      (fun name _ out -> if Classes.is_foreign name then match Classes.reached stmts name with Some r -> (name, r) :: out | None -> out else out)
+      classes [];
   let used =
     StringSet.union (collect_identifiers stmts) (import_identifiers stmts)
   in
@@ -5122,7 +5244,7 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
             | SImport (_, module_, local, false, _, _) -> Some (local, module_)
             | _ -> None)
           stmts;
-      classes = Classes.table stmts;
+      classes;
       class_ctx = None;
       abstracts = false;
       overrides = false;
@@ -5178,5 +5300,13 @@ let translate_program ?(external_fields = []) ?(externals = []) ?(own = "")
     float_helper = gen.float_name;
     format_helper = Option.value gen.format_helper ~default:"__pyk_str";
     conversions = gen.conversions;
-    stmts = own_import @ pending @ translated;
+    stmts =
+      (* A class names another module's class it extends when its own
+         statement runs, so the imports go before the classes. *)
+      (let imports, rest =
+         if List.exists (function PyClassDef _ -> true | _ -> false) pending then
+           List.partition (function PyImport _ | PyFromImport _ -> true | _ -> false) translated
+         else ([], translated)
+       in
+       own_import @ imports @ pending @ rest);
   }

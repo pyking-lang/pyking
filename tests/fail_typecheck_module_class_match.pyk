@@ -1,0 +1,10 @@
+# Another module's interface is open: any module may implement it, so a
+# match on one needs a 'case _'.
+use objects
+import module_class_shapes_mod as sh
+
+def width(s: sh.Shape) -> Int:
+    match s:
+        case sh.Rect(w, _): w
+
+print(width(sh.Rect(2, 3)))

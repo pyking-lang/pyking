@@ -1,0 +1,2 @@
+# deepcopy takes one value.
+x = deepcopy(1, 2)

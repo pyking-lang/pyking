@@ -1,0 +1,3 @@
+'tests/fail_typecheck_module_class_abstract.pyk' 6:0-6:37 Type error:
+  class 'Laps' extends 'module_class_shapes_mod.Counter' but does not
+  define 'unit(self) -> String'

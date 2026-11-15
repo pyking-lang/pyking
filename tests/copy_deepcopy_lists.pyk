@@ -1,0 +1,87 @@
+# copy(x) and deepcopy(x) on values holding lists, Maps, Options and
+# functions, and on cycles (PYKING.md, "Copying").
+use mutation
+
+mutable struct Cell(value: Int)
+
+datatype Link:
+    End
+    Next(node: Node)
+
+mutable struct Node(value: Int, next: Link)
+
+# A list never changes, so it is its own shallow copy; a deep copy copies
+# what it holds.
+cells = [Cell(1), Cell(2)]
+same_list = copy(cells)
+fresh = deepcopy(cells)
+same_list[0].value := 10
+fresh[1].value := 20
+print(cells, same_list, fresh)
+print(deepcopy([1, 2, 3]), copy([[1], [2]]), deepcopy([]))
+
+# A list holding one struct twice holds one struct twice in its copy.
+c = Cell(0)
+twice = deepcopy([c, c, Cell(5)])
+twice[0].value := 7
+print(twice)
+
+# A Map never changes either; a deep copy copies the values it holds.
+m = map([("a", Cell(1)), ("b", Cell(2))])
+m2 = deepcopy(m)
+m2["a"].value := 100
+print(m, m2, copy(m))
+
+# An Option holding a struct.
+o = Some(Cell(3))
+o2 = deepcopy(o)
+match o2:
+    case Some(inner):
+        inner.value := 30
+    case None:
+        ()
+print(o, o2, deepcopy(None))
+
+# A function is shared: the copy calls the same one.
+counter = Cell(0)
+def bump() -> ():
+    counter.value += 1
+actions = array([bump, bump])
+copied = deepcopy(actions)
+copied[0]()
+copied[1]()
+print(counter, len(copied))
+
+# A cycle is copied as a cycle, and copying it ends.
+a = Node(1, End)
+b = Node(2, Next(a))
+a.next := Next(b)
+a2 = deepcopy(a)
+a2.value := 100
+print(a, a2)
+match a2.next:
+    case Next(second):
+        match second.next:
+            case Next(back): print(same(back, a2), same(back, a))
+            case End: print("end")
+    case End: print("end")
+
+# A long list copies without running out of stack.
+long = list_init(100000, lam i. i)
+print(len(deepcopy(long)), deepcopy(long)[99999])
+
+# A struct holding a list of structs.
+mutable struct Bag(items: [Cell])
+bag = Bag([Cell(1), Cell(2)])
+bag2 = copy(bag)
+bag3 = deepcopy(bag)
+bag2.items := [Cell(9)]
+bag3.items[0].value := 50
+print(bag, bag2, bag3)
+
+# A tuple of an array and a list.
+t = (array([Cell(1)]), [Cell(2)])
+(arr, lst) = deepcopy(t)
+arr[0].value := 10
+lst[0].value := 20
+print(t, (arr, lst))

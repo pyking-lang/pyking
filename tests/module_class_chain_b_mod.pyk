@@ -1,0 +1,14 @@
+# The second: classes built on the first module's, one of them public.
+use objects
+import module_class_chain_a_mod as a
+
+public class Dog(called: String) extends a.Pet(called):
+    override def sound(self) -> String:
+        "woof"
+
+public class Puppy(called: String) extends Dog(called):
+    override def sound(self) -> String:
+        "yip, " + super.sound()
+
+public def chorus(xs: [Dog]) -> String:
+    if len(xs) == 0 then "" else xs[0].speak() + " " + chorus(xs[1:])

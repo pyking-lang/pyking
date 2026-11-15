@@ -1,0 +1,2 @@
+# copy is a builtin: it is called, never held as a value.
+f = copy

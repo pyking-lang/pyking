@@ -1556,3 +1556,28 @@ A Pyking class (PYKING.md, "Classes and interfaces") is a Python class,
   `__match_args__`; `case c: Cat` is `case Cat() as c`.
 - `override` comes from `typing` (3.12+), `ABC` and `abstractmethod` from
   `abc`, imported only where used.
+
+### Classes across modules
+
+Another module's class (PYKING.md, "Classes across modules") is a class
+of that module: its constructor is called and its class patterns match
+through the import, `shapes.Rect(...)` or `Rect(...)` as the import
+names it (`class_text`), and a class extending it names it as a base.
+Since the base is evaluated when the class statement runs, the imports
+go before the classes in a file that has both. A `super` call whose
+body is in a module this one does not import goes through Python's own
+`super(Class, self)`, whose order is Pyking's. A private member is
+mangled by its class's own name, the part after the module.
+
+## Copying
+
+`copy(x)` and `deepcopy(x)` (PYKING.md, "Copying") are two helpers,
+`__pyk_copy` and `__pyk_deepcopy`, that walk the value by its Python
+class: `__PykArray` and `__PykDynArray` (lists), `__PykMutMap` and
+`__PykMap` (dicts), `__PykView`, and a dataclass or a Pyking class,
+whose fields are every class's `__slots__` from its own up -- an object
+is made with `object.__new__` of its own class, so it copies as the
+class it is. A frozen dataclass, a datatype's value, is its own shallow
+copy. The deep copy keeps a table by `id()`, so what the value shares
+and its cycles its copy shares too; a function is kept, and a
+`__PykPtr` stops the copy with the runtime error.

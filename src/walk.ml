@@ -103,7 +103,8 @@ let rec children n =
       | TData (_, Datatype (_, _, constructors, _), _) ->
           List.concat_map
             (fun (_, fields) -> List.map (fun (_, t) -> NType t) fields)
-            constructors)
+            constructors
+      | TClass _ -> [])
   | NPattern p -> (
       match p with
       | PInt _ | PString _ | PChar _ | PBool _ | PWildcard _ | PCapture _ | PText _ -> []

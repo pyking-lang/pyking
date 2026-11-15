@@ -1,0 +1,5 @@
+# Another module's interface is never made.
+use objects
+import module_class_shapes_mod as sh
+
+s = sh.Shape()

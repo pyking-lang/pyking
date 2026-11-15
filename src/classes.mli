@@ -48,8 +48,20 @@ type cls = {
 
 type table = cls SMap.t
 
-(** The classes and interfaces these statements declare. *)
-val table : stmt list -> table
+(** The classes and interfaces these statements declare; a supertype is
+    named as the checker recorded it in `tmap`, where it did. *)
+val table : ?tmap:typ IntMap.t -> stmt list -> table
+
+(** The classes and interfaces other modules export, by their signatures,
+    and the types of the symbols invented for their members. *)
+val imported : (string * (string * typ * bool) list) list -> table * typ IntMap.t
+
+(** A module's own classes with every one other modules export to it,
+    and its types with those of the invented symbols. *)
+val program : stmt list -> typ IntMap.t -> (string * (string * typ * bool) list) list -> table * typ IntMap.t
+
+(** Whether a class is another module's (`module.Name`). *)
+val is_foreign : string -> bool
 
 (** The class or interface of this name. *)
 val find : table -> string -> cls option
@@ -92,3 +104,8 @@ val interfaces : table -> string -> string list
 (** Every class and interface these statements declare, each after what
     it names and otherwise in the order written. *)
 val ordered : table -> stmt list -> string list
+
+(** How this module's code reaches another module's class: (Some alias,
+    Name) through a plain import, (None, local) through a `from` line, or
+    None where nothing here imports it. *)
+val reached : stmt list -> string -> (string option * string) option

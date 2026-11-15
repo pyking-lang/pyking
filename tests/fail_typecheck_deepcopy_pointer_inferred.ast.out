@@ -1,0 +1,4 @@
+'tests/fail_typecheck_deepcopy_pointer_inferred.pyk' 6:13-6:14 Type
+  error: 'deepcopy' cannot be applied to Ptr(Int); a pointer cannot be
+  deep-copied, since the place it points at is not part of the value;
+  copy(x) copies only the outermost value, sharing what it holds

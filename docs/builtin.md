@@ -11,7 +11,7 @@ boundary".
 ## Four readers, one table
 
 `print`, `printsl`, `eprint`, `eprintsl`, `debug`, `range`, `string`,
-`len`, `same`, `int`, `float`, `bool`, `char` and `panic` are in scope in every program and are bound by
+`len`, `same`, `copy`, `deepcopy`, `int`, `float`, `bool`, `char` and `panic` are in scope in every program and are bound by
 nothing, and so are the builtin **overload sets**
 (`Builtin.overload_sets`) `array`, `array_init`, `dynarray`, `mutmap`
 and `map`: their members (`list::array`, `fill::array`, `empty::map`,
@@ -317,6 +317,25 @@ shared by every module of a compiled program — and the playground reads
 that formatter back out of the compiler through `pykFormatHelper`
 rather than keeping a copy, because a hand-copied one drifted the moment
 booleans stopped printing capitalised (`tools/playground/README.md`).
+
+## `copy` and `deepcopy`
+
+`copy(x)` and `deepcopy(x)` (PYKING.md, "Copying") are checked by one
+rule in `check_builtin_call`: `(T) -> T`, refused where `T` holds a type
+variable, and `deepcopy` where it holds a pointer (`copy_obstacle`
+says what stops the copy and where). Each call is also recorded in
+`pending_copies` and checked again once the module is done
+(`settle_copies`), since a type may be decided after the call; until
+then a definition does not generalise over a copied type, as for `+`.
+`copy` is one of the `yielding` names, since the collection libraries
+define a `copy` of their own.
+
+Each target makes the copy its own way: the interpreter, Python,
+JavaScript and Java walk the value at run time with a table of what
+they have copied, keyed by identity; OCaml makes `copy` for the type at
+the call and walks the value's blocks for `deepcopy`; C writes a copy
+function for each type (`copier` in `target_c.ml`), and a class's
+descriptor holds one for its objects. Each target's page says more.
 
 ## Adding a builtin
 

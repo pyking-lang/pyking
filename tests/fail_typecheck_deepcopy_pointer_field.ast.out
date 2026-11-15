@@ -1,0 +1,5 @@
+'tests/fail_typecheck_deepcopy_pointer_field.pyk' 8:18-8:23 Type
+  error: 'deepcopy' cannot be applied to Array(Node); a pointer cannot
+  be deep-copied, since the place it points at is not part of the
+  value, and the field 'at' of Node is a Ptr(Int); copy(x) copies only
+  the outermost value, sharing what it holds

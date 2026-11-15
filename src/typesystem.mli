@@ -86,6 +86,8 @@ type resolution =
   | Super_owner of string * (string * expr option) list
       (** `super.m(args)`: the class whose body runs, and the parameters *)
   | Object_eq of bool  (** `==` (true) or `!=` on objects: a call of `eq` *)
+  | Class_named of string
+      (** a class's constructor call or pattern: the class's canonical name *)
 
 and argument =
   | Direct of string * typ  (** a name in scope, used at this type *)
@@ -107,32 +109,6 @@ type frame = { returns : given list }
     nothing to return from. *)
 type expected = No_function | Inferring | Declared of typ
 
-(** What the checker knows of one class or interface (PYKING.md, "Classes
-    and interfaces"): every type in it written in terms of the class's own
-    parameters, which are rigid. *)
-type class_info = {
-  cl_name : string;
-  cl_kind : class_kind;
-  cl_params : string list;
-  cl_parent : (string * typ list) option; (* the parent class, at its arguments *)
-  cl_interfaces : (string * typ list) list; (* the interfaces named in the header *)
-  cl_header : (string * typ) list; (* what the constructor takes *)
-  cl_fields : field_info list; (* the fields it declares itself *)
-  cl_methods : method_info list; (* the methods it declares itself *)
-  cl_info : info;
-}
-
-and field_info = { fd_name : string; fd_type : typ; fd_var : bool; fd_private : bool; fd_info : info }
-
-and method_info = {
-  md_name : string;
-  md_params : (string * typ * expr option) list; (* each with its default, where it has one *)
-  md_return : typ;
-  md_abstract : bool; (* no body: an abstract method, or an interface's signature *)
-  md_private : bool;
-  md_override : bool;
-  md_info : info;
-}
 
 (** Everything inference has worked out, threaded through the pass as a
     value: where each definition was written and what it was worked out
@@ -165,6 +141,7 @@ type store = {
   constructors : string SMap.t;
   field_defaults : (typ * string) SMap.t;
   pending_plus : (typ * info) list;
+  pending_copies : (string * typ * info) list;
   open_kinds : string list;
   kind_origins : (info * string) SMap.t;
   mutation : bool;

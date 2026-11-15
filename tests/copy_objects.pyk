@@ -1,0 +1,99 @@
+# copy(x) and deepcopy(x) on objects (PYKING.md, "Copying"): an object
+# copies as the class it is, wherever it is seen as a supertype, with
+# every field -- private, inherited and var ones included.
+use objects, mutation
+
+mutable struct Point(x: Int, y: Int)
+
+interface Shape:
+    def area(self) -> Int
+    def name(self) -> String
+
+abstract class Base(label: String) implements Shape:
+    private var moves: Int = 0
+    def moved(self) -> Int:
+        self.moves
+    def note_move(self) -> ():
+        self.moves := self.moves + 1
+    override def name(self) -> String:
+        self.label
+
+class Rect(w: Int, h: Int, corner: Point) extends Base("rect"):
+    override def area(self) -> Int:
+        self.w * self.h
+    def move(self, dx: Int) -> ():
+        self.corner.x := self.corner.x + dx
+        self.note_move()
+
+class Square(side: Int, at: Point) extends Rect(side, side, at):
+    override def name(self) -> String:
+        "square"
+
+# A shallow copy shares the corner; a deep copy has its own.
+r = Rect(2, 3, Point(0, 0))
+r.move(1)
+r2 = copy(r)
+r3 = deepcopy(r)
+r2.move(10)
+r3.move(100)
+print(r.corner, r2.corner, r3.corner)
+print(r.moved(), r2.moved(), r3.moved())
+print(same(r, r2), same(r, r3), same(r.corner, r2.corner), same(r.corner, r3.corner))
+
+# Seen as an interface, an object still copies as its own class.
+shapes: [Shape] = [Rect(1, 2, Point(1, 1)), Square(3, Point(2, 2))]
+copies = deepcopy(shapes)
+for s in copies:
+    print(s.name(), s.area())
+match copies[1]:
+    case sq: Square:
+        sq.move(5)
+        print(sq.corner, sq.moved())
+    case _:
+        print("not a square")
+match shapes[1]:
+    case sq: Square:
+        print(sq.corner, sq.moved())
+    case _:
+        print("not a square")
+
+one: Shape = Square(4, Point(0, 0))
+two = copy(one)
+print(two.name(), two.area(), same(one, two))
+
+# Objects that refer to each other: the copy keeps the cycle.
+class Person(name: String):
+    var friend: Option(Person) = None
+    def friend_name(self) -> String:
+        match self.friend:
+            case Some(p): p.name
+            case None: "nobody"
+
+ada = Person("ada")
+bob = Person("bob")
+ada.friend := Some(bob)
+bob.friend := Some(ada)
+people = deepcopy(array([ada, bob]))
+match people[0].friend:
+    case Some(f):
+        print(f.name, same(f, people[1]), same(f, bob))
+    case None:
+        print("none")
+print(people[0].friend_name(), people[1].friend_name())
+
+# An object holding an array and a DynArray.
+class Inbox(owner: String):
+    var messages: DynArray(String) = dynarray([])
+    flags: Array(Bool) = array([false, false])
+    def receive(self, m: String) -> ():
+        push(self.messages, m)
+
+box = Inbox("ada")
+box.receive("hi")
+box2 = deepcopy(box)
+box3 = copy(box)
+box2.receive("only in the deep copy")
+box3.receive("in both")
+box2.flags[0] := true
+print(len(box.messages), len(box2.messages), len(box3.messages))
+print(box.flags, box2.flags, box3.flags)

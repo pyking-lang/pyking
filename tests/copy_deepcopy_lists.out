@@ -1,0 +1,11 @@
+[Cell(10), Cell(2)] [Cell(10), Cell(2)] [Cell(1), Cell(20)]
+[1, 2, 3] [[1], [2]] []
+[Cell(7), Cell(7), Cell(5)]
+map([("a", Cell(1)), ("b", Cell(2))]) map([("a", Cell(100)), ("b", Cell(2))]) map([("a", Cell(1)), ("b", Cell(2))])
+Some(Cell(3)) Some(Cell(30)) None
+Cell(2) 2
+Node(1, Next(Node(2, Next(...)))) Node(100, Next(Node(2, Next(...))))
+true false
+100000 99999
+Bag([Cell(1), Cell(2)]) Bag([Cell(9)]) Bag([Cell(50), Cell(2)])
+(array([Cell(1)]), [Cell(2)]) (array([Cell(10)]), [Cell(20)])

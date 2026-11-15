@@ -891,9 +891,21 @@ CHROMIUM_DRAWS = {
 }
 def marked(page):
     """A page whose module script says when its program's top level has
-    ended, which the driver waits for. Path -> ()"""
+    ended, which the driver waits for. Path -> ()
+
+    The end of the module script is not that end: a web page's script
+    starts an async function that imports the program, and an iweb page's
+    one that fetches the sources and then interprets them, and either
+    script ends long before its program does. So the mark goes where the
+    program has run -- after the `flush()` both pages end it with
+    (src/target_js_packaging.ml), in the `finally` of a web page, so a
+    program that stops by an error is done too."""
     text = page.read_text()
-    page.write_text(text.replace("</script>", "globalThis.__pykDone = true;\n</script>", 1))
+    ran = re.search(r"^[ \t]*(?:pykExt_io\.)?flush\(\);[ \t]*$", text, re.MULTILINE)
+    if ran is None:
+        page.write_text(text.replace("</script>", "globalThis.__pykDone = true;\n</script>", 1))
+    else:
+        page.write_text(text[:ran.end()] + "\nglobalThis.__pykDone = true;" + text[ran.end():])
 
 
 class Quiet(http.server.SimpleHTTPRequestHandler):

@@ -1,0 +1,30 @@
+# copy and deepcopy of generic mutable structs and datatypes at the type
+# each is used at, on every target, plain C included.
+use mutation
+
+mutable struct Cell(value: a)
+
+datatype Either(a, b):
+    Left(l: a)
+    Right(r: b)
+
+c = Cell(array([1, 2]))
+c2 = copy(c)
+c3 = deepcopy(c)
+c2.value[0] := 10
+c3.value[1] := 20
+print(c, c2, c3)
+
+cells = array([Left(Cell(1)), Right(Cell("x"))])
+cells2 = deepcopy(cells)
+match cells2[0]:
+    case Left(cell):
+        cell.value := 5
+    case Right(_):
+        ()
+print(cells, cells2)
+
+nested = Cell(Cell(Cell(0)))
+nested2 = deepcopy(nested)
+nested2.value.value.value := 3
+print(nested, nested2)

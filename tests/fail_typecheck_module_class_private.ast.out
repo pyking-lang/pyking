@@ -1,0 +1,2 @@
+'tests/fail_typecheck_module_class_private.pyk' 6:6-6:13 Type error:
+  'moves' is private to 'Rect'

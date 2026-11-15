@@ -1,0 +1,4 @@
+'tests/fail_typecheck_module_class_private_name.pyk' 7:8-7:22 Type
+  error: 'moves' is a private field of 'module_class_shapes_mod.Rect',
+  which 'Square' extends; a class below it never declares a member of
+  that name, so give this field another

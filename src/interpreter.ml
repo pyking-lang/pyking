@@ -493,6 +493,9 @@ let display_value value =
                     (fun h -> Option.map snd (Array.find_opt (fun (label, _) -> label = Some h) fields))
                     k.k_header
                 in
+                (* A class of another module is named `module.Name` in the
+                   program's table, and prints by its own name. *)
+                let name = match String.rindex_opt name '.' with Some k -> String.sub name (k + 1) (String.length name - k - 1) | None -> name in
                 if values = [] then (
                   Buffer.add_string out name;
                   go rest)
@@ -1435,6 +1438,107 @@ let range_list start stop step info =
   in
   VList (go start [])
 
+(* --- copying (PYKING.md, "Copying") --- *)
+
+(** `copy(v)`: a new outermost store holding what v's holds. A datatype's
+    value is copied too, which no one can tell from v itself unless it
+    is a mutable struct or an object. value -> value *)
+let shallow_copy v =
+  match v with
+  | VArray a -> VArray (Array.copy a)
+  | VDynArray d -> VDynArray { items = Array.copy d.items; size = d.size }
+  | VMutMap m -> VMutMap { m with entries = Array.copy m.entries; index = Hashtbl.copy m.index; version = 0 }
+  | VView w -> VView { w with owner = Array.copy w.owner }
+  | VData (name, fields) -> VData (name, Array.copy fields)
+  | v -> v
+
+(** `deepcopy(v)`: a value equal to v that shares nothing writable with
+    it. Each store met -- an array, a DynArray, a MutMap or a Map, a
+    datatype's fields -- is copied once: met again, its copy is used, so
+    what v shares, and its cycles, its copy shares too. Functions are
+    shared; a pointer stops the copy, since the place it points at is
+    not part of the value (the checker refuses what it can see of this).
+    The table of copies is keyed by identity, bucketed by a hash of what
+    each store held, which the copy never changes. info -> value -> value *)
+let deep_copy info v =
+  let copies : (int, (Obj.t * value) list) Hashtbl.t = Hashtbl.create 64 in
+  let known key =
+    match Hashtbl.find_opt copies (Hashtbl.hash key) with
+    | Some bucket -> List.assq_opt key bucket
+    | None -> None
+  in
+  let remember key copy =
+    let h = Hashtbl.hash key in
+    let bucket = Option.value ~default:[] (Hashtbl.find_opt copies h) in
+    Hashtbl.replace copies h ((key, copy) :: bucket)
+  in
+  let rec go v =
+    match v with
+    | VList items -> VList (List.map go items)
+    | VTuple items -> VTuple (List.map go items)
+    | VArray a -> VArray (array a)
+    | VData (name, fields) -> (
+        let key = Obj.repr fields in
+        match known key with
+        | Some copy -> copy
+        | None ->
+            let made = Array.copy fields in
+            let copy = VData (name, made) in
+            remember key copy;
+            Array.iteri (fun i (n, x) -> made.(i) <- (n, go x)) fields;
+            copy)
+    | VDynArray d -> (
+        let key = Obj.repr d in
+        match known key with
+        | Some copy -> copy
+        | None ->
+            let made = { items = Array.copy d.items; size = d.size } in
+            let copy = VDynArray made in
+            remember key copy;
+            for i = 0 to d.size - 1 do
+              made.items.(i) <- go d.items.(i)
+            done;
+            copy)
+    | VMutMap m -> (
+        let key = Obj.repr m in
+        match known key with
+        | Some copy -> copy
+        | None ->
+            let made = table m in
+            let copy = VMutMap made in
+            remember key copy;
+            fill m made;
+            copy)
+    | VMap m -> (
+        let key = Obj.repr m in
+        match known key with
+        | Some copy -> copy
+        | None ->
+            let made = table m in
+            let copy = VMap made in
+            remember key copy;
+            fill m made;
+            copy)
+    | VView w -> VView { w with owner = array w.owner }
+    | VPtr _ -> raise (Trap (info, "deepcopy met a pointer, which cannot be deep-copied: the place it points at is not part of the value"))
+    | v -> v
+  and array a =
+    let key = Obj.repr a in
+    match known key with
+    | Some (VArray copy) -> copy
+    | _ ->
+        let made = Array.copy a in
+        remember key (VArray made);
+        Array.iteri (fun i x -> made.(i) <- go x) a;
+        made
+  and table m = { m with entries = Array.copy m.entries; index = Hashtbl.copy m.index; version = 0 }
+  and fill m made =
+    Array.iteri
+      (fun i entry -> match entry with Some (k, x) -> made.entries.(i) <- Some (k, go x) | None -> ())
+      m.entries
+  in
+  go v
+
 (** Applies one of Builtin.names. print crosses the host boundary
     through host; the rest are pure.
     string -> [value] -> info -> host -> value *)
@@ -1478,6 +1582,8 @@ let apply_builtin name args info host =
       (* An object of this class, every field still to be set up. *)
       let k = Hashtbl.find classes name in
       VData (name, Array.of_list (List.map (fun f -> (Some f, VUnit)) k.k_fields))
+  | "copy", [ v ] -> shallow_copy v
+  | "deepcopy", [ v ] -> deep_copy info v
   | "same", [ VArray a; VArray b ] -> VBool (a == b)
   | "same", [ VData (_, a); VData (_, b) ] -> VBool (a == b)
   | "same", [ VDynArray a; VDynArray b ] -> VBool (a == b)
@@ -3199,6 +3305,81 @@ type runner = {
   exports : (string * (string * value) list) list;
 }
 
+(** A module's statements with its classes named as the whole program
+    names them, `module.Name` (PYKING.md, "Classes across modules"): the
+    classes it declares, wherever its own code names one -- a constructor
+    call, a pattern, `super`, a supertype -- and the supertypes it takes
+    from another module, by that module's name rather than the import's.
+    The classes of a program share one table, so two modules may each
+    declare a class of one name; another module's code already names
+    them so, since the checker wrote each constructor call and pattern by
+    the class's canonical name (elaborate.ml).
+    string -> [stmt] -> [stmt] *)
+let qualify_classes module_name stmts =
+  let own = List.filter_map (function SClass (_, c, _) -> Some c.c_name | _ -> None) stmts in
+  if own = [] && not (List.exists (function SClass _ -> true | _ -> false) stmts) then stmts
+  else
+    let here n = if List.mem n own then module_name ^ "." ^ n else n in
+    let imported =
+      List.concat_map
+        (function
+          | SImport (_, m, alias, selected, fields, _) ->
+              if selected then List.map (fun (exported, local) -> (local, m ^ "." ^ exported)) fields else [ (alias ^ ".", m ^ ".") ]
+          | _ -> [])
+        stmts
+    in
+    let supertype (ClassRef (i, module_, n, targs, args, s)) =
+      let named =
+        match module_ with
+        | Some a -> ( match List.assoc_opt (a ^ ".") imported with Some m -> m ^ n | None -> a ^ "." ^ n)
+        | None -> if List.mem n own then here n else ( match List.assoc_opt n imported with Some c -> c | None -> n)
+      in
+      ClassRef (i, None, named, targs, args, s)
+    in
+    let rec pattern p =
+      match p with
+      | PConstructor (i, None, n, fields, named, s) when List.mem n own ->
+          PConstructor (i, None, here n, List.map pattern fields, List.map (fun (k, q) -> (k, pattern q)) named, s)
+      | PConstructor (i, m, n, fields, named, s) -> PConstructor (i, m, n, List.map pattern fields, List.map (fun (k, q) -> (k, pattern q)) named, s)
+      | PTyped (i, b, TCon (ti, n, ts, tsym), s) when List.mem n own -> PTyped (i, b, TCon (ti, here n, ts, tsym), s)
+      | PTuple (i, ps, s) -> PTuple (i, List.map pattern ps, s)
+      | PList (i, before, rest, after, s) -> PList (i, List.map pattern before, rest, List.map pattern after, s)
+      | POr (i, ps, s) -> POr (i, List.map pattern ps, s)
+      | PAs (i, q, n, s) -> PAs (i, pattern q, n, s)
+      | p -> p
+    in
+    let rec block ss = List.map statement ss
+    and statement st =
+      match st with
+      | SMatch (i, subject, cases, s) ->
+          SMatch (i, subject, List.map (fun (MatchCase (ci, p, g, b, cs)) -> MatchCase (ci, pattern p, g, block b, cs)) cases, s)
+      | SIf (i, c, a, b, s) -> SIf (i, c, block a, Option.map block b, s)
+      | SLoop (i, t, init, a, it, body, s) -> SLoop (i, t, init, a, it, block body, s)
+      | SFunctionDef (i, n, ps, body, r, s, p, imps, im) -> SFunctionDef (i, n, ps, block body, r, s, p, imps, im)
+      | SReturnStmt (i, inner, s) -> SReturnStmt (i, statement inner, s)
+      | SLetStmt (i, t, inner, a, s, p) -> SLetStmt (i, t, statement inner, a, s, p)
+      | SClass (i, c, s) ->
+          SClass
+            ( i,
+              {
+                c with
+                c_name = here c.c_name;
+                c_extends = Option.map supertype c.c_extends;
+                c_implements = List.map supertype c.c_implements;
+                c_methods =
+                  List.map (fun (MethodDecl (mi, n, ps, r, b, o, p, ms)) -> MethodDecl (mi, n, ps, r, Option.map block b, o, p, ms)) c.c_methods;
+              },
+              s )
+      | st -> st
+    in
+    let expression e =
+      match e with
+      | EConstruct (i, None, n, a, s) when List.mem n own -> EConstruct (i, None, here n, a, s)
+      | ESuper (i, c, n, a, s) when List.mem c own -> ESuper (i, here c, n, a, s)
+      | e -> e
+    in
+    block (Walk.map_stmts expression stmts)
+
 (** A runner about to run units into machine, against the modules
     `exports` already holds. One call-free table serves the whole
     program, since a closure one module exports is called from the
@@ -3206,6 +3387,7 @@ type runner = {
     state -> [(string, [stmt], [stmt])] -> [(string, [(string, value)])]
     -> runner *)
 let begin_loading machine units exports =
+  let units = List.map (fun (name, stmts, declarations) -> (name, qualify_classes name stmts, declarations)) units in
   (* Symbols are unique across a program (Analyses.symbolize), so the
      union is exactly right. *)
   let simple =

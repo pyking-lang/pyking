@@ -1,0 +1,21 @@
+# Another module's generic class, made at two types, and its generic
+# interface implemented here (PYKING.md, "Classes across modules").
+use objects, mutation
+import module_class_generic_mod as g
+
+class Countdown(var from_: Int) implements g.Source(Int):
+    override def next(self) -> Int:
+        self.from_ := self.from_ - 1
+        self.from_
+
+words: g.Stack(String) = g.Stack()
+words.push("a")
+words.push("b")
+numbers: g.Stack(Int) = g.Stack()
+numbers.push(1)
+print(words.pop(), words.size(), numbers.size())
+copied = deepcopy(numbers)
+copied.push(2)
+print(numbers.size(), copied.size())
+s: g.Source(Int) = Countdown(3)
+print(s.next(), s.next())

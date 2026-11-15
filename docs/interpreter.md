@@ -249,6 +249,18 @@ and `bind_imports(state, stmts, exports)` binds an entry's imported names
 into the machine's environment, the way `module_env` does for a module's
 top level.
 
+### Classes of several modules
+
+Every class of a program is in one table, so each module's classes are
+named as the whole program names them, `module.Name`, as its statements
+are loaded (`qualify_classes`): the classes it declares, wherever its own
+code names one, and the supertypes it takes from another module, by
+that module's name rather than the import's. Another module's code
+names them so already, since elaborate.ml wrote each constructor call
+and class pattern by the class's canonical name. Two modules may then
+each declare a class of one name. An object prints by its class's own
+name, the part after the module.
+
 ## `declare`/`define`: the one mutation, and why it exists
 
 Every other binding in this module is built by `extend`, immutably. `def`

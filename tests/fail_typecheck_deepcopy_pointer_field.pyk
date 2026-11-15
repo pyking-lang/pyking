@@ -1,0 +1,8 @@
+# A pointer anywhere in the type is refused, named by where it is.
+use mutation, pointers
+
+mutable struct Node(value: Int, at: Ptr(Int))
+
+var x = 1
+nodes = array([Node(1, &x)])
+copied = deepcopy(nodes)

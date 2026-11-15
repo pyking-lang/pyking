@@ -128,6 +128,10 @@ type context = {
   external_fields : (string * string list) list;
   externals : string list;
   own_declared : (string * typ) list;
+  copies : bool;
+      (* whether any module of the program calls `copy` or `deepcopy`: a
+         backend then writes what copying an object of each class needs
+         (PYKING.md, "Copying") *)
 }
 
 (** Whether a module has `use mutation`, which the checker needs to know
@@ -290,7 +294,8 @@ val external_signatures : stmt list -> (string * typ) list
 
 (** The signatures one module needs: the entry for each module it
     imports, and nothing else. t -> [(string, 'a)] -> [(string, 'a)] *)
-val sigmaps_for : t -> (string * 'a) list -> (string * 'a) list
+val sigmaps_for :
+  t -> (string * (string * Syntax.typ * bool) list) list -> (string * (string * Syntax.typ * bool) list) list
 
 
 (* --- what a backend is told --- *)

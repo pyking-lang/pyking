@@ -128,6 +128,7 @@ val translate_program :
   ?external_fields:(string * string list) list ->
   ?externals:string list ->
   ?own:string ->
+  ?sigmaps:(string * (string * Syntax.typ * bool) list) list ->
   Syntax.stmt list ->
   Syntax.typ Syntax.IntMap.t ->
   jsstmt list * (string * string) list

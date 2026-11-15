@@ -1,0 +1,46 @@
+# A library of public classes and interfaces (PYKING.md, "Classes across
+# modules"), used, implemented and extended by module_class_*.pyk.
+use objects, mutation
+
+public def unit_size() -> Int:
+    1
+
+public interface Shape:
+    def area(self) -> Int
+    def name(self) -> String
+    def describe(self) -> String:
+        self.name() + " of area " + string(self.area())
+
+public class Rect(width: Int, height: Int = unit_size()) implements Shape:
+    private var moves: Int = 0
+    var label: String = "plain"
+    override def area(self) -> Int:
+        self.width * self.height
+    override def name(self) -> String:
+        "rectangle"
+    def grow(self, by: Int = unit_size() * 2) -> ():
+        self.moves := self.moves + by
+    def moved(self) -> Int:
+        self.moves
+    def eq(self, other: Rect) -> Bool:
+        self.area() == other.area()
+
+public abstract class Counter(start: Int):
+    private var count: Int = 0
+    def tick(self, step: Int = 1) -> Int:
+        self.count := self.count + step
+        self.start + self.count
+    abstract def unit(self) -> String
+    def report(self) -> String:
+        string(self.start + self.count) + " " + self.unit()
+    def show(self) -> String:
+        "Counter(" + self.report() + ")"
+
+public def make_rect(w: Int) -> Rect:
+    Rect(w, w + 1)
+
+public def total(a: Shape, b: Shape) -> Int:
+    a.area() + b.area()
+
+public def twin(s: Shape) -> Shape:
+    deepcopy(s)

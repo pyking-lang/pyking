@@ -38,6 +38,7 @@ val translate_program :
   ?externals:string list ->
   ?own:string ->
   ?target:string ->
+  ?sigmaps:(string * (string * Syntax.typ * bool) list) list ->
   Syntax.stmt list ->
   Syntax.typ Syntax.IntMap.t ->
   pyprogram

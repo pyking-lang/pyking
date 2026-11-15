@@ -176,16 +176,26 @@ let ordered table stmts =
           let done_ = List.fold_left visit done_ (Option.to_list c.parent @ List.map fst c.interfaces) in
           if List.mem n done_ then done_ else done_ @ [ n ]
   in
-  List.fold_left visit [] (List.filter_map (function SClass (_, c, _) -> Some c.c_name | _ -> None) stmts)
+  let own = List.filter_map (function SClass (_, c, _) -> Some c.c_name | _ -> None) stmts in
+  (* Another module's class it builds on is that module's to declare. *)
+  List.filter (fun n -> List.mem n own) (List.fold_left visit [] own)
 
 (** The classes and interfaces these statements declare, added to
     `known` -- what imported modules declared. table -> [stmt] -> table *)
-let add known stmts =
+let add ?(tmap = IntMap.empty) known stmts =
   let decls = List.filter_map (function SClass (i, c, _) -> Some (i, c) | _ -> None) stmts in
+  (* A supertype by the name the checker gave it -- `shapes.Rect` for one
+     another module declares, whatever the import calls that module --
+     where it recorded one, and otherwise as written. *)
+  let named (ClassRef (_, module_, n, _, _, s)) =
+    match IntMap.find_opt s tmap with
+    | Some (TCon (_, canonical, _, _)) -> canonical
+    | _ -> ( match module_ with Some m -> m ^ "." ^ n | None -> n)
+  in
   let rec add_one table (i, c) =
     if SMap.mem c.c_name table then table
     else
-      let parent = Option.map (fun (ClassRef (_, _, n, _, _, _)) -> n) c.c_extends in
+      let parent = Option.map named c.c_extends in
       let table =
         match parent with
         | Some p -> (
@@ -231,7 +241,7 @@ let add known stmts =
           parent;
           parent_args = (match c.c_extends with Some (ClassRef (_, _, _, _, args, _)) -> args | None -> []);
           parent_sym = (match c.c_extends with Some (ClassRef (_, _, _, _, _, s)) -> s | None -> 0);
-          interfaces = List.map (fun (ClassRef (_, _, n, _, _, s)) -> (n, s)) c.c_implements;
+          interfaces = List.map (fun (ClassRef (_, _, _, _, _, s) as r) -> (named r, s)) c.c_implements;
           header;
           own_header;
           fields;
@@ -244,4 +254,111 @@ let add known stmts =
   List.fold_left add_one known decls
 
 (** The classes and interfaces these statements declare. [stmt] -> table *)
-let table stmts = add SMap.empty stmts
+let table ?tmap stmts = add ?tmap SMap.empty stmts
+
+(** The classes and interfaces other modules export, as their signatures
+    say them (PYKING.md, "Classes across modules"): each by its canonical
+    name, `module.Name`, every type in it as this module names it. A
+    signature has no symbols for their members, so each is given one of
+    its own, past every symbol a program has, with its type in the map
+    answered beside the table -- what a backend adds to its own types to
+    ask of one as of a class of its module. A method with a body is told
+    by `m_body` being `Some []`: its statements are its own module's.
+    [(string, [(string, typ, bool)])] -> (table, typ IntMap.t) *)
+let imported sigmaps =
+  let next = ref 1_000_000_000 and types = ref IntMap.empty in
+  let sym t =
+    incr next;
+    types := IntMap.add !next t !types;
+    !next
+  in
+  let infos =
+    List.fold_left
+      (fun out (_, sigmap) ->
+        List.fold_left
+          (fun out (_, t, _) ->
+            match t with
+            | TClass (_, c, _) when not (List.exists (fun d -> d.cl_name = c.cl_name) out) -> out @ [ c ]
+            | _ -> out)
+          out sigmap)
+      [] sigmaps
+  in
+  let convert c =
+    let header = List.map (fun (n, t) -> (n, sym t)) c.cl_header in
+    let own = List.map (fun f -> f.fd_name) c.cl_fields in
+    {
+      name = c.cl_name;
+      kind = c.cl_kind;
+      params = c.cl_params;
+      parent = Option.map fst c.cl_parent;
+      parent_args = [];
+      parent_sym = (match c.cl_parent with Some (p, args) -> sym (TCon (c.cl_info, p, args, 0)) | None -> 0);
+      interfaces = List.map (fun (n, args) -> (n, sym (TCon (c.cl_info, n, args, 0)))) c.cl_interfaces;
+      header;
+      own_header = List.filter (fun n -> List.mem n own) (List.map fst header);
+      fields =
+        List.map
+          (fun f -> { f_name = f.fd_name; f_sym = sym f.fd_type; f_var = f.fd_var; f_private = f.fd_private; f_owner = c.cl_name; f_init = None })
+          c.cl_fields;
+      methods =
+        List.map
+          (fun m ->
+            {
+              m_name = m.md_name;
+              m_sym = sym (TFunction (m.md_info, List.map (fun (_, t, _) -> t) m.md_params, m.md_return, 0, 0, None, []));
+              m_params = List.map (fun (n, t, d) -> Param (m.md_info, n, Some t, d, sym t)) m.md_params;
+              m_body = (if m.md_abstract then None else Some []);
+              m_private = m.md_private;
+              m_override = m.md_override;
+              m_owner = c.cl_name;
+              m_info = m.md_info;
+            })
+          c.cl_methods;
+      decl =
+        {
+          c_name = c.cl_name;
+          c_kind = c.cl_kind;
+          c_params = c.cl_params;
+          c_header = [];
+          c_extends = None;
+          c_implements = [];
+          c_fields = [];
+          c_methods = [];
+          c_public = true;
+        };
+      info = c.cl_info;
+    }
+  in
+  let table = List.fold_left (fun table c -> SMap.add c.cl_name (convert c) table) SMap.empty infos in
+  (table, !types)
+
+(** A module's own classes and every class other modules export to it,
+    and the types of the symbols the second invented (`imported`): what
+    a backend compiling one module of a program knows of classes.
+    [stmt] -> typ IntMap.t -> [(string, [(string, typ, bool)])] -> (table, typ IntMap.t) *)
+let program stmts tmap sigmaps =
+  let known, types = imported sigmaps in
+  (add ~tmap known stmts, IntMap.union (fun _ own _ -> Some own) tmap types)
+
+(** Whether a class or interface is another module's: its name is
+    `module.Name`. string -> bool *)
+let is_foreign name = String.contains name '.'
+
+
+(** How this module's code reaches another module's class: through a
+    plain import, as `alias.Name` -- (Some alias, Name) -- or by the name a
+    `from` line gave it -- (None, local). None where nothing here imports
+    it: a class one of its imports' classes stands on.
+    [stmt] -> string -> (string option * string) option *)
+let reached stmts canonical =
+  match String.rindex_opt canonical '.' with
+  | None -> None
+  | Some k ->
+      let m = String.sub canonical 0 k and n = String.sub canonical (k + 1) (String.length canonical - k - 1) in
+      List.find_map
+        (function
+          | SImport (_, m', alias, false, _, _) when m' = m -> Some (Some alias, n)
+          | SImport (_, m', _, true, fields, _) when m' = m ->
+              List.find_map (fun (exported, local) -> if exported = n then Some (None, local) else None) fields
+          | _ -> None)
+        stmts

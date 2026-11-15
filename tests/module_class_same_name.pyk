@@ -1,0 +1,11 @@
+# Two modules may each declare a class of one name: each module's code
+# makes and calls its own.
+use objects
+import module_class_same_name_mod as lib
+
+class Thing(n: Int):
+    def who(self) -> String:
+        "the program's Thing " + string(self.n)
+
+print(Thing(2).who())
+print(lib.made())

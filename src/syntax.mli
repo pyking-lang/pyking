@@ -180,6 +180,9 @@ and typ =
   | TData of info * datatype * int
       (* what a module's signature says about a datatype it exports.
          Never written in source, never printed. *)
+  | TClass of info * class_info * int
+      (* what a module's signature says about a class or an interface it
+         exports. Never written in source, never printed. *)
 
 and datatype = Datatype of string * string list * (string * (string option * typ) list) list * bool
 (* a datatype as another module sees it: its canonical name, its
@@ -188,6 +191,32 @@ and datatype = Datatype of string * string list * (string * (string option * typ
    fields are written in place. *)
 
 and implicit_param = IParam of string * typ
+
+(* What the checker knows of one class or interface, every type in it
+   written in terms of the class's own parameters, which are rigid. *)
+and class_info = {
+  cl_name : string;
+  cl_kind : class_kind;
+  cl_params : string list;
+  cl_parent : (string * typ list) option; (* the parent class, at its arguments *)
+  cl_interfaces : (string * typ list) list; (* the interfaces named in the header *)
+  cl_header : (string * typ) list; (* what the constructor takes *)
+  cl_fields : field_info list; (* the fields it declares itself *)
+  cl_methods : method_info list; (* the methods it declares itself *)
+  cl_info : info;
+}
+
+and field_info = { fd_name : string; fd_type : typ; fd_var : bool; fd_private : bool; fd_info : info }
+
+and method_info = {
+  md_name : string;
+  md_params : (string * typ * expr option) list; (* each with its default, where it has one *)
+  md_return : typ;
+  md_abstract : bool; (* no body: an abstract method, or an interface's signature *)
+  md_private : bool;
+  md_override : bool;
+  md_info : info;
+}
 
 (* A class, an abstract class or an interface (PYKING.md, "Classes and
    interfaces"). *)

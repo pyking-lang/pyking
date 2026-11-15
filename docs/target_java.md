@@ -608,3 +608,25 @@ of the module's own, an interface a nested Java interface:
   literal or a call has to infer.
 - **A `match` on an object** is an `instanceof` chain on every version
   (java21 included), its header's fields read through a cast.
+
+### Classes across modules
+
+A class is a nested class of its module's class, so another module's
+is `Shapes.Rect` (`class_ref`), which the program's other classes reach
+in the default package. A public class is `public static` and never
+`final`, since another module may extend it.
+
+## Copying
+
+`copy(x)` and `deepcopy(x)` are `PykRuntime.copy` and
+`PykRuntime.deepcopy`, which dispatch on the run-time class:
+`PykArray`, `PykDynArray`, `PykView` and `PykMutMap` are copied by the
+runtime, a list and a tuple are rebuilt, and a datatype's value, a
+mutable struct and an object answer for themselves through `Data`'s
+`pykCopy` and `pykDeepcopy` -- which answer the value itself unless the
+class says otherwise. A mutable struct makes a new one holding its
+fields. A class has a constructor taking another object of its class
+and the table of copies, which copies its own fields and calls its
+parent's for the rest, so a private field is copied where it can be read
+and an object copies as the class it is. The table is an
+`IdentityHashMap`; a `PykPtr` stops the deep copy.

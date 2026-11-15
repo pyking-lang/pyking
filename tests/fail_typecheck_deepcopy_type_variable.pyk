@@ -1,0 +1,3 @@
+# A type variable inside the type is refused as well.
+def twin(xs: [a]) -> [a]:
+    deepcopy(xs)

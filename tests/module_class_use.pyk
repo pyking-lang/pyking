@@ -1,0 +1,42 @@
+# Using another module's public classes and interfaces (PYKING.md,
+# "Classes across modules"): made through either import, with defaults
+# and named arguments, held at an interface, matched, compared, printed
+# and copied.
+use mutation
+import module_class_shapes_mod
+import module_class_shapes_mod as sh
+from module_class_shapes_mod import Rect, Shape
+
+a = Rect(2)
+b = sh.Rect(width = 3, height = 4)
+c = module_class_shapes_mod.Rect(1, 1)
+all: [Shape] = [a, b, c, sh.make_rect(5)]
+for s in all:
+    print(s.describe())
+print(a, b, a == Rect(1, 2), a != b)
+
+a.grow()
+a.grow(by = 5)
+a.label := "big"
+print(a.moved(), a.label, b.label)
+
+def width_of(x: sh.Shape) -> Int:
+    match x:
+        case sh.Rect(w, _): w
+        case _: 0
+
+print([width_of(x) for x in all])
+
+match all[1]:
+    case r: Rect:
+        print("a Rect of width", r.width)
+    case _:
+        print("not a Rect")
+
+print(same(a, all[0]), same(a, Rect(2)))
+copied = deepcopy(a)
+shallow = copy(a)
+copied.grow(100)
+shallow.grow(1)
+print(a.moved(), copied.moved(), shallow.moved(), same(copied, a))
+print(sh.total(a, b), sh.twin(b).describe())

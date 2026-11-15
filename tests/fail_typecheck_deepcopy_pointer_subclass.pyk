@@ -1,0 +1,17 @@
+# A class below an interface may hold a pointer, so deep-copying a
+# value of the interface is refused.
+use objects, mutation, pointers
+
+interface Counter:
+    def count(self) -> Int
+
+class Plain(n: Int) implements Counter:
+    override def count(self) -> Int: self.n
+
+class Pointing(p: Ptr(Int)) implements Counter:
+    override def count(self) -> Int: *self.p
+
+def twin(c: Counter) -> Counter:
+    deepcopy(c)
+
+print(twin(Plain(1)).count())

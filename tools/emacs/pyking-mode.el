@@ -157,7 +157,7 @@ much a literal value as `123' is, not a keyword like `if' or `return'.")
   "Regexp matching any name in `pyking-mode-constants' as a whole symbol.")
 
 (defconst pyking-mode-builtins
-  '("print" "printsl" "eprint" "eprintsl" "debug" "range" "string" "len" "float" "int" "bool" "char" "same"
+  '("print" "printsl" "eprint" "eprintsl" "debug" "range" "string" "len" "float" "int" "bool" "char" "same" "copy" "deepcopy"
     "array" "array_init" "dynarray" "push" "pop" "insert" "remove" "clear"
     "mutmap" "get" "has" "discard" "keys" "values" "items" "panic" "list"
     "list_init" "dynarray_init" "map" "map_init" "mutmap_init" "fmap" "filter"

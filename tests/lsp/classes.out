@@ -1,0 +1,19 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open classes/classes_main.pyk
+> idle
+diagnostics $CASES/classes/classes_main.pyk v1 []
+> hover classes/classes_main.pyk 6:9
+{"contents": {"kind": "markdown", "value": "```pyking\nInt\n```"}, "range": {"end": {"character": 14, "line": 5}, "start": {"character": 6, "line": 5}}}
+> hover classes/classes_main.pyk 6:39
+{"contents": {"kind": "markdown", "value": "```pyking\nInt\n```"}, "range": {"end": {"character": 44, "line": 5}, "start": {"character": 16, "line": 5}}}
+> hover classes/classes_main.pyk 5:5
+{"contents": {"kind": "markdown", "value": "```pyking\nshapes_lib.Rect\n```"}, "range": {"end": {"character": 14, "line": 4}, "start": {"character": 4, "line": 4}}}
+> complete classes/classes_main.pyk 6:9
+{"isIncomplete": false, "items": [{"detail": "Int", "kind": 5, "label": "width"}, {"detail": "Int", "kind": 5, "label": "height"}, {"detail": "() -> Int", "kind": 2, "label": "area"}, {"detail": "(Int) -> Int", "kind": 2, "label": "grow"}]}
+> symbols classes/classes_main.pyk
+[{"detail": "import shapes_lib", "kind": 2, "name": "shapes_lib", "range": {"end": {"character": 17, "line": 1}, "start": {"character": 0, "line": 1}}, "selectionRange": {"end": {"character": 17, "line": 1}, "start": {"character": 7, "line": 1}}}, {"detail": "from shapes_lib", "kind": 2, "name": "Rect", "range": {"end": {"character": 27, "line": 2}, "start": {"character": 0, "line": 2}}, "selectionRange": {"end": {"character": 27, "line": 2}, "start": {"character": 23, "line": 2}}}, {"detail": "shapes_lib.Rect", "kind": 14, "name": "r", "range": {"end": {"character": 14, "line": 4}, "start": {"character": 0, "line": 4}}, "selectionRange": {"end": {"character": 1, "line": 4}, "start": {"character": 0, "line": 4}}}, {"children": [{"detail": "Int", "kind": 8, "name": "s", "range": {"end": {"character": 15, "line": 6}, "start": {"character": 9, "line": 6}}, "selectionRange": {"end": {"character": 10, "line": 6}, "start": {"character": 9, "line": 6}}}, {"detail": "() -> Int", "kind": 6, "name": "area", "range": {"end": {"character": 23, "line": 8}, "start": {"character": 4, "line": 7}}, "selectionRange": {"end": {"character": 21, "line": 7}, "start": {"character": 17, "line": 7}}}], "kind": 5, "name": "Sq", "range": {"end": {"character": 23, "line": 8}, "start": {"character": 0, "line": 6}}, "selectionRange": {"end": {"character": 8, "line": 6}, "start": {"character": 6, "line": 6}}}]
+> shutdown
+null
+> exit
+> exit status 0

@@ -1,0 +1,48 @@
+# copy and deepcopy of generic types at the type each is used at
+# (PYKING.md, "Copying"): the type is known where the copy is made.
+use objects, mutation
+
+class Stack(a):
+    private items: DynArray(a) = dynarray([])
+    def push(self, x: a) -> ():
+        push(self.items, x)
+    def size(self) -> Int:
+        len(self.items)
+    def top(self) -> a:
+        self.items[len(self.items) - 1]
+
+mutable struct Cell(value: a)
+
+datatype Tree(a):
+    Leaf
+    Node(left: Tree(a), value: a, right: Tree(a))
+
+s: Stack(Cell(Int)) = Stack()
+s.push(Cell(1))
+s2 = copy(s)
+s3 = deepcopy(s)
+s2.push(Cell(2))
+s3.top().value := 100
+print(s.size(), s2.size(), s3.size(), s.top().value, s3.top().value)
+
+c = Cell(array([1, 2]))
+c2 = deepcopy(c)
+c2.value[0] := 10
+print(c, c2)
+
+t = Node(Leaf, Cell(1), Node(Leaf, Cell(2), Leaf))
+t2 = deepcopy(t)
+match t2:
+    case Node(_, v, _):
+        v.value := 50
+    case Leaf:
+        ()
+print(t, t2)
+
+def dup(x: Cell(Int)) -> Cell(Int):
+    copy(x)
+
+d = Cell(5)
+e = dup(d)
+e.value := 6
+print(d, e)

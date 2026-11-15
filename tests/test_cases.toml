@@ -2469,6 +2469,62 @@ file = "fail_typecheck_dynarray_field_write.pyk"
 file = "var_struct.pyk"
 excluded = { c = "a mutable struct holding a list (Cell([])): a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
+# copy(x) and deepcopy(x): shallow and deep copies of every kind of value.
+[[cases]]
+file = "copy_deepcopy.pyk"
+
+[[cases]]
+file = "copy_deepcopy_lists.pyk"
+libs = ["option", "result", "prelude"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "copy_objects.pyk"
+libs = ["option"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "copy_generic.pyk"
+excluded = { c = "a generic class, which C would need one struct and table of per type it is made at", "c-gc" = "a generic class, which C would need one struct and table of per type it is made at" }
+
+[[cases]]
+file = "copy_generic_struct.pyk"
+
+[[cases]]
+file = "fail_typecheck_deepcopy_pointer.pyk"
+
+[[cases]]
+file = "fail_typecheck_deepcopy_pointer_field.pyk"
+
+[[cases]]
+file = "fail_typecheck_deepcopy_pointer_subclass.pyk"
+
+[[cases]]
+file = "fail_typecheck_deepcopy_pointer_inferred.pyk"
+
+[[cases]]
+file = "fail_typecheck_copy_type_variable.pyk"
+
+[[cases]]
+file = "fail_typecheck_deepcopy_type_variable.pyk"
+
+[[cases]]
+file = "fail_typecheck_deepcopy_arity.pyk"
+
+[[cases]]
+file = "fail_typecheck_copy_value.pyk"
+
+[[cases]]
+file = "fail_typecheck_deepcopy_generalise.pyk"
+
+[[cases]]
+file = "typecheck_copy.pyk"
+also = ["pyking_rerun"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "var_struct_link_order.pyk"
+
 [[cases]]
 file = "var_struct_import.pyk"
 modules = ["var_struct_shapes_mod.pyk"]
@@ -2955,7 +3011,72 @@ file = "fail_typecheck_objects_super_outside.pyk"
 file = "fail_typecheck_objects_list_eq.pyk"
 
 [[cases]]
-file = "fail_typecheck_objects_public.pyk"
+file = "objects_override_default.pyk"
+
+# Classes across modules: another module's public classes and
+# interfaces used, implemented and extended (PYKING.md, "Classes across
+# modules").
+[[cases]]
+file = "module_class_use.pyk"
+modules = ["module_class_shapes_mod.pyk"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "module_class_extend.pyk"
+modules = ["module_class_shapes_mod.pyk"]
+
+[[cases]]
+file = "module_class_chain.pyk"
+modules = ["module_class_chain_a_mod.pyk", "module_class_chain_b_mod.pyk"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "module_class_same_name.pyk"
+modules = ["module_class_same_name_mod.pyk"]
+
+[[cases]]
+file = "module_class_generic.pyk"
+modules = ["module_class_generic_mod.pyk"]
+excluded = { c = "a generic class, which C would need one struct and table of per type it is made at", "c-gc" = "a generic class, which C would need one struct and table of per type it is made at" }
+
+[[cases]]
+file = "module_class_pointer.pyk"
+modules = ["module_class_shapes_mod.pyk"]
+exit_code = 1
+
+[[cases]]
+file = "fail_typecheck_module_class_private.pyk"
+modules = ["module_class_shapes_mod.pyk"]
+
+[[cases]]
+file = "fail_typecheck_module_class_override.pyk"
+modules = ["module_class_shapes_mod.pyk"]
+
+[[cases]]
+file = "fail_typecheck_module_class_private_name.pyk"
+modules = ["module_class_shapes_mod.pyk"]
+
+[[cases]]
+file = "fail_typecheck_module_class_match.pyk"
+modules = ["module_class_shapes_mod.pyk"]
+
+[[cases]]
+file = "fail_typecheck_module_class_interface_made.pyk"
+modules = ["module_class_shapes_mod.pyk"]
+
+[[cases]]
+file = "fail_typecheck_module_class_abstract.pyk"
+modules = ["module_class_shapes_mod.pyk"]
+
+[[cases]]
+file = "fail_typecheck_module_class_hidden_parent.pyk"
+
+[[cases]]
+file = "fail_typecheck_module_class_hidden_member.pyk"
+
+[[cases]]
+file = "fail_typecheck_module_class_hidden_function.pyk"
+
 
 
 # Collections: the constructors and conversions of every collection,

@@ -1,0 +1,12 @@
+use mutation
+mutable struct Box(items: Array(Int))
+def twin(b:Box) -> (Box, Box):
+    (copy(b), deepcopy(b))
+b: Box = Box(items = list::array([1, 2]))
+(shallow, deep): (Box, Box) = twin(b)
+shallow.items[0] := 10
+deep.items[1] := 20
+print(b, shallow, deep)
+n: Int = copy(3)
+xs: [Int] = deepcopy([n])
+print(xs, copy(deepcopy("both")))

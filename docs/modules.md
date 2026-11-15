@@ -280,6 +280,41 @@ The backends write a constructor of another module through it:
 `shapes.Circle` in Python and JavaScript, `Shapes.Circle` in OCaml,
 whose `.mli` declares the module's datatypes and their printers.
 
+## Classes cross the boundary by name
+
+A `public class` or `public interface` (PYKING.md, "Classes across
+modules") is exported as a `TClass` entry under its name: the checker's
+whole `class_info` for it, recorded at the class's symbol at the end of
+`type_check`. `module_sigmap` qualifies it as it qualifies a datatype:
+its name, its supertypes' and every type in it become `module.Name`,
+and a method parameter's default that is a call of the def desugar_args
+made of it becomes `module.def()`.
+
+Three things follow from a class being more than its own entry:
+
+- **A class stands on others.** Its parent or an interface may be a
+  class of a module the importer does not import. `sigmaps_for` hands
+  every module, beside each import's signature, every class exported so
+  far under a name no source can write (`%class:module.Name`), so the
+  checker and the backends know each class a program has.
+- **The checker knows it by its canonical name.**
+  `declare_imported_classes` puts every exported class in `classes`, and
+  the names an import gives it in `types`. A constructor call and a
+  class pattern record the class they name (`Class_named`), which
+  elaborate.ml writes in their place, so every backend sees
+  `module.Name` whatever the import called it.
+- **A backend knows it as its own.** `Classes.program` adds the
+  exported classes to a module's own table, giving each member a symbol
+  of its own past every symbol of the program, with its type beside it.
+  `Classes.reached` says how this module's code names one: through a
+  plain import's alias, or by the name a `from` line gave it.
+
+A method's defaults travel with its class: desugar_args adds the defs
+holding them to a `from` line that names the class (`imported`), and
+the checker records the types of a default another module wrote
+(`foreign_defaults`), which elaborate.ml fills in through this module's
+import.
+
 ## A public implicit is found unqualified
 
 A name that is **both `public` and `implicit`** is reachable from an

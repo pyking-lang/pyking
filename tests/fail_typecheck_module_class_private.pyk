@@ -1,0 +1,6 @@
+# A private field of another module's class is private there too.
+use objects
+from module_class_shapes_mod import Rect
+
+r = Rect(1, 2)
+print(r.moves)

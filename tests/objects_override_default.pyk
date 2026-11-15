@@ -1,0 +1,30 @@
+# Within one module: an override's call leaving out an argument is given
+# the default written where the method is first declared; `same` on two
+# objects seen at related types; and members named after words some
+# target reserves (`begin`, `end`, `val`).
+use objects
+
+interface Span:
+    def size(self) -> Int
+
+class Base(begin: Int) implements Span:
+    def step(self, by: Int = 3) -> Int:
+        self.begin + by
+    override def size(self) -> Int:
+        self.begin
+    def val(self) -> Int:
+        self.begin * 2
+
+class Twice(n: Int) extends Base(n):
+    override def step(self, by: Int) -> Int:
+        super.step(by) * 2
+
+class Thrice(n: Int) extends Twice(n):
+    override def step(self, by: Int) -> Int:
+        super.step(by) * 3
+
+t = Thrice(1)
+b: Base = t
+print(t.step(), t.step(by = 1), b.step(), Twice(2).step(), Base(5).step())
+s: Span = t
+print(same(t, b), same(s, t), same(s, Base(1)), t.begin, t.val())

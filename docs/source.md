@@ -723,6 +723,13 @@ has.
 - **`extended`**, **`interfaces`**, **`ordered`** — whether anything
   builds on a class, every interface an object is, and the order a
   language that declares a parent first needs.
+- **`imported sigmaps`**, **`program stmts tmap sigmaps`** — the classes
+  other modules export (PYKING.md, "Classes across modules"), from their
+  signatures, each by its canonical name `module.Name` with a symbol
+  invented for each member and its type beside it; and a module's own
+  table with those added, which is what every backend works from.
+  **`reached stmts c`** — how this module's code names another module's
+  class: through a plain import's alias, or by a `from` line's name.
 
 ---
 

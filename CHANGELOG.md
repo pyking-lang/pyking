@@ -24,6 +24,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `printsl`, `eprint` and `eprintsl`: `print` on the same line (no
   newline), to standard error, and both. Unlike `debug`, `eprint` and
   `eprintsl` stay in a release build.
+- `copy(x)` and `deepcopy(x)`: a shallow and a deep copy of any value,
+  as Python's `copy.copy` and `copy.deepcopy`, built in. `copy` makes a
+  new array, DynArray, MutMap, view, mutable struct or object holding the
+  same parts; `deepcopy` one sharing nothing writable with the original,
+  keeping what it shares and its cycles. An object copies as the class
+  it is, private fields included. Functions are shared; `deepcopy`
+  refuses a pointer, at compile time where it can see one and at run
+  time where a class of another module holds one. Both need the type to
+  be known at the call (PYKING.md, "Copying").
+- Classes across modules: `public class`, `public abstract class` and
+  `public interface` export a class or an interface, which another
+  module may use, implement and extend -- constructors and methods with
+  defaults and named arguments, `super`, overrides, class patterns,
+  `eq`, `show` and copies, on every target. A public class builds on
+  public classes and interfaces only, and its members that are not
+  `private` name public types (PYKING.md, "Classes across modules").
 
 ### Changed
 
@@ -58,6 +74,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The grammar's `use` line names `pointers` as well as `mutation` and
   `objects`.
+- A class of the same name in two modules was one class to the
+  interpreter: each module's code now makes and calls its own.
+- A method override's call leaving out an argument is given the default
+  written where the method is first declared, rather than refused.
+- C: a datatype and a mutable struct holding each other (`Link` and
+  `Node` of a linked list) compiled to struct definitions in the wrong
+  order when the datatype was used first.
+- OCaml: `same` on two objects seen at related types (a `Square` and a
+  `Shape`) and a class member named after an OCaml keyword (`begin`)
+  compiled to code OCaml refused.
 
 ## [0.1.11] - 2026-11-14
 

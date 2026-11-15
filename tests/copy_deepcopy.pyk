@@ -1,0 +1,110 @@
+# copy(x) and deepcopy(x) on every kind of value (PYKING.md, "Copying"),
+# with no lists, so that plain C runs it too. A shallow copy is a new
+# outermost store whose parts are the original's; a deep copy shares
+# nothing writable with the original.
+use mutation
+
+mutable struct Point(x: Int, y: Int)
+
+struct Pair(left: Point, right: Point)
+
+datatype Shape:
+    Dot(at: Point)
+    Line(a: Point, b: Point)
+
+# Values that never change are their own copies.
+print(copy(1), deepcopy(2.5), copy("text"), deepcopy('c'), copy(true), deepcopy(()))
+print(copy((1, "a")), deepcopy((2, 'b')))
+
+# An array of Ints: both copies are new arrays.
+a = array([1, 2, 3])
+b = copy(a)
+c = deepcopy(a)
+b[0] := 10
+c[1] := 20
+print(a, b, c, same(a, b), same(a, c))
+
+# An array of mutable structs: copy shares the structs, deepcopy does not.
+ps = array([Point(1, 1), Point(2, 2)])
+shallow = copy(ps)
+deep = deepcopy(ps)
+shallow[0].x := 100
+deep[1].x := 200
+print(ps, shallow, deep)
+print(same(ps[0], shallow[0]), same(ps[0], deep[0]))
+shallow[1] := Point(9, 9)
+print(ps[1], shallow[1])
+
+# A mutable struct: copy is a new struct holding the same fields.
+p = Point(3, 4)
+q = copy(p)
+q.x := 30
+print(p, q, same(p, q))
+
+# A plain struct holding mutable structs.
+pair = Pair(Point(1, 2), Point(3, 4))
+pair2 = copy(pair)
+pair3 = deepcopy(pair)
+pair2.left.x := 11
+pair3.right.y := 44
+print(pair, pair2, pair3)
+
+# A datatype holding mutable structs, each constructor.
+shapes = array([Dot(Point(0, 0)), Line(Point(1, 1), Point(2, 2))])
+copied = deepcopy(shapes)
+match copied[1]:
+    case Line(start, stop):
+        start.x := 5
+        stop.y := 6
+    case Dot(at):
+        at.x := 7
+print(shapes, copied)
+
+# A DynArray: both copies grow on their own.
+d = dynarray([Point(1, 0)])
+d2 = copy(d)
+d3 = deepcopy(d)
+push(d2, Point(2, 0))
+d3[0].y := 9
+print(d, d2, d3, len(d), len(d2), len(d3))
+
+# A MutMap: copies keep the order of the keys.
+m = mutmap([("b", Point(1, 1)), ("a", Point(2, 2))])
+m2 = copy(m)
+m3 = deepcopy(m)
+m2["c"] := Point(3, 3)
+m2["b"].x := 10
+m3["a"].y := 20
+print(m, m2, m3)
+discard(m2, "b")
+print(len(m), len(m2), has(m, "b"))
+
+# A view: a view of a copy of the array behind it.
+whole = array([1, 2, 3, 4, 5])
+w = view(whole, 1, 4)
+w2 = copy(w)
+w3 = deepcopy(w)
+w2[0] := 20
+w3[1] := 30
+print(whole, w, w2, w3, len(w2))
+
+# A view and its array copied together stay a view of that array.
+both = (whole, w)
+(whole2, w4) = deepcopy(both)
+w4[0] := 99
+print(whole, whole2, w4)
+
+# The same struct reached twice is one struct in the copy.
+shared = Point(0, 0)
+twice = array([shared, shared])
+twice2 = deepcopy(twice)
+twice2[0].x := 8
+print(twice2, same(twice2[0], twice2[1]), same(twice2[0], shared))
+
+# An array of arrays: copy shares the rows, deepcopy does not.
+grid = array([array([1, 2]), array([3, 4])])
+g2 = copy(grid)
+g3 = deepcopy(grid)
+g2[0][0] := 10
+g3[1][1] := 40
+print(grid, g2, g3)

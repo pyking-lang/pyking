@@ -1,0 +1,14 @@
+# A public generic class and interface.
+use objects, mutation
+
+public interface Source(a):
+    def next(self) -> a
+
+public class Stack(a):
+    private items: DynArray(a) = dynarray([])
+    def push(self, x: a) -> ():
+        push(self.items, x)
+    def pop(self) -> a:
+        pop(self.items)
+    def size(self) -> Int:
+        len(self.items)

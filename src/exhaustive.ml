@@ -54,6 +54,12 @@ type pat =
 
 (** The pattern the algorithm reads for one Pyking pattern.
     pattern -> pat *)
+(* A class pattern's class by its canonical name, from the pattern's
+   symbol: `case Rect(w, h)` from a `from` line and `case shapes.Rect(w,
+   h)` both name `shapes.Rect`, which is what the type's shapes are called.
+   Set by `check`. *)
+let class_named : (int -> string option) ref = ref (fun _ -> None)
+
 let rec of_pattern p =
   match p with
   | PWildcard _ | PCapture _ -> Any
@@ -71,12 +77,16 @@ let rec of_pattern p =
   | PList (_, prefix, Some _, suffix, _) ->
       Rest (List.map of_pattern prefix, List.map of_pattern suffix)
   | PText (_, prefix, _, suffix, _) -> Con (HText (prefix, suffix), [])
-  | PConstructor (_, _, name, fields, _, _) ->
+  | PConstructor (_, _, name, fields, _, s) ->
+      let name = Option.value (!class_named s) ~default:name in
       Con (HData name, List.map of_pattern fields)
-  | PTyped (_, _, t, _) -> (
+  | PTyped (_, _, t, s) -> (
       (* `case c: Circle` takes what `Circle(_, ...)` does: the parts it
          leaves out are `_` (`specialize`). *)
-      match t with TCon (_, name, _, _) -> Con (HData name, []) | _ -> Any)
+      match (!class_named s, t) with
+      | Some name, _ -> Con (HData name, [])
+      | None, TCon (_, name, _, _) -> Con (HData name, [])
+      | _ -> Any)
 
 (** The name a datatype's constructors end with where its values are
     objects: a class or an interface, which classes the cases name may
@@ -429,7 +439,8 @@ let check_match datatype tmap statement =
     nothing reaches, given the datatype each canonical name denotes and
     the types the checker worked out.
     (string -> datatype?) -> typ IntMap.t -> [stmt] -> () *)
-let check datatype tmap stmts =
+let check ?(classes = fun _ -> None) datatype tmap stmts =
+  class_named := classes;
   Walk.fold_stmts
     (fun () node ->
       match node with Walk.NStmt statement -> check_match datatype tmap statement | _ -> ())

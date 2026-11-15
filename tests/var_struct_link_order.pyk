@@ -1,0 +1,45 @@
+# A datatype and a mutable struct that hold each other: `Link` holds a
+# `Node` (through a pointer, on C) and `Node` holds a `Link` by value.
+# The C backend declares them in the order it first needs them, so
+# reaching `Link` first used to write `Node`'s struct before `Link`'s
+# was complete. Each function below reaches the pair from another side.
+use mutation, pointers
+
+datatype Link:
+    End
+    Next(node: Node)
+
+mutable struct Node(value: Int, next: Link)
+
+# Reached through Link first: a parameter of type Link.
+def length(l: Link) -> Int:
+    match l:
+        case End: 0
+        case Next(n): 1 + length(n.next)
+
+# A pointer to a link: removes the first node holding v.
+def remove(start: Ptr(Link), v: Int) -> ():
+    var at = start
+    var looking = true
+    while looking:
+        match *at:
+            case End:
+                looking := false
+            case Next(node):
+                if node.value == v:
+                    *at := node.next
+                    looking := false
+                else:
+                    at := &node.next
+
+# A tuple holding a Link by value, inside another mutable struct.
+mutable struct Holder(pair: (Int, Link))
+
+var list = Next(Node(1, Next(Node(2, Next(Node(3, End))))))
+print(length(list))
+remove(&list, 1)
+remove(&list, 3)
+print(list, length(list))
+h = Holder((7, list))
+h.pair := (8, End)
+print(h)

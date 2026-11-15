@@ -154,6 +154,10 @@ type context = {
   external_fields : (string * string list) list;
   externals : string list;
   own_declared : (string * typ) list;
+  copies : bool;
+      (* whether any module of the program calls `copy` or `deepcopy`: a
+         backend then writes what copying an object of each class needs
+         (PYKING.md, "Copying") *)
 }
 
 (* --- ordered tables ---
@@ -466,6 +470,7 @@ let public_names stmts =
           Some [ (name, statement) ]
       | SDatatype (_, _, _, _, _, true, _) ->
           Some (List.map (fun n -> (n, statement)) (datatype_names statement))
+      | SClass (_, c, _) when c.c_public -> Some [ (c.c_name, statement) ]
       | _ -> None)
     stmts
   |> List.concat
@@ -490,6 +495,7 @@ let bound_at_top_level stmts =
           List.map (fun name -> (name, statement)) (target_names target)
       | SDatatype _ ->
           List.map (fun name -> (name, statement)) (datatype_names statement)
+      | SClass (_, c, _) -> [ (c.c_name, statement) ]
       | _ -> [])
     stmts
 
@@ -1210,6 +1216,13 @@ let context units unit =
         (fun ((other : t), _) -> if other.is_external then Some other.name else None)
         units;
     own_declared = external_signatures unit.declarations;
+    copies =
+      List.exists
+        (fun ((other : t), _) ->
+          Walk.exists_stmts
+            (function Walk.NExpr (ECall (_, EVar (_, ("copy" | "deepcopy"), _), [ _ ], _)) -> true | _ -> false)
+            other.stmts)
+        units;
   }
 
 (** A module's exported names and the types the checker worked out for
@@ -1297,15 +1310,65 @@ and qualified name type_ =
             d,
             List.map (fun (IParam (n, t)) -> IParam (n, go t)) ips )
     | TForall (i, vs, b, s) -> TForall (i, vs, go b, s)
+    | TClass (i, c, s) ->
+        (* A class exported: its own name, its supertypes' and every type
+           in it as the importing module names them. *)
+        let named n = if String.contains n '.' then n else name ^ "." ^ n in
+        TClass
+          ( i,
+            {
+              c with
+              cl_name = named c.cl_name;
+              cl_parent = Option.map (fun (p, args) -> (named p, List.map go args)) c.cl_parent;
+              cl_interfaces = List.map (fun (p, args) -> (named p, List.map go args)) c.cl_interfaces;
+              cl_header = List.map (fun (n, t) -> (n, go t)) c.cl_header;
+              cl_fields = List.map (fun f -> { f with fd_type = go f.fd_type }) c.cl_fields;
+              cl_methods =
+                List.map
+                  (fun m ->
+                    {
+                      m with
+                      md_params = List.map (fun (n, t, d) -> (n, go t, Option.map (qualified_default name) d)) m.md_params;
+                      md_return = go m.md_return;
+                    })
+                  c.cl_methods;
+            },
+            s )
     | TInt _ | TFloat _ | TString _ | TChar _ | TBool _ | TUnknown _ | TBuiltin _
     | TVar _ ->
         t
   in
   go type_
 
+(** A method parameter's default as another module reaches it: a call
+    to the def desugar_args made of it (`method$C__m__p()`), which the
+    module exports with its class, called through the module; a literal
+    stays as it is. string -> expr -> expr *)
+and qualified_default name e =
+  match e with
+  | ECall (i, EVar (vi, f, vs), args, s) when not (String.contains f '.') -> ECall (i, EVar (vi, name ^ "." ^ f, vs), args, s)
+  | e -> e
+
 (** The signatures needed to check one module: its own imports', out of
     every module checked so far.
     t -> [(string, [(string, typ, bool)])]
     -> [(string, [(string, typ, bool)])] *)
 let sigmaps_for module_ sigmaps =
-  List.map (fun name -> (name, List.assoc name sigmaps)) module_.imports
+  (* Every class exported so far, under a name no source can write
+     (`%class:module.Name`): a class this module uses may stand on one of
+     a module it does not import -- its parent, an interface -- and the
+     checker and the backends need that one's members too. *)
+  let classes =
+    List.fold_left
+      (fun out (_, sigmap) ->
+        List.fold_left
+          (fun out (_, t, _) ->
+            match t with
+            | TClass (_, c, _) ->
+                let hidden = "%class:" ^ c.cl_name in
+                if List.exists (fun (n, _, _) -> n = hidden) out then out else out @ [ (hidden, t, false) ]
+            | _ -> out)
+          out sigmap)
+      [] sigmaps
+  in
+  List.map (fun name -> (name, List.assoc name sigmaps @ classes)) module_.imports
