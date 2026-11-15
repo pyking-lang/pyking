@@ -1,0 +1,12 @@
+# A class pattern outside the class writes `_` where a private field
+# is: it would read it.
+use objects
+
+class Group(title: String, private names: [String] = []):
+    def add(self, name: String) -> Group:
+        Group(self.title, self.names + [name])
+    def size(self) -> Int:
+        len(self.names)
+g = Group("a").add("ada")
+match g:
+    case Group(t, names): print(t, names)

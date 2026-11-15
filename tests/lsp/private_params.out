@@ -1,0 +1,22 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open private_params/group_main.pyk
+> idle
+diagnostics $CASES/private_params/group_main.pyk v1 []
+> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(private_params/group_main.pyk)"}, "position": {"line": 2, "character": 10}}
+{"activeParameter": 0, "activeSignature": 0, "signatures": [{"label": "Group(title: String)", "parameters": [{"label": [6, 19]}]}]}
+> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(private_params/group_main.pyk)"}, "position": {"line": 3, "character": 22}}
+{"activeParameter": 0, "activeSignature": 0, "signatures": [{"label": "Group(title: String)", "parameters": [{"label": [6, 19]}]}]}
+> hover private_params/group_main.pyk 3:5
+{"contents": {"kind": "markdown", "value": "```pyking\ngroup_lib.Group\n```"}, "range": {"end": {"character": 14, "line": 2}, "start": {"character": 4, "line": 2}}}
+> complete private_params/group_main.pyk 4:9
+{"isIncomplete": false, "items": [{"detail": "String", "kind": 5, "label": "title"}, {"detail": "(String) -> group_lib.Group", "kind": 2, "label": "add"}, {"detail": "() -> Int", "kind": 2, "label": "size"}]}
+> open private_params/group_lib.pyk
+> idle
+diagnostics $CASES/private_params/group_lib.pyk v1 []
+> request textDocument/signatureHelp {"textDocument": {"uri": "$URI(private_params/group_lib.pyk)"}, "position": {"line": 4, "character": 14}}
+{"activeParameter": 0, "activeSignature": 0, "signatures": [{"label": "Group(title: String, private names: [String])", "parameters": [{"label": [6, 19]}, {"label": [21, 44]}]}]}
+> shutdown
+null
+> exit
+> exit status 0

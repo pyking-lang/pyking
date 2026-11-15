@@ -1,0 +1,78 @@
+# An immutable group of students (design/immutable_classes.md, §6), kept
+# as a private list of (name, age). The list is a private constructor
+# parameter: only StudentGroup's own methods give it, so outside the
+# class a group is made empty, StudentGroup(), and grows by methods that
+# answer a new group. Two promises then hold for every group: no name
+# occurs twice, and no age is negative.
+use objects
+
+class StudentGroup(private students: [(String, Int)] = []):
+
+    # The group with `name` added, or with its age replaced if the name
+    # is there already.
+    def add_student(self, name: String, age: Int) -> StudentGroup:
+        if age < 0:
+            panic("an age is never negative: " + name + ", " + string(age))
+        StudentGroup(self.without(name) + [(name, age)])
+
+    # The group without `name`; the same students if it is not there.
+    def delete_student(self, name: String) -> StudentGroup:
+        StudentGroup(self.without(name))
+
+    # The names, in the order they were added.
+    def list_students(self) -> [String]:
+        [n for (n, _) in self.students]
+
+    def age_of_student(self, name: String) -> Option(Int):
+        match [a for (n, a) in self.students if n == name]:
+            case [a, ..]: Some(a)
+            case []: None
+
+    def size(self) -> Int:
+        len(self.students)
+
+    # Every student older than `age`, as a group of its own.
+    def older_than(self, age: Int) -> StudentGroup:
+        StudentGroup(students = [(n, a) for (n, a) in self.students if a > age])
+
+    # A pattern inside the class may read the private field.
+    def first(self) -> Option(String):
+        match self:
+            case StudentGroup(inside):
+                match inside:
+                    case [(n, _), ..]: Some(n)
+                    case []: None
+
+    def eq(self, other: StudentGroup) -> Bool:
+        self.students == other.students
+
+    private def without(self, name: String) -> [(String, Int)]:
+        [(n, a) for (n, a) in self.students if n != name]
+
+# A class without `show`: printed, its private field is `_`.
+class Roster(title: String, private group: StudentGroup = StudentGroup()):
+    def with_student(self, name: String, age: Int) -> Roster:
+        Roster(self.title, self.group.add_student(name, age))
+    def count(self) -> Int:
+        self.group.size()
+
+empty = StudentGroup()
+g1 = empty.add_student("Ada", 36).add_student("Bo", 21).add_student("Cy", 19)
+g2 = g1.delete_student("Bo").add_student("Ada", 37)
+
+print(empty.list_students(), g1.list_students(), g2.list_students())
+print(g1.age_of_student("Ada"), g2.age_of_student("Ada"), g2.age_of_student("Bo"))
+print(g1 == g2, g1 == g1.delete_student("Nobody"), g1.older_than(20).list_students())
+print(g1.first(), empty.first(), g1.size(), empty.size())
+
+# Outside the class a pattern writes `_` for the private field.
+match g2:
+    case StudentGroup(_): print("a group of", g2.size())
+
+# Printing writes the private field as `_`, alone and inside others.
+print(g1)
+print([empty, g2], (g1, 1))
+print("interpolated: $g1 and ${empty}")
+r = Roster("seminar").with_student("Ada", 36).with_student("Bo", 21)
+print(r, r.count())
+print(Roster("empty"))

@@ -1355,7 +1355,9 @@ methods call and that build its objects, which Pyking's are. So:
 
 - **Each class and interface is a class type**, named as a datatype
   would be, listing every field (a getter, and `set_f` for a `var` one)
-  and every method with its type, plus `pyk_up` and `pyk_show`. The
+  and every method with its type, plus `pyk_up` and `pyk_show` (the
+  object as `show` says, or its header form, a `private` header field
+  written as `_`). The
   class types go with the type declarations, before the datatypes unless
   a datatype names a class.
 - **Each method with a body** is a function of the module, in its

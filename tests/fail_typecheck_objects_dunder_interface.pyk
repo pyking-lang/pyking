@@ -1,0 +1,5 @@
+# An interface's method of such a name is refused too.
+use objects
+
+interface Sized:
+    def __len__(self) -> Int

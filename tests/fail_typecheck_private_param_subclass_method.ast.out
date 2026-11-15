@@ -1,0 +1,4 @@
+'tests/fail_typecheck_private_param_subclass_method.pyk' 12:19-12:29
+  Name error: 'names' is private to 'Group': only the methods of
+  'Group' give it, and elsewhere a 'Group' is made without it, as
+  Group(title)

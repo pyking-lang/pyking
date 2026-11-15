@@ -427,7 +427,10 @@ struct` always has a field, so two never share the one empty array.
 `display_value` prints a value that holds itself with `...` at the
 repetition: it keeps the arrays and structs it is inside on a path,
 which a `Leave` piece pops, and a value already on the path is cut. See
-[mutation.md](mutation.md).
+[mutation.md](mutation.md). An object's `private` header field
+(`k_private`) prints as `_`, as `print` and `string` write it; the
+prompt's echo and the debugger's Variables view and evaluations call it
+with `~full:true`, and show every field.
 
 ## Hosts: where output actually goes
 

@@ -1,0 +1,4 @@
+'tests/fail_typecheck_objects_dunder_interface.pyk' 5:4-5:28 Type
+  error: '__len__' is a name Python gives a meaning of its own, so a
+  method of that name would behave differently there; give it another
+  name

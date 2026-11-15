@@ -1,0 +1,4 @@
+'tests/fail_typecheck_private_param_order.pyk' 5:40-5:64 Name error:
+  'owner' comes after the private parameter 'balance': private
+  parameters come after the others of 'Account', which are all a call
+  outside the class gives

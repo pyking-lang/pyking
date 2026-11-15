@@ -2442,8 +2442,17 @@ let build_format_helper info name floats =
                 "f",
                 PyAttr (info, v, "_pyk_header"),
                 [
-                  PyAssign (info, PyTargetName (info, "e"), call "getattr" [ v; var "f" ]);
-                  step;
+                  (* a private field is written `_` *)
+                  PyIf
+                    ( info,
+                      PyBinOp (info, "in", 1, 2, 2, var "f", call "getattr" [ v; text "_pyk_private"; PyTuple (info, []) ]),
+                      [
+                        PyAssign
+                          ( info,
+                            PyTargetName (info, "out"),
+                            joined [ out; PyIfExp (info, PyEq (info, out, text ""), text "", text ", "); text "_" ] );
+                      ],
+                      Some [ PyAssign (info, PyTargetName (info, "e"), call "getattr" [ v; var "f" ]); step ] );
                 ],
                 None );
             PyReturn
@@ -4709,6 +4718,7 @@ and translate_class info c scope gen =
   let bases = if abstract_ && bases = [] then [ "ABC" ] else bases in
   let quoted names = PyTuple (info, List.map (fun n -> PyString (info, n)) names) in
   let header_attrs = List.map (fun (n, _) -> member_name gen (Some c.c_name) n) k.Classes.header in
+  let private_attrs = List.map (fun n -> member_name gen (Some c.c_name) n) (Classes.private_header k) in
   let shows = Classes.resolve table c.c_name "show" <> None && Classes.own_method table c.c_name "show" <> None in
   let class_attrs =
     [ PyAssign (info, PyTargetName (info, "__slots__"), quoted (List.map (fun f -> attr f.Classes.f_name) k.Classes.fields)) ]
@@ -4717,7 +4727,12 @@ and translate_class info c scope gen =
          [
            PyAssign (info, PyTargetName (info, "_pyk_header"), quoted header_attrs);
            PyAssign (info, PyTargetName (info, "__match_args__"), quoted header_attrs);
-         ])
+         ]
+         @
+         (* what printing writes `_`; a subclass's header never names a
+            private field of its parent's, so inheriting it is harmless *)
+         if private_attrs = [] then []
+         else [ PyAssign (info, PyTargetName (info, "_pyk_private"), quoted private_attrs) ])
     @ if shows then [ PyAssign (info, PyTargetName (info, "_pyk_show"), PyBool (info, true)) ] else []
   in
   (* A def of Pyking's own, translated as any def is and then named as

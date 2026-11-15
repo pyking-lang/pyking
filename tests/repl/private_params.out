@@ -1,0 +1,10 @@
+Pyking REPL.  :help for commands, :quit to leave.
+> > . . . > > Tally("a", [1, 2]) : Tally
+> Tally("a", _)
+> "Tally(\"a\", _)" : String
+> '<repl>' 1:11-1:14 Name error: 'counts' is private to 'Tally': only
+  the methods of 'Tally' give it, and elsewhere a 'Tally' is made
+  without it, as Tally(label)
+> . . '<repl>' 2:18-2:20 Type error: 'counts' is private to 'Tally': a
+  pattern outside it writes '_' in its place
+> 

@@ -1,0 +1,3 @@
+'tests/fail_typecheck_objects_upcast_unwritten.pyk' 13:31-13:32 Type
+  error: this binding's value must be Result(Shape, String), not
+  Result(Square, a)

@@ -1,0 +1,5 @@
+# A field of a class named `__init__` would replace Python's
+# constructor.
+use objects
+
+class P(__init__: Int)

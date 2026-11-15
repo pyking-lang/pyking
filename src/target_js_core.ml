@@ -2094,7 +2094,23 @@ let translate_program ?(taken = []) ?(external_fields = []) ?(externals = [])
                             shape;
                             JsArray (at, List.map (fun n -> str (program_class n scope)) (Classes.supers classes name));
                             JsBool (at, Classes.resolve classes name "show" <> None && Classes.has_method classes name "show");
-                          ] ) );
+                          ]
+                          @
+                          (* the places of the private header fields, where
+                             there are any *)
+                          let hidden = Classes.private_header c in
+                          if hidden = [] then []
+                          else
+                            [
+                              JsArray
+                                ( at,
+                                  List.filter_map
+                                    (fun n ->
+                                      Option.map
+                                        (fun k -> JsNum (at, k))
+                                        (List.find_index (fun (h, _) -> h = n) c.Classes.header))
+                                    hidden );
+                            ] ) );
                 ]
             in
             own
@@ -2440,9 +2456,11 @@ let class_helper =
     [
       "// What printing and a pattern read of an object, set on its class:";
       "// its class's name, its header's fields, which of them are Floats,";
-      "// every class and interface it is, and whether `show` says how it";
-      "// prints (docs/target_js.md, \"Classes\").";
-      "function pykClass(c, tag, header, shape, classes, show) {";
+      "// every class and interface it is, whether `show` says how it prints,";
+      "// and the places of its header's private fields, which printing";
+      "// writes `_` -- set on every class, so none inherits its parent's";
+      "// (docs/target_js.md, \"Classes\").";
+      "function pykClass(c, tag, header, shape, classes, show, hidden) {";
       "  c.prototype.pykTag = tag;";
       "  Object.defineProperty(c.prototype, 'pykValues', {";
       "    get() { return header.map((name) => this[name]); },";
@@ -2451,6 +2469,7 @@ let class_helper =
       "  c.prototype.pykShape = shape;";
       "  c.prototype.pykClasses = classes;";
       "  c.prototype.pykShow = show;";
+      "  c.prototype.pykPrivate = hidden === undefined ? null : hidden;";
       "}";
       "";
       "// An interface's defaults, copied into a class that has no body of its";

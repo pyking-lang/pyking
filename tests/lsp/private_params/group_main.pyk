@@ -1,0 +1,4 @@
+from group_lib import Group
+
+g = Group("a").add("ada")
+print(g.size(), Group(title = "b"))

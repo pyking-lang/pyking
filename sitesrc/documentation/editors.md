@@ -34,7 +34,9 @@ The server gives:
   `m.` the names that module `m` exports.
 - **Signature help**: while a call is typed, the function's parameters
   with their types, the one being written marked, and what its `##`
-  comment says of each. A named argument marks its parameter.
+  comment says of each. A named argument marks its parameter. A class's
+  constructor shows its header, without its `private` parameters
+  outside the class's own methods.
 - **References** and **highlights**: every place a name is written, in
   the file and in the modules of the program.
 - **Rename**: a binding and every use of it renamed together. A rename

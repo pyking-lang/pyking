@@ -1,0 +1,6 @@
+# Nor is its private field read by a pattern here.
+use objects
+import module_class_private_param_mod as m
+
+match m.Tally("t").add(1):
+    case m.Tally(_, counts, _): print(counts)

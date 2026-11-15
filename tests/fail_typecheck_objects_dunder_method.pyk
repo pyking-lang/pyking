@@ -1,0 +1,8 @@
+# A method named as Python names its special methods would behave
+# differently there alone: `__del__` would run when the object is
+# collected.
+use objects
+
+class P(x: Int):
+    def __del__(self) -> ():
+        print("bye")

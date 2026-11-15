@@ -1,0 +1,4 @@
+'tests/fail_typecheck_objects_dunder_method.pyk' 7:4-8:20 Type error:
+  '__del__' is a name Python gives a meaning of its own, so a method
+  of that name would behave differently there -- Pyking calls no
+  method when an object is collected; give it another name

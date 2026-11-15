@@ -1,0 +1,9 @@
+use objects
+
+class Tally(label: String, private counts: [Int] = []):
+    def add(self, n: Int) -> Tally:
+        Tally(self.label, self.counts + [n])
+
+t = Tally("a").add(1).add(2)
+print(t)
+print("done")

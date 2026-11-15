@@ -48,6 +48,11 @@ type cls = {
 
 type table = cls SMap.t
 
+(** The header fields of a class written `private`, in header order:
+    what printing writes as `_` (PYKING.md, "Equality and printing").
+    cls -> [string] *)
+val private_header : cls -> string list
+
 (** The classes and interfaces these statements declare; a supertype is
     named as the checker recorded it in `tmap`, where it did. *)
 val table : ?tmap:typ IntMap.t -> stmt list -> table

@@ -411,7 +411,9 @@ let use_at found row col =
   let size (i : Lexer.info) = (i.row2 - i.row1, if i.row1 = i.row2 then i.col2 - i.col1 else i.col2) in
   List.fold_left
     (fun best u ->
-      if contains u.use_at then
+      (* a call of a def the sugar made (a default filled in) is no name
+         the program wrote, and stands where the call it fills is *)
+      if contains u.use_at && not (Desugar_args.generated_name u.use_name) then
         match best with
         | Some b when compare (size b.use_at) (size u.use_at) <= 0 -> best
         | _ -> Some u

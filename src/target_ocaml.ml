@@ -3166,9 +3166,12 @@ and object_value ctx acc info cls args =
           let parts, acc =
             List.fold_left
               (fun (out, acc) (h, hs) ->
-                let t = Option.value (IntMap.find_opt hs ctx.tmap) ~default:(TUnknown (info, 0)) in
-                let text, acc = string_of ctx acc t (OSend (OVar "self", h)) info false in
-                (out @ [ text ], acc))
+                (* a private field is written `_` *)
+                if List.mem h (Classes.private_header c) then (out @ [ OStr "_" ], acc)
+                else
+                  let t = Option.value (IntMap.find_opt hs ctx.tmap) ~default:(TUnknown (info, 0)) in
+                  let text, acc = string_of ctx acc t (OSend (OVar "self", h)) info false in
+                  (out @ [ text ], acc))
               ([], acc) header
           in
           let joined =
@@ -5478,13 +5481,25 @@ and pprint_bare e level =
          in body` -- while a function definition keeps its body
          underneath, which is where a reader looks for it. *)
       let one_line = Printf.sprintf "%s %s" head body_text in
+      (* A body ending in a `match` or a `function` would take the arms
+         written after the whole `let` as its own -- a `let` in a match
+         arm, which a class pattern's fields are read by -- so such a
+         `let` is as loose as the `match` it ends in. *)
+      let rec open_ended e =
+        match e with
+        | OMatch _ | OFun _ -> true
+        | OLet (_, b, _) -> open_ended b
+        | OSeq (_, rest) -> open_ended rest
+        | _ -> false
+      in
+      let precedence = if open_ended body then p_seq else p_let in
       if
         List.length bindings = 1
         && (List.hd bindings).params = []
         && (not (has_newline one_line))
         && String.length one_line + (2 * level) <= 66
-      then (one_line, p_let)
-      else (Printf.sprintf "%s\n%s" head body_text, p_let)
+      then (one_line, precedence)
+      else (Printf.sprintf "%s\n%s" head body_text, precedence)
   | OSeq (first, rest) ->
       let head = pprint first (p_seq + 1) level in
       let tail = pprint rest p_seq level in

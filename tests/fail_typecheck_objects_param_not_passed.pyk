@@ -1,0 +1,9 @@
+# A header parameter named as a field the class inherits only passes
+# it on: one the `extends` does not pass would be dropped.
+use objects
+
+class A(n: Int)
+
+class B(m: Int, n: Int) extends A(5)
+
+print(B(1, 2).n)

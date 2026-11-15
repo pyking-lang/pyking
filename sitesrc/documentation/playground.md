@@ -72,7 +72,8 @@ editor set up with `pyk lsp` gives (see [Editors](/documentation/editors/)):
 - **Hover**: the type of what is under the pointer.
 - **Completion**: keywords, builtins, the names in scope, and after
   `m.` what module `m` exports.
-- **Signature help**: a function's parameters while you type a call.
+- **Signature help**: a function's parameters while you type a call,
+  and a class's constructor's.
 - **Go to definition** (F12, or Ctrl+click, Cmd+click on a Mac), and
   **Peek Definition** (Alt+F12), which also shows a definition in the
   standard library.

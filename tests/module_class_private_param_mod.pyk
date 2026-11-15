@@ -1,0 +1,13 @@
+# A public class whose list is a private constructor parameter: other
+# modules make one empty and grow it by its methods.
+use objects
+
+public class Tally(label: String, private counts: [Int] = [], private total: Int = 0):
+    def add(self, n: Int) -> Tally:
+        Tally(self.label, self.counts + [n], total = self.total + n)
+    def sum(self) -> Int:
+        self.total
+    def items(self) -> [Int]:
+        self.counts
+
+public class Labelled(name: String, private hidden: String = "secret")

@@ -1,0 +1,7 @@
+# Private constructor parameters come after the others, so a call
+# outside the class gives the same parameters by position.
+use objects
+
+class Account(private balance: Int = 0, owner: String = "nobody"):
+    def get(self) -> Int:
+        self.balance

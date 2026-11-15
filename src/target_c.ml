@@ -6032,11 +6032,15 @@ let class_functions ctx st scope info c =
         | [] -> (Printf.sprintf "    return %s;" (quote c.c_name), st)
         | header ->
             let st = need_concat st in
+            let hidden = Classes.private_header k in
             let parts, st =
               List.fold_left
                 (fun (out, st) (h, hs) ->
-                  let show, st = shower ctx st info (type_at hs) in
-                  (out @ [ show (object_field ctx c.c_name h "o") ], st))
+                  (* a private field is written `_` *)
+                  if List.mem h hidden then (out @ [ quote "_" ], st)
+                  else
+                    let show, st = shower ctx st info (type_at hs) in
+                    (out @ [ show (object_field ctx c.c_name h "o") ], st))
                 ([], st) header
             in
             let joined =

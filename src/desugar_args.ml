@@ -41,8 +41,17 @@ type parameter = { name : string; default : default option; implicit : bool }
 
 (** What a call needs to know about the definition it reaches: its
     parameters, whether it is exported, and, for a constructor, whether
-    it is its datatype's only one. *)
-type meta = { parameters : parameter list; exported : bool; sole : bool }
+    it is its datatype's only one. A class's constructor also says which
+    class it makes, as (module, class), and which of its parameters are
+    `private`: only that class's own methods give those (PYKING.md,
+    "`private`"). *)
+type meta = {
+  parameters : parameter list;
+  exported : bool;
+  sole : bool;
+  owner : (string * string) option;
+  privates : string list;
+}
 
 (** One module: its definitions, the other names its top level binds,
     whether it is written in another language, in which case the sugar
@@ -167,6 +176,8 @@ let meta_of func params implicits exported =
     parameters = List.map (one false) params @ List.map (one true) implicits;
     exported;
     sole = false;
+    owner = None;
+    privates = [];
   }
 
 (** The name a constructor's unnamed field is known by here: one no
@@ -189,7 +200,26 @@ let constructor_meta exported sole (Constructor (_, name, fields, _)) =
         fields;
     exported;
     sole;
+    owner = None;
+    privates = [];
   }
+
+(** The module being rewritten, and the class whose methods the walk is
+    in, as (module, class): where a class's private constructor
+    parameters may be given. *)
+let current_module = ref ""
+
+let current_class : (string * string) option ref = ref None
+
+(** The class whose `extends` arguments the walk is in, for a message. *)
+let extending : string option ref = ref None
+
+(** Runs `f` with `r` set to `v`, and sets it back however `f` ends.
+    'a ref -> 'a -> (() -> 'b) -> 'b *)
+let with_ref r v f =
+  let saved = !r in
+  r := v;
+  Fun.protect ~finally:(fun () -> r := saved) f
 
 (** What a class's constructor takes: its header fields, as a struct's
     constructor takes its fields. bool -> class_decl -> meta *)
@@ -202,6 +232,11 @@ let class_meta exported c =
         c.c_header;
     exported;
     sole = true;
+    owner = Some (!current_module, c.c_name);
+    privates =
+      List.filter_map
+        (fun (MemberField (_, field, _, _, _, private_, _)) -> if private_ then Some field else None)
+        c.c_header;
   }
 
 (** The name of the def holding a method parameter's default: one no
@@ -612,6 +647,36 @@ let import_scope signatures statement scope =
             scope fields)
   | _ -> scope
 
+(** A class's private header parameters: each has a default, since
+    only the class's own methods give one and nothing else could make the
+    object otherwise, and they come after the others, so a call outside
+    the class means the same parameters by position as one inside it.
+    [String] -> class_decl -> () *)
+let private_order taken c =
+  ignore
+    (List.fold_left
+       (fun seen (MemberField (fi, field, _, default, _, private_, _)) ->
+         (* a printed program (`-t pyking`) holds a default that is not a
+            literal in the def made for it, written before the class *)
+         let generated = List.mem (field_default_name c.c_name field) taken in
+         if private_ && default = None && not generated then
+           refuse fi
+             (Printf.sprintf
+                "'%s' is a private parameter of '%s', which only its methods \
+                 give, so it needs a default: nothing else could make one"
+                field c.c_name);
+         (match (private_, seen) with
+         | false, Some first ->
+             refuse fi
+               (Printf.sprintf
+                  "'%s' comes after the private parameter '%s': private \
+                   parameters come after the others of '%s', which are all a \
+                   call outside the class gives"
+                  field first c.c_name)
+         | _ -> ());
+         if private_ && seen = None then Some field else seen)
+       None c.c_header)
+
 (* --- the walk --- *)
 
 (** How a callee is written, for a message. expr -> String *)
@@ -648,6 +713,7 @@ let rec expression signatures scope e =
         match module_ with Some m -> m ^ "." ^ name | None -> name
       in
       let reached = constructor_reached signatures scope i module_ name in
+      (match reached with Some (meta, _) -> private_given shown meta args | None -> ());
       let construct args = constructed i module_ name s shown reached args in
       match List.assoc_opt (Some spread_label) args with
       | Some base ->
@@ -752,6 +818,78 @@ let rec expression signatures scope e =
           match ordered i (shown callee) meta reach args with
           | None -> ECall (i, callee, plain_args (arg_exprs args), s)
           | Some (lets, filled) -> let_around i lets (ECall (i, callee, plain_args filled, s))))
+
+(** Refuses a construction that gives a class's private parameter
+    anywhere but in that class's own methods. A private parameter comes
+    after the others (`private_order`), so a positional argument past
+    them is one, as is an argument naming one.
+    String -> meta -> [(String?, expr)] -> () *)
+and private_given shown meta args =
+  match meta.owner with
+  | Some owner when meta.privates <> [] && !current_class <> Some owner ->
+      let class_name = snd owner in
+      let public =
+        List.filter (fun p -> not (List.mem p.name meta.privates)) meta.parameters
+      in
+      let refused at name =
+        let made =
+          Printf.sprintf "%s(%s)" shown
+            (String.concat ", "
+               (List.filter_map
+                  (fun p -> if p.default = None then Some p.name else None)
+                  public))
+        in
+        refuse at
+          (match !extending with
+          | Some below ->
+              Printf.sprintf
+                "'%s' is private to '%s', so '%s' does not give it: write \
+                 'extends %s', and '%s' starts as its default"
+                name class_name below made name
+          | None ->
+              Printf.sprintf
+                "'%s' is private to '%s': only the methods of '%s' give it, \
+                 and elsewhere a '%s' is made without it, as %s"
+                name class_name class_name class_name made)
+      in
+      (* A named argument that is the parameter's own default chooses
+         nothing, so it is not refused: the literal the header writes, or
+         a call of the def holding it. That is how the program this pass
+         answers writes every construction, and printing it (`-t pyking`)
+         must give a program that checks. *)
+      let own_default name e =
+        let literal a b =
+          match (a, b) with
+          | EInt (_, x, _), EInt (_, y, _) -> x = y
+          | EFloat (_, x, _), EFloat (_, y, _) -> x = y
+          | EString (_, x, _), EString (_, y, _) -> x = y
+          | EChar (_, x, _), EChar (_, y, _) -> x = y
+          | EBool (_, x, _), EBool (_, y, _) -> x = y
+          | ENeg (_, EInt (_, x, _), _), ENeg (_, EInt (_, y, _), _) -> x = y
+          | ENeg (_, EFloat (_, x, _), _), ENeg (_, EFloat (_, y, _), _) -> x = y
+          | _ -> false
+        in
+        let generated = field_default_name class_name name in
+        match e with
+        | ECall (_, (EVar (_, g, _) | EQualified (_, _, g, _)), [], _) -> g = generated
+        | e -> (
+            match List.find_opt (fun p -> p.name = name) meta.parameters with
+            | Some { default = Some (Literal l); _ } -> literal l e
+            | _ -> false)
+      in
+      let positional = List.filter (fun (n, _) -> n = None) args in
+      List.iteri
+        (fun at (_, e) ->
+          if at >= List.length public && at < List.length meta.parameters then
+            refused (expr_info e) (List.nth meta.parameters at).name)
+        positional;
+      List.iter
+        (fun (n, e) ->
+          match n with
+          | Some n when List.mem n meta.privates && not (own_default n e) -> refused (expr_info e) n
+          | _ -> ())
+        args
+  | _ -> ()
 
 (** One construction, its arguments already rewritten, with every
     argument in its field's position, carrying the field's name where it
@@ -1189,6 +1327,7 @@ and rewrite signatures scope taken statement =
       let def_of fi generated type_ e =
         SFunctionDef (fi, generated, [], [ SExprStmt (expr_info e, go e, 0) ], type_, 0, c.c_public, [], false)
       in
+      private_order taken c;
       let header_defaults =
         List.filter_map
           (fun (MemberField (fi, field, type_, default, _, _, _)) ->
@@ -1217,7 +1356,10 @@ and rewrite signatures scope taken statement =
                 (defs, []) params
             in
             let inner = List.fold_left (fun scope (Param (_, p, _, _, _)) -> SMap.add p Binding scope) (SMap.add "self" Binding scope) params in
-            let body = Option.map (block signatures inner) body in
+            let body =
+              with_ref current_class (Some (!current_module, c.c_name)) (fun () ->
+                  Option.map (block signatures inner) body)
+            in
             (defs, methods @ [ MethodDecl (mi, mname, params, ret, body, override, private_, ms) ]))
           ([], []) c.c_methods
       in
@@ -1226,7 +1368,17 @@ and rewrite signatures scope taken statement =
       let with_header =
         List.fold_left (fun scope (MemberField (_, f, _, _, _, _, _)) -> SMap.add f Binding scope) scope c.c_header
       in
-      let header = List.map (fun (MemberField (fi, f, t, _, var, private_, fs)) -> MemberField (fi, f, t, None, var, private_, fs)) c.c_header in
+      (* A private parameter's default stays where it is written when it
+         is a literal (as well as at each call), so a printed program
+         (`-t pyking`) still says it has one; nothing after this pass reads
+         a header field's default. *)
+      let header =
+        List.map
+          (fun (MemberField (fi, f, t, d, var, private_, fs)) ->
+            let kept = match d with Some e when private_ && inlined t e <> None -> d | _ -> None in
+            MemberField (fi, f, t, kept, var, private_, fs))
+          c.c_header
+      in
       let fields =
         List.map
           (fun (MemberField (fi, f, t, v, var, private_, fs)) ->
@@ -1237,7 +1389,10 @@ and rewrite signatures scope taken statement =
         match c.c_extends with
         | None -> None
         | Some (ClassRef (ri, module_, name, targs, args, rs)) -> (
-            match expression signatures with_header (EConstruct (ri, module_, name, args, 0)) with
+            match
+              with_ref extending (Some c.c_name) (fun () ->
+                  expression signatures with_header (EConstruct (ri, module_, name, args, 0)))
+            with
             | EConstruct (_, _, _, args, _) -> Some (ClassRef (ri, module_, name, targs, args, rs))
             | made ->
                 (* named arguments out of order: worked out first, in
@@ -1450,6 +1605,9 @@ and imported signatures statement =
     and every named argument, and answers with what the next module may
     then use. signatures -> String -> [stmt] -> ([stmt], signatures) *)
 let desugar signatures name stmts =
+  with_ref current_module name @@ fun () ->
+  with_ref current_class None @@ fun () ->
+  with_ref extending None @@ fun () ->
   (* A module already known under this name is one being extended an
      entry at a time, which is what the prompt does: what it defined
      before is in scope for what it defines now. *)

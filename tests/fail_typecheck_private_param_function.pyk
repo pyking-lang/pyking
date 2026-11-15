@@ -1,0 +1,11 @@
+# A function of the class's own module is outside the class, so it
+# does not give the private constructor parameter.
+use objects
+
+class Group(title: String, private names: [String] = []):
+    def add(self, name: String) -> Group:
+        Group(self.title, self.names + [name])
+    def size(self) -> Int:
+        len(self.names)
+def make(names: [String]) -> Group:
+    Group("made", names)

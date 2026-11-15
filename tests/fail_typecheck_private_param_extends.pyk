@@ -1,0 +1,11 @@
+# A class below one with a private constructor parameter does not give
+# it in its `extends`: it starts as its default.
+use objects
+
+class Group(title: String, private names: [String] = []):
+    def add(self, name: String) -> Group:
+        Group(self.title, self.names + [name])
+    def size(self) -> Int:
+        len(self.names)
+class Big(n: Int) extends Group("big", ["forged"])
+print(Big(1).size())

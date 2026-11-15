@@ -593,7 +593,10 @@ of the module's own, an interface a nested Java interface:
   worked out, implements its interfaces, and -- at the top of a
   hierarchy -- `PykRuntime.Obj`, a `Data` the runtime prints by
   `pykTag()` and `pykFields()` (its header's fields), or by `pykShow()`
-  where the class has a `show`. A class nothing in the program extends
+  where the class has a `show`. `pykPrivate()` answers the places of the
+  header's `private` fields, which printing writes as `_`: `null` by
+  default, the places in a class that has some, and `null` again in a
+  class below one that has some. A class nothing in the program extends
   is `final`; an abstract one is `abstract`.
 - **Fields** are `public final` (`private` where Pyking says so, not
   final where it says `var`); the constructor calls `super(...)` first,

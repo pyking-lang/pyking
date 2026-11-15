@@ -1938,6 +1938,31 @@ let rec resolved ?params store type_ =
     is one. store -> typ? -> typ? *)
 let resolved_option store annotation = Option.map (resolved store) annotation
 
+(** Refuses a member's or a field's name of the form `__name__`. A member
+    and a field are bound under the name written on every target, and
+    Python gives such a name a meaning of its own: `__del__` would run
+    when an object is collected, and a field `__init__` replaces the
+    constructor -- there alone (PYKING.md, "Methods").
+    string -> info -> string -> () *)
+let refuse_python_special what info n =
+  let l = String.length n in
+  if l > 4 && String.sub n 0 2 = "__" && String.sub n (l - 2) 2 = "__" then
+    let instead =
+      match (what, n) with
+      | "method", "__eq__" -> " -- '==' calls a method 'eq'"
+      | "method", ("__str__" | "__repr__") -> " -- printing calls a method 'show'"
+      | "method", ("__init__" | "__new__") -> " -- a class's header is its constructor"
+      | "method", "__del__" -> " -- Pyking calls no method when an object is collected"
+      | _ -> ""
+    in
+    raise
+      (Type_error
+         ( info,
+           Printf.sprintf
+             "'%s' is a name Python gives a meaning of its own, so a %s of that name would behave \
+              differently there%s; give it another name"
+             n what instead ))
+
 (** store knowing the datatypes these statements declare and the ones
     their imports bring in: every name spelled as the source may spell
     it, every constructor, and each field's type. A datatype's own name
@@ -2038,6 +2063,7 @@ let declare_datatypes stmts store =
             let store, fields =
               List.fold_left
                 (fun (store, fields) (Field (fi, label, type_, _, fsym)) ->
+                  Option.iter (refuse_python_special "field" fi) label;
                   let t, store =
                     match (type_, label) with
                     | Some type_, _ -> (resolved ~params:(name, params) store type_, store)
@@ -2639,10 +2665,41 @@ let declare_classes stmts store =
           | Some p -> lookup_field store p n
           | None -> None
         in
+        (* Whether `extends` gives the parent the header parameter `n` as
+           it is, in the place of the parent's own parameter of that
+           name -- which is what passing a field on is. *)
+        let parent_name = match info.cl_parent with Some (p, _) -> base_name p | None -> "" in
+        let passed_on n =
+          match (info.cl_parent, c.c_extends) with
+          | Some (p, _), Some (ClassRef (_, _, _, _, args, _)) -> (
+              match class_named store p with
+              | Some parent -> (
+                  let rec index k = function
+                    | [] -> None
+                    | (m, _) :: rest -> if m = n then Some k else index (k + 1) rest
+                  in
+                  match index 0 parent.cl_header with
+                  | Some k when k < List.length args -> (
+                      match snd (List.nth args k) with EVar (_, m, _) -> m = n | _ -> false)
+                  | _ -> false)
+              | None -> false)
+          | _ -> false
+        in
         let field passed (MemberField (fi, n, t, _, var, private_, _)) =
           let t = resolve c (Option.get t) in
           match inherited n with
-          | Some (owner, f) when passed && printed f.fd_type = printed t && not var && not private_ -> ignore owner; None
+          | Some (owner, f) when passed && printed f.fd_type = printed t && not var && not private_ ->
+              if not (passed_on n) then
+                raise
+                  (Type_error
+                     ( fi,
+                       Printf.sprintf
+                         "'%s' is a field '%s' inherits from '%s', so this parameter only passes it on, but \
+                          the 'extends' does not give it to '%s' as it is, and the value given for it would \
+                          be dropped: write '%s' as the argument for the field '%s' of '%s', or give the \
+                          parameter another name"
+                         n name (base_name owner) parent_name n n parent_name ));
+              None
           | Some (owner, f) when f.fd_private ->
               raise
                 (Type_error
@@ -2673,6 +2730,11 @@ let declare_classes stmts store =
       let self = (c.c_name, List.map (t_var i) info.cl_params) in
       let above = List.tl (all_supers store self) in
       let above_method name = lookup_method_in store above name in
+      (* A member is bound under the name written on every target, and
+         Python gives a name of the form `__name__` a meaning of its own --
+         `__del__` would run when the object is collected, there alone. *)
+      List.iter (fun (MemberField (fi, n, _, _, _, _, _)) -> refuse_python_special "field" fi n) (c.c_header @ c.c_fields);
+      List.iter (fun (MethodDecl (mi, n, _, _, _, _, _, _)) -> refuse_python_special "method" mi n) c.c_methods;
       (* A field and a method never share a name, in a class or above it. *)
       List.iter
         (fun m ->
@@ -4216,8 +4278,22 @@ let rec check_stmts ?(discarded = false) stmts env return_type acc_type store =
         (* A statement with another after it is run for what it does:
            what it is worth goes nowhere. *)
         let supplied, env, store =
-          check_stmt ~discarded:(discarded || rest <> []) statement env
-            return_type acc_type store
+          match (statement, return_type) with
+          | SExprStmt (_, (EConstruct (_, _, _, _ :: _, _) | EIf _ as e), _), Declared declared
+            when rest = [] && (not discarded) && mentions_object store declared -> (
+              (* The value a function ends in, where its result type is
+                 written: a datatype's constructor there takes an object
+                 below the type it is written to hold (`Ok(Circle(1))`
+                 as a `Result(Shape, String)`), as a list does. Anything
+                 that does not fit is checked as it is anywhere, for its
+                 message. *)
+              match check_wanted e declared "the value this function ends in" env store with
+              | store -> (Some (zonk declared store), env, store)
+              | exception Type_error _ ->
+                  check_stmt ~discarded:(discarded || rest <> []) statement env return_type acc_type store)
+          | _ ->
+              check_stmt ~discarded:(discarded || rest <> []) statement env
+                return_type acc_type store
         in
         let store = if env == before then store else sharpened rest env store in
         if left then
@@ -4634,16 +4710,27 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
          without either being a special case. *)
       if return_type = No_function then
         raise (Type_error (info, "'return' outside a function"));
-      let actual, store = check_expr e env store in
-      let store =
-        match return_type with
-        | Declared declared -> (
-            match coerced store (expr_sym e) declared actual with Some answer -> answer | None -> store)
-        | _ -> store
+      let wanted =
+        (* `return Ok(Circle(1))` where the result type is written: as
+           for the value a body ends in (`check_stmts`) *)
+        match (e, return_type) with
+        | (EConstruct (_, _, _, _ :: _, _) | EIf _), Declared declared when mentions_object store declared -> (
+            match check_wanted e declared "what this 'return' gives" env store with
+            | store -> Some (zonk declared store, store)
+            | exception Type_error _ -> None)
+        | _ -> None
       in
-      ( Some actual,
-        env,
-        check_return (Some actual) return_type (expr_info e) store )
+      (match wanted with
+      | Some (actual, store) -> (Some actual, env, check_return (Some actual) return_type (expr_info e) store)
+      | None ->
+          let actual, store = check_expr e env store in
+          let store =
+            match return_type with
+            | Declared declared -> (
+                match coerced store (expr_sym e) declared actual with Some answer -> answer | None -> store)
+            | _ -> store
+          in
+          (Some actual, env, check_return (Some actual) return_type (expr_info e) store))
   | SClass (info, c, _) -> (Some (unit_type info), env, check_class info c env store)
   | SReturnStmt (info, inner, _) ->
       (* `return if c: ...` -- the same rule, against whatever the branch
@@ -5589,8 +5676,35 @@ and check_binary e env store =
     expr -> typ -> string -> env -> store -> store *)
 and check_wanted arg wanted what env store =
   match arg with
-  | (EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EIf _) when mentions_object store wanted -> (
+  | (EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EIf _ | EConstruct (_, _, _, _ :: _, _)) when mentions_object store wanted -> (
       match (arg, prune wanted store) with
+      | EConstruct (info, module_, name, args, sym), TCon _ when object_class store module_ name = None -> (
+          (* A datatype's constructor where its type is written down
+             (`Ok(Circle(1))` given back as a `Result(Shape, String)`):
+             the written type says what each field is, and each argument
+             is checked against that, an upcast made where one is
+             wanted, as for a list's elements (PYKING.md, "Where an
+             object is seen as a supertype"). Anything that does not fit
+             is checked as it would be elsewhere, for its message. *)
+          let spelled = match module_ with Some m -> m ^ "." ^ name | None -> name in
+          let _, fields, result, inner = constructor_use info spelled name store in
+          let given = arg_exprs args in
+          let mutable_struct =
+            match prune result inner with
+            | TCon (_, canonical, _, _) -> (
+                match SMap.find_opt canonical inner.datatypes with Some (Datatype (_, _, _, true)) -> true | _ -> false)
+            | _ -> false
+          in
+          match unify result wanted inner with
+          | Some inner when List.length given = List.length fields && not mutable_struct ->
+              let inner, _ =
+                List.fold_left2
+                  (fun (inner, position) argument (label, field) ->
+                    (check_wanted argument (zonk field inner) (field_named spelled position label) env inner, position + 1))
+                  (inner, 0) given fields
+              in
+              record inner sym (zonk result inner)
+          | _ -> check_plain_wanted arg wanted what env store)
       | EList (info, elements, sym), TList (_, element, _) ->
           let store = List.fold_left (fun store x -> check_wanted x element what env store) store elements in
           record store sym (t_list info element)
@@ -6785,6 +6899,15 @@ and check_arguments ?about args declared env store position =
           | _ when lambdas -> store
           | (EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EIf _) when mentions_object store expected ->
               check_wanted arg expected (Printf.sprintf "argument %d" position) env store
+          | EConstruct (_, _, _, _ :: _, _) when mentions_object store expected -> (
+              (* `f(Ok(Circle(1)))` with a `Result(Shape, String)`
+                 parameter: as a list there; what does not fit is checked
+                 as any argument is, for its message *)
+              match check_wanted arg expected (Printf.sprintf "argument %d" position) env store with
+              | store -> store
+              | exception Type_error _ ->
+                  let actual, store = check_expr arg env store in
+                  fitted ?about expected actual arg position env store)
           | _ ->
               let actual, store = check_expr arg env store in
               fitted ?about expected actual arg position env store
@@ -7468,6 +7591,20 @@ and check_pattern pattern type_ env store =
                  (if List.length c.cl_header = 1 then "" else "s")
                  (List.length fields) ));
       let mapping = match instance with TCon (_, _, args, _) -> class_mapping c args | _ -> [] in
+      (* A private field is read only by the methods of the class declaring
+         it, and a pattern reads: outside them it is matched by `_`. *)
+      List.iter2
+        (fun one (n, _) ->
+          match (one, lookup_field store (c.cl_name, List.map snd mapping) n) with
+          | PWildcard _, _ -> ()
+          | _, Some (owner, f) when f.fd_private && store.current_class <> Some owner ->
+              raise
+                (Type_error
+                   ( pattern_info one,
+                     Printf.sprintf "'%s' is private to '%s': a pattern outside it writes '_' in its place" n
+                       (base_name owner) ))
+          | _ -> ())
+        fields c.cl_header;
       let store = record store sym (zonk instance store) in
       List.fold_left2
         (fun (env, store) one (_, t) -> check_pattern one (zonk (substitute t mapping) store) env store)

@@ -180,6 +180,7 @@ type class_rt = {
   k_fields : string list; (* every field, its parents' first *)
   k_header : string list; (* what its constructor takes and a pattern matches *)
   k_own_header : string list; (* the header's fields that are its own *)
+  k_private : string list; (* the header's fields written `private`, which printing writes as `_` *)
   k_bodies : string list; (* the methods it gives a body *)
 }
 
@@ -266,6 +267,8 @@ let register_classes stmts =
           k_fields = inherited @ own_header @ body;
           k_header = header;
           k_own_header = own_header;
+          k_private =
+            List.filter_map (fun (MemberField (_, n, _, _, _, p, _)) -> if p then Some n else None) c.c_header;
           k_bodies =
             List.filter_map (fun (MethodDecl (_, n, _, _, b, _, _, _)) -> if b = None then None else Some n) c.c_methods;
         })
@@ -367,9 +370,12 @@ let write_location location value =
     Iterative, so nesting cannot overflow the host stack. An array or a
     struct met again inside itself -- a cycle, which only a `mutable struct`
     or an array can make -- prints as `...`; one that is only shared
-    prints in full wherever it is (PYKING.md, "Mutable structs").
-    value -> string *)
-let display_value value =
+    prints in full wherever it is (PYKING.md, "Mutable structs"). An
+    object's private header field is written `_`, as `print` writes it,
+    unless `full` -- what the prompt's echo and the debugger show, since
+    they are for looking inside (PYKING.md, "Equality and printing").
+    ?full:bool -> value -> string *)
+let display_value ?(full = false) value =
   let out = Buffer.create 32 in
   (* The arrays and structs printing is inside of, innermost first. *)
   let path = ref [] in
@@ -490,7 +496,10 @@ let display_value value =
                 let k = Hashtbl.find classes name in
                 let values =
                   List.filter_map
-                    (fun h -> Option.map snd (Array.find_opt (fun (label, _) -> label = Some h) fields))
+                    (fun h ->
+                      if (not full) && List.mem h k.k_private then Some (Text "_")
+                      else
+                        Option.map (fun (_, v) -> Item v) (Array.find_opt (fun (label, _) -> label = Some h) fields))
                     k.k_header
                 in
                 (* A class of another module is named `module.Name` in the
@@ -502,7 +511,12 @@ let display_value value =
                 else (
                   Buffer.add_string out (name ^ "(");
                   path := Obj.repr fields :: !path;
-                  go (commas values ")" @ (Leave :: rest))))
+                  let rec spread = function
+                    | [] -> [ Text ")" ]
+                    | [ last ] -> [ last; Text ")" ]
+                    | one :: more -> one :: Text ", " :: spread more
+                  in
+                  go (spread values @ (Leave :: rest))))
         | VData (name, [||]) ->
             Buffer.add_string out name;
             go rest

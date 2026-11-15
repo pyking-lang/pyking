@@ -1,0 +1,66 @@
+# An object stands where its interface is written inside a datatype's
+# constructor too: `Ok(Square(2))` given back as a `Result(Shape,
+# String)`, at the end of a body, after `return`, in an `if`, as an
+# argument, nested, inside a list, and in a datatype of the program's
+# own (PYKING.md, "Where an object is seen as a supertype").
+use objects
+
+interface Shape:
+    def area(self) -> Int
+
+class Square(side: Int) implements Shape:
+    override def area(self) -> Int:
+        self.side * self.side
+
+class Circle(r: Int) implements Shape:
+    override def area(self) -> Int:
+        3 * self.r * self.r
+
+datatype Boxed(a):
+    Box(item: a, label: String)
+    Empty
+
+def make(n: Int) -> Result(Shape, String):
+    if n < 0:
+        return Error("negative")
+    if n == 0:
+        return Ok(Circle(1))
+    Ok(Square(n))
+
+def either(n: Int) -> Result(Shape, String):
+    if n > 5 then Ok(Circle(n)) else Ok(Square(n))
+
+def maybe(n: Int) -> Option(Shape):
+    if n == 0 then None else Some(Circle(n))
+
+def nested(n: Int) -> Option(Result(Shape, String)):
+    Some(Ok(Square(n)))
+
+def boxed() -> Boxed(Shape):
+    Box(Circle(2), "c")
+
+def area_of(r: Result(Shape, String)) -> Int:
+    match r:
+        case Ok(s): s.area()
+        case Error(_): -1
+
+print(area_of(make(3)), area_of(make(0)), area_of(make(-1)))
+print(area_of(either(1)), area_of(either(6)))
+match maybe(2):
+    case Some(s): print(s.area())
+    case None: print("none")
+match nested(4):
+    case Some(Ok(s)): print(s.area())
+    case _: print("other")
+match boxed():
+    case Box(s, l): print(l, s.area())
+    case Empty: print("empty")
+all: [Result(Shape, String)] = [Ok(Square(1)), Ok(Circle(1)), Error("x")]
+print([area_of(r) for r in all])
+kept: Option(Shape) = Some(Square(5))
+def area_or_zero(o: Option(Shape)) -> Int:
+    match o:
+        case Some(s): s.area()
+        case None: 0
+
+print(area_of(Ok(Circle(1))), area_or_zero(kept), area_or_zero(maybe(0)), area_or_zero(Some(Square(3))))

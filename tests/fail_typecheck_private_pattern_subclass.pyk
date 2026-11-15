@@ -1,0 +1,13 @@
+# A method of a class below is outside the class declaring the
+# private field, so its pattern writes `_` there too.
+use objects
+
+class Group(title: String, private names: [String] = []):
+    def add(self, name: String) -> Group:
+        Group(self.title, self.names + [name])
+    def size(self) -> Int:
+        len(self.names)
+class Big(n: Int) extends Group("big"):
+    def peek(self, g: Group) -> [String]:
+        match g:
+            case Group(_, names): names

@@ -1,0 +1,9 @@
+# Even a literal tests the private field's value, so a pattern outside
+# the class writes `_` there.
+use objects
+
+class Account(owner: String, private balance: Int = 0)
+
+match Account("ada"):
+    case Account(o, 0): print(o, "is empty")
+    case _: print("something")

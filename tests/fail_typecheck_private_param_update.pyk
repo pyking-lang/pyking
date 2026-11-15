@@ -1,0 +1,11 @@
+# The update form outside the class gives the private parameter by
+# name, which is refused as any named argument is.
+use objects
+
+class Group(title: String, private names: [String] = []):
+    def add(self, name: String) -> Group:
+        Group(self.title, self.names + [name])
+    def size(self) -> Int:
+        len(self.names)
+g = Group("a")
+h = Group(names = ["forged"], ..g)

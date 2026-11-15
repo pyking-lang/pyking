@@ -40,8 +40,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `eq`, `show` and copies, on every target. A public class builds on
   public classes and interfaces only, and its members that are not
   `private` name public types (PYKING.md, "Classes across modules").
+- An object stands where its supertype is written inside a datatype's
+  constructor too: a function returning `Result(Shape, String)` may end
+  in `Ok(Square(2))` or `return` it, and an argument or a binding
+  written as such a type takes one (PYKING.md, "Where an object is seen
+  as a supertype").
+- The language server's signature help covers a class's constructor,
+  outside the class without its `private` parameters.
 
 ### Changed
+
+- A header field written `private` is a constructor parameter only the
+  class's own methods give: everywhere else -- other functions, other
+  modules, a class below it and its `extends` -- it takes its default,
+  which it therefore has, and it comes after the header's other fields.
+  A class can then keep a promise about what it holds, every object
+  being made by its own methods (design/immutable_classes.md, §7). A
+  class pattern outside the class writes `_` for a private field, and
+  printing an object writes one as `_` -- `Account("ada", _)`; the REPL's
+  echo and the debugger still show every field.
+- A method or a field of a class, or a field of a struct or a datatype,
+  named as Python names its special ones (`__del__`, `__init__`,
+  `__eq__`) is refused: on Python alone it took Python's meaning --
+  `__del__` ran when the object was collected, and a field `__init__`
+  replaced the constructor.
+- A class's header parameter named as a field it inherits is refused
+  where its `extends` does not pass it on as it is: `class B(m: Int, n:
+  Int) extends A(5)` silently dropped the `n` it was given.
 
 - The website's documentation is reorganized (design/website.md).
   Getting started is three pages: "Pyking in 20 minutes", a tour of the
@@ -84,6 +109,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OCaml: `same` on two objects seen at related types (a `Square` and a
   `Shape`) and a class member named after an OCaml keyword (`begin`)
   compiled to code OCaml refused.
+- OCaml: a `match` inside the arm of a class pattern that binds a field
+  took the outer match's later arms as its own, which OCaml refused or
+  ran wrongly.
+- The language server's hover on a construction whose default is filled
+  in named the def holding the default rather than the value made.
 
 ## [0.1.11] - 2026-11-14
 

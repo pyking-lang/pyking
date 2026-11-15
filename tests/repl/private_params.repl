@@ -1,0 +1,13 @@
+use objects
+class Tally(label: String, private counts: [Int] = []):
+    def add(self, n: Int) -> Tally:
+        Tally(self.label, self.counts + [n])
+
+t = Tally("a").add(1).add(2)
+t
+print(t)
+string(t)
+Tally("b", [5])
+match t:
+    case Tally(l, cs): cs
+

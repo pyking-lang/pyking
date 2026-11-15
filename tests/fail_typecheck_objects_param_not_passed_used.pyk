@@ -1,0 +1,7 @@
+# Passing it on is giving it as it is: `n + 1` is not `n`, so `B`'s `n`
+# would be another value than the one given.
+use objects
+
+class A(n: Int)
+
+class B(n: Int) extends A(n + 1)

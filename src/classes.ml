@@ -110,6 +110,13 @@ let field_owner table name field =
 (** The field itself. table -> string -> string -> field? *)
 let field_of table name field = List.find_opt (fun f -> f.f_name = field) (all_fields table name)
 
+(** The header fields of a class written `private`, in header order.
+    cls -> [string] *)
+let private_header k =
+  List.filter_map
+    (fun (n, _) -> if List.exists (fun f -> f.f_name = n && f.f_private) k.fields then Some n else None)
+    k.header
+
 (** The method of this name a class or interface declares itself.
     table -> string -> string -> meth? *)
 let own_method table name m =

@@ -1,0 +1,4 @@
+'tests/fail_typecheck_objects_dunder_eq.pyk' 5:4-6:25 Type error:
+  '__eq__' is a name Python gives a meaning of its own, so a method of
+  that name would behave differently there -- '==' calls a method
+  'eq'; give it another name

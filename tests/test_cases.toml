@@ -3220,3 +3220,96 @@ file = "fail_typecheck_panic_argument.pyk"
 
 [[cases]]
 file = "fail_typecheck_map_lt.pyk"
+
+[[cases]]
+file = "immutable_student_group.pyk"
+libs = ["option"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "module_class_private_param.pyk"
+modules = ["module_class_private_param_mod.pyk"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "objects_upcast_constructor_arg.pyk"
+libs = ["option", "result"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "objects_class_pattern_nested_match.pyk"
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "fail_typecheck_private_param_positional.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_param_named.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_param_extends.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_param_no_default.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_param_order.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_param_body_field.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_param_subclass_method.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_param_function.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_param_other_class.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_param_update.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_pattern.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_pattern_literal.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_pattern_subclass.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_dunder_method.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_dunder_eq.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_dunder_field.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_dunder_interface.pyk"
+
+[[cases]]
+file = "fail_typecheck_dunder_struct_field.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_param_not_passed.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_param_not_passed_used.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_upcast_unwritten.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_upcast_constructor_mismatch.pyk"
+
+[[cases]]
+file = "fail_typecheck_private_param_other_module.pyk"
+modules = ["module_class_private_param_mod.pyk"]
+
+[[cases]]
+file = "fail_typecheck_private_pattern_other_module.pyk"
+modules = ["module_class_private_param_mod.pyk"]

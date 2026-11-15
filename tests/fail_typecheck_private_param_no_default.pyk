@@ -1,0 +1,7 @@
+# A private constructor parameter needs a default: only the class's
+# own methods give it, so nothing else could make an object.
+use objects
+
+class Account(owner: String, private balance: Int):
+    def get(self) -> Int:
+        self.balance

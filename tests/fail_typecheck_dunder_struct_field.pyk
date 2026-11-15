@@ -1,0 +1,3 @@
+# A struct's field named as Python names its special attributes:
+# `__init__` would replace the constructor on Python alone.
+struct P(__init__: Int, y: Int)

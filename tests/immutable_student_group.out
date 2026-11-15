@@ -1,0 +1,10 @@
+[] ["Ada", "Bo", "Cy"] ["Cy", "Ada"]
+Some(36) Some(37) None
+false true ["Ada", "Bo"]
+Some("Ada") None 3 0
+a group of 2
+StudentGroup(_)
+[StudentGroup(_), StudentGroup(_)] (StudentGroup(_), 1)
+interpolated: StudentGroup(_) and StudentGroup(_)
+Roster("seminar", _) 2
+Roster("empty", _)

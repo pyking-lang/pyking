@@ -1,0 +1,31 @@
+# A `match` inside the arm of a class pattern that binds a field: the
+# arms after it are the outer match's own (in OCaml, the arm reads the
+# field with a `let`, and the inner match stays inside it).
+use objects
+
+interface Pet:
+    def name(self) -> String
+
+class Dog(age: Int) implements Pet:
+    override def name(self) -> String:
+        "dog"
+
+class Cat(lives: Int) implements Pet:
+    override def name(self) -> String:
+        "cat"
+
+def describe(p: Pet) -> String:
+    match p:
+        case Dog(age):
+            match age:
+                case 0: "a puppy"
+                case _: "a dog of " + string(age)
+        case Cat(lives):
+            match lives:
+                case 9: "a cat with every life"
+                case _: "a cat"
+        case _: p.name()
+
+pets: [Pet] = [Dog(0), Dog(3), Cat(9), Cat(2)]
+for p in pets:
+    print(describe(p))

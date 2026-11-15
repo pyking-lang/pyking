@@ -332,9 +332,11 @@ val format_value : value -> string
 
 (** Formats a value as it appears inside a larger one, or as a
     prompt/debugger shows it: like format_value, but a string is quoted.
-    Iterative, so nesting cannot overflow the host stack.
-    value -> string *)
-val display_value : value -> string
+    Iterative, so nesting cannot overflow the host stack. An object's
+    private header field is written `_`, as print writes it, unless
+    `full`: the prompt's echo and the debugger show every field.
+    ?full:bool -> value -> string *)
+val display_value : ?full:bool -> value -> string
 
 (** What a pointer points at, now. location -> value *)
 val read_location : location -> value

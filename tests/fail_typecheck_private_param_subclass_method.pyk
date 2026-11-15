@@ -1,0 +1,12 @@
+# A method of a class below does not give its parent's private
+# constructor parameter either: only the class declaring it does.
+use objects
+
+class Group(title: String, private names: [String] = []):
+    def add(self, name: String) -> Group:
+        Group(self.title, self.names + [name])
+    def size(self) -> Int:
+        len(self.names)
+class Big(n: Int) extends Group("big"):
+    def forged(self) -> Group:
+        Group("x", ["forged"])

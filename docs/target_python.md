@@ -1535,8 +1535,11 @@ A Pyking class (PYKING.md, "Classes and interfaces") is a Python class,
   interface, or an abstract class with no parent, is an `abc.ABC`). Its
   body holds `__slots__` -- its own fields -- `_pyk_header`, the header's
   fields, which the Bool walker prints an object by, `__match_args__`
-  (the same), which a class pattern matches by, and `_pyk_show = True`
-  where the class has a `show`, which the walker then calls.
+  (the same), which a class pattern matches by, `_pyk_private`, the
+  header's `private` fields, which the walker writes as `_` (only where
+  there are some; a subclass's header never names one of its parent's,
+  so inheriting it is harmless), and `_pyk_show = True` where the class
+  has a `show`, which the walker then calls.
 - **Each method** is a def at the module's top level named for its class,
   `Rect__area(self)`, and the class body names it: `area = Rect__area`,
   `name = override(Rect__name)` for an override, `area =

@@ -1,0 +1,11 @@
+# A body field's first value is not one of the class's methods, so it
+# does not give another class's private parameter.
+use objects
+
+class Group(title: String, private names: [String] = []):
+    def add(self, name: String) -> Group:
+        Group(self.title, self.names + [name])
+    def size(self) -> Int:
+        len(self.names)
+class Holder(n: Int):
+    group: Group = Group("h", ["forged"])

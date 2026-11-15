@@ -1,0 +1,11 @@
+# A method of another class is outside the class too.
+use objects
+
+class Group(title: String, private names: [String] = []):
+    def add(self, name: String) -> Group:
+        Group(self.title, self.names + [name])
+    def size(self) -> Int:
+        len(self.names)
+class Maker(n: Int):
+    def make(self) -> Group:
+        Group("made", ["forged"])

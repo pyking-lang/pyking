@@ -3079,10 +3079,31 @@ let render_class ctx st scope info c =
         Printf.sprintf "        public Object[] pykFields() { return new Object[] { %s }; }"
           (String.concat ", " (List.map (fun (h, _) -> "this." ^ fname h) k.Classes.header));
       ]
+      @ (if Classes.own_method table c.c_name "show" <> None then
+           [ Printf.sprintf "        public String pykShow() { return %s(); }" (method_ident "show") ]
+         else [])
       @
-      if Classes.own_method table c.c_name "show" <> None then
-        [ Printf.sprintf "        public String pykShow() { return %s(); }" (method_ident "show") ]
-      else []
+      (* The places of the header's private fields, which printing writes
+         `_`; a class below one that has some says it has none. *)
+      let hidden k =
+        List.filter_map
+          (fun n -> List.find_index (fun (h, _) -> h = n) k.Classes.header)
+          (Classes.private_header k)
+      in
+      let rec above_hides name =
+        match Classes.find table name with
+        | Some k -> hidden k <> [] || (match k.Classes.parent with Some p -> above_hides p | None -> false)
+        | None -> false
+      in
+      match hidden k with
+      | [] when (match k.Classes.parent with Some p -> above_hides p | None -> false) ->
+          [ "        public int[] pykPrivate() { return null; }" ]
+      | [] -> []
+      | places ->
+          [
+            Printf.sprintf "        public int[] pykPrivate() { return new int[] { %s }; }"
+              (String.concat ", " (List.map string_of_int places));
+          ]
   in
   (* `copy` and `deepcopy` (PYKING.md, "Copying"): a constructor making
      an object from another of its class, field by field -- the parent's
@@ -3716,6 +3737,9 @@ let runtime_source programs version =
        "    // and otherwise as a datatype's value with its header's fields.";
        "    public interface Obj extends Data {";
        "        default String pykShow() { return null; }";
+       "";
+       "        // The places of its header's private fields, printed `_`.";
+       "        default int[] pykPrivate() { return null; }";
        "    }";
        "";
        "    // A mutable struct, whose field i a pointer reads and writes.";
@@ -4665,9 +4689,11 @@ let runtime_source programs version =
         "                return;";
         "            }";
         "            out.append(data.pykTag()).append('(');";
+        "            int[] hidden = value instanceof Obj ? ((Obj) value).pykPrivate() : null;";
         "            for (int i = 0; i < fields.length; i++) {";
         "                if (i > 0) out.append(\", \");";
-        "                write(out, fields[i], path);";
+        "                if (hidden != null && java.util.Arrays.binarySearch(hidden, i) >= 0) out.append('_');";
+        "                else write(out, fields[i], path);";
         "            }";
         "            out.append(')');";
         "            path.remove(value);";

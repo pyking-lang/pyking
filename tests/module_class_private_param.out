@@ -1,0 +1,6 @@
+5 [2, 3] 10 0 []
+Tally("a", _, _) Tally("b", _, _) Tally("c", _, _)
+Labelled("x", _) Labelled("y", _)
+matched a
+matched b
+4 Named(4)

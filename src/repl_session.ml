@@ -291,7 +291,7 @@ let check_entry entry types store =
 let value_text value =
   match value with
   | Interpreter.VClosure _ | Interpreter.VBuiltin _ -> "<function>"
-  | value -> Interpreter.display_value value
+  | value -> Interpreter.display_value ~full:true value
 
 (** ` : Type`, or "" if there is no type. A type the checker has not
     settled prints with `?` where it is still open -- an unannotated

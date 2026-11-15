@@ -1,0 +1,9 @@
+# A constructor whose argument does not fit the written type is
+# reported as before: an Int is no Shape.
+use objects
+
+interface Shape:
+    def area(self) -> Int
+
+def make(n: Int) -> Result(Shape, String):
+    Ok(n)

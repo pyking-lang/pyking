@@ -1,0 +1,6 @@
+# `__eq__` is refused, and the message names `eq`, which `==` calls.
+use objects
+
+class P(x: Int):
+    def __eq__(self, other: P) -> Bool:
+        self.x == other.x

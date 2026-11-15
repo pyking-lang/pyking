@@ -529,7 +529,7 @@ let hover state document pos =
               let label =
                 match (use, name) with
                 | Some u, _ when compare (size u.use_at) (size i) <= 0 -> u.use_name ^ ": "
-                | _, Some n -> n ^ ": "
+                | _, Some n when not (Desugar_args.generated_name n) -> n ^ ": "
                 | _ -> ""
               in
               let shown = { i with col2 = (if i.col2 = max_int then String.length (line_at document.text i.row1) else i.col2) } in
@@ -1196,6 +1196,36 @@ let signature_help state document pos =
                       out @ [ (signature (n ^ "(" ^ String.concat ", " shown ^ ")") "" (List.map (fun p -> (p, "")) shown), names) ]
                   | _ -> out)
                 [] u.stmts)
+            (if String.length base > 0 && base.[0] >= 'A' && base.[0] <= 'Z' then typed.units else [])
+      in
+      let built =
+        if built <> [] then built
+        else
+          (* A class's constructor: its header, less its private
+             parameters outside the class, where only its own methods
+             give them (PYKING.md, "`private`"). *)
+          let within (i : Lexer.info) =
+            compare (i.row1, i.col1) (row, col) <= 0 && compare (row, col) (i.row2, i.col2) <= 0
+          in
+          List.concat_map
+            (fun (u : Module.t) ->
+              List.filter_map
+                (function
+                  | SClass (ci, c, _) when c.c_name = base && c.c_kind <> ClassInterface ->
+                      let inside = u.name = unit.Module.name && within ci in
+                      let given =
+                        List.filter (fun (MemberField (_, _, _, _, _, p, _)) -> inside || not p) c.c_header
+                      in
+                      let shown =
+                        List.map
+                          (fun (MemberField (_, n, t, _, _, p, _)) ->
+                            (if p then "private " else "") ^ n ^ match t with Some t -> ": " ^ show_type t | None -> "")
+                          given
+                      in
+                      let names = List.map (fun (MemberField (_, n, _, _, _, _, _)) -> n) given in
+                      Some (signature (c.c_name ^ "(" ^ String.concat ", " shown ^ ")") "" (List.map (fun p -> (p, "")) shown), names)
+                  | _ -> None)
+                u.stmts)
             (if String.length base > 0 && base.[0] >= 'A' && base.[0] <= 'Z' then typed.units else [])
       in
       let built =

@@ -274,6 +274,41 @@ names are modules; where `x` is a binding here it becomes a field read.
 An uppercase name is always a constructor: no binding may start with an
 uppercase letter, which the parser refuses.
 
+## A class's private parameters
+
+A class's constructor is a definition here too, its header its
+parameters, and the pass is where the rule on a `private` header field
+is kept (PYKING.md, "`private`"): only the class's own methods give
+one. The rule is about what a call *gives*, which only this pass still
+sees -- after it, every construction holds every argument, a left-out
+one as its default.
+
+- `meta` says, for a class's constructor, which class it makes, as
+  (module, class) -- `owner` -- and which of its parameters are private,
+  `privates`. Both travel with the module's signature, so another
+  module's construction is held to them too.
+- `current_module` is the module being rewritten, and `current_class`
+  the class whose methods the walk is in (set around each method's
+  body, never around a body field's first value or a default).
+  `private_given` refuses a construction giving a private parameter --
+  by position past the others, or by name -- unless `current_class` is
+  its `owner`. A class's `extends` arguments are rewritten as a
+  construction, outside its methods, with `extending` set, so the
+  message says to leave it out of the `extends`.
+- `private_order` refuses, at the class, a private parameter with no
+  default -- nothing else could make the object -- and one followed by
+  a parameter that is not private, so a call outside the class means the
+  same parameters by position.
+
+What the pass answers must stay a program that checks: `pyk compile -t
+pyking` prints it, and the `pyking_rerun` tests run the print. So a
+named argument that is the parameter's own default -- the literal the
+header writes, or a call of the def holding it -- is not refused, since
+it chooses nothing; and a private parameter's literal default stays in
+the header after the pass, as well as at each call, where every other
+header default is removed. Nothing after the pass reads a header field's
+default.
+
 ## A literal default is written at the call
 
 A default that is a literal -- an integer, a float, a string or a

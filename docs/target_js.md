@@ -1310,13 +1310,16 @@ an interface one too, never made:
 - **The constructor** calls `super(...)` with the parent's arguments,
   then sets the class's own header fields and its body fields; each
   method takes its object as `self` (`const self = this;`).
-- **`pykClass(C, tag, header, shape, classes, show)`**, after the
-  classes, gives each class's prototype what printing and patterns read:
-  `pykTag` and `pykValues` (its name and its header's fields), so
+- **`pykClass(C, tag, header, shape, classes, show, hidden)`**, after
+  the classes, gives each class's prototype what printing and patterns
+  read: `pykTag` and `pykValues` (its name and its header's fields), so
   `pykFormat` prints an object as it prints a datatype's value, with
   `pykShape` saying which fields are Floats; `pykClasses`, every class
-  and interface it is, which a class pattern tests; and `pykShow`, true
-  where `show` says how it prints.
+  and interface it is, which a class pattern tests; `pykShow`, true
+  where `show` says how it prints; and `pykPrivate`, the places of the
+  header's `private` fields, which `pykFormat` writes as `_` -- given
+  only where there are some, and `null` on every other class, so none
+  inherits its parent's.
 - **`pykMixin(C, I)`** copies an interface's defaults into a class that
   has no body for them, from its own chain or a nearer interface.
 - `obj.m(...)` is `obj.m(...)`; `super.m(...)` is

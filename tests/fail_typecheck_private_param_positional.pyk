@@ -1,0 +1,11 @@
+# A private constructor parameter is given only by the class's own
+# methods: here by position, outside the class.
+use objects
+
+class Group(title: String, private names: [String] = []):
+    def add(self, name: String) -> Group:
+        Group(self.title, self.names + [name])
+    def size(self) -> Int:
+        len(self.names)
+g = Group("a", ["forged"])
+print(g.size())

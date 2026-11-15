@@ -18,6 +18,18 @@ The rules referred to are in `PYKING.md`, "Classes and interfaces" and
 "Classes across modules", and the reasons for them in
 `design/plan-objects.md` (§3.2, §7 and §11.4).
 
+**Status.** §1 to §6 describe Pyking as it was when this note was
+written. The proposal in §7 is now implemented (§7.10 says where the
+implementation differs from it), so a few things these sections show as
+accepted are now refused or behave differently:
+- §3's `__del__` is refused;
+- §4c's `Cents(private amount: Int)` needs a default;
+- §6.2's four routes into `StudentGroup` are refused;
+- printing writes a private header field as `_`;
+- §4c's `m: Money = ...` workaround is no longer needed.
+
+Each place says so where it matters.
+
 ---
 
 ## 1. Several constructors
@@ -315,6 +327,12 @@ way in*, makes the object truly immutable. Nothing in the language
 says so or checks it: Pyking has no "deeply immutable" class.
 
 ### 4c. A private constructor, emulated across modules
+
+*(Since §7: `class Cents(private amount: Int)` is refused, since a
+private header parameter now needs a default. The same class is written
+`Cents(private amount: Int = 0)` with a method adding to it. Hole 4 is
+closed by T6: `Ok(Cents(...))` is accepted where `Result(Money, String)`
+is written.)*
 
 **There is no private constructor today.** A `public class` exports
 its constructor (plan-copy-public-classes.md, choice C1 A), and inside
@@ -651,6 +669,10 @@ A class `StudentGroup` that:
 It uses no interface: one class, used directly.
 
 ### 6.2 Can it be written today?
+
+*(Since §7, the program below runs unchanged, and the four routes shown
+after it are refused. It is the test `tests/immutable_student_group.pyk`,
+with a pattern inside the class, one outside it, and printing.)*
 
 **The class can be written today, and runs the same on every target. Its
 promises can't be kept.** The program below is the whole example.
@@ -1359,3 +1381,70 @@ After each task:
   asks;
 - this file's §4 and §6 updated where they describe today's behaviour
   that the task changes.
+
+### 7.10 As implemented
+
+Every task is implemented, on every target, with tests. Where the
+implementation departs from §7.1 to §7.9:
+
+- **T1 is kept in `desugar_args.ml`, not the checker.** That pass fills
+  in defaults before anything is checked, so it is the last place that
+  sees whether a call *gave* a private parameter. It also drops a
+  header field's default, so rules 2 and 3 (a default; after the
+  others) are kept there too. Its refusals are reported as a "Name
+  error", as the pass's other refusals are. The constructor's `meta`
+  records its class, as (module, class), and its private parameters;
+  the walk records the class whose methods it is in.
+- **Rule 5 needed nothing.** A constructor is not a value in Pyking
+  (`C` alone is `C()` where every field has a default, and is refused
+  otherwise), so there is no function value to narrow.
+- **A named argument that is the parameter's own default is not
+  refused.** `pyk compile -t pyking` prints the program after the sugar
+  is removed, where every construction gives every argument by name, and
+  the `pyking_rerun` tests run that print. So `C(xs = <its literal
+  default>)`, or a call of the def holding a default that is not a
+  literal, is accepted from anywhere: it chooses nothing. For the same
+  reason a private parameter's literal default stays in the header after
+  the pass.
+- **T2** is in the checker's class-pattern rule, with the reach `private`
+  has elsewhere (`store.current_class`); a method of a class below is
+  outside, as for reading the field.
+- **T3**: the interpreter's `display_value` takes `~full`, which the
+  REPL's echo and the debugger pass. Python writes `_pyk_private` on a
+  class that has private header fields. JavaScript passes their places
+  to `pykClass`. Java has `pykPrivate()` (and a class below one with
+  them overrides it with `null`). C and OCaml decide at compile time.
+  `Classes.private_header` is the one question every backend asks.
+- **T4** reaches struct and datatype fields as well as class members:
+  a struct field `__init__` broke the Python constructor. Top-level
+  names were tried (`__name__`, `__builtins__`, `__import__`,
+  `__dict__`, ...) and are harmless on Python, so they stay allowed.
+- **T6** covers a datatype's constructor where the type is written:
+  - an annotation;
+  - a function's last value;
+  - `return`;
+  - a call's argument;
+  - nested inside a list, a tuple, an `if` or another constructor.
+
+  Anything that does not fit falls back to the check it had before, so
+  every error message is unchanged. A `mutable struct`'s constructor is
+  left as it was.
+- **Found and fixed on the way:**
+  - OCaml: a `match` inside the arm of a class pattern that binds a
+    field took the outer match's later arms as its own. A `let` ending
+    in an open `match` is now parenthesised.
+  - LSP: hovering a construction whose default was filled in showed
+    the generated def's name.
+  - LSP: signature help did not cover class constructors at all. It
+    now does, without private parameters outside the class.
+
+**Tests:**
+- programs on every target: `immutable_student_group`,
+  `module_class_private_param` (with `_mod`),
+  `objects_upcast_constructor_arg` and
+  `objects_class_pattern_nested_match`;
+- 24 `fail_typecheck_` cases, one per refusal (`private_param_*`,
+  `private_pattern_*`, `objects_dunder_*`, `dunder_struct_field`,
+  `objects_param_not_passed*`, `objects_upcast_*`);
+- the sessions `tests/repl/private_params.repl`,
+  `tests/lsp/private_params.lsp` and `tests/dap/private_fields.dap`.

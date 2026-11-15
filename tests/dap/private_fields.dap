@@ -1,0 +1,13 @@
+# A private header field: the Variables view and an evaluation show it,
+# since the debugger is for looking inside, while the program's own
+# `print` writes it as `_`.
+launch private_fields.pyk
+break private_fields.pyk 9
+configure
+wait stopped
+stack
+scopes 1
+variables Environment
+evaluate 1 t
+continue
+wait terminated

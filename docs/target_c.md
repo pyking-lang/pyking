@@ -963,7 +963,8 @@ programs simulate one:
   struct of the class declaring it.
 - **The descriptor**, `pyk_class_<module>_<C>`, holds the class's name,
   its parent's descriptor, its interfaces', its method table and its
-  printer, and, where the program copies, the function copying one of
+  printer (the class's `show`, or its header form with a `private`
+  header field written as `_`), and, where the program copies, the function copying one of
   its objects. The table has one slot per method name the program's
   classes have, numbered alike in every module, so `o.m(...)` is the slot's function, cast to the method's
   signature, called on `o`; `super.m(...)` calls the body's function

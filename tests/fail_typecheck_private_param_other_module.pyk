@@ -1,0 +1,5 @@
+# A class of another module: its private constructor parameter is not
+# given here either.
+from module_class_private_param_mod import Tally
+
+t = Tally("t", [1, 2])

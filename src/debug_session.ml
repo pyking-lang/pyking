@@ -971,7 +971,7 @@ let parts_shown = 1000
     any. t -> string -> Interpreter.value -> string -> bool -> (t, variable) *)
 let variable_of t name value vtype settable =
   let t, reference = if has_parts value then reference t (Parts value) else (t, 0) in
-  (t, { vname = name; value = Interpreter.display_value value; vtype; reference; settable })
+  (t, { vname = name; value = Interpreter.display_value ~full:true value; vtype; reference; settable })
 
 (** What a reference holds: a frame's names, or a value's parts.
     t -> int -> (t, [variable]) *)
@@ -1050,7 +1050,7 @@ let variables t reference =
         | Interpreter.VMutMap d | Interpreter.VMap d ->
             (* A MutMap or a Map is shown entry by entry, each under its key. *)
             List.filter_map
-              (Option.map (fun (k, x) -> ("[" ^ Interpreter.display_value k ^ "]", x)))
+              (Option.map (fun (k, x) -> ("[" ^ Interpreter.display_value ~full:true k ^ "]", x)))
               (Array.to_list (Array.sub d.entries 0 d.used))
         | Interpreter.VTuple items -> List.mapi (fun i v -> (string_of_int i, v)) items
         | Interpreter.VData (_, fields) ->

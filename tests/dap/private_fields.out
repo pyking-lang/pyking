@@ -1,0 +1,26 @@
+> launch private_fields.pyk
+{"body": {"exceptionBreakpointFilters": [{"default": true, "filter": "uncaught", "label": "Runtime errors"}], "supportsConditionalBreakpoints": true, "supportsConfigurationDoneRequest": true, "supportsEvaluateForHovers": true, "supportsHitConditionalBreakpoints": true, "supportsLogPoints": true, "supportsSetVariable": true, "supportsTerminateRequest": true}, "command": "initialize", "success": true, "type": "response"}
+{"body": {}, "command": "launch", "success": true, "type": "response"}
+{"body": {}, "event": "initialized", "type": "event"}
+> break private_fields.pyk 9
+{"body": {"breakpoints": [{"id": 1, "line": 9, "verified": true}]}, "command": "setBreakpoints", "success": true, "type": "response"}
+> configure
+{"body": {}, "command": "configurationDone", "success": true, "type": "response"}
+> wait stopped
+{"body": {"category": "stdout", "output": "Tally(\"a\", _)\n"}, "event": "output", "type": "event"}
+{"body": {"allThreadsStopped": true, "hitBreakpointIds": [1], "reason": "breakpoint", "threadId": 1}, "event": "stopped", "type": "event"}
+> stack
+{"body": {"stackFrames": [{"column": 1, "endColumn": 14, "endLine": 9, "id": 1, "line": 9, "name": "<module private_fields>", "source": {"name": "private_fields.pyk", "path": "$CASES/private_fields.pyk"}}], "totalFrames": 1}, "command": "stackTrace", "success": true, "type": "response"}
+> scopes 1
+{"body": {"scopes": [{"expensive": false, "name": "Environment", "presentationHint": "locals", "variablesReference": 1}]}, "command": "scopes", "success": true, "type": "response"}
+> variables Environment
+{"body": {"variables": [{"name": "t", "type": "Tally", "value": "Tally(\"a\", [1, 2])", "variablesReference": 2}]}, "command": "variables", "success": true, "type": "response"}
+> evaluate 1 t
+{"body": {"result": "Tally(\"a\", [1, 2])", "type": "Tally", "variablesReference": 3}, "command": "evaluate", "success": true, "type": "response"}
+> continue
+{"body": {"allThreadsContinued": true}, "command": "continue", "success": true, "type": "response"}
+> wait terminated
+{"body": {"category": "stdout", "output": "done\n"}, "event": "output", "type": "event"}
+{"body": {"exitCode": 0}, "event": "exited", "type": "event"}
+{"body": {}, "event": "terminated", "type": "event"}
+> exit status 0

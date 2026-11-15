@@ -1,0 +1,26 @@
+# A class of another module with private constructor parameters, through
+# `from ... import`, a plain import and an alias: made without them,
+# matched with `_` in their places, and printed with `_` there.
+use objects
+import module_class_private_param_mod
+import module_class_private_param_mod as m
+from module_class_private_param_mod import Tally, Labelled
+
+a = Tally("a").add(2).add(3)
+b = module_class_private_param_mod.Tally(label = "b").add(10)
+c = m.Tally("c")
+print(a.sum(), a.items(), b.sum(), c.sum(), c.items())
+print(a, b, c)
+print(Labelled("x"), m.Labelled(name = "y"))
+match a:
+    case Tally(label, _, _): print("matched", label)
+match b:
+    case m.Tally(label, _, _): print("matched", label)
+
+# A class here extending it gives the private parameters nothing: they
+# start as their defaults.
+class Named(n: Int) extends Tally("named"):
+    def bumped(self) -> Tally:
+        self.add(self.n)
+
+print(Named(4).bumped().sum(), Named(4))

@@ -4125,7 +4125,9 @@ calls a method on a half-made object. An object is set up in a fixed
 order: its parent's part first, then its own header fields, then its
 body fields in the order written. A class with nothing to declare under
 its header has no `:`: `class Tag(name: String)`. A field never shares a
-name with a method, nor with a field of a class above it.
+name with a method, nor with a field of a class above it. A constructor
+is not a value: `Tag` alone is `Tag()` where every field has a default,
+and is refused otherwise.
 
 **Methods.** A method is a `def` in the class body whose first parameter
 is `self`, written without a type; every other parameter says its type,
@@ -4136,6 +4138,12 @@ named and default arguments as for any `def`; defaults are written where
 a method is first declared, never on an override. `obj.m` without a call
 is a function closed over the object, worked out once. A body ending in
 a value it does not return is fine in a method answering `()`.
+No member is named as Python names its special ones, `__del__` or
+`__init__`: Python would give such a method or field a meaning of its
+own there alone (`__del__` would run when the object is collected), so
+the name is refused, with `eq` or `show` named where one of those is
+what was meant. A struct's or a datatype's field is refused such a name
+too.
 
 **Objects are references.** Every object is shared by each name, element
 and field holding it, as in Java and Python; `same(a, b)` asks whether
@@ -4147,14 +4155,51 @@ written `def eq(self, other: C) -> Bool`, and are refused where it has
 none -- `same` is the identity test. An object prints as its class's
 name and its header's fields, `Square(2.0)`, or as its `show` says,
 written `def show(self) -> String`: in `print` and `string`, inside a
-printed list included. The REPL's echo of a value and the debugger's
-Variables view show the header form, since neither runs a method to show
-one. Objects have no order: `<` is refused.
+printed list included. A header field written `private` prints as `_`:
+`Account("ada", _)`. The REPL's echo of a value and the debugger's
+Variables view show the header form, every field in it, since neither
+runs a method to show one and both are for looking inside. Objects have
+no order: `<` is refused.
 
 **`private`.** A field or method written `private` is reached only from
-the methods of the class declaring it, on any object of that class;
+the methods of the class declaring it, on any object of that class --
+read, written, matched by a pattern, or given to the constructor;
 classes below it do not see it, and none of them may declare a member of
-its name.
+its name. A header field written `private` is a parameter of the
+constructor only the class's own methods give: everywhere else -- other
+functions, other modules, a class below it and its `extends` -- it takes
+its default, so it has one, and it comes after the header's other
+fields. That is how a class keeps a promise about what it holds: every
+object is made by its own methods.
+
+```pyking
+use objects
+
+# Every group is made empty, `Group()`, and grows by `add`, so no name
+# is in one twice.
+class Group(private names: [String] = []):
+    def add(self, name: String) -> Group:
+        if any(lam n. n == name, self.names) then self else Group(self.names + [name])
+    def size(self) -> Int:
+        len(self.names)
+
+g = Group().add("ada").add("bo").add("ada")
+print(g.size(), g)    # 2 Group(_)
+```
+
+Outside its methods, giving it is refused, by position or by name:
+
+```pyking error
+use objects
+
+class Group(private names: [String] = [])
+
+forged = Group(["ada", "ada"])
+```
+
+A named argument that is the parameter's own default -- the literal its
+header writes -- chooses nothing, and is not refused; that is how the
+program `pyk compile -t pyking` prints writes every construction.
 
 **Interfaces.** An interface declares method signatures and, where it
 gives one, a default body; it has no fields, may `extends` other
@@ -4165,7 +4210,10 @@ a parameter, an element, a field -- and is never made.
 **Inheritance.** `extends P(args)` names one parent class and what its
 constructor is given; the arguments may use the header's parameters. A
 header parameter with the name and type of an inherited field only
-passes it on. A method replacing one a class or interface above has is
+passes it on, so `extends` gives it to the parent as it is, in the place
+of that field: `class B(m: Int, n: Int) extends A(n)`. Written anywhere
+else -- `extends A(5)`, `extends A(n + 1)` -- the value given for it
+would be dropped, and it is refused. A method replacing one a class or interface above has is
 written `override def`, with the same parameters, by name and type, and
 the same result; `override` where nothing is replaced is refused, and so
 is replacing without it. `super.m(args)` calls the body the class
@@ -4178,9 +4226,10 @@ every method a body, its own or one it inherits.
 
 **Where an object is seen as a supertype.** A `Square` stands where a
 `Shape` is written -- an annotated binding, a declared parameter or
-result, a field, a `var` of a declared type -- and inside a list, a tuple
-or an `if` written there, each part on its own. Nowhere else is a type
-guessed: `[Rect(1.0, 1.0), Circle(1.0)]` with nothing written is refused,
+result, a field, a `var` of a declared type -- and inside a list, a
+tuple, an `if` or a datatype's constructor written there, each part on
+its own: a function declared to return `Result(Shape, String)` may end
+in `Ok(Square(2.0))`, or `return` it. Nowhere else is a type guessed: `[Rect(1.0, 1.0), Circle(1.0)]` with nothing written is refused,
 with where to write the type. Lists do not take subtypes: a `[Square]`
 is not a `[Shape]`.
 
@@ -4189,8 +4238,9 @@ the type of `x` is known there; a parameter with no type a body calls a
 method on is refused with "annotate it", as a struct's field is.
 
 **Class patterns.** `case Square(side):` matches an object of that class
-or one below it, its header's fields matched as a struct's are; `case c:
-Circle:` binds the object at its class or interface. A `match` on an
+or one below it, its header's fields matched as a struct's are, with `_`
+for a `private` one outside the methods of the class declaring it; `case
+c: Circle:` binds the object at its class or interface. A `match` on an
 interface or a class others extend needs a `case _` (or a case for the
 type itself), since there may be other classes:
 
@@ -4295,7 +4345,10 @@ prints `rectangle of area 2`, `rectangle of area 12`, `circle of area
 class's, not an abstract class's or an interface's), and every member
 that is not `private`. A `private` member stays reachable only from the
 methods of the class declaring it, wherever the object is, and a class
-in another module extending it never declares a member of that name.
+in another module extending it never declares a member of that name. So
+another module makes the class without its `private` header fields --
+`tally.Tally("a")` for `class Tally(label: String, private counts: [Int]
+= [])` -- and a class pattern there writes `_` in their places.
 
 **How it is named.** As a datatype of another module is: `shapes.Rect`
 through `import shapes`, the alias through `import shapes as sh`

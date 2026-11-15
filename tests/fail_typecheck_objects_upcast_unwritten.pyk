@@ -1,0 +1,13 @@
+# Where no type is written, `Ok(Square(1))` is a Result of a Square,
+# which is not a Result of a Shape: a datatype does not take subtypes.
+use objects
+
+interface Shape:
+    def area(self) -> Int
+
+class Square(side: Int) implements Shape:
+    override def area(self) -> Int:
+        self.side * self.side
+
+r = Ok(Square(1))
+shown: Result(Shape, String) = r

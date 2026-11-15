@@ -37,6 +37,7 @@ is in the [language reference](/documentation/language/).
 | Closures | yes | yes | yes | no | lambdas (captures effectively final) | yes |
 | Tail calls | self and mutual tail calls run in constant stack, on every target | no | not in node | up to the C compiler | no | yes |
 | Objects | `use objects`: classes, interfaces, one parent | classes, many parents | prototypes and classes | none | classes, interfaces, one parent | objects and classes, structural |
+| Controlled construction | a `private` header field: only the class's methods give it, others make `C()` | by convention (`_name`) | `#private` fields and a static factory | by convention | a `private` constructor beside a public one | a module signature hiding the type |
 | Copying a value | `copy(x)`, `deepcopy(x)`, builtins | `copy.copy`, `copy.deepcopy` | `structuredClone` (deep) | `memcpy`, by hand | `clone()` (shallow), by hand | `Array.copy`, `Oo.copy`, by hand |
 | Generics | type variables, inferred | hints only | none | none | generics | type variables, inferred |
 | Memory | managed | managed | managed | `malloc` and `free` | managed | managed |

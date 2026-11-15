@@ -236,6 +236,25 @@ for s in shapes:
     print(s.name(), s.area())
 ```
 
+A field without `var` never changes, so an object of a class without
+`var` fields is immutable, and a method "changing" it answers a new one.
+A header field written `private` is one only the class's own methods
+read and give, so everywhere else the class is made without it -- here
+`Group()` -- and every group is made by `add`, which keeps its names
+unique:
+
+```pyking
+use objects
+
+class Group(private names: [String] = []):
+    def add(self, name: String) -> Group:
+        if any(lam n. n == name, self.names) then self else Group(self.names + [name])
+    def size(self) -> Int:
+        len(self.names)
+
+print(Group().add("ada").add("bo").add("ada").size())    # 2
+```
+
 `public class` and `public interface` make a class another module may
 use, implement and extend: `class Square(side: Float) extends
 shapes.Rect(side, side):` in a module that imports `shapes`. See
