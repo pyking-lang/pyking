@@ -390,7 +390,9 @@ def on_mouse(c: String, click: (Int, Int) -> ()) -> ()
 
 # topic: Mouse and keyboard
 ## Calls `pressed` each time a key is pressed while the page has the
-## focus.
+## focus. The arrow keys and the space bar then go to the program only:
+## they do not scroll the window, nor the notebook or playground the
+## page is shown in.
 ##
 ## # Parameters
 ## - `pressed`: the function to call; it is given the key: a letter or

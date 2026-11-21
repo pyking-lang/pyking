@@ -218,6 +218,12 @@ buttons, sliders and sound. The program goes on running after its last
 line, so a click calls back the function it was given, until the cell
 runs again, another cell runs, or **■** is pressed.
 
+A page that listens for keys (`tw.on_key`) has the keyboard while it
+is ringed in bold amber. Running the cell gives it the keyboard; click
+in the page to give it back, and outside it to take it away. While it
+has the keyboard, the arrow keys and the space bar go to the program
+and do not scroll the notebook.
+
 ````markdown
 ```pyking
 import tinyweb as tw

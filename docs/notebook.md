@@ -145,6 +145,13 @@ buttons, sliders, sound. The program goes on running after its last
 line, so a click calls back the function it handed over, until the cell
 runs again or **■** is pressed.
 
+A page has the keyboard while it has the focus (`:focus-within` on
+`.pkn-page`, shown as a bold ring in `--pkn-warn`). Running a cell that
+calls `on_key` focuses its page, and a click in the page focuses it
+again. With the focus, the arrows and the space bar go to the program
+and their default -- scrolling the notebook -- is prevented
+(`tinyweb_page.js`, `onKey`).
+
 ## Assignments
 
 ### The rules

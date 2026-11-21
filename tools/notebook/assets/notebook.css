@@ -323,9 +323,16 @@ button.pkn-tag:hover { color: var(--pkn-text); border-color: var(--pkn-edge-stro
   border-radius: 0 .4rem .4rem 0;
   overflow-x: auto;
 }
-/* A page has the keyboard while it has the focus. */
+/* A page has the keyboard while it has the focus, and then says so
+   plainly: a bold ring in the warm colour of a running cell, which the
+   cool accent of a focused editor is never mistaken for. */
+.pkn-page { transition: box-shadow .12s, border-color .12s; }
 .pkn-page:focus { outline: none; }
-.pkn-page:focus-within { box-shadow: 0 0 0 2px var(--pkn-accent-soft); }
+.pkn-page:focus-within {
+  border-left-color: var(--pkn-warn);
+  border-radius: .4rem;
+  box-shadow: 0 0 0 3px var(--pkn-warn), 0 0 0 7px var(--pkn-warn-soft);
+}
 
 /* A cell's standard input and arguments, above its code, shown only for
    a program that reads them. */

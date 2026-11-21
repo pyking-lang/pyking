@@ -56,6 +56,8 @@ const SILENT = JSON.stringify('import tinyweb as tw\ntw.web_init(0)\ntw.button("
 const COUNTER = JSON.stringify('use mutation\nimport tinyweb as tw\nvar n = 0\ntw.web_init(0)\n'
   + 'shown = tw.label("0")\ndef more():\n    n := n + 1\n    tw.set_text(shown, string(n))\n'
   + '    print(n)\ntw.button("More", on_click = more)\n');
+const ARROWS = JSON.stringify('import tinyweb as tw\ntw.web_init(0)\ntw.canvas(50, 50)\n'
+  + 'def pressed(key: String):\n    print(key)\ntw.on_key(pressed)\n');
 
 // What the website asks before it reloads a page onto a new build:
 // whether a reload now would lose something -- a cell running, a page its
@@ -85,6 +87,35 @@ const CELLS_KEPT = `(async () => { ${HELPERS}
   cell.setSource(original);
   nb.saveForReload();
   check("a cell as the page wrote it is not kept", sessionStorage.getItem(key) === null);
+
+  // A program listening for keys has them while its page has the focus:
+  // the arrows and the space bar go to it, and do not scroll the notebook.
+  // Run as a reader does, with the button, so that no editor has the
+  // focus; the page takes it once its renderer has mounted and been told
+  // the program listens for keys.
+  cell.setSource(${ARROWS});
+  cell.ui.run.focus();
+  cell.ui.run.click();
+  const page = cell.ui.page;
+  for (let i = 0; i < 100 && !page.matches(":focus-within"); i++)
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  check("a page listening for keys takes the focus, and shows it",
+    page.matches(":focus-within") && getComputedStyle(page).boxShadow !== "none",
+    document.activeElement?.className + " " + getComputedStyle(page).boxShadow);
+  const keys = ["ArrowDown", "ArrowUp", " ", "x"].map((key) => {
+    const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    page.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  check("its arrows and space bar do not scroll the notebook, other keys are left alone",
+    JSON.stringify(keys) === "[true,true,true,false]", JSON.stringify(keys));
+  for (let i = 0; i < 100 && !/x/.test(cell.ui.stdout.textContent); i++)
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  check("and the program is given every one of them",
+    cell.ui.stdout.textContent === "ArrowDown\\nArrowUp\\n \\nx\\n",
+    JSON.stringify(cell.ui.stdout.textContent));
+  nb.stop();
+  cell.setSource(original);
   return checks;
 })()`;
 

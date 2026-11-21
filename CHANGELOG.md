@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Fixed
+
+- A `tinyweb` page inside a notebook cell, the playground or another
+  page keeps the arrow keys and the space bar while it has the focus:
+  they go to the program's `on_key` and no longer scroll the notebook
+  as well. Every target's page and the web target behave the same.
+- A notebook shows plainly which page has the keyboard: a bold amber
+  ring, instead of a faint blue one.
+
 ## [0.1.12] - 2026-11-15
 
 ### Added
