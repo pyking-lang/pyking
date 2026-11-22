@@ -4109,9 +4109,6 @@ let check_annotation ?(env = SMap.empty) ?(what = ("binding", "value")) annotati
                             that type, and this one does"
                            v) )))
 
-(** Checks a return's type against return_type, or -- while one is being
-    worked out -- collects it into store's frame.
-    typ option -> expected -> info -> store -> store *)
 (** The number written as a tuple's index, `a[2]` or `a[-1]`, or None
     where the index is anything else. expr -> int option *)
 let tuple_index index =
@@ -4127,6 +4124,9 @@ let tuple_position count k =
   let at = if k < 0 then count + k else k in
   if at >= 0 && at < count then Some at else None
 
+(** Checks a return's type against return_type, or -- while one is being
+    worked out -- collects it into store's frame.
+    typ option -> expected -> info -> store -> store *)
 let check_return ?(bare = false) actual return_type info store =
   match actual with
   (* `return loop: continue` -- the statement never falls through, so no
