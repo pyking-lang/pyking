@@ -1,0 +1,6 @@
+'tests/fail_typecheck_tuple_index_unannotated.pyk' 12:12-12:18 Type
+  error: argument 1 has type (Int, Int), but Indexed(a) was expected;
+  the function indexes this parameter with '[...]' and no type is
+  written for it, so it is taken for a list, an array or a String. To
+  take a part of a tuple, write the parameter's type, as in 't: (Int,
+  Int)'

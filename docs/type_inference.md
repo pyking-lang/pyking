@@ -113,7 +113,10 @@ arguments or sub-patterns then solve, so `Just(1)` is `Option(Int)` and
 `Nothing` stays `Option(?a)` until something says more. A field read is
 the one demand that cannot be made of an open type, since two datatypes
 may both have a field of that name; where the type is still open it is
-refused, asking for an annotation.
+refused, asking for an annotation. A tuple's `t[2]` is read the same
+way round: it takes a part only of a value already known to be a tuple,
+and an open `t` indexed is taken for a list, an array or a String
+(§9b), since no type says "a tuple of at least three parts".
 
 ## 4. What is left open becomes a variable
 

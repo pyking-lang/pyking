@@ -1,0 +1,8 @@
+# Only a number written as it is chooses a part: an expression,
+# even one of numbers alone, is a value worked out at run time.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+a = (1, 2)
+print(a[1 + 0])

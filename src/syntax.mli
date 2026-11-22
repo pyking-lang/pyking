@@ -475,6 +475,13 @@ val for_element_name : int -> string
     target. assign_target -> string *)
 val loop_name : assign_target -> string
 
+(** The name Elaborate gives part `j` of a tuple `a[k]` takes apart,
+    from the index expression's symbol. int -> int -> string *)
+val tuple_part_name : int -> int -> string
+
+(** Whether a name is one tuple_part_name made. string -> bool *)
+val is_tuple_part_name : string -> bool
+
 (** Whether a name is one for_element_name made. string -> bool *)
 val is_for_element_name : string -> bool
 

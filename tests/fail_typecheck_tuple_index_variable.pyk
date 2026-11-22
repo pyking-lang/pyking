@@ -1,0 +1,9 @@
+# The parts of a tuple may differ in type, so the part is chosen by a
+# number written in the program; a variable says nothing of which.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+a = (1, "x", true)
+i = 1
+print(a[i])

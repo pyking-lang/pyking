@@ -1,0 +1,9 @@
+# A tuple never changes, so a part of it is not written.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+a = (1, "x", true)
+a[0] := 2

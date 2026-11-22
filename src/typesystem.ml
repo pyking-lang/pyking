@@ -3665,6 +3665,17 @@ let argument_error ?(note = "") position actual expected arg store =
   in
   (* A list of objects where a list of their supertype is wanted. *)
   let note = if note = "" then list_subtype_hint store expected actual else note in
+  (* A tuple given to a parameter its function indexes with nothing
+     written to say it is a tuple. *)
+  let note =
+    match (prune actual store, prune expected store) with
+    | TTuple _, wanted when note = "" && kind_var_parts wanted <> None ->
+        "; the function indexes this parameter with '[...]' and no type \
+         is written for it, so it is taken for a list, an array or a \
+         String. To take a part of a tuple, write the parameter's type, \
+         as in 't: (Int, Int)'"
+    | _ -> note
+  in
   Type_error
     ( info,
       Printf.sprintf "argument %d has type %s, but %s was expected%s" position
@@ -4101,6 +4112,21 @@ let check_annotation ?(env = SMap.empty) ?(what = ("binding", "value")) annotati
 (** Checks a return's type against return_type, or -- while one is being
     worked out -- collects it into store's frame.
     typ option -> expected -> info -> store -> store *)
+(** The number written as a tuple's index, `a[2]` or `a[-1]`, or None
+    where the index is anything else. expr -> int option *)
+let tuple_index index =
+  match index with
+  | EInt (_, k, _) -> Some k
+  | ENeg (_, EInt (_, k, _), _) -> Some (-k)
+  | _ -> None
+
+(** The part an index written `k` takes of a tuple of `count` parts, a
+    negative one counting from the end, or None outside it.
+    int -> int -> int option *)
+let tuple_position count k =
+  let at = if k < 0 then count + k else k in
+  if at >= 0 && at < count then Some at else None
+
 let check_return ?(bare = false) actual return_type info store =
   match actual with
   (* `return loop: continue` -- the statement never falls through, so no
@@ -4547,6 +4573,14 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
                           and this value is read as %s elsewhere"
                          (assignment_word statement)
                          (containers_words (kind_allowed (fst (Option.get (kind_var_parts settled))))) )))
+        | TTuple _ ->
+            raise
+              (Type_error
+                 ( owner_info,
+                   Printf.sprintf
+                     "a tuple never changes, so its part cannot be written with \
+                      '%s'; build a new tuple instead"
+                     (assignment_word statement) ))
         | settled ->
             raise
               (Type_error
@@ -5549,6 +5583,12 @@ and expr_type e env store =
                since its slice is an array rather than a view. *)
             let made, _, store = Option.get (indexed_kind settled info [ CList; CArray; CDynArray; CString ] store) in
             (made, store)
+        | TTuple _ ->
+            raise
+              (Type_error
+                 ( expr_info seq,
+                   "a tuple is not sliced: take its parts one at a time, \
+                    as in 'a[0]' and 'a[1]', or take it apart with a pattern" ))
         | settled ->
             raise
               (Type_error
@@ -5597,6 +5637,43 @@ and expr_type e env store =
           in
           demand_key ~whose:(Printf.sprintf "a %s's" word) (expr_info index) key store;
           (zonk value store, store)
+      | TTuple (_, parts, _) -> (
+          (* `a[2]` takes a part of a tuple whose type is known here. The
+             parts may differ in type, so which one is taken is a number
+             written in the program; a negative one counts from the end,
+             and one outside the tuple is refused here, never at run
+             time (PYKING.md, "Tuple literals"). *)
+          match tuple_index index with
+          | None ->
+              raise
+                (Type_error
+                   ( expr_info index,
+                     "a tuple's part is chosen by a number written in the \
+                      program, as in 'a[1]', since its parts may differ in \
+                      type; to choose one by a value, use a list, or take the \
+                      tuple apart with a pattern" ))
+          | Some k -> (
+              let count = List.length parts in
+              match tuple_position count k with
+              | Some at ->
+                  let _, store = check_expr index env store in
+                  (zonk (List.nth parts at) store, store)
+              | None ->
+                  raise
+                    (Type_error
+                       ( expr_info index,
+                         if count = 0 then
+                           "this tuple has no parts, so there is nothing to \
+                            take from it with '[...]'"
+                         else
+                           Printf.sprintf
+                             "this tuple has %d part%s, so its index is %s, \
+                              not %d"
+                             count
+                             (if count = 1 then "" else "s")
+                             (if count = 1 then "0 or -1"
+                              else Printf.sprintf "0 to %d, or -1 to -%d from the end" (count - 1) count)
+                             k ))))
       | _ ->
       let indexed =
         if kind_var_parts (prune list_type store) <> None || is_meta (prune list_type store) then "a list's, an array's or a String"

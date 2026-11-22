@@ -1,0 +1,2 @@
+'tests/fail_typecheck_tuple_index_empty.pyk' 6:9-6:10 Type error: this
+  tuple has no parts, so there is nothing to take from it with '[...]'

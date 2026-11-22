@@ -1,0 +1,8 @@
+# An index outside a tuple is refused when the program is checked, so
+# reading a part never fails at run time.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+a = (1, "x", true)
+print(a[3])

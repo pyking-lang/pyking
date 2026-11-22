@@ -1,0 +1,33 @@
+# A tuple's part taken with `a[k]`, `k` a number written in the program
+# (PYKING.md, "Tuple literals"): each part at its own type, a negative
+# index counting from the end, nested tuples, a one-part tuple, a
+# parameter and a function's result, a tuple worked out once however
+# many parts are read of it, and inside a lambda. No lists, so plain C
+# runs it too.
+
+record = (7, "seven", 7.5, true)
+print(record[0] + 1, record[1] + "!", record[2] * 2.0, not record[3])
+print(record[-1], record[-4], record[-3])
+
+nested = ((1, 2), ("a", ('b', 3)))
+print(nested[0][1], nested[1][1][0], nested[1][1][1] * 10)
+
+single = (42,)
+print(single[0], single[-1])
+
+
+def area(size: (Int, Int)) -> Int:
+    size[0] * size[1]
+
+
+def bounds(n: Int) -> (Int, Int, String):
+    print("bounds of", n)
+    (0 - n, n, "around " + string(n))
+
+
+print(area((3, 4)))
+print(bounds(5)[2])
+b = bounds(2)
+print(b[0], b[1], b[2])
+swap = lam (p: (Int, String)). (p[1], p[0])
+print(swap((1, "one"))[0])

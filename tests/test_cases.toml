@@ -3450,3 +3450,32 @@ file = "fail_typecheck_struct_object_field_unknown.pyk"
 
 [[cases]]
 file = "fail_typecheck_struct_class_same_name.pyk"
+
+# A tuple's part taken with `a[k]`.
+[[cases]]
+file = "tuple_index.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "fail_typecheck_tuple_index_out_of_range.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_index_negative.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_index_variable.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_index_computed.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_index_empty.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_index_slice.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_index_write.pyk"
+
+[[cases]]
+file = "fail_typecheck_tuple_index_unannotated.pyk"

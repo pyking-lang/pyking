@@ -1,0 +1,8 @@
+# A negative index counts from the end, and one past the start is
+# refused like one past the end.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+a = (1, "x", true)
+print(a[-4])

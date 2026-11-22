@@ -25,7 +25,7 @@ let marker = "__implicit__"
 (** Whether this name is one the pass made up rather than one the
     program wrote. String -> Bool *)
 let rec generated_name name =
-  is_for_element_name name || marked name
+  is_for_element_name name || is_tuple_part_name name || marked name
 
 and marked name =
   let width = String.length marker in
@@ -464,10 +464,41 @@ and expression_body e qmap work =
         | _ -> op
       in
       (EUnary (i, op, operand, s), work)
-  | EIndex (i, l, index, s) ->
-      let l, work = go l work in
-      let index, work = go index work in
-      (EIndex (i, l, index, s), work)
+  | EIndex (i, l, index, s) -> (
+      let tuple_parts =
+        match IntMap.find_opt (expr_sym l) work.tmap with
+        | Some (TTuple (_, parts, _)) -> Some parts
+        | _ -> None
+      in
+      match (tuple_parts, tuple_index index) with
+      | Some parts, Some k ->
+          (* `a[2]` of a tuple is `let (p0, p1, p2) = a in p2`, which
+             every backend and the interpreter already have; the checker
+             took the index as written and found it inside. *)
+          let at = Option.get (tuple_position (List.length parts) k) in
+          let l, work = go l work in
+          let names, work =
+            List.fold_left
+              (fun (out, work) (j, t) ->
+                let sym, work = node work t in
+                (out @ [ TargetName (i, tuple_part_name (expr_sym index) j, sym) ], work))
+              ([], work)
+              (List.mapi (fun j t -> (j, t)) parts)
+          in
+          let tuple_sym, work = node work (TTuple (i, parts, 0)) in
+          let picked_sym, work = node work (List.nth parts at) in
+          ( ELet
+              ( i,
+                TargetTuple (i, names, tuple_sym),
+                None,
+                l,
+                EVar (i, tuple_part_name (expr_sym index) at, picked_sym),
+                s ),
+            work )
+      | _ ->
+          let l, work = go l work in
+          let index, work = go index work in
+          (EIndex (i, l, index, s), work))
   | EAddr (i, e, s) ->
       let e, work = go e work in
       (EAddr (i, e, s), work)

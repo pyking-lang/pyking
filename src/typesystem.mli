@@ -226,6 +226,15 @@ val empty_store : (string * sigmap) list -> store
     [stmt] -> env -> store -> (env, store) *)
 val declare_functions : stmt list -> env -> store -> env * store
 
+(** The number written as a tuple's index, `a[2]` or `a[-1]`, or None
+    where the index is anything else. expr -> int option *)
+val tuple_index : expr -> int option
+
+(** The part an index written `k` takes of a tuple of `count` parts, a
+    negative one counting from the end, or None outside it.
+    int -> int -> int option *)
+val tuple_position : int -> int -> int option
+
 (** store knowing the name and type parameters of every class and
     interface these statements declare or import, as placeholders
     declare_classes fills in. Called before declare_datatypes, so a

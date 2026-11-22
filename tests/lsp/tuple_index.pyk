@@ -1,0 +1,3 @@
+record = (7, "seven", true)
+word = record[1]
+print(word, record[-1])

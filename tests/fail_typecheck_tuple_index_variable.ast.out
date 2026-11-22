@@ -1,0 +1,4 @@
+'tests/fail_typecheck_tuple_index_variable.pyk' 9:8-9:9 Type error: a
+  tuple's part is chosen by a number written in the program, as in
+  'a[1]', since its parts may differ in type; to choose one by a
+  value, use a list, or take the tuple apart with a pattern

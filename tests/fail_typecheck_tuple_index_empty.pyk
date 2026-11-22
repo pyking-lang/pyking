@@ -1,0 +1,6 @@
+# The empty tuple has no parts to take.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+print(()[0])

@@ -1,0 +1,21 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open tuple_index.pyk
+> idle
+diagnostics $CASES/tuple_index.pyk v1 []
+> hover tuple_index.pyk 2:13
+{"contents": {"kind": "markdown", "value": "```pyking\nrecord: (Int, String, Bool)\n```"}, "range": {"end": {"character": 13, "line": 1}, "start": {"character": 7, "line": 1}}}
+> definition tuple_index.pyk 2:10
+{"range": {"end": {"character": 6, "line": 0}, "start": {"character": 0, "line": 0}}, "uri": "$CASES/tuple_index.pyk"}
+> request textDocument/rename {"textDocument": {"uri": "$URI(tuple_index.pyk)"}, "position": {"line": 0, "character": 2}, "newName": "row"}
+{"changes": {"$CASES/tuple_index.pyk": [{"newText": "row", "range": {"end": {"character": 6, "line": 0}, "start": {"character": 0, "line": 0}}}, {"newText": "row", "range": {"end": {"character": 13, "line": 1}, "start": {"character": 7, "line": 1}}}, {"newText": "row", "range": {"end": {"character": 18, "line": 2}, "start": {"character": 12, "line": 2}}}]}}
+> change tuple_index.pyk
+> idle
+diagnostics $CASES/tuple_index.pyk v2 [{"code": "Type error", "message": "this tuple has 3 parts, so its index is 0 to 2, or -1 to -3 from the end, not 3", "range": {"end": {"character": 14, "line": 1}, "start": {"character": 13, "line": 1}}, "severity": 1, "source": "pyking"}]
+> change tuple_index.pyk
+> idle
+diagnostics $CASES/tuple_index.pyk v3 [{"code": "Type error", "message": "a tuple's part is chosen by a number written in the program, as in 'a[1]', since its parts may differ in type; to choose one by a value, use a list, or take the tuple apart with a pattern", "range": {"end": {"character": 14, "line": 2}, "start": {"character": 13, "line": 2}}, "severity": 1, "source": "pyking"}]
+> shutdown
+null
+> exit
+> exit status 0

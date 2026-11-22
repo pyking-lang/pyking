@@ -1111,8 +1111,10 @@ print(xs[0], xs[2], xs[len(xs) - 1], rows[1][0])   # 10 30 30 3
   counting code points, and is a `Char` (see "Char literals"). An index
   outside the String is a runtime error in the interpreter (`the index 9
   is outside a String of 3 characters`).
-- Only a list, an array and a String are indexed. A tuple is taken apart by a
-  pattern or a `let`; the checker says so.
+- A tuple's part is taken with a number written in the program,
+  `a[2]` (see "Tuple literals"); a variable index is refused, since
+  the parts may differ in type. A tuple is also taken apart by a
+  pattern or a `let`.
 
 ### Function calls
 
@@ -3134,6 +3136,44 @@ bare_pair = 1, 2
 nested = (1, (2, 3), [4, 5])
 
 print(unit, single, pair, bare_pair, nested)
+```
+
+**Taking a part — Pyking extension.** `a[k]` is the part at position
+`k` of a tuple, counting from 0, where `k` is a number written in the
+program; a negative one counts from the end, so `a[-1]` is the last
+part. Each part keeps its own type:
+
+```pyking
+record = (7, "seven", true)
+print(record[0] + 1, record[1] + "!", record[-1])
+
+def area(size: (Int, Int)) -> Int:
+    size[0] * size[1]
+
+print(area((3, 4)), ((1, 2), "n")[0][1])
+```
+
+Because the parts may differ in type, which one is taken must be known
+when the program is checked. So, unlike Python:
+
+- The index is an integer literal, written as it is: `a[i]` and
+  `a[1 + 0]` are refused ("a tuple's part is chosen by a number written
+  in the program"). To choose by a value, use a list, or take the tuple
+  apart with a pattern.
+- An index outside the tuple is refused when the program is checked
+  (`this tuple has 3 parts, so its index is 0 to 2, or -1 to -3 from
+  the end, not 3`), so taking a part never fails at run time.
+- The value's type must be known to be a tuple where it is indexed. A
+  parameter with no type that its function indexes is taken for a list,
+  an array or a String, as everywhere, and a tuple given to it is
+  refused with what to write, as in `t: (Int, Int)`.
+- A tuple is not sliced, and its parts are never written with `:=`: a
+  tuple never changes.
+
+```pyking error
+a = (1, "x", true)
+i = 1
+print(a[i])
 ```
 
 ### Maps (`Map(K, V)`) — Pyking extension
@@ -7042,7 +7082,9 @@ atom        = ( float | int | string | char | bool | ident | list_lit | list_com
               | tuple_lit | construct
               | "(" , expr , ")" ) ,
               { call_tail | field_tail | index_tail } ;
-(* `xs[i]`: the `[` on the row the indexed expression ends on. *)
+(* `xs[i]`: the `[` on the row the indexed expression ends on. Of a
+   tuple, the index is an `int`, or `-` and an `int`: which part is
+   taken is decided when the program is checked. *)
 index_tail  = "[" , expr , "]"
             | "[" , [ expr ] , ":" , [ expr ] , "]" ;   (* a slice: a copy *)
 (* A constructor applied to its fields, with a call's arguments; one with

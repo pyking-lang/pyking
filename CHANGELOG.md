@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A tuple's part is taken with `a[k]`, where `k` is a number written in
+  the program: `record[0]`, `size[1]`, `nested[1][0]`, and `a[-1]` for
+  the last part, each at its own type. Before, indexing a tuple was
+  refused. Because a tuple's parts may differ in type, the index must
+  be an integer literal: `a[i]` is refused with what to write instead,
+  and an index outside the tuple is refused when the program is
+  checked, so taking a part never fails at run time. A tuple is not
+  sliced nor written with `:=`, each with its own message, and a tuple
+  given to a parameter with no type that its function indexes is
+  refused with the annotation to write. Every target compiles it as
+  taking the tuple apart, and `-t pyking` prints it as `a[k]`.
 - A struct's or a datatype's field may have a class or an interface
   for its type: `struct Holder(s: Shape)`, `datatype Slot: Empty,
   Full(s: Shape)`, `mutable struct Cursor(at: Shape)`. Before, it was

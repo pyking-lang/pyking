@@ -606,6 +606,17 @@ let loop_name target =
   | TargetName (_, name, _) -> name
   | TargetTuple _ -> invalid_arg "loop_name: a tuple target Elaborate did not lower"
 
+(** The name Elaborate gives part `j` of the tuple `a[k]` takes apart,
+    `sym` being the index expression's symbol, which no other has.
+    int -> int -> string *)
+let tuple_part_name sym j = Printf.sprintf "__part_%d_%d__" sym j
+
+(** Whether a name is one tuple_part_name made. string -> bool *)
+let is_tuple_part_name name =
+  let prefix = "__part_" in
+  String.length name > String.length prefix
+  && String.sub name 0 (String.length prefix) = prefix
+
 (** Whether a name is one for_element_name made. string -> bool *)
 let is_for_element_name name =
   let prefix = "__for_element_" in
@@ -1315,6 +1326,17 @@ and pprint_expr_body cfg e min_prec =
         (Printf.sprintf "lam (%s). %s"
            (String.concat ", " (List.map (pprint_param cfg) params))
            (pprint_expr cfg body 0))
+  | ELet (_, TargetTuple (_, parts, _), None, owner, EVar (_, picked, _), _)
+    when parts <> []
+         && List.for_all (function TargetName (_, n, _) -> is_tuple_part_name n | _ -> false) parts ->
+      (* `a[2]`, which Elaborate takes apart as `let (_, _, p) = a in p`,
+         printed as written. *)
+      let rec position j = function
+        | TargetName (_, n, _) :: _ when n = picked -> j
+        | _ :: rest -> position (j + 1) rest
+        | [] -> 0
+      in
+      pprint_expr cfg owner prec_atom ^ "[" ^ string_of_int (position 0 parts) ^ "]"
   | ELet (_, target, type_, value, body, _) ->
       (* Lowest precedence, like a lambda: the body reaches as far right
          as it can. *)

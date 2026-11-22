@@ -1,0 +1,7 @@
+# A tuple is not sliced: its parts are taken one at a time.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+a = (1, "x", true)
+print(a[0:2])

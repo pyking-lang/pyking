@@ -1,0 +1,12 @@
+# A parameter with no type that its function indexes is taken for a
+# list, an array or a String, so a tuple given to it is refused, with
+# what to write.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def first(t):
+    t[0]
+
+
+print(first((1, 2)))
