@@ -1,0 +1,2 @@
+'tests/fail_typecheck_objects_var_assign_not_shape.pyk' 12:0-12:6 Type
+  error: 's' is Shape, but this ':=' gives Int

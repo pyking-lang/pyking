@@ -489,7 +489,7 @@ let bound_at_top_level stmts =
   List.concat_map
     (fun statement ->
       match statement with
-      | SFunctionDef (_, name, _, _, _, _, _, _, _) | SVar (_, name, _, _) ->
+      | SFunctionDef (_, name, _, _, _, _, _, _, _) | SVar (_, name, _, _, _) ->
           [ (name, statement) ]
       | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
           List.map (fun name -> (name, statement)) (target_names target)

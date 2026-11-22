@@ -1,0 +1,5 @@
+# A 'var' with its type written still needs a starting value.
+use mutation
+
+var count: Int
+print(count)

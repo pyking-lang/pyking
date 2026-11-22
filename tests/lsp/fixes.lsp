@@ -14,6 +14,13 @@ size: Int = "big"
 .
 idle
 request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 4}}, "context": {"diagnostics": []}}
+# the same for a `var` whose written type is not its starting value's
+change fixes.pyk
+use mutation
+var size: Int = "big"
+.
+idle
+request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 8}}, "context": {"diagnostics": []}}
 change fixes.pyk
 size = 1 ++ 2
 .

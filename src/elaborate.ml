@@ -68,7 +68,7 @@ let check_no_rename_clash stmts =
         | Walk.NStmt (SFunctionSig (info, name, _, _, _)) ->
             (name, info) :: found
         | Walk.NTarget (TargetName (info, name, _)) -> (name, info) :: found
-        | Walk.NStmt (SVar (info, name, _, _)) -> (name, info) :: found
+        | Walk.NStmt (SVar (info, name, _, _, _)) -> (name, info) :: found
         | _ -> found)
       [] stmts
   in
@@ -695,9 +695,9 @@ and statement s qmap work =
   | SLetStmt (i, target, inner, type_, sym, public) ->
       let inner, work = statement inner qmap work in
       (SLetStmt (i, target, inner, type_, sym, public), work)
-  | SVar (i, name, e, sym) ->
+  | SVar (i, name, e, t, sym) ->
       let e, work = go e work in
-      (SVar (i, name, e, sym), work)
+      (SVar (i, name, e, t, sym), work)
   | SMutateTuple _ -> after_desugar "elaborate"
   | SSetIndex (i, owner, index, value, sym) ->
       let owner, work = go owner work in

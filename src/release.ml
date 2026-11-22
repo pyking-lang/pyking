@@ -133,7 +133,7 @@ and rewrite tmap statement =
       SLet (i, target, go e, t, s, public, implicit)
   | SLetStmt (i, target, inner, t, s, public) ->
       SLetStmt (i, target, rewrite tmap inner, t, s, public)
-  | SVar (i, name, e, s) -> SVar (i, name, go e, s)
+  | SVar (i, name, e, t, s) -> SVar (i, name, go e, t, s)
   | SMutateTuple _ -> after_desugar "release"
   | SSetIndex (i, owner, index, value, s) -> SSetIndex (i, go owner, go index, go value, s)
   | SSetField (i, owner, field, value, s) -> SSetField (i, go owner, field, go value, s)

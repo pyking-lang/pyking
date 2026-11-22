@@ -437,7 +437,7 @@ let typed_node stmts tmap row col =
     | Walk.NParam (Param (i, n, _, _, s)) -> Some (i, s, Some n)
     | Walk.NStmt (SFunctionDef (i, n, _, _, _, s, _, _, _)) when i.row1 = row ->
         Some ({ i with row2 = i.row1; col2 = max_int }, s, Some ("def " ^ n))
-    | Walk.NStmt (SVar (i, n, _, s)) when i.row1 = row ->
+    | Walk.NStmt (SVar (i, n, _, _, s)) when i.row1 = row ->
         Some ({ i with row2 = i.row1; col2 = i.col1 + String.length "var " + String.length n }, s, Some ("var " ^ n))
     | _ -> None
   in
@@ -593,7 +593,7 @@ let document_symbols state document =
                 List.map (fun (n, span, s) -> symbol text 14 n i span (typed s) []) (target_bindings target)
             | SLetStmt (i, target, _, _, _, _) when top ->
                 List.map (fun (n, span, s) -> symbol text 14 n i span (typed s) []) (target_bindings target)
-            | SVar (i, n, _, _) when top -> [ symbol text 13 n i (name_span unit.tokens n i) None [] ]
+            | SVar (i, n, _, _, _) when top -> [ symbol text 13 n i (name_span unit.tokens n i) None [] ]
             | SImport (i, module_, name, selected, fields, _) ->
                 if selected then
                   List.map (fun (_, local) -> symbol text 2 local i (name_span unit.tokens local i) (Some ("from " ^ module_)) []) fields
@@ -1737,10 +1737,19 @@ let code_actions state document range_ =
         | _ -> []
       in
       let annotation =
-        let prefix = "this binding is annotated " in
-        if String.length p.message > String.length prefix && String.sub p.message 0 (String.length prefix) = prefix then
+        (* An `=` binding's annotation, or a `var`'s: the checker words
+           the two alike (Typesystem.check_annotation). *)
+        let forms =
+          [ ("this binding is annotated ", ", but its value has type ");
+            ("this variable is annotated ", ", but its starting value has type ") ]
+        in
+        let starts prefix =
+          String.length p.message > String.length prefix && String.sub p.message 0 (String.length prefix) = prefix
+        in
+        match List.find_opt (fun (prefix, _) -> starts prefix) forms with
+        | None -> []
+        | Some (prefix, marker) ->
           let rest = String.sub p.message (String.length prefix) (String.length p.message - String.length prefix) in
-          let marker = ", but its value has type " in
           let rec find i =
             if i + String.length marker > String.length rest then None
             else if String.sub rest i (String.length marker) = marker then Some i
@@ -1752,7 +1761,6 @@ let code_actions state document range_ =
               let actual = String.concat " " (String.split_on_char '\n' actual) |> String.split_on_char ' ' |> List.filter (( <> ) "") |> String.concat " " in
               [ action (Printf.sprintf "Annotate it %s, the type of its value" actual) [ edit p.at actual ] ]
           | _ -> []
-        else []
       in
       (state, Json.List (swaps @ features @ names @ annotation))
   | _ ->

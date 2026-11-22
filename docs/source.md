@@ -246,7 +246,7 @@ The groups:
   them.
 - **`CompClause`** — `CompFor`, `CompIf` (list comprehensions).
 - **`AssignTarget`** — `TargetName`, `TargetTuple`.
-- **`stmt`** — `SLet` (`x = e`), `SLetStmt` (`x = if c: …`), `SVar`,
+- **`stmt`** — `SLet` (`x = e`), `SLetStmt` (`x = if c: …`), `SVar` (`var x[: T] = e`),
   `SMutate` (`:=`), `SReturn`, `SReturnStmt`, `SExprStmt`,
   `SLoop` (`loop x = e:`), `SBreak`, `SContinue`, `SIf`,
   `SFunctionDef`, `SFunctionSig`, `SMatch`, `SImport`, `SDatatype`

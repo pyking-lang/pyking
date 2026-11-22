@@ -1,0 +1,43 @@
+# A 'var' of an interface or of a list of one takes objects below it,
+# when declared and with each ':=' after: a Dot, then a Line, in a
+# Shape; a list, comprehension or Option of them (PYKING.md, "Where an
+# object is seen as a supertype").
+use mutation, objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot " + string(self.r)
+
+class Line(n: Int) implements Shape:
+    override def name(self) -> String:
+        "line " + string(self.n)
+
+var s: Shape = Dot(1)
+print(s.name())
+s := Line(2)
+print(s.name())
+d = Dot(3)
+s := d
+print(s.name())
+
+var shapes: [Shape] = [Dot(k) for k in range(2)]
+shapes := [Line(9), shapes[0]]
+print([x.name() for x in shapes])
+
+var maybe: Option(Shape) = None
+maybe := Some(Dot(4))
+match maybe:
+    case Some(x): print(x.name())
+    case None: print("none")
+
+def longest(items: [Shape]) -> String:
+    var best: Shape = Dot(0)
+    for x in items:
+        if len(x.name()) > len(best.name()):
+            best := x
+    best.name()
+
+print(longest([Dot(1), Line(22), Dot(3)]))

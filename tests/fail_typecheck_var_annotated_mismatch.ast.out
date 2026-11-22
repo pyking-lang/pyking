@@ -1,0 +1,3 @@
+'tests/fail_typecheck_var_annotated_mismatch.pyk' 4:11-4:14 Type
+  error: this variable is annotated Int, but its starting value has
+  type String

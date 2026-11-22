@@ -170,7 +170,7 @@ let bound_names stmt =
   match stmt with
   | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
       target_names target
-  | SVar (info, name, _, _) -> [ (name, info) ]
+  | SVar (info, name, _, _, _) -> [ (name, info) ]
   | SImport (info, _, name, selected, fields, _) ->
       (* The plain form binds the module's own local name; the `from`
          form binds each field under the name it is known by here. Both
@@ -302,7 +302,7 @@ and analyze_stmt s env =
   | SLetStmt (_, target, stmt, _, _, _) ->
       analyze_value_stmt stmt env;
       bind_target env target Value
-  | SVar (info, name, _, _) -> bind env name Mutable info
+  | SVar (info, name, _, _, _) -> bind env name Mutable info
   | SImport _ ->
       (* An import binds names like anything else, so the
          no-shadowing-a-`var` rule reaches it too. There is nothing
@@ -815,10 +815,11 @@ and sym_stmt counter st =
       let type_, counter = map_option sym_type counter type_ in
       let s, counter = assign s counter in
       (SLetStmt (i, target, stmt, type_, s, public), counter)
-  | SVar (i, name, expr, s) ->
+  | SVar (i, name, expr, type_, s) ->
       let expr, counter = sym_expr counter expr in
+      let type_, counter = map_option sym_type counter type_ in
       let s, counter = assign s counter in
-      (SVar (i, name, expr, s), counter)
+      (SVar (i, name, expr, type_, s), counter)
   | SSetIndex (i, owner, index, value, s) ->
       let owner, counter = sym_expr counter owner in
       let index, counter = sym_expr counter index in
@@ -1082,7 +1083,8 @@ and high_stmt st =
         max (high_expr owner) (max (high_expr index) (high_expr value))
     | SSetField (_, owner, _, value, _) -> max (high_expr owner) (high_expr value)
     | SSetDeref (_, pointer, value, _) -> max (high_expr pointer) (high_expr value)
-    | SVar (_, _, expr, _) | SMutate (_, _, expr, _) | SReturn (_, expr, _)
+    | SVar (_, _, expr, type_, _) -> max (high_expr expr) (high_option high_type type_)
+    | SMutate (_, _, expr, _) | SReturn (_, expr, _)
     | SExprStmt (_, expr, _) ->
         high_expr expr
     | SReturnStmt (_, stmt, _) -> high_stmt stmt

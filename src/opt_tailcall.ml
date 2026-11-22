@@ -861,7 +861,7 @@ let binds stmts names =
       | Walk.NStmt (SLet (_, target, _, _, _, _, _))
       | Walk.NStmt (SLetStmt (_, target, _, _, _, _)) ->
           touches (target_names target)
-      | Walk.NStmt (SVar (_, name, _, _)) -> StringSet.mem name names
+      | Walk.NStmt (SVar (_, name, _, _, _)) -> StringSet.mem name names
       | Walk.NStmt (SLoop (_, target, _, _, iterate, _, _)) ->
           (match target with
           | Some target -> touches (target_names target)
@@ -969,7 +969,7 @@ let bound_names statement =
   match statement with
   | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
       of_list (target_names target)
-  | SVar (_, name, _, _) -> StringSet.singleton name
+  | SVar (_, name, _, _, _) -> StringSet.singleton name
   | SFunctionDef (_, name, _, _, _, _, _, _, _) -> StringSet.singleton name
   | _ -> StringSet.empty
 

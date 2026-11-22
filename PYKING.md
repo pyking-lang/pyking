@@ -1650,17 +1650,26 @@ value of `expr`. Once declared, it is updated with `name := expr`, not
 `=`. Both need `use mutation` at the top of the module (see "Features
 turned on with `use`"). Since `:=` is what every later write uses,
 `var name := expr` is accepted too, and means the same declaration;
-`-t pyking` writes it back with `=`. A `var` takes no type annotation
-(its type is its starting value's) and declares one name, and a
-declaration that is not `var name = expr` is refused at the token that
-goes wrong, with the form it should take.
+`-t pyking` writes it back with `=`. A `var` declares one name, and a
+declaration that is not `var name = expr` or `var name: Type = expr` is
+refused at the token that goes wrong, with the form it should take.
+
+A `var`'s type is its starting value's, or the type written after its
+name, as on an `=` binding: `var best: [Int] = []` says what the empty
+list holds, and `var found: Option(String) = None` what the `None`
+does. The written type is checked against the starting value, and
+every `:=` after must give a value of it. A `var` of a class or
+interface takes an object of a class below it, when declared and with
+each `:=` (see "Where an object is seen as a supertype").
 
 ```pyking
 use mutation
 
 var total = 0
 total := total + 1
-print(total)
+var best: [Int] = []
+best := best + [total]
+print(total, best)   # 1 [1]
 ```
 
 **A mutable variable may hold a value of any type**: a number, a
@@ -4226,7 +4235,7 @@ every method a body, its own or one it inherits.
 
 **Where an object is seen as a supertype.** A `Square` stands where a
 `Shape` is written -- an annotated binding, a declared parameter or
-result, a field, a `var` of a declared type -- and inside a list, a
+result, a field, a `var` of a declared type and each `:=` to it -- and inside a list, a
 comprehension, a tuple, an `if` or a datatype's constructor written
 there, each part on its own: a function declared to return
 `Result(Shape, String)` may end in `Ok(Square(2.0))`, or `return` it, a
@@ -6822,7 +6831,7 @@ list_pattern_items = list_pattern_item , { "," , list_pattern_item } ;
 list_pattern_item  = pattern_as | rest_marker ;
 rest_marker        = ".." , [ ident ] ;
 
-var_decl    = "var" , ident , ( "=" | ":=" ) , bound_expr ;   (* ":=" is accepted as "=" *)
+var_decl    = "var" , ident , [ ":" , type ] , ( "=" | ":=" ) , bound_expr ;   (* ":=" is accepted as "=" *)
 assignment  = [ "implicit" ] , target , [ ":" , type ] , "=" , bound_value ;
 mutation    = ident , ":=" , bound_expr
             | target , ":=" , bound_expr            (* a tuple of names *)

@@ -472,7 +472,7 @@ let changes stmts =
   let names = StringSet.of_list (List.map fst defs) in
   (* A def's own `var`s it may write freely. *)
   let own body =
-    Walk.fold_stmts (fun found node -> match node with Walk.NStmt (SVar (_, n, _, _)) -> StringSet.add n found | _ -> found) StringSet.empty body
+    Walk.fold_stmts (fun found node -> match node with Walk.NStmt (SVar (_, n, _, _, _)) -> StringSet.add n found | _ -> found) StringSet.empty body
   in
   (* Anything anywhere, a lambda's body or a def's, that writes. *)
   let anything =
@@ -3189,7 +3189,7 @@ let mentioned stmts =
 let captured_vars body =
   let vars =
     Walk.fold_stmts
-      (fun found node -> match node with Walk.NStmt (SVar (_, n, _, _)) -> StringSet.add n found | _ -> found)
+      (fun found node -> match node with Walk.NStmt (SVar (_, n, _, _, _)) -> StringSet.add n found | _ -> found)
       StringSet.empty body
   in
   if StringSet.is_empty vars then vars
@@ -3222,7 +3222,7 @@ let cells_of gc body =
   else
     let vars =
       Walk.fold_stmts
-        (fun found node -> match node with Walk.NStmt (SVar (_, n, _, _)) -> StringSet.add n found | _ -> found)
+        (fun found node -> match node with Walk.NStmt (SVar (_, n, _, _, _)) -> StringSet.add n found | _ -> found)
         StringSet.empty body
     in
     StringSet.union captured (StringSet.inter vars (address_taken body))
@@ -3241,7 +3241,7 @@ let check_local_addresses ?(statics = StringSet.empty) body =
       (fun s ->
         match s with
         | SFunctionDef _ -> []
-        | SVar (_, n, _, _) -> [ n ]
+        | SVar (_, n, _, _, _) -> [ n ]
         | s -> List.concat_map (function Walk.NStmt s -> own_vars [ s ] | node -> nested_vars node) (Walk.children (Walk.NStmt s)))
       stmts
   and nested_vars node =
@@ -3266,7 +3266,7 @@ let check_local_addresses ?(statics = StringSet.empty) body =
       match node with
       | Walk.NExpr (ECall (_, f, args, _)) -> (Walk.NExpr f, false) :: List.map (fun (_, a) -> (Walk.NExpr a, true)) args
       | Walk.NExpr (EDeref _ | EAddr _ | EEq _ | EBinary (_, BNeq, _, _, _)) -> all true
-      | Walk.NStmt (SLet (_, TargetName (_, n, _), e, _, _, _, _)) | Walk.NStmt (SVar (_, n, e, _)) ->
+      | Walk.NStmt (SLet (_, TargetName (_, n, _), e, _, _, _, _)) | Walk.NStmt (SVar (_, n, e, _, _)) ->
           if names_local e then tainted := StringSet.add n !tainted;
           all true
       | Walk.NStmt (SMutate (_, n, e, _)) ->
@@ -5036,7 +5036,7 @@ and stmt ctx st scope s =
           let body, st = tail ctx st scope (`Assign held) inner in
           let decls, scope, st = destructure ctx st scope target (atom held) t in
           ((CDecl (ct, held, None) :: body) @ decls, scope, st))
-  | SVar (_, name, e, _) ->
+  | SVar (_, name, e, _, _) ->
       let v, st = expr ctx st scope e in
       let pre, st = flush st in
       let t = type_of ctx scope e in
@@ -6306,7 +6306,7 @@ let translate_program ?(requested = []) ?(foreign = []) stmts tmap (context : Mo
         (fun s ->
           match s with
           | SFunctionDef _ -> []
-          | SVar (_, n, _, _) -> [ n ]
+          | SVar (_, n, _, _, _) -> [ n ]
           | s -> List.concat_map nested (Walk.children (Walk.NStmt s)))
         stmts
     and nested node =
@@ -6320,7 +6320,7 @@ let translate_program ?(requested = []) ?(foreign = []) stmts tmap (context : Mo
     in
     if not gc then
       check_local_addresses
-        ~statics:(StringSet.of_list (List.filter_map (function SVar (_, n, _, _) -> Some n | _ -> None) stmts))
+        ~statics:(StringSet.of_list (List.filter_map (function SVar (_, n, _, _, _) -> Some n | _ -> None) stmts))
         stmts;
     { scope with cells = StringSet.inter (StringSet.of_list in_blocks) (cells_of gc stmts) }
   in
@@ -6375,7 +6375,7 @@ let translate_program ?(requested = []) ?(foreign = []) stmts tmap (context : Mo
             let t = type_of ctx scope e in
             let assigns, statics, scope, st = static_bindings ctx st scope statics target v t public in
             (funcs, body @ pre @ assigns, statics, scope, st)
-        | SVar (_, name, e, _) ->
+        | SVar (_, name, e, _, _) ->
             let v, st = expr ctx st scope e in
             let pre, st = flush st in
             let t = type_of ctx scope e in

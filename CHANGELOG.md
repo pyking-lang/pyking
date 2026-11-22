@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A `var` may have its type written, as an `=` binding may: `var best:
+  [Int] = []`, `var found: Option(String) = None`, and `var count: Int
+  := 0`. The type is checked against the starting value and kept by
+  every `:=` after; before, it was refused with "a 'var' takes no type
+  annotation" and a binding to start from. A `var` of a class or
+  interface, or of a list of one, takes objects below it -- `var s:
+  Shape = Dot(1)` -- and so does each `:=` to such a variable, `s :=
+  Line(2)`, a list or comprehension given to one upcast element by
+  element. `-t pyking` prints the written type back, the language
+  server's quick fix for a wrong annotation offers the value's type for
+  a `var` too, and a `var` written with a type but no value is refused
+  at the type.
+
 ### Fixed
 
 - A `tinyweb` page inside a notebook cell, the playground or another

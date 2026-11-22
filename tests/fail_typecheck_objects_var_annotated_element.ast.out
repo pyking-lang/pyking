@@ -1,0 +1,2 @@
+'tests/fail_typecheck_objects_var_annotated_element.pyk' 11:31-11:32
+  Type error: this variable's starting value must be Shape, not Int

@@ -474,7 +474,7 @@ let plain_names stmts =
     (fun statement ->
       match statement with
       | SFunctionDef (_, name, _, _, _, _, _, _, _) | SFunctionSig (_, name, _, _, _)
-      | SVar (_, name, _, _) ->
+      | SVar (_, name, _, _, _) ->
           [ name ]
       | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
           let rec names = function

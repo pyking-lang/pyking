@@ -1,0 +1,25 @@
+use mutation
+from option import Option, None, Some
+var count: Int = 0
+var total: Float = 0.5
+var label: String = "start"
+var found: Option(String) = None
+def bump(by:Int) -> Int:
+    var step: Int = by
+    def twice() -> Int:
+        step * 2
+    step := twice()
+    step
+for k in range(3):
+    var seen: Int = k * 10
+    seen += 1
+    count := count + seen
+total := total + 1.0
+label := label + "!"
+found := Some(value = label)
+print(count, total, label, bump(4))
+match found:
+    case Some(s):
+        print(s)
+    case None:
+        print("none")

@@ -1,0 +1,8 @@
+use mutation
+var best: [Int] = []
+for k in [3, 1, 4, 1, 5]:
+    if k > 2:
+        best := best + [k]
+var names: [String] = []
+names := ["a", "b"]
+print(best, names, len(best))

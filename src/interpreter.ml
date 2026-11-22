@@ -2722,7 +2722,7 @@ and step_stmt state stmt =
         control = CStmt inner;
         kont = Some (KBind (target, state.env, state.kont));
       }
-  | SVar (_, name, e, _) ->
+  | SVar (_, name, e, _, _) ->
       {
         state with
         control = CEval e;

@@ -1,0 +1,11 @@
+# A 'var' of [Shape] may start with a list of Shapes only.
+use mutation, objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+var shapes: [Shape] = [Dot(1), 2]

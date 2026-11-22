@@ -807,7 +807,7 @@ let captured_vars body =
   let vars =
     Walk.fold_stmts
       (fun found node ->
-        match node with Walk.NStmt (SVar (_, n, _, _)) -> StringSet.add n found | _ -> found)
+        match node with Walk.NStmt (SVar (_, n, _, _, _)) -> StringSet.add n found | _ -> found)
       StringSet.empty body
   in
   if StringSet.is_empty vars then vars
@@ -2204,7 +2204,7 @@ and stmt ctx st scope s =
               let body, st = tail ctx st scope (Assign held) inner in
               let decls, scope, st = destructure ctx st scope target (atom held) t in
               ((JLine (Printf.sprintf "final %s %s;" (jt ctx t) held) :: body) @ decls, scope, st)))
-  | SVar (_, name, e, _) ->
+  | SVar (_, name, e, _, _) ->
       let v, st = expr ctx st scope e in
       let t = type_of ctx scope e in
       let jname, st = fresh st name in
@@ -3331,7 +3331,7 @@ let translate_program stmts tmap (context : Module.context) version =
             let t = type_of ctx scope e in
             let assigns, statics, scope, st = static_bindings ctx st scope statics target v t public in
             (methods, body @ assigns, statics, scope, st)
-        | SVar (_, name, e, _) when StringSet.mem name ctx.addressed ->
+        | SVar (_, name, e, _, _) when StringSet.mem name ctx.addressed ->
             (* A static cell, which a pointer to it points into. *)
             let v, st = expr top st scope e in
             let t = type_of ctx scope e in
@@ -3347,7 +3347,7 @@ let translate_program stmts tmap (context : Module.context) version =
               statics @ [ (false, cell_type ^ "[]", jname) ],
               bind_value scope name { value = atom ~boxed:true (jname ^ "[0]"); kind = BCell; btype = t; jname_ = "" },
               st )
-        | SVar (_, name, e, _) ->
+        | SVar (_, name, e, _, _) ->
             let v, st = expr top st scope e in
             let t = type_of ctx scope e in
             let jname, st = fresh st name in

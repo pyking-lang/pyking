@@ -2572,7 +2572,18 @@ file = "fail_typecheck_var_datatype.pyk"
 file = "fail_typecheck_var_struct_old.pyk"
 
 [[cases]]
-file = "fail_typecheck_var_annotated.pyk"
+file = "fail_typecheck_var_annotated_mismatch.pyk"
+
+[[cases]]
+file = "fail_typecheck_var_annotated_no_value.pyk"
+
+[[cases]]
+file = "typecheck_var_annotated.pyk"
+libs = ["option"]
+
+[[cases]]
+file = "typecheck_var_annotated_list.pyk"
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
 
 [[cases]]
 file = "fail_typecheck_var_no_value.pyk"
@@ -3330,6 +3341,20 @@ file = "fail_typecheck_objects_upcast_comprehension_return.pyk"
 
 [[cases]]
 file = "fail_typecheck_objects_upcast_comprehension_made_earlier.pyk"
+
+[[cases]]
+file = "objects_var_annotated.pyk"
+libs = ["option"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "fail_typecheck_objects_var_annotated_element.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_var_assign_not_shape.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_var_assign_element.pyk"
 
 [[cases]]
 file = "fail_typecheck_objects_upcast_unwritten.pyk"

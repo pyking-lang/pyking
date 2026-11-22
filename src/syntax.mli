@@ -325,7 +325,7 @@ and stmt =
          may be resolved to it). *)
   | SLetStmt of info * assign_target * stmt * typ option * int * bool
       (* target = <if/match statement in value form> *)
-  | SVar of info * string * expr * int (* var name = expr *)
+  | SVar of info * string * expr * typ option * int (* var name[: type] = expr *)
   | SMutate of info * string * expr * int (* name := expr *)
   | SSetIndex of info * expr * expr * expr * int
       (* owner[index] := value -- an element of an array written. The

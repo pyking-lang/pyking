@@ -1880,7 +1880,7 @@ and free_in_stmt s bound free =
   | SLetStmt (_, target, inner, _, _, _) ->
       let _, free = free_in_stmt inner bound free in
       (StringSet.union bound (set_of (target_names target)), free)
-  | SVar (_, name, e, _) ->
+  | SVar (_, name, e, _, _) ->
       let free = free_in_expr e bound free in
       (StringSet.add name bound, free)
   | SMutateTuple _ -> after_desugar "target_python"
@@ -2093,7 +2093,7 @@ let rec mutated_in_block stmts state =
   List.fold_left
     (fun (written, declared) s ->
       match s with
-      | SVar (_, name, _, _) -> (written, StringSet.add name declared)
+      | SVar (_, name, _, _, _) -> (written, StringSet.add name declared)
       | SMutate (_, name, _, _) -> (StringSet.add name written, declared)
       | SIf (_, _, then_body, else_body, _) ->
           let state = mutated_in_block then_body (written, declared) in
@@ -3107,7 +3107,7 @@ let stmt_bound_names s =
   match s with
   | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
       target_names target
-  | SVar (_, name, _, _) -> [ name ]
+  | SVar (_, name, _, _, _) -> [ name ]
   | SFunctionDef (_, name, _, _, _, _, _, _, _) -> [ name ]
   | _ -> []
 
@@ -3144,7 +3144,7 @@ let loop_names_before stmts index scope boxed =
              if position >= index then names
              else
                match statement with
-               | SVar (_, name, _, _) when not (StringSet.mem name boxed) -> names
+               | SVar (_, name, _, _, _) when not (StringSet.mem name boxed) -> names
                | statement ->
                    StringSet.union names (set_of (stmt_bound_names statement)))
            names
@@ -3352,7 +3352,7 @@ let loop_vars_captured stmts =
           let declared =
             Walk.fold_stmts
               (fun declared n ->
-                match n with Walk.NStmt (SVar (_, name, _, _)) -> StringSet.add name declared | _ -> declared)
+                match n with Walk.NStmt (SVar (_, name, _, _, _)) -> StringSet.add name declared | _ -> declared)
               StringSet.empty body
           in
           let in_functions =
@@ -4376,7 +4376,7 @@ and translate_stmt s scope gen =
           one (module_name ^ "_external") (py_name ^ "_external") (half true)
       in
       (own @ implementation, scope, gen)
-  | SVar (info, name, e, _) ->
+  | SVar (info, name, e, _, _) ->
       let py_expr, gen = translate_expr e scope gen in
       (* A `var` is a mutable location: `:=` updates the one binding,
          and a function reading it is meant to see that (PYKING.md,

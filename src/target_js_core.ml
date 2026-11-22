@@ -1546,7 +1546,7 @@ and translate_stmt s scope =
       ( (JsLet (info, JsTargetName (info, held), JsVar (info, "undefined")) :: body)
         @ [ JsConst (info, js_target, JsVar (info, held)) ],
         scope )
-  | SVar (info, name, e, _) when StringSet.mem name scope.addressed ->
+  | SVar (info, name, e, _, _) when StringSet.mem name scope.addressed ->
       (* A `var` whose address is taken: its `let`, and beside it the
          one place every `&x` of it names, reading and writing the
          variable through closures -- which keep it alive after its
@@ -1566,7 +1566,7 @@ and translate_stmt s scope =
                   [ JsArrow (info, [], [], JsVar (info, js_name)); JsSetter (info, js_name) ] ) );
         ],
         scope )
-  | SVar (info, name, e, _) ->
+  | SVar (info, name, e, _, _) ->
       let js_expr = translate_expr e scope in
       let js_name, scope = bind name scope in
       ([ JsLet (info, JsTargetName (info, js_name), js_expr) ], scope)

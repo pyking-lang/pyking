@@ -780,7 +780,7 @@ let bound_names stmt =
   match stmt with
   | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) ->
       StringSet.of_list (target_names target)
-  | SVar (_, name, _, _) -> StringSet.singleton name
+  | SVar (_, name, _, _, _) -> StringSet.singleton name
   | SFunctionDef (_, name, _, _, _, _, _, _, _) -> StringSet.singleton name
   | _ -> StringSet.empty
 
@@ -2484,7 +2484,7 @@ let changing_functions stmts tmap =
       Walk.fold_stmts
         (fun found node ->
           match node with
-          | Walk.NStmt (SVar (_, name, _, _)) -> StringSet.add name found
+          | Walk.NStmt (SVar (_, name, _, _, _)) -> StringSet.add name found
           | _ -> found)
         StringSet.empty body
     in
@@ -4272,7 +4272,7 @@ and block ctx acc stmts where =
           if rest = [] then last ctx acc first where
           else (
             match first with
-            | SVar (_, name, e, _) ->
+            | SVar (_, name, e, _, _) ->
                 (* A `var` is a `ref`, and its scope is the rest of this
                    block -- which is exactly what `let ... in` gives
                    it. *)
@@ -4361,7 +4361,7 @@ and last ctx acc statement where =
              returns from the function, since the loop's value *is* the
              function's. *)
           loop ctx acc statement true
-      | SVar (_, name, e, _) ->
+      | SVar (_, name, e, _, _) ->
           (* As for `=` below: the cell is unreachable from outside the
              block, so the block supplies unit. *)
           let value, acc = expr ctx acc e in
@@ -4998,7 +4998,7 @@ and items ctx acc stmts =
             (List.rev_append
                (List.map (fun (bindings, recursive) -> OItemLet (bindings, recursive)) made)
                built)
-      | SVar (_, name, e, _) ->
+      | SVar (_, name, e, _, _) ->
           (* A top-level `var` is a top-level `ref`, in scope for
              everything after it, which is what the items are. *)
           let value, acc = expr ctx acc e in

@@ -1,0 +1,30 @@
+# A 'var' may have its type written, as an '=' binding may: checked
+# against the starting value, said by it where the value does not say
+# enough ('None'), and kept by every ':=' after. Declared with '=' or
+# ':=', at top level, in a function, in a loop, and read by a nested
+# function (PYKING.md, "Mutable variables").
+use mutation
+
+var count: Int = 0
+var total: Float := 0.5
+var label: String = "start"
+var found: Option(String) = None
+
+def bump(by: Int) -> Int:
+    var step: Int = by
+    def twice() -> Int:
+        step * 2
+    step := twice()
+    step
+
+for k in range(3):
+    var seen: Int = k * 10
+    seen += 1
+    count := count + seen
+total := total + 1.0
+label := label + "!"
+found := Some(label)
+print(count, total, label, bump(4))
+match found:
+    case Some(s): print(s)
+    case None: print("none")

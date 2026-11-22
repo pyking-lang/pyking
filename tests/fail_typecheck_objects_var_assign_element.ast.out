@@ -1,0 +1,2 @@
+'tests/fail_typecheck_objects_var_assign_element.pyk' 13:19-13:24 Type
+  error: what this ':=' gives 'shapes' must be Shape, not String

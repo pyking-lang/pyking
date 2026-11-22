@@ -1168,8 +1168,8 @@ and rewrite signatures scope taken statement =
       let _, inner, _ = rewrite signatures scope taken inner in
       let statement = SLetStmt (i, target, inner, t, s, public) in
       ([], statement, bind scope statement)
-  | SVar (i, name, e, s) ->
-      let statement = SVar (i, name, go e, s) in
+  | SVar (i, name, e, t, s) ->
+      let statement = SVar (i, name, go e, t, s) in
       ([], statement, bind scope statement)
   | SMutate (i, name, e, s) -> ([], SMutate (i, name, go e, s), scope)
   | SSetIndex (i, owner, index, value, s) -> (

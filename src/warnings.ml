@@ -497,7 +497,7 @@ and statement w here ~toplevel stmt =
   | SLetStmt (_, target, inner, _, _, public) ->
       ignore (statement w here ~toplevel:false inner);
       bind_target here RValue public target
-  | SVar (i, n, e, _) ->
+  | SVar (i, n, e, _, _) ->
       expr w here e;
       bind_ w here ~toplevel RVariable n (name_span w n i)
   | SMutateTuple _ -> after_desugar "warnings"

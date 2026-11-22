@@ -3986,8 +3986,9 @@ let param_sym (Param (_, _, _, _, sym)) = sym
     `xs: [Int] = []` says what the empty list holds. The annotation is
     quantified first, since a written type is quantified wherever one is
     written. Raises Type_error at the annotation on a mismatch.
+    `what` names the binding and its value, for the message.
     typ option -> typ -> store -> store *)
-let check_annotation ?(env = SMap.empty) annotation actual store =
+let check_annotation ?(env = SMap.empty) ?(what = ("binding", "value")) annotation actual store =
   match annotation with
   | None -> store
   | Some written -> (
@@ -4047,8 +4048,8 @@ let check_annotation ?(env = SMap.empty) annotation actual store =
               (Type_error
                  ( type_info annotation,
                    Printf.sprintf
-                     "this binding is annotated %s, but its value has type %s%s"
-                     (printed_nested plain) (shown_nested actual store)
+                     "this %s is annotated %s, but its %s has type %s%s" (fst what)
+                     (printed_nested plain) (snd what) (shown_nested actual store)
                      (match open_vars with
                      | [] -> ""
                      | v :: _ ->
@@ -4403,13 +4404,23 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
          no module system running. *)
       ignore (available module_ info store);
       (Some (unit_type info), env, store)
-  | SVar (info, name, e, sym) ->
-      (* A mutable variable's type is its value's, with no mark of
-         mutability on it: a `var` Int is read as an ordinary Int and
-         stands wherever one does. Whether this name may be bound here at
-         all, and whether a `:=` may name it, is analyses.ml's rule
-         rather than a type. *)
-      let var_type, store = check_expr e env store in
+  | SVar (info, name, e, annotation, sym) ->
+      (* A mutable variable's type is its value's, or the type written
+         on it, with no mark of mutability on it: a `var` Int is read as
+         an ordinary Int and stands wherever one does. A written type is
+         checked as an `=` binding's is, pushed into the value where it
+         names an object (`var shapes: [Shape] = [Dot(1)]`). Whether
+         this name may be bound here at all, and whether a `:=` may name
+         it, is analyses.ml's rule rather than a type. *)
+      let var_type, store =
+        match annotation with
+        | Some written when mentions_object store (resolved store written) ->
+            let wanted = resolved store written in
+            let store = check_wanted e wanted "this variable's starting value" env store in
+            (zonk wanted store, record store (expr_sym e) (zonk wanted store))
+        | _ -> check_expr e env store
+      in
+      let store = check_annotation ~env ~what:("variable", "starting value") annotation var_type store in
       let var_type = zonk var_type store in
       let store = record store sym var_type in
       (Some (unit_type info), bind ~var:true env name var_type, store)
@@ -4656,6 +4667,20 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
           raise
             (Analyses.Analysis_error (info, unbound_message env name))
       | Some declared -> (
+          (* A variable holding objects takes one below its type, as its
+             declaration did: `s := Line(2)` where `s` is a Shape. *)
+          let pushed =
+            if mentions_object store declared then
+              match check_wanted e declared (Printf.sprintf "what this '%s' gives '%s'" (assignment_word statement) name) env store with
+              | store -> Some store
+              | exception Type_error _ when not (literal_collection e) -> None
+            else None
+          in
+          match pushed with
+          | Some store ->
+              let store = record store sym declared in
+              (Some (unit_type info), env, store)
+          | None ->
           let actual, store = check_expr e env store in
           match satisfies declared (Some actual) store with
           | None ->
@@ -7849,7 +7874,7 @@ let check_binding_keys stmts store =
     (fun () node ->
       match node with
       | Walk.NStmt (SLet (_, target, _, _, _, _, _)) | Walk.NStmt (SLetStmt (_, target, _, _, _, _)) -> names target
-      | Walk.NStmt (SVar (i, _, _, sym)) -> check i sym
+      | Walk.NStmt (SVar (i, _, _, _, sym)) -> check i sym
       | _ -> ())
     () stmts
 

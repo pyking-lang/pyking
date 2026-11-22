@@ -1,0 +1,4 @@
+# The type written on a 'var' must be its starting value's.
+use mutation
+
+var count: Int = "zero"

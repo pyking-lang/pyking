@@ -1,0 +1,13 @@
+# A list given by ':=' to a 'var' of [Shape] may hold only Shapes, and
+# the message names the element that is not one.
+use mutation, objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+var shapes: [Shape] = []
+shapes := [Dot(1), "two"]

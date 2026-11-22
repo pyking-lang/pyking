@@ -77,7 +77,7 @@ let export_place (unit : Module.t) name =
             Some ({ file; span = name_span tokens n i }, s, KFunction)
         | SFunctionSig (i, n, _, s, _) when n = name ->
             Some ({ file; span = name_span tokens n i }, s, KFunction)
-        | SVar (i, n, _, s) when n = name -> Some ({ file; span = name_span tokens n i }, s, KVariable)
+        | SVar (i, n, _, _, s) when n = name -> Some ({ file; span = name_span tokens n i }, s, KVariable)
         | SLet (_, target, _, _, _, _, _) | SLetStmt (_, target, _, _, _, _) -> (
             let rec find target =
               match target with
@@ -260,7 +260,7 @@ and resolve_stmt ctx env stmt found =
   | SLetStmt (_, target, inner, _, _, _) ->
       let _, found = resolve_stmt ctx env inner found in
       (bind_all ctx KValue env (target_bindings target), found)
-  | SVar (i, n, e, s) ->
+  | SVar (i, n, e, _, s) ->
       let found = resolve_expr ctx env e found in
       (SMap.add n (Bound ({ file = ctx.ctx_path; span = name_span ctx.ctx_tokens n i }, s, KVariable)) env, found)
   | SMutateTuple _ -> after_desugar "scopes"

@@ -105,8 +105,8 @@ let misplaced_mutable info =
           Type, ...)', whose fields are written in place; a variable that \
           changes is declared with 'var'" ))
 
-(** The Parse_error for a `var` that is not `var name = expr` (or the
-    `var name := expr` slip it accepts too): blamed on the token that
+(** The Parse_error for a `var` that is not `var name = expr` or `var
+    name: Type = expr` (or the `var name := expr` slip it accepts too): blamed on the token that
     goes wrong, with the declaration as it should read, rather than on
     `var` as an expression that cannot start. info -> info -> [token]
     -> exn *)
@@ -116,15 +116,6 @@ let malformed_var eof var_info rest =
   | TokIdent (ni, name) :: after when ni.row1 = var_info.row2 -> (
       let following = match after with t :: _ -> Some (token_info t) | [] -> None in
       match after with
-      | TokColon ci :: _ ->
-          Parse_error
-            ( ci,
-              Printf.sprintf
-                "a 'var' takes no type annotation: its type is its starting \
-                 value's, as in 'var %s = 0'. Where the value does not say \
-                 enough, annotate a binding of it and start from that: \
-                 'start: [Int] = []', then 'var %s = start'"
-                name name )
       | TokCompound (ci, op) :: _ ->
           Parse_error
             ( ci,
@@ -1965,7 +1956,27 @@ and parse_statement eof tokens =
       let value, rest = parse_bound_value eof rest in
       let e = expect_expr_value value "a 'var' declaration" in
       check_plain_name i name "declared with 'var'";
-      (SVar (combine_info i (expr_info e), name, e, 0), rest)
+      (SVar (combine_info i (expr_info e), name, e, None, 0), rest)
+  (* `var best: [Int] = []`: the type is written as on an `=` binding,
+     for a value that does not say enough by itself, or to hold objects
+     below the type written (PYKING.md, "Mutable variables"). *)
+  | TokVar i :: TokIdent (ni, name) :: TokColon _ :: rest when ni.row1 = i.row2 -> (
+      let annotation, rest = parse_type eof rest in
+      match rest with
+      | (TokEq _ | TokAssign _) :: rest ->
+          let value, rest = parse_bound_value eof rest in
+          let e = expect_expr_value value "a 'var' declaration" in
+          check_plain_name i name "declared with 'var'";
+          (SVar (combine_info i (expr_info e), name, e, Some annotation, 0), rest)
+      | _ ->
+          (* Blamed on the type, which is where the declaration stopped,
+             rather than on whatever comes next, often on a later line. *)
+          raise
+            (Parse_error
+               ( type_info annotation,
+                 Printf.sprintf
+                   "expected '=' and a starting value after the type of a 'var', as in 'var %s: %s = ...'"
+                   name (pprint_type default_config annotation) )))
   | TokVar i :: rest -> raise (malformed_var eof i rest)
   | TokIdent (i, name) :: TokAssign _ :: rest ->
       let value, rest = parse_bound_value eof rest in
@@ -3842,7 +3853,7 @@ let check_features enabled stmts =
                      | "view" -> "makes a view of an array, written in place"
                      | "copy_into" -> "writes into an array"
                      | _ -> "changes a DynArray or a MutMap") ))
-        | Walk.NStmt (SVar (i, _, _, _)) ->
+        | Walk.NStmt (SVar (i, _, _, _, _)) ->
             raise
               (Parse_error
                  ( { i with row2 = i.row1; col2 = i.col1 + 3 },

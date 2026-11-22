@@ -17,29 +17,34 @@ diagnostics $CASES/fixes.pyk v3 [{"code": "Type error", "message": "this binding
 [{"edit": {"changes": {"$CASES/fixes.pyk": [{"newText": "String", "range": {"end": {"character": 9, "line": 0}, "start": {"character": 6, "line": 0}}}]}}, "isPreferred": true, "kind": "quickfix", "title": "Annotate it String, the type of its value"}]
 > change fixes.pyk
 > idle
-diagnostics $CASES/fixes.pyk v4 [{"code": "Parsing error", "message": "'++' is now written '+': 'a + b' joins two strings or two lists", "range": {"end": {"character": 11, "line": 0}, "start": {"character": 9, "line": 0}}, "severity": 1, "source": "pyking"}]
+diagnostics $CASES/fixes.pyk v4 [{"code": "Type error", "message": "this variable is annotated Int, but its starting value has type String", "range": {"end": {"character": 13, "line": 1}, "start": {"character": 10, "line": 1}}, "severity": 1, "source": "pyking"}]
+> request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 8}}, "context": {"diagnostics": []}}
+[{"edit": {"changes": {"$CASES/fixes.pyk": [{"newText": "String", "range": {"end": {"character": 13, "line": 1}, "start": {"character": 10, "line": 1}}}]}}, "isPreferred": true, "kind": "quickfix", "title": "Annotate it String, the type of its value"}]
+> change fixes.pyk
+> idle
+diagnostics $CASES/fixes.pyk v5 [{"code": "Parsing error", "message": "'++' is now written '+': 'a + b' joins two strings or two lists", "range": {"end": {"character": 11, "line": 0}, "start": {"character": 9, "line": 0}}, "severity": 1, "source": "pyking"}]
 > request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 4}}, "context": {"diagnostics": []}}
 [{"edit": {"changes": {"$CASES/fixes.pyk": [{"newText": "+", "range": {"end": {"character": 11, "line": 0}, "start": {"character": 9, "line": 0}}}]}}, "isPreferred": true, "kind": "quickfix", "title": "Change `++` to `+`"}]
 > request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 5, "character": 0}, "end": {"line": 5, "character": 4}}, "context": {"diagnostics": []}}
 []
 > change fixes.pyk
 > idle
-diagnostics $CASES/fixes.pyk v5 [{"code": "Parsing error", "message": "'var' declares a mutable variable, which needs 'use mutation' at the top of this module", "range": {"end": {"character": 3, "line": 1}, "start": {"character": 0, "line": 1}}, "severity": 1, "source": "pyking"}]
+diagnostics $CASES/fixes.pyk v6 [{"code": "Parsing error", "message": "'var' declares a mutable variable, which needs 'use mutation' at the top of this module", "range": {"end": {"character": 3, "line": 1}, "start": {"character": 0, "line": 1}}, "severity": 1, "source": "pyking"}]
 > request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 3}}, "context": {"diagnostics": []}}
 [{"edit": {"changes": {"$CASES/fixes.pyk": [{"newText": "use mutation\n", "range": {"end": {"character": 0, "line": 0}, "start": {"character": 0, "line": 0}}}]}}, "isPreferred": true, "kind": "quickfix", "title": "Add 'use mutation' at the top of the module"}]
 > change fixes.pyk
 > idle
-diagnostics $CASES/fixes.pyk v6 [{"code": "Type error", "message": "`&` cannot be applied to Bool and Bool; it accepts Int & Int. On Bools, write 'and' (or '&&')", "range": {"end": {"character": 19, "line": 0}, "start": {"character": 7, "line": 0}}, "severity": 1, "source": "pyking"}]
+diagnostics $CASES/fixes.pyk v7 [{"code": "Type error", "message": "`&` cannot be applied to Bool and Bool; it accepts Int & Int. On Bools, write 'and' (or '&&')", "range": {"end": {"character": 19, "line": 0}, "start": {"character": 7, "line": 0}}, "severity": 1, "source": "pyking"}]
 > request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 4}}, "context": {"diagnostics": []}}
 [{"edit": {"changes": {"$CASES/fixes.pyk": [{"newText": "and", "range": {"end": {"character": 13, "line": 0}, "start": {"character": 12, "line": 0}}}]}}, "isPreferred": true, "kind": "quickfix", "title": "Change `&` to `and`"}]
 > change fixes.pyk
 > idle
-diagnostics $CASES/fixes.pyk v7 [{"code": "Type error", "message": "`&&` cannot be applied to Int and Int; it accepts Bool && Bool. On Ints, write 'and' or '&'", "range": {"end": {"character": 13, "line": 0}, "start": {"character": 7, "line": 0}}, "severity": 1, "source": "pyking"}]
+diagnostics $CASES/fixes.pyk v8 [{"code": "Type error", "message": "`&&` cannot be applied to Int and Int; it accepts Bool && Bool. On Ints, write 'and' or '&'", "range": {"end": {"character": 13, "line": 0}, "start": {"character": 7, "line": 0}}, "severity": 1, "source": "pyking"}]
 > request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 4}}, "context": {"diagnostics": []}}
 [{"edit": {"changes": {"$CASES/fixes.pyk": [{"newText": "&", "range": {"end": {"character": 11, "line": 0}, "start": {"character": 9, "line": 0}}}]}}, "isPreferred": true, "kind": "quickfix", "title": "Change `&&` to `&`"}]
 > change fixes.pyk
 > idle
-diagnostics $CASES/fixes.pyk v8 [{"code": "Parsing error", "message": "a power is written with '^', as in 'a ^ b'", "range": {"end": {"character": 10, "line": 0}, "start": {"character": 8, "line": 0}}, "severity": 1, "source": "pyking"}]
+diagnostics $CASES/fixes.pyk v9 [{"code": "Parsing error", "message": "a power is written with '^', as in 'a ^ b'", "range": {"end": {"character": 10, "line": 0}, "start": {"character": 8, "line": 0}}, "severity": 1, "source": "pyking"}]
 > request textDocument/codeAction {"textDocument": {"uri": "$URI(fixes.pyk)"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 4}}, "context": {"diagnostics": []}}
 [{"edit": {"changes": {"$CASES/fixes.pyk": [{"newText": "^", "range": {"end": {"character": 10, "line": 0}, "start": {"character": 8, "line": 0}}}]}}, "isPreferred": true, "kind": "quickfix", "title": "Change `**` to `^`"}]
 > shutdown

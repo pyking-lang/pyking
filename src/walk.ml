@@ -152,7 +152,8 @@ let rec children n =
       | SLetStmt (_, target, inner, annotation, _, _) ->
           [ NTarget target; NStmt inner ]
           @ option_of (fun t -> NType t) annotation
-      | SVar (_, _, e, _) | SMutate (_, _, e, _) -> [ NExpr e ]
+      | SVar (_, _, e, annotation, _) -> NExpr e :: option_of (fun t -> NType t) annotation
+      | SMutate (_, _, e, _) -> [ NExpr e ]
       | SMutateTuple (_, target, e, _) -> [ NTarget target; NExpr e ]
       | SSetIndex (_, owner, index, value, _) -> [ NExpr owner; NExpr index; NExpr value ]
       | SSetField (_, owner, _, value, _) -> [ NExpr owner; NExpr value ]
@@ -230,7 +231,7 @@ let name_field n =
   | NListRest (ListRest (_, name, _)) -> name
   | NTarget (TargetName (_, name, _)) -> Some name
   | NLoopIter (ForIn (_, name, _, _)) -> Some name
-  | NStmt (SVar (_, name, _, _))
+  | NStmt (SVar (_, name, _, _, _))
   | NStmt (SMutate (_, name, _, _))
   | NStmt (SFunctionDef (_, name, _, _, _, _, _, _, _))
   | NStmt (SFunctionSig (_, name, _, _, _))
@@ -300,7 +301,7 @@ and map_stmt f st =
   match st with
   | SLet (i, t, x, a, s, p, im) -> SLet (i, t, e x, a, s, p, im)
   | SLetStmt (i, t, inner, a, s, p) -> SLetStmt (i, t, map_stmt f inner, a, s, p)
-  | SVar (i, n, x, s) -> SVar (i, n, e x, s)
+  | SVar (i, n, x, a, s) -> SVar (i, n, e x, a, s)
   | SMutate (i, n, x, s) -> SMutate (i, n, e x, s)
   | SSetIndex (i, o, x, v, s) -> SSetIndex (i, e o, e x, e v, s)
   | SSetDeref (i, p, v, s) -> SSetDeref (i, e p, e v, s)

@@ -315,7 +315,7 @@ and stmt =
          may be resolved to it). *)
   | SLetStmt of info * assign_target * stmt * typ option * int * bool
       (* target = <if/match statement in value form> *)
-  | SVar of info * string * expr * int (* var name = expr *)
+  | SVar of info * string * expr * typ option * int (* var name[: type] = expr *)
   | SMutate of info * string * expr * int (* name := expr *)
   | SSetIndex of info * expr * expr * expr * int
       (* owner[index] := value -- an element of an array written. The
@@ -597,7 +597,7 @@ let stmt_info s =
   match s with
   | SLet (i, _, _, _, _, _, _) -> i
   | SLetStmt (i, _, _, _, _, _) -> i
-  | SVar (i, _, _, _) -> i
+  | SVar (i, _, _, _, _) -> i
   | SMutate (i, _, _, _) -> i
   | SMutateTuple (i, _, _, _) -> i
   | SSetIndex (i, _, _, _, _) -> i
@@ -622,7 +622,7 @@ let stmt_sym s =
   match s with
   | SLet (_, _, _, _, s, _, _) -> s
   | SLetStmt (_, _, _, _, s, _) -> s
-  | SVar (_, _, _, s) -> s
+  | SVar (_, _, _, _, s) -> s
   | SMutate (_, _, _, s) -> s
   | SMutateTuple (_, _, _, s) -> s
   | SSetIndex (_, _, _, _, s) -> s
@@ -1494,8 +1494,11 @@ and pprint_stmt_body cfg s level =
           (pprint_target cfg target) (annotation cfg sym type_)
       in
       String.concat "\n" ((prefix ^ strip head) :: rest)
-  | SVar (_, name, expr, _) ->
-      Printf.sprintf "%svar %s = %s" pad name (pprint_expr cfg expr 0)
+  | SVar (_, name, expr, type_, _) ->
+      (* Only the type the program wrote: a `var` written without one
+         prints without one, typed or not. *)
+      let written = match type_ with Some t -> ": " ^ pprint_annotation_type cfg t | None -> "" in
+      Printf.sprintf "%svar %s%s = %s" pad name written (pprint_expr cfg expr 0)
   | SMutate (_, name, expr, _) -> (
       match compound_parts s with
       | Some (op, right) ->

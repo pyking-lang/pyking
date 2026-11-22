@@ -1,0 +1,12 @@
+# A ':=' to a 'var' of a Shape may give it only a Shape.
+use mutation, objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+var s: Shape = Dot(1)
+s := 5
