@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A struct's or a datatype's field may have a class or an interface
+  for its type: `struct Holder(s: Shape)`, `datatype Slot: Empty,
+  Full(s: Shape)`, `mutable struct Cursor(at: Shape)`. Before, it was
+  refused with "unknown type 'Shape'", though the interface was
+  declared. Such a field takes an object of any class below its type,
+  in the constructor call and in each `:=` to a mutable struct's field;
+  it is read, matched, printed and copied like any field, across
+  modules too, and a class may hold the struct that holds it. `==` on
+  such a struct is refused, as on an object. On the OCaml target the
+  classes of such a program are object types in the datatypes'
+  recursive group. An unknown type's message now says a type may be a
+  class or an interface too, and offers the nearest known name, and a
+  struct and a class of one name are refused with one message
+  whichever comes first.
 - A `var` may have its type written, as an `=` binding may: `var best:
   [Int] = []`, `var found: Option(String) = None`, and `var count: Int
   := 0`. The type is checked against the starting value and kept by

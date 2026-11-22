@@ -3855,6 +3855,38 @@ struct Box(value: a, label = "box")
 print(Pair(1, "one"), Box(true).label)
 ```
 
+**A field of a class or an interface type** holds an object, under `use
+objects`. Like an argument, it takes an object of any class below the
+type it is written with, and it is read and matched like any field. The
+same holds for a datatype's constructor, a `mutable struct`'s field,
+which `:=` writes with an object of another class, and a class that
+holds the struct holding it in turn:
+
+```pyking
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot " + string(self.r)
+
+struct Holder(s: Shape, label: String)
+
+datatype Slot: Empty, Full(s: Shape)
+
+h = Holder(Dot(1), "first")
+print(h.s.name(), h.label, h)
+match Full(Dot(2)):
+    case Full(s): print(s.name())
+    case Empty: print("empty")
+```
+
+`==` does not compare such a struct, since it does not compare objects
+(see "Comparison operators"); `copy` and `deepcopy` copy it as any
+other (see "Copying").
+
 A struct's value never changes: there is no assignment to its field. A
 changed copy is built instead, with `..` below. A struct whose fields
 are written in place is a `mutable struct` (see "Mutable structs").
@@ -4296,7 +4328,9 @@ every method a body, its own or one it inherits.
 
 **Where an object is seen as a supertype.** A `Square` stands where a
 `Shape` is written -- an annotated binding, a declared parameter or
-result, a field, a `var` of a declared type and each `:=` to it -- and inside a list, a
+result, a field (a class's, a struct's or a datatype constructor's, and
+each `:=` to a mutable one), a `var` of a declared type and each `:=`
+to it -- and inside a list, a
 comprehension, a tuple, an `if` or a datatype's constructor written
 there, each part on its own: a function declared to return
 `Result(Shape, String)` may end in `Ok(Square(2.0))`, or `return` it, a

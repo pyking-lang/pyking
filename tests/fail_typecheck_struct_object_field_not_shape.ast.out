@@ -1,0 +1,2 @@
+'tests/fail_typecheck_struct_object_field_not_shape.pyk' 18:11-18:12
+  Type error: the field 's' of 'Holder' must be Shape, not Int

@@ -1,0 +1,25 @@
+# A library whose public struct and datatype hold an interface, used by
+# struct_object_field_module.pyk with a class of its own.
+use objects
+
+public interface Shape:
+    def name(self) -> String
+
+public class Square(side: Int) implements Shape:
+    override def name(self) -> String:
+        "square " + string(self.side)
+
+public struct Framed(shape: Shape, label: String)
+
+public datatype Slot: Empty, Holds(s: Shape)
+
+public def frame(s: Shape) -> Framed:
+    Framed(s, "framed")
+
+public def square_slot(n: Int) -> Slot:
+    if n > 0 then Holds(Square(n)) else Empty
+
+public def describe(slot: Slot) -> String:
+    match slot:
+        case Holds(s): "holds " + s.name()
+        case Empty: "empty"

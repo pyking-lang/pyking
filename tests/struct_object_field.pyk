@@ -1,0 +1,67 @@
+# A struct's or a datatype's field may have a class or an interface for
+# its type (PYKING.md, "Structs"): it takes an object of any class below
+# it, as an argument does, is read and matched like any field, prints,
+# and is copied. A mutable struct's such field is written with `:=`,
+# with an object of another class. A class may hold the struct that
+# holds it in turn. No lists, so plain C runs it too.
+
+use mutation, objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot " + string(self.r)
+
+class Line(n: Int) implements Shape:
+    override def name(self) -> String:
+        "line " + string(self.n)
+
+class Thick(n: Int) extends Line(n):
+    override def name(self) -> String:
+        "thick " + string(self.n)
+
+struct Holder(s: Shape, n: Int)
+
+datatype Slot: Empty, Full(s: Shape), Two(a: Shape, b: Line)
+
+mutable struct Cursor(at: Shape, moves: Int)
+
+# A class holding a struct that holds the class in turn.
+class Node(label: String):
+    var link: Option(Link) = None
+
+struct Link(to: Node, weight: Int)
+
+
+def describe(slot: Slot) -> String:
+    match slot:
+        case Empty: "empty"
+        case Full(s): "full of " + s.name()
+        case Two(a, b): a.name() + " and " + b.name()
+
+
+h = Holder(Dot(1), 2)
+print(h.s.name(), h.n)
+print(h)
+print(describe(Empty), describe(Full(Line(3))), describe(Two(Dot(4), Thick(5))))
+match Holder(Thick(6), 0):
+    case Holder(s, _): print(s.name())
+
+c = Cursor(Dot(7), 0)
+c.at := Line(8)
+c.moves += 1
+print(c.at.name(), c.moves)
+d = copy(c)
+d.at := Thick(9)
+print(c.at.name(), d.at.name())
+e = deepcopy(h)
+print(e.s.name(), e.n)
+
+a = Node("a")
+b = Node("b")
+a.link := Some(Link(b, 3))
+match a.link:
+    case Some(Link(to, w)): print(a.label, "->", to.label, w)
+    case None: print("no link")

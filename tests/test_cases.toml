@@ -3420,3 +3420,33 @@ file = "fail_typecheck_for_tuple_nested.pyk"
 
 [[cases]]
 file = "fail_typecheck_for_tuple_uppercase.pyk"
+
+# A struct's or a datatype's field of a class or an interface type.
+[[cases]]
+file = "struct_object_field.pyk"
+libs = ["option"]
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "struct_object_field_list.pyk"
+libs = ["option"]
+excluded = { c = "a generic class, which C would need one struct and table of per type it is made at", "c-gc" = "a generic class, which C would need one struct and table of per type it is made at" }
+
+[[cases]]
+file = "struct_object_field_module.pyk"
+modules = ["struct_object_field_mod.pyk"]
+
+[[cases]]
+file = "fail_typecheck_struct_object_field_not_shape.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_object_field_assign.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_object_field_equal.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_object_field_unknown.pyk"
+
+[[cases]]
+file = "fail_typecheck_struct_class_same_name.pyk"

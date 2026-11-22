@@ -1,0 +1,18 @@
+# A field of an interface type takes an object of a class that
+# implements it, and nothing else.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+struct Holder(s: Shape)
+
+h = Holder(5)

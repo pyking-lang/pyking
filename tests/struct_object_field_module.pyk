@@ -1,0 +1,18 @@
+# Another module's public struct and datatype that hold an interface,
+# filled with this module's own class and with the library's, built on
+# both sides and taken apart on both (PYKING.md, "Structs").
+use objects
+import struct_object_field_mod as lib
+
+class Circle(r: Int) implements lib.Shape:
+    override def name(self) -> String:
+        "circle " + string(self.r)
+
+f = lib.Framed(Circle(2), "mine")
+print(f.shape.name(), f.label)
+g = lib.frame(lib.Square(3))
+print(g.shape.name(), g.label)
+print(lib.describe(lib.Holds(Circle(4))), lib.describe(lib.square_slot(5)))
+match lib.square_slot(0):
+    case lib.Holds(s): print(s.name())
+    case lib.Empty: print("nothing")

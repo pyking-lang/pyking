@@ -1,0 +1,8 @@
+dot 1 2
+Holder(Dot(1), 2)
+empty full of line 3 dot 4 and thick 5
+thick 6
+line 8 1
+line 8 thick 9
+dot 1 2
+a -> b 3

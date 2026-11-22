@@ -580,7 +580,8 @@ let checker_scope t frame =
   match frame_place t frame with
   | None -> (Typesystem.builtin_env (), Typesystem.empty_store [])
   | Some (s, row, col) ->
-      let store = Typesystem.declare_datatypes s.unit.stmts (Typesystem.empty_store s.sigmaps) in
+      let store = Typesystem.register_classes s.unit.stmts (Typesystem.empty_store s.sigmaps) in
+      let store = Typesystem.declare_datatypes s.unit.stmts store in
       let store = Typesystem.declare_classes s.unit.stmts store in
       let env = Typesystem.import_env s.unit.stmts (Typesystem.builtin_env ()) store in
       let declared = Module.external_signatures s.unit.declarations in

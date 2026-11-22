@@ -1,0 +1,18 @@
+# `==` compares a struct part by part, and a field holding an object is
+# a part it does not compare.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+struct Holder(s: Shape)
+
+print(Holder(Dot(1)) == Holder(Dot(1)))

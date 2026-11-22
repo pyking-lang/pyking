@@ -1358,8 +1358,15 @@ methods call and that build its objects, which Pyking's are. So:
   and every method with its type, plus `pyk_up` and `pyk_show` (the
   object as `show` says, or its header form, a `private` header field
   written as `_`). The
-  class types go with the type declarations, before the datatypes unless
-  a datatype names a class.
+  class types go with the type declarations, after the datatypes, so a
+  class may name a datatype. Where a datatype names a class -- `struct
+  Holder(s: Shape)` -- each class is instead an object type, `and shape
+  = < name : string; ... >`, in the datatypes' own recursive `type`
+  group: a `class type` cannot share a group with a variant, and the
+  two may name each other (a class holding a `Holder`). An object type
+  is what a class type abbreviates, so coercions and method calls read
+  the same; only its type parameters are written `'a box` rather than
+  `['a] box`.
 - **Each method with a body** is a function of the module, in its
   recursion groups like any other, taking `self` at the type of the
   class declaring it: `rect__area self`.

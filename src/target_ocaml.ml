@@ -3521,7 +3521,11 @@ and string_of ctx acc type_ translated info top =
               let name, acc = fresh_name ctx acc in
               let shown, acc = string_of inner acc arg (OVar name) info false in
               let printer =
-                if takes then OLambda ([ OPatName "path"; OPatName name ], shown)
+                if takes then
+                  (* An object prints itself (`#pyk_show`), so its printer
+                     is handed a path it does not read. *)
+                  let path = if StringSet.mem "path" (free shown) then "path" else "_path" in
+                  OLambda ([ OPatName path; OPatName name ], shown)
                 else OFun [ (name, shown) ]
               in
               (out @ [ printer ], acc))
@@ -6085,9 +6089,15 @@ let lower_classes table stmts tmap =
 
 (** The class types of a program's classes and interfaces, the variant
     their objects are seen through, and its constructors: what goes with
-    the type declarations. Classes.table -> typ IntMap.t -> [stmt] -> [string] *)
-let class_declarations table tmap stmts =
-  if Classes.SMap.is_empty table then []
+    the type declarations. Each class is a `class type`, or with
+    `objects` an object type `< ... >` that can share one recursive
+    `type` group with the datatypes, which is what a struct or a
+    datatype holding an object of a class that names it back needs.
+    Answers the declarations, each without its `class type`/`and`, and
+    the variant's constructors.
+    Classes.table -> typ IntMap.t -> [stmt] -> bool -> ([string], [string]) *)
+let class_parts table tmap stmts objects =
+  if Classes.SMap.is_empty table then ([], [])
   else
     let type_at s = Option.value (IntMap.find_opt s tmap) ~default:(TUnknown (no_info, 0)) in
     let order = Classes.ordered table stmts in
@@ -6167,9 +6177,19 @@ let class_declarations table tmap stmts =
            else List.map (fun p -> Printf.sprintf "  method pyk_show_%s : '%s -> string" p p) c.Classes.params)
         @ [ "  method pyk_up : exn list"; "  method pyk_show : string" ]
       in
-      Printf.sprintf "%s%s = object\n%s\nend" (params c) (datatype_name name) (String.concat "\n" lines)
+      if objects then
+        let strip line = String.sub line 9 (String.length line - 9) (* "  method " *) in
+        let type_params =
+          match c.Classes.params with
+          | [] -> ""
+          | [ p ] -> "'" ^ p ^ " "
+          | ps -> "(" ^ String.concat ", " (List.map (fun p -> "'" ^ p) ps) ^ ") "
+        in
+        Printf.sprintf "%s%s = <\n%s\n>" type_params (datatype_name name)
+          (String.concat ";\n" (List.map (fun l -> "  " ^ strip l) lines))
+      else Printf.sprintf "%s%s = object\n%s\nend" (params c) (datatype_name name) (String.concat "\n" lines)
     in
-    if order = [] then []
+    if order = [] then ([], [])
     else
     let decls = List.map one order in
     let ups =
@@ -6180,11 +6200,19 @@ let class_declarations table tmap stmts =
           else Printf.sprintf "exception %s of Obj.t" (up_constructor name))
         order
     in
-    ("class type " ^ String.concat "\nand " decls) :: ups
+    (decls, ups)
+
+(** The class types and the variant's constructors, declared on their
+    own. Classes.table -> typ IntMap.t -> [stmt] -> [string] *)
+let class_declarations table tmap stmts =
+  match class_parts table tmap stmts false with
+  | [], ups -> ups
+  | decls, ups -> ("class type " ^ String.concat "\nand " decls) :: ups
 
 let translate_program stmts tmap (context : Module.context) target =
   let classes, tmap = Classes.program stmts tmap context.sigmaps in
   let class_types = class_declarations classes tmap stmts in
+  let class_objects = lazy (class_parts classes tmap stmts true) in
   (* What another module needs of a public class: its constructor, the
      function setting up its fields, which a class extending it calls,
      and each method body, which such a class's objects run. *)
@@ -6421,9 +6449,11 @@ let translate_program stmts tmap (context : Module.context) target =
     program_name = context.context_name;
     main = context.main;
     types =
-      (* Classes first where a datatype names one, and after the
-         datatypes otherwise, which is where a class naming a datatype
-         needs them. *)
+      (* After the datatypes, which is where a class naming a datatype
+         needs them; where a datatype names a class, the classes are
+         object types in the datatypes' own recursive group, so either
+         may name the other (`struct Holder(s: Shape)` beside a class
+         holding a Holder). *)
       (let datatypes = datatype_declarations own_datatypes in
        let names_class =
          Walk.exists_stmts
@@ -6438,7 +6468,10 @@ let translate_program stmts tmap (context : Module.context) target =
              | _ -> false)
            stmts
        in
-       if names_class then class_types @ datatypes else datatypes @ class_types)
+       match (names_class, datatypes, Lazy.force class_objects) with
+       | true, [ group ], (decls, ups) when decls <> [] ->
+           (group ^ "\nand " ^ String.concat "\nand " decls) :: ups
+       | _ -> datatypes @ class_types)
       @ List.map (fun (_, (field, p)) -> poly_declaration field p) polys;
     printers;
     printer_interface;

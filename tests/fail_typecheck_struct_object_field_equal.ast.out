@@ -1,0 +1,4 @@
+'tests/fail_typecheck_struct_object_field_equal.pyk' 18:6-18:38 Type
+  error: `==` compares Holder part by part, and this one holds an
+  object, a Shape, which `==` does not compare: compare the objects
+  one at a time with '==', which calls their 'eq'

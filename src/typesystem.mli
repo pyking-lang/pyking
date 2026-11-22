@@ -226,6 +226,14 @@ val empty_store : (string * sigmap) list -> store
     [stmt] -> env -> store -> (env, store) *)
 val declare_functions : stmt list -> env -> store -> env * store
 
+(** store knowing the name and type parameters of every class and
+    interface these statements declare or import, as placeholders
+    declare_classes fills in. Called before declare_datatypes, so a
+    struct's or datatype's field may have a class or an interface for
+    its type. A class already known by its name -- one a REPL entry
+    declared before -- is replaced. [stmt] -> store -> store *)
+val register_classes : stmt list -> store -> store
+
 (** store knowing the datatypes these statements declare and the ones
     their imports bring in: every name spelled as the source may spell
     it, every constructor, and each field's type. What an entry at the
@@ -234,8 +242,8 @@ val declare_datatypes : stmt list -> store -> store
 
 (** store knowing every class and interface these statements declare,
     each checked against the rules a declaration keeps (PYKING.md,
-    "Classes and interfaces"). A class already known by its name -- one a
-    REPL entry declared before -- is replaced. *)
+    "Classes and interfaces"), their names registered by
+    register_classes. *)
 val declare_classes : stmt list -> store -> store
 
 (** Refuses a `match` in these statements that does not match every

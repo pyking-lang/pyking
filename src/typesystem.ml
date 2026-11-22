@@ -1882,14 +1882,20 @@ let rec resolved ?params store type_ =
   | TCon (info, spelled, args, sym) -> (
       match SMap.find_opt spelled store.types with
       | None ->
+          let known = SMap.fold (fun n _ out -> n :: out) store.types [] in
+          let meant =
+            match Suggest.closest spelled known with
+            | n :: _ -> Printf.sprintf ". Did you mean '%s'?" n
+            | [] -> ""
+          in
           raise
             (Type_error
                ( info,
                  Printf.sprintf
                    "unknown type '%s': a type starting with an uppercase \
-                    letter is a datatype, and none of that name is declared \
-                    or imported here"
-                   spelled ))
+                    letter is a datatype, a class or an interface, and none \
+                    of that name is declared or imported here%s"
+                   spelled meant ))
       | Some canonical ->
           let wanted =
             match SMap.find_opt canonical store.datatypes with
@@ -2025,6 +2031,14 @@ let declare_datatypes stmts store =
   let store =
     List.fold_left
       (fun store (info, name, params, _, _, writable) ->
+        if SMap.mem name store.classes && SMap.find_opt name store.types = Some name then
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf
+                   "'%s' is already declared: a class or a datatype of one \
+                    name is declared once"
+                   name ));
         if SMap.mem name store.types then
           raise
             (Type_error
@@ -2475,12 +2489,12 @@ let declare_imported_classes stmts store =
       | _ -> store)
     store stmts
 
-(** store knowing every class and interface these statements declare:
-    their names first, so they may name each other in any order, then
-    what each says, then the rules a declaration must keep -- every one
-    checked here, at the class, before any body is.
-    [stmt] -> store -> store *)
-let declare_classes stmts store =
+(** store knowing the name and type parameters of every class and
+    interface these statements declare or import, each a placeholder
+    `declare_classes` fills in. It runs before `declare_datatypes`, so a
+    struct's or a datatype's field may have a class or an interface for
+    its type. [stmt] -> store -> store *)
+let register_classes stmts store =
   let store = declare_imported_classes stmts store in
   let own = List.filter_map (function SClass (i, c, _) -> Some (i, c) | _ -> None) stmts in
   (* A class declared again -- a REPL entry redefining one -- replaces it. *)
@@ -2530,6 +2544,17 @@ let declare_classes stmts store =
         })
       store own
   in
+  store
+
+(** store knowing every class and interface these statements declare:
+    what each says -- parents, interfaces, header, fields and methods,
+    each type resolved -- then the rules a declaration must keep, every
+    one checked here, at the class, before any body is. Their names are
+    registered already (`register_classes`, before `declare_datatypes`),
+    so they may name each other, and the datatypes, in any order.
+    [stmt] -> store -> store *)
+let declare_classes stmts store =
+  let own = List.filter_map (function SClass (i, c, _) -> Some (i, c) | _ -> None) stmts in
   let resolve c t = resolved ~params:(c.c_name, c.c_params) store t in
   let supertype c want (ClassRef (ri, module_, name, args, _, _)) =
     let spelled = match module_ with Some m -> m ^ "." ^ name | None -> name in
@@ -4658,18 +4683,34 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
                     value is %s"
                    (assignment_word statement) (shown settled store) )));
       let wanted, store = field_type info owner_type field store in
-      let actual, store = check_expr value env store in
+      (* A field of a class or an interface takes an object below it, as
+         an object's own field does. *)
+      let upcast =
+        if mentions_object store (zonk wanted store) then
+          match
+            check_wanted value wanted
+              (Printf.sprintf "what '%s' writes to the field '%s'" (assignment_word statement) field)
+              env store
+          with
+          | store -> Some store
+          | exception Type_error _ when not (literal_collection value) -> None
+        else None
+      in
       let store =
-        match satisfies wanted (Some actual) store with
+        match upcast with
         | Some store -> store
-        | None ->
-            raise
-              (Type_error
-                 ( info,
-                   Printf.sprintf
-                     "the field '%s' holds %s, but this '%s' gives %s"
-                     field (shown wanted store) (assignment_word statement)
-                     (shown actual store) ))
+        | None -> (
+            let actual, store = check_expr value env store in
+            match satisfies wanted (Some actual) store with
+            | Some store -> store
+            | None ->
+                raise
+                  (Type_error
+                     ( info,
+                       Printf.sprintf
+                         "the field '%s' holds %s, but this '%s' gives %s"
+                         field (shown wanted store) (assignment_word statement)
+                         (shown actual store) )))
       in
       let store = record store sym (unit_type info) in
       (Some (unit_type info), env, store))
@@ -5359,11 +5400,17 @@ and expr_type e env store =
       let store, _ =
         List.fold_left2
           (fun (store, position) argument (label, wanted) ->
-            let actual, store = check_expr argument env store in
+            let what = field_named spelled position label in
             let store =
-              demand actual wanted (expr_info argument)
-                (field_named spelled position label)
-                store
+              (* A field of a class or an interface -- `struct
+                 Holder(s: Shape)` -- takes an object below it, as an
+                 argument does (PYKING.md, "Where an object is seen as a
+                 supertype"). *)
+              if mentions_object store (zonk wanted store) then
+                check_wanted argument wanted what env store
+              else
+                let actual, store = check_expr argument env store in
+                demand actual wanted (expr_info argument) what store
             in
             (store, position + 1))
           (store, 0) given fields
@@ -7965,7 +8012,8 @@ let defaulted tmap qmap =
     them, what every call it resolved denotes.
     [stmt] -> [(string, sigmap)] -> (typ IntMap.t, resolution IntMap.t) *)
 let type_check ?(declared = []) ?(mutation = true) stmts sigmaps =
-  let store = declare_datatypes stmts { (empty_store sigmaps) with mutation } in
+  let store = register_classes stmts { (empty_store sigmaps) with mutation } in
+  let store = declare_datatypes stmts store in
   let store = declare_classes stmts store in
   (* A module's own declaration half is in scope here, unqualified and
      with no import: `foo.pyk` and `foo_external.pyk` are one module, so

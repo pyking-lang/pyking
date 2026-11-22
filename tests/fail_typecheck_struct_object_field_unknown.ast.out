@@ -1,0 +1,4 @@
+'tests/fail_typecheck_struct_object_field_unknown.pyk' 12:17-12:21
+  Type error: unknown type 'Shap': a type starting with an uppercase
+  letter is a datatype, a class or an interface, and none of that name
+  is declared or imported here. Did you mean 'Shape'?

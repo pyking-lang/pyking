@@ -1,0 +1,4 @@
+mixed ["dot 1", "line 2"]
+focus dot 3
+["line 0", "line 1", "line 2"] Scene("made", [Line(0), Line(1), Line(2)], None)
+7 ["dot 1", "line 2"]

@@ -1,0 +1,42 @@
+# Fields of a class or an interface type that need a heap (see
+# struct_object_field.pyk): a list of an interface, filled by a list or
+# a comprehension written in the constructor call, an Option of one, a
+# generic class at a type argument, and a struct whose field is itself
+# a struct holding an object, deep-copied.
+
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot " + string(self.r)
+
+class Line(n: Int) implements Shape:
+    override def name(self) -> String:
+        "line " + string(self.n)
+
+class Box(item: a):
+    def get(self) -> a:
+        self.item
+
+struct Scene(title: String, shapes: [Shape], focus: Option(Shape))
+
+struct Kept(box: Box(Int), scene: Scene)
+
+
+def names(xs: [Shape]) -> [String]:
+    [x.name() for x in xs]
+
+
+s = Scene("mixed", [Dot(1), Line(2)], Some(Dot(3)))
+print(s.title, names(s.shapes))
+match s.focus:
+    case Some(f): print("focus", f.name())
+    case None: print("no focus")
+t = Scene("made", [Line(k) for k in range(3)], None)
+print(names(t.shapes), t)
+k = Kept(Box(7), s)
+copied = deepcopy(k)
+print(copied.box.get(), names(copied.scene.shapes))

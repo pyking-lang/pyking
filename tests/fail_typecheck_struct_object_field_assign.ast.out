@@ -1,0 +1,2 @@
+'tests/fail_typecheck_struct_object_field_assign.pyk' 20:0-20:16 Type
+  error: the field 's' holds Shape, but this ':=' gives String

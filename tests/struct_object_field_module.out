@@ -1,0 +1,4 @@
+circle 2 mine
+square 3 framed
+holds circle 4 holds square 5
+nothing

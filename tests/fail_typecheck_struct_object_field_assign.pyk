@@ -1,0 +1,20 @@
+# A mutable struct's field of an interface type is written with an
+# object of a class implementing it, and nothing else.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+mutable struct Slot(s: Shape)
+
+slot = Slot(Dot(1))
+slot.s := "line"
