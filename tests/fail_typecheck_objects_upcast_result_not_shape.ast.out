@@ -1,0 +1,2 @@
+'tests/fail_typecheck_objects_upcast_result_not_shape.pyk' 14:17-14:21
+  Type error: the value this function ends in must be Shape, not Box

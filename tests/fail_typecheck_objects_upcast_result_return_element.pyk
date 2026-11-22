@@ -1,0 +1,16 @@
+# A 'return' of a list where [Shape] is the declared result: an element
+# that is no object at all is refused, with the message any 'return'
+# gives.
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+def many(n: Int) -> [Shape]:
+    if n > 0:
+        return [Dot(n), n]
+    []

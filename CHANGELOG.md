@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as well. Every target's page and the web target behave the same.
 - A notebook shows plainly which page has the keyboard: a bold amber
   ring, instead of a faint blue one.
+- A list or tuple written as a function's or method's result takes
+  objects below the declared type, as PYKING.md says: a method declared
+  to return `[Shape]` may end in `[self]`, or `return [self]`, and
+  `-> (Shape, Int)` may end in `(Dot(1), 2)`. Before, only an annotated
+  binding, an argument and an `if` did, and a body ending in the list
+  was refused with "its body ends in a value of type [Dot]". The value
+  is pushed down through a tail `if` or `match` and into nested lists,
+  tuples and constructors (`Ok([self])`). An element that is not a
+  `Shape` is named in the error, and giving back a `[Dot]` made earlier
+  says why lists do not take subtypes.
 
 ## [0.1.12] - 2026-11-15
 

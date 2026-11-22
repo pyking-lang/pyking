@@ -1,0 +1,14 @@
+# A list a method ends in, where its result is [Shape], may hold only
+# objects that are Shapes: Box implements nothing.
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+class Box(w: Int):
+    def all(self) -> [Shape]:
+        [Dot(1), self]

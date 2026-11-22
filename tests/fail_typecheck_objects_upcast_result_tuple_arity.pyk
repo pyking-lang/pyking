@@ -1,0 +1,13 @@
+# A tuple given back where (Shape, Int) is the declared result must
+# have its two parts.
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+def pair() -> (Shape, Int):
+    return (Dot(1), 2, 3)

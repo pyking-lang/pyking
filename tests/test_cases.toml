@@ -3301,6 +3301,23 @@ file = "fail_typecheck_objects_param_not_passed.pyk"
 file = "fail_typecheck_objects_param_not_passed_used.pyk"
 
 [[cases]]
+file = "objects_upcast_result.pyk"
+libs = ["option", "result"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "fail_typecheck_objects_upcast_result_variable.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_upcast_result_not_shape.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_upcast_result_tuple_arity.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_upcast_result_return_element.pyk"
+
+[[cases]]
 file = "fail_typecheck_objects_upcast_unwritten.pyk"
 
 [[cases]]

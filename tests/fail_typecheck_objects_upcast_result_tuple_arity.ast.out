@@ -1,0 +1,3 @@
+'tests/fail_typecheck_objects_upcast_result_tuple_arity.pyk'
+  13:11-13:25 Type error: what this 'return' gives must be (Shape,
+  Int), not (Dot, Int, Int)

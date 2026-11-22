@@ -1,0 +1,15 @@
+# Only a list written where [Shape] is wanted has the type pushed into
+# it: a [Dot] already made is not a [Shape], since lists do not take
+# subtypes (PYKING.md, "Where an object is seen as a supertype").
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+def many() -> [Shape]:
+    dots = [Dot(1), Dot(2)]
+    dots

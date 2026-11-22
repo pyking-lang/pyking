@@ -4229,9 +4229,39 @@ every method a body, its own or one it inherits.
 result, a field, a `var` of a declared type -- and inside a list, a
 tuple, an `if` or a datatype's constructor written there, each part on
 its own: a function declared to return `Result(Shape, String)` may end
-in `Ok(Square(2.0))`, or `return` it. Nowhere else is a type guessed: `[Rect(1.0, 1.0), Circle(1.0)]` with nothing written is refused,
+in `Ok(Square(2.0))`, or `return` it, and a method declared to return
+`[Shape]` may end in `[self]`, or `return [self, other]`. Nowhere else is a type guessed: `[Rect(1.0, 1.0), Circle(1.0)]` with nothing written is refused,
 with where to write the type. Lists do not take subtypes: a `[Square]`
-is not a `[Shape]`.
+is not a `[Shape]`, so a list made earlier and given back later is
+refused; write it where the `[Shape]` is wanted, or annotate it where
+it is made.
+
+```pyking
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+    def alone(self) -> [Shape]:
+        [self]
+
+def pair() -> (Shape, Int):
+    (Dot(1), 2)
+
+def many(n: Int) -> [Shape]:
+    if n == 0:
+        return []
+    [Dot(n), Dot(n + 1)]
+
+print([s.name() for s in Dot(1).alone()])   # ["dot"]
+(s, k) = pair()
+print(s.name(), k)                          # dot 2
+print(len(many(3)))                         # 2
+```
 
 **A method call needs the class.** `x.m()` and `x.f` are checked where
 the type of `x` is known there; a parameter with no type a body calls a

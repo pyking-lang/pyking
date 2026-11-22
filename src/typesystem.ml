@@ -2387,6 +2387,32 @@ let rec mentions_object store t =
   | TTuple (_, es, _) -> List.exists (mentions_object store) es
   | _ -> false
 
+(** Whether a wanted type is pushed into an expression written where it
+    is wanted (`check_wanted`), rather than the expression checked on its
+    own and then compared: a non-empty list or tuple, an `if`, or a
+    constructor given arguments. Every place that knows the type it
+    wants -- an annotated binding, an argument, the value a body ends
+    in, a `return` -- asks this one question, so they take the same
+    forms. expr -> bool *)
+let pushable = function
+  | EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EIf _ | EConstruct (_, _, _, _ :: _, _) -> true
+  | _ -> false
+
+(** Whether an expression is a list or tuple written out, whose parts a
+    wanted type is pushed into one by one: where one does not fit, the
+    message names that part. expr -> bool *)
+let literal_collection = function EList (_, _ :: _, _) | ETuple (_, _ :: _, _) -> true | _ -> false
+
+(** Where a list of objects is given where a list of their supertype is
+    wanted, why that is refused and what to do; "" otherwise.
+    store -> typ -> typ -> string *)
+let list_subtype_hint store wanted actual =
+  match (prune wanted store, prune actual store) with
+  | TList (_, w, _), TList (_, a, _) when is_object_type store w && is_object_type store a ->
+      Printf.sprintf ": a [%s] is not a [%s], since lists do not take subtypes; annotate the list where it is made"
+        (shown a store) (shown w store)
+  | _ -> ""
+
 (** Two method signatures agree: the same parameters, by name and type,
     and the same result. method_info -> method_info -> bool *)
 let same_signature a b =
@@ -4053,8 +4079,9 @@ let check_return actual return_type info store =
                 (Type_error
                    ( info,
                      Printf.sprintf
-                       "this function returns %s, but this 'return' gives %s"
-                       (shown declared store) (shown actual store) ))))
+                       "this function returns %s, but this 'return' gives %s%s"
+                       (shown declared store) (shown actual store)
+                       (list_subtype_hint store declared actual) ))))
 
 (** The store in which what a pattern matches has the shape the pattern
     looks at. typ -> typ -> info -> store -> store *)
@@ -4279,17 +4306,20 @@ let rec check_stmts ?(discarded = false) stmts env return_type acc_type store =
            what it is worth goes nowhere. *)
         let supplied, env, store =
           match (statement, return_type) with
-          | SExprStmt (_, (EConstruct (_, _, _, _ :: _, _) | EIf _ as e), _), Declared declared
-            when rest = [] && (not discarded) && mentions_object store declared -> (
+          | SExprStmt (_, e, _), Declared declared
+            when rest = [] && (not discarded) && pushable e && mentions_object store declared -> (
               (* The value a function ends in, where its result type is
-                 written: a datatype's constructor there takes an object
-                 below the type it is written to hold (`Ok(Circle(1))`
-                 as a `Result(Shape, String)`), as a list does. Anything
-                 that does not fit is checked as it is anywhere, for its
-                 message. *)
+                 written: a list, tuple, `if` or datatype's constructor
+                 there takes an object below the type it is written to
+                 hold (`[self]` as a `[Shape]`, `Ok(Circle(1))` as a
+                 `Result(Shape, String)`), as an annotated binding does.
+                 A constructor or `if` that does not fit is checked as
+                 it is anywhere, for its message; a list or tuple keeps
+                 the message naming the part that does not fit, as an
+                 annotated binding's does. *)
               match check_wanted e declared "the value this function ends in" env store with
               | store -> (Some (zonk declared store), env, store)
-              | exception Type_error _ ->
+              | exception Type_error _ when not (literal_collection e) ->
                   check_stmt ~discarded:(discarded || rest <> []) statement env return_type acc_type store)
           | _ ->
               check_stmt ~discarded:(discarded || rest <> []) statement env
@@ -4711,13 +4741,14 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
       if return_type = No_function then
         raise (Type_error (info, "'return' outside a function"));
       let wanted =
-        (* `return Ok(Circle(1))` where the result type is written: as
-           for the value a body ends in (`check_stmts`) *)
-        match (e, return_type) with
-        | (EConstruct (_, _, _, _ :: _, _) | EIf _), Declared declared when mentions_object store declared -> (
+        (* `return [self]` or `return Ok(Circle(1))` where the result
+           type is written: as for the value a body ends in
+           (`check_stmts`) *)
+        match return_type with
+        | Declared declared when pushable e && mentions_object store declared -> (
             match check_wanted e declared "what this 'return' gives" env store with
             | store -> Some (zonk declared store, store)
-            | exception Type_error _ -> None)
+            | exception Type_error _ when not (literal_collection e) -> None)
         | _ -> None
       in
       (match wanted with
@@ -5676,7 +5707,7 @@ and check_binary e env store =
     expr -> typ -> string -> env -> store -> store *)
 and check_wanted arg wanted what env store =
   match arg with
-  | (EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EIf _ | EConstruct (_, _, _, _ :: _, _)) when mentions_object store wanted -> (
+  | _ when pushable arg && mentions_object store wanted -> (
       match (arg, prune wanted store) with
       | EConstruct (info, module_, name, args, sym), TCon _ when object_class store module_ name = None -> (
           (* A datatype's constructor where its type is written down
@@ -5725,16 +5756,11 @@ and check_plain_wanted arg wanted what env store =
   match coerced store (expr_sym arg) wanted actual with
   | Some answer -> answer
   | None ->
-      let hint =
-        match (prune wanted store, prune actual store) with
-        | TList (_, w, _), TList (_, a, _) when is_object_type store w && is_object_type store a ->
-            Printf.sprintf ": a [%s] is not a [%s], since lists do not take subtypes; annotate the list where it is made"
-              (shown a store) (shown w store)
-        | _ -> ""
-      in
       raise
         (Type_error
-           (expr_info arg, Printf.sprintf "%s must be %s, not %s%s" what (shown wanted store) (shown actual store) hint))
+           ( expr_info arg,
+             Printf.sprintf "%s must be %s, not %s%s" what (shown wanted store) (shown actual store)
+               (list_subtype_hint store wanted actual) ))
 
 (** What reading `field` of an object gives: a field's value, or a
     method as a function, closed over the object. Private members are
@@ -6002,8 +6028,9 @@ and check_class info c env store =
                       raise
                         (Type_error
                            ( mi,
-                             Printf.sprintf "the method '%s' has to return %s, but its body ends in a value of type %s"
-                               name (shown md.md_return inner) (shown t inner) )))
+                             Printf.sprintf "the method '%s' has to return %s, but its body ends in a value of type %s%s"
+                               name (shown md.md_return inner) (shown t inner)
+                               (list_subtype_hint inner md.md_return t) )))
           in
           learned store inner)
     store c.c_methods
@@ -7491,9 +7518,10 @@ and check_function node env store =
             (Type_error
                ( stmt_info last,
                  Printf.sprintf
-                   "'%s' returns %s, but its body ends in a value of type %s"
+                   "'%s' returns %s, but its body ends in a value of type %s%s"
                    (def_name node) (shown result_type store)
-                   (shown (Option.get supplied) store) )))
+                   (shown (Option.get supplied) store)
+                   (list_subtype_hint store result_type (Option.get supplied)) )))
 
 (** A parameter's declared type, recorded under its symbol. The type is
     passed in rather than read off the node, since a `def` with a

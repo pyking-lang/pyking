@@ -1,0 +1,10 @@
+["dot 1", "line 2"] ["line 3", "dot 4"]
+dot 5 2 line 6 3
+["line -1"] ["dot 1", "dot 2"]
+["dot 2"] ["line 0", "line 0"]
+["line 0"] ["dot 3", "line 3"]
+["dot 4"] ["line -4"]
+[("dot 7", 1), ("line 8", 2)]
+["dot 9", "line 10"] both
+["dot 11"]
+["dot 12"] ["dot 12"] dot 12 12

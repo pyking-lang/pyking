@@ -1,0 +1,87 @@
+# An object stands where its interface is written inside a list or a
+# tuple that is a function's or a method's declared result: the value
+# the body ends in, a `return`, a tail `if` or `match` statement, nested
+# lists and tuples, and `self` in a method (PYKING.md, "Where an object
+# is seen as a supertype").
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot " + string(self.r)
+
+    def me(self) -> [Shape]:
+        [self]
+
+    def me_returned(self) -> [Shape]:
+        return [self]
+
+    def with_size(self) -> (Shape, Int):
+        (self, self.r)
+
+class Line(n: Int) implements Shape:
+    override def name(self) -> String:
+        "line " + string(self.n)
+
+def names(xs: [Shape]) -> [String]:
+    [x.name() for x in xs]
+
+def many() -> [Shape]:
+    [Dot(1), Line(2)]
+
+def many_returned() -> [Shape]:
+    return [Line(3), Dot(4)]
+
+def pair() -> (Shape, Int):
+    (Dot(5), 2)
+
+def pair_returned() -> (Shape, Int):
+    return (Line(6), 3)
+
+def early(n: Int) -> [Shape]:
+    if n < 0:
+        return [Line(n)]
+    [Dot(n), Dot(n + 1)]
+
+def tail_if(n: Int) -> [Shape]:
+    if n > 0:
+        [Dot(n)]
+    else:
+        [Line(n), Line(n)]
+
+def tail_match(n: Int) -> [Shape]:
+    match n:
+        case 0: [Line(0)]
+        case _: [Dot(n), Line(n)]
+
+def return_if(n: Int) -> [Shape]:
+    return if n > 0 then [Dot(n)] else [Line(n)]
+
+def nested() -> [(Shape, Int)]:
+    [(Dot(7), 1), (Line(8), 2)]
+
+def inside() -> ([Shape], String):
+    ([Dot(9), Line(10)], "both")
+
+def wrapped() -> Result([Shape], String):
+    Ok([Dot(11)])
+
+print(names(many()), names(many_returned()))
+(s, k) = pair()
+(t, m) = pair_returned()
+print(s.name(), k, t.name(), m)
+print(names(early(-1)), names(early(1)))
+print(names(tail_if(2)), names(tail_if(0)))
+print(names(tail_match(0)), names(tail_match(3)))
+print(names(return_if(4)), names(return_if(-4)))
+print([(x.name(), i) for (x, i) in nested()])
+(xs, label) = inside()
+print(names(xs), label)
+match wrapped():
+    case Ok(ys): print(names(ys))
+    case Error(e): print(e)
+d = Dot(12)
+(u, size) = d.with_size()
+print(names(d.me()), names(d.me_returned()), u.name(), size)
