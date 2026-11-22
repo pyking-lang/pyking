@@ -248,6 +248,8 @@ restriction of it, but these are genuinely new.
   `[a + b for [a, b] in rows]` (skips any row that isn't a 2-element
   list). Irrefutable patterns (names and tuple destructuring like
   `[label for (_, label) in pairs]`) simply bind, exactly as in Python.
+  A statement `for` takes only those: `for (_, label) in pairs:` is
+  accepted, `for 0 in readings:` is refused (see "`for`/`in` loops").
 
 ### Modes at a glance
 
@@ -2737,6 +2739,31 @@ for i in range(3):
     print(i)
 for c in "ok":
     print(c)
+```
+
+Where each element is a tuple, the loop may take it apart, as an `=`
+binding does: `for (n, s) in pairs:` binds `n` and `s` to each
+element's parts, with or without the parentheses, and parts may be
+taken apart in turn or skipped with `_`.
+
+```pyking
+pairs = [(1, "one"), (2, "two")]
+for (n, word) in pairs:
+    print(n, word)
+for _, (x, y) in [("p", (1.5, 'c'))]:
+    print(x, y)
+```
+
+Only names, `_` and tuples of them may stand there: patterns that match
+every element. A pattern that may not match, such as `Some(x)` or a
+literal, is refused, since a statement loop that skipped the elements it
+did not match would skip them silently. Write a `match` in the body
+instead, or a comprehension, which accepts any pattern and skips what
+does not match (see "List comprehensions"):
+
+```pyking error
+for Some(x) in [Some(1), None]:
+    print(x)
 ```
 
 ### `while` loops
@@ -6863,7 +6890,9 @@ return_stmt = "return" , [ bound_value ] ;
 loop_stmt   = ( "loop" , accumulator , [ iteration ]
               | iteration ) , ":" , block ;
 accumulator = target , [ ":" , type ] , "=" , tuple_or_expr ;
-iteration   = "for" , ident , "in" , expr | "while" , expr ;
+(* A name, `_`, or a tuple of them taken apart: what an `=` binding's
+   target may be, never a pattern that may fail to match. *)
+iteration   = "for" , target , "in" , expr | "while" , expr ;
 
 (* The value, written on the `break`/`continue` line itself, is the
    accumulator the jump leaves with. *)

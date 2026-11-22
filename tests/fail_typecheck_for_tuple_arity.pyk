@@ -1,0 +1,8 @@
+# A `for` taking each element apart names as many values as each
+# element holds.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+for (a, b) in [(1, 2, 3)]:
+    print(a, b)

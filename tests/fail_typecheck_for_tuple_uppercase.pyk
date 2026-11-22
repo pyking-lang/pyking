@@ -1,0 +1,8 @@
+# Each name a `for` takes apart is a loop variable, so it starts with a
+# lowercase letter; the error is at that name.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+for (n, Word) in [(1, "a")]:
+    print(n)

@@ -24,7 +24,10 @@ let marker = "__implicit__"
 
 (** Whether this name is one the pass made up rather than one the
     program wrote. String -> Bool *)
-let generated_name name =
+let rec generated_name name =
+  is_for_element_name name || marked name
+
+and marked name =
   let width = String.length marker in
   let rec at i =
     if i + width > String.length name then false
@@ -812,18 +815,39 @@ and statement s qmap work =
             let e, work = go e work in
             (Some e, work)
       in
-      let iterate, work =
+      let iterate, unpack, work =
         match iterate with
-        | None -> (None, work)
-        | Some (ForIn (li, name, sequence, ls)) ->
+        | None -> (None, [], work)
+        | Some (ForIn (li, (TargetTuple (ti, _, tsym) as element), sequence, ls)) ->
+            (* `for (a, b) in xs` walks an element under a name made up
+               here and takes it apart first thing in the body, as
+               `(a, b) = element` would: what comes out is a `for` over
+               one name, which every backend and the interpreter has. The
+               checker recorded the element's type under the target --
+               except in a `def` typed at the REPL that nothing has called
+               yet, which the interpreter runs without one. *)
             let sequence, work = go sequence work in
-            (Some (ForIn (li, name, sequence, ls)), work)
+            let made work =
+              match IntMap.find_opt tsym work.tmap with
+              | Some element_type -> node work element_type
+              | None -> symbol work
+            in
+            let name = for_element_name tsym in
+            let name_sym, work = made work in
+            let var_sym, work = made work in
+            let let_sym, work = made work in
+            ( Some (ForIn (li, TargetName (ti, name, name_sym), sequence, ls)),
+              [ SLet (ti, element, EVar (ti, name, var_sym), None, let_sym, false, false) ],
+              work )
+        | Some (ForIn (li, element, sequence, ls)) ->
+            let sequence, work = go sequence work in
+            (Some (ForIn (li, element, sequence, ls)), [], work)
         | Some (WhileTest (li, condition, ls)) ->
             let condition, work = go condition work in
-            (Some (WhileTest (li, condition, ls)), work)
+            (Some (WhileTest (li, condition, ls)), [], work)
       in
       let body, work = block body work in
-      (SLoop (i, target, init, type_, iterate, body, sym), work)
+      (SLoop (i, target, init, type_, iterate, unpack @ body, sym), work)
   | SIf (i, condition, then_body, else_body, sym) ->
       let condition, work = go condition work in
       let then_body, work = block then_body work in

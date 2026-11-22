@@ -517,8 +517,8 @@ let submit session stmts report source =
          alone, which is exactly right: an entry is its own group of
          `def`s. *)
       let optimized, _ = Opt_tailcall.optimize entry tmap in
-      let checked, qmap, seen, entry =
-        if optimized = entry then (checked, qmap, seen, entry)
+      let checked, tmap, qmap, seen, entry =
+        if optimized = entry then (checked, tmap, qmap, seen, entry)
         else
           let seen =
             Analyses.symbolize ~start:session.high (session.seen @ optimized)
@@ -526,10 +526,12 @@ let submit session stmts report source =
           let entry =
             List.filteri (fun i _ -> i >= List.length session.seen) seen
           in
-          let checked, _, qmap =
+          (* The entry's symbols are handed out again, so the types
+             Elaborate reads are the ones this check records under them. *)
+          let checked, tmap, qmap =
             check_entry entry session.types session.store
           in
-          (checked, qmap, seen, entry)
+          (checked, tmap, qmap, seen, entry)
       in
       (* The entry is *checked* under the names the prompt was typed
          with and *run* with overloading and implicits removed, exactly

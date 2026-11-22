@@ -1,0 +1,3 @@
+pairs = [(1, "a"), (2, "b")]
+for (n, s) in pairs:
+    print(string(n) + s)

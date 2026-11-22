@@ -5494,7 +5494,8 @@ and loop ctx st scope s =
       in
       let fin = `Turn slots in
       (match iterate with
-      | Some (ForIn (iter_info, element, ECall (_, EVar (_, "range", _), args, _), _)) when not (SMap.mem "range" scope.names) ->
+      | Some (ForIn (iter_info, element_target, ECall (_, EVar (_, "range", _), args, _), _)) when not (SMap.mem "range" scope.names) ->
+          let element = loop_name element_target in
           (* A count, which is all `for x in range(...)` asks of its list. *)
           let bounds, steps, st = in_order ctx st scope (arg_exprs args) in
           let start, stop, step =
@@ -5517,8 +5518,9 @@ and loop ctx st scope s =
             @ [ CDecl ("int", stop_name, Some stop.text); CDecl ("int", step_name, Some step.text); CDecl ("int", cname, None);
                 CFor (header, body_stmts) ],
             value, acc_t, st )
-      | Some (ForIn (iter_info, element, sequence, _))
+      | Some (ForIn (iter_info, element_target, sequence, _))
         when (match type_of ctx scope sequence with TString _ -> true | _ -> false) ->
+          let element = loop_name element_target in
           (* A String's Chars, decoded from its UTF-8 bytes as the loop
              walks them: no list, so no heap. *)
           let v, st = expr ctx st scope sequence in
@@ -5533,8 +5535,9 @@ and loop ctx st scope s =
             @ [ CDecl ("const char *", pos_name, None); CDecl ("int", cname, None) ]
             @ spre @ [ CFor (header, body_stmts) ],
             value, acc_t, st )
-      | Some (ForIn (iter_info, element, sequence, _))
+      | Some (ForIn (iter_info, element_target, sequence, _))
         when (let t = type_of ctx scope sequence in store_element t <> None || mutmap_parts t <> None) ->
+          let element = loop_name element_target in
           (* An array's elements by index, each read as its turn is
              reached, so a write ahead of the loop is seen; a DynArray's and a
              view's while the index is below the length at that turn; a
@@ -5556,8 +5559,9 @@ and loop ctx st scope s =
             @ [ CDecl (act, held, Some v.text) ] @ decls @ [ CDecl ("int", idx, None); CDecl (ect, cname, None);
                 CFor (header, CLine (Printf.sprintf "%s = %s;" cname item) :: body_stmts) ],
             value, acc_t, st )
-      | Some (ForIn (iter_info, element, sequence, _))
+      | Some (ForIn (iter_info, element_target, sequence, _))
         when ctx.gc && (match type_of ctx scope sequence with TList _ -> true | _ -> false) ->
+          let element = loop_name element_target in
           (* A list's cells in turn: `x_at` the cell, `x` its element. *)
           let lt = type_of ctx scope sequence in
           let elem = match lt with TList (_, e, _) -> list_element e | t -> t in

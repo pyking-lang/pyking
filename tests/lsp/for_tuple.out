@@ -1,0 +1,29 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open for_tuple.pyk
+> idle
+diagnostics $CASES/for_tuple.pyk v1 []
+> hover for_tuple.pyk 2:6
+{"contents": {"kind": "markdown", "value": "```pyking\nn: Int\n```"}, "range": {"end": {"character": 6, "line": 1}, "start": {"character": 5, "line": 1}}}
+> hover for_tuple.pyk 2:9
+{"contents": {"kind": "markdown", "value": "```pyking\ns: String\n```"}, "range": {"end": {"character": 9, "line": 1}, "start": {"character": 8, "line": 1}}}
+> hover for_tuple.pyk 3:18
+{"contents": {"kind": "markdown", "value": "```pyking\nn: Int\n```"}, "range": {"end": {"character": 18, "line": 2}, "start": {"character": 17, "line": 2}}}
+> definition for_tuple.pyk 3:18
+{"range": {"end": {"character": 6, "line": 1}, "start": {"character": 5, "line": 1}}, "uri": "$CASES/for_tuple.pyk"}
+> definition for_tuple.pyk 3:23
+{"range": {"end": {"character": 9, "line": 1}, "start": {"character": 8, "line": 1}}, "uri": "$CASES/for_tuple.pyk"}
+> request textDocument/rename {"textDocument": {"uri": "$URI(for_tuple.pyk)"}, "position": {"line": 1, "character": 5}, "newName": "count"}
+{"changes": {"$CASES/for_tuple.pyk": [{"newText": "count", "range": {"end": {"character": 6, "line": 1}, "start": {"character": 5, "line": 1}}}, {"newText": "count", "range": {"end": {"character": 18, "line": 2}, "start": {"character": 17, "line": 2}}}]}}
+> request textDocument/semanticTokens/full {"textDocument": {"uri": "$URI(for_tuple.pyk)"}}
+{"data": [0, 0, 5, 5, 3, 1, 5, 1, 5, 3, 0, 3, 1, 5, 3, 0, 6, 5, 5, 2, 1, 4, 5, 3, 4, 0, 6, 6, 3, 4, 0, 7, 1, 5, 2, 0, 5, 1, 5, 2]}
+> change for_tuple.pyk
+> idle
+diagnostics $CASES/for_tuple.pyk v2 [{"code": "Parsing error", "message": "expected `for <name> in <expression>`, or a tuple of names taken apart, as in `for (n, s) in pairs`. A pattern that may not match, such as `Some(x)` or `0`, is not a loop variable: 'match' each element in the loop's body, or write a comprehension, which skips what does not match", "range": {"end": {"character": 3, "line": 0}, "start": {"character": 0, "line": 0}}, "severity": 1, "source": "pyking"}]
+> change for_tuple.pyk
+> idle
+diagnostics $CASES/for_tuple.pyk v3 [{"code": "Type error", "message": "this 'for' takes each element apart into 2 values, but the elements have type Int", "range": {"end": {"character": 10, "line": 0}, "start": {"character": 4, "line": 0}}, "severity": 1, "source": "pyking"}]
+> shutdown
+null
+> exit
+> exit status 0

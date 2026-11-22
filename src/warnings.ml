@@ -536,9 +536,10 @@ and statement w here ~toplevel stmt =
       in
       let inner =
         match iter with
-        | Some (ForIn (fi, n, sequence, _)) ->
+        | Some (ForIn (_, element, sequence, _)) ->
             expr w here sequence;
-            bind_ w inner (RLoop "the loop") n (name_span w n fi)
+            List.fold_left (fun inner (n, span) -> bind_ w inner (RLoop "the loop") n span) inner
+              (target_names element)
         | Some (WhileTest (_, c, _)) ->
             expr w inner c;
             inner

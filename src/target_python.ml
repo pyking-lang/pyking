@@ -1920,7 +1920,8 @@ and free_in_stmt s bound free =
       in
       let free =
         match iterate with
-        | Some (ForIn (_, name, sequence, _)) ->
+        | Some (ForIn (_, name_target, sequence, _)) ->
+            let name = loop_name name_target in
             let free = free_in_expr sequence bound free in
             free_in_nested body (StringSet.add name inner) free
         | Some (WhileTest (_, condition, _)) ->
@@ -2049,7 +2050,7 @@ let rec captured_in_block stmts bound captured =
           in
           let inner =
             match iterate with
-            | Some (ForIn (_, name, _, _)) -> StringSet.add name inner
+            | Some (ForIn (_, name_target, _, _)) -> let name = loop_name name_target in StringSet.add name inner
             | _ -> inner
           in
           captured_in_block body inner captured
@@ -5079,7 +5080,8 @@ and translate_loop s scope gen =
          shadows. *)
       let py_name, py_sequence, body_scope, gen =
         match iterate with
-        | Some (ForIn (_, name, sequence, _)) ->
+        | Some (ForIn (_, name_target, sequence, _)) ->
+            let name = loop_name name_target in
             (* `for i in range(n)` iterates lazily, as Python's own
                does: only a range used as a *value* is materialised into
                the list its type says it is. *)

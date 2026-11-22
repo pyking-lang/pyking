@@ -443,7 +443,6 @@ let check_names roots own plain_names stmts =
                  | Walk.NParam (Param (i, _, _, _, _)) -> refuse i name
                  | Walk.NPattern p -> refuse (pattern_info p) name
                  | Walk.NTarget t -> refuse (target_info t) name
-                 | Walk.NLoopIter (ForIn (i, _, _, _)) -> refuse i name
                  | Walk.NListRest (ListRest (i, _, _)) -> refuse i name
                  | _ -> ())
              | _ -> ()))

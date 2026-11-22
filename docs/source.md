@@ -215,7 +215,13 @@ The groups:
   `None` for a bare `loop:`. `SFor` and `SWhile` no longer exist:
   `for x in e:` and `while c:` *are* `SLoop`, with no accumulator
   written, which is what lets every combination of the three halves
-  work without a construct of its own.
+  work without a construct of its own. `ForIn`'s target is an
+  `assign_target`, as an `=` binding's is, so `for (n, s) in pairs:`
+  is written down as it was; `elaborate.ml` lowers a tuple target to a
+  name it makes up (`Syntax.for_element_name`) and an `SLet` taking
+  that name apart first thing in the body, so every backend and the
+  interpreter see a `ForIn` over one name (`Syntax.loop_name`), and
+  the printer writes the lowered loop back as the source wrote it.
 - **`Pattern`** — `PInt`, `PString`, `PChar`, `PBool`, `PWildcard`, `PCapture`,
   `PTuple`, `PList`, `PText`, `PConstructor`, `POr`, `PAs`. `PText` is a
   string split around a fixed beginning and end (`"ab" + rest`); the

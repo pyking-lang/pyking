@@ -286,9 +286,9 @@ and resolve_stmt ctx env stmt found =
       in
       let inner, found =
         match iter with
-        | Some (ForIn (fi, n, sequence, _)) ->
+        | Some (ForIn (_, element, sequence, _)) ->
             let found = resolve_expr ctx env sequence found in
-            (bind_all ctx KValue inner [ (n, name_span ctx.ctx_tokens n fi, 0) ], found)
+            (bind_all ctx KValue inner (target_bindings element), found)
         | Some (WhileTest (_, c, _)) -> (inner, resolve_expr ctx inner c found)
         | None -> (inner, found)
       in

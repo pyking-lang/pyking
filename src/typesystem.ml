@@ -5044,13 +5044,13 @@ and check_turn ?(discarded = false) body turn_env return_type accumulator store 
     loop_iter option -> env -> env -> store -> (env, store) *)
 and check_iteration iterate env body_env store =
   match iterate with
-  | Some (ForIn (info, name, sequence, _)) ->
+  | Some (ForIn (info, target, sequence, _)) ->
       let sequence_type, store = check_expr sequence env store in
       let element, store =
         demand_sequence sequence_type info
           "a 'for' loop walks a list or a String, but this one" store
       in
-      (bind body_env name element, store)
+      check_target ~taking:`For_element target element body_env store
   | Some (WhileTest (info, condition, _)) ->
       let condition_type, store = check_expr condition body_env store in
       ( body_env,
@@ -5066,7 +5066,7 @@ and check_iteration iterate env body_env store =
     so a value nothing has decided yet is settled by it -- which is what
     lets `n, s = pair` say what `pair` is inside a body being worked out.
     assign_target -> typ -> env -> store -> (env, store) *)
-and check_target ?(implicit = false) target type_ env store =
+and check_target ?(implicit = false) ?(taking = `Binding) target type_ env store =
   match target with
   | TargetName (_, name, sym) ->
       let store = record store sym type_ in
@@ -5089,6 +5089,16 @@ and check_target ?(implicit = false) target type_ env store =
                    Printf.sprintf
                      "this ':=' writes %d values, but its value has type %s"
                      (List.length elements) (shown type_ store)
+                 else if taking = `For_element then
+                   Printf.sprintf
+                     "this 'for' takes each element apart into %d values, \
+                      but the elements have type %s"
+                     (List.length elements) (shown type_ store)
+                 else if taking = `For_part then
+                   Printf.sprintf
+                     "this part of the 'for' takes %d values apart, but it \
+                      has type %s"
+                     (List.length elements) (shown type_ store)
                  else
                    Printf.sprintf
                      "this binding takes %d values apart, but its value has \
@@ -5096,9 +5106,10 @@ and check_target ?(implicit = false) target type_ env store =
                      (List.length elements) (shown type_ store) ))
       | Some store ->
           let store = record store sym (zonk type_ store) in
+          let taking = if taking = `Binding then `Binding else `For_part in
           List.fold_left2
             (fun (env, store) element part ->
-              check_target element part env store)
+              check_target ~taking element part env store)
             (env, store) elements parts)
 
 (** The type of one expression, recorded in the store's table under its

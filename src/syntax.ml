@@ -300,7 +300,8 @@ and field = Field of info * string option * typ option * expr option * int
    Desugar_args removes every default. *)
 
 and loop_iter =
-  | ForIn of info * string * expr * int (* for name in sequence *)
+  | ForIn of info * assign_target * expr * int
+      (* for name in sequence, or for (a, b) in sequence *)
   | WhileTest of info * expr * int (* while condition *)
 
 and match_case = MatchCase of info * pattern * expr option * stmt list * int
@@ -591,6 +592,25 @@ let case_guard (MatchCase (_, _, g, _, _)) = g
 
 (** The body of one case clause. match_case -> [stmt] *)
 let case_body (MatchCase (_, _, _, b, _)) = b
+
+(** The name Elaborate gives the element a `for (a, b) in xs` walks,
+    which it then takes apart at the top of the body; `sym` is the
+    target's symbol, which no other loop shares. int -> string *)
+let for_element_name sym = Printf.sprintf "__for_element_%d__" sym
+
+(** The one name a `for` binds once Elaborate has lowered a tuple
+    target, which is all a backend or the interpreter is given.
+    assign_target -> string *)
+let loop_name target =
+  match target with
+  | TargetName (_, name, _) -> name
+  | TargetTuple _ -> invalid_arg "loop_name: a tuple target Elaborate did not lower"
+
+(** Whether a name is one for_element_name made. string -> bool *)
+let is_for_element_name name =
+  let prefix = "__for_element_" in
+  String.length name > String.length prefix
+  && String.sub name 0 (String.length prefix) = prefix
 
 (** The `()` a bare `return` gives, written where nothing was: an empty
     span just after the `return` token `info`, which is what tells it
@@ -1558,10 +1578,21 @@ and pprint_stmt_body cfg s level =
               (annotation cfg sym type_)
         | None, _ -> ""
       in
+      (* A `for (a, b) in xs` that Elaborate lowered to a made-up element
+         name taken apart first thing in the body is printed as written. *)
+      let iterate, body =
+        match (iterate, body) with
+        | ( Some (ForIn (fi, TargetName (_, name, _), sequence, fs)),
+            SLet (_, target, EVar (_, taken, _), None, _, _, _) :: rest )
+          when is_for_element_name name && taken = name ->
+            (Some (ForIn (fi, target, sequence, fs)), rest)
+        | _ -> (iterate, body)
+      in
       let turn =
         match iterate with
-        | Some (ForIn (_, name, sequence, _)) ->
-            Printf.sprintf "for %s in %s" name (pprint_expr cfg sequence 0)
+        | Some (ForIn (_, target, sequence, _)) ->
+            Printf.sprintf "for %s in %s" (pprint_target cfg target)
+              (pprint_expr cfg sequence 0)
         | Some (WhileTest (_, condition, _)) ->
             "while " ^ pprint_expr cfg condition 0
         | None -> if head <> "" then "" else "loop"

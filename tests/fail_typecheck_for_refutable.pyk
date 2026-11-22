@@ -1,0 +1,11 @@
+# A statement `for` takes a name or a tuple of names, which match every
+# element. `Some(x)` may not match, and a loop that skipped the
+# elements it did not match would do so silently, so it is refused with
+# a pointer to `match` and to a comprehension, which does skip them.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+xs = [Some(1), None]
+for Some(x) in xs:
+    print(x)

@@ -1418,13 +1418,17 @@ and rewrite signatures scope taken statement =
       in
       let inner =
         match iterate with
-        | Some (ForIn (_, name, _, _)) -> SMap.add name Binding inner
+        | Some (ForIn (_, element, _, _)) ->
+            List.fold_left
+              (fun scope name -> SMap.add name Binding scope)
+              inner
+              (List.map fst (Analyses.target_names element))
         | _ -> inner
       in
       let iterate =
         match iterate with
-        | Some (ForIn (fi, name, sequence, fs)) ->
-            Some (ForIn (fi, name, go sequence, fs))
+        | Some (ForIn (fi, element, sequence, fs)) ->
+            Some (ForIn (fi, element, go sequence, fs))
         | Some (WhileTest (wi, condition, ws)) ->
             Some (WhileTest (wi, expression signatures inner condition, ws))
         | None -> None

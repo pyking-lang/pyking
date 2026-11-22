@@ -1,0 +1,6 @@
+'tests/fail_typecheck_for_literal.pyk' 7:0-7:3 Parsing error: expected
+  `for <name> in <expression>`, or a tuple of names taken apart, as in
+  `for (n, s) in pairs`. A pattern that may not match, such as
+  `Some(x)` or `0`, is not a loop variable: 'match' each element in
+  the loop's body, or write a comprehension, which skips what does not
+  match

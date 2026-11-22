@@ -1,0 +1,21 @@
+# A statement `for` taking each element apart, with no list, so plain C
+# runs it too: over an array of pairs and of nested tuples, with `_`,
+# and in a loop carrying an accumulator (see for_tuple.pyk).
+
+use mutation
+
+pairs = array([(1, 'a'), (2, 'b'), (3, 'c')])
+for (n, c) in pairs:
+    print(n, c)
+
+nested = array([(1, (2.5, true)), (2, (0.5, false))])
+for (k, (x, on)) in nested:
+    if on: print(k, x)
+
+
+def total(ps: Array((Int, Char))) -> Int:
+    loop acc = 0 for (n, _) in ps:
+        acc + n
+
+
+print(total(pairs))

@@ -1,0 +1,7 @@
+# A part of a `for`'s target taken apart in turn must be a tuple too.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+for (a, (b, c)) in [(1, 2)]:
+    print(a, b, c)

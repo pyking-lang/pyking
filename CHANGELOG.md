@@ -39,6 +39,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now with its own reason (its name would be gone with the line), as
   is a header that opens a block of its own and a `return match` or
   `return if` statement, which spans lines.
+- A statement `for` may take each element apart, as an `=` binding
+  does: `for (n, s) in pairs:`, `for n, s in pairs:`, nested tuples
+  and `_`, in a plain loop and in one carrying an accumulator. Before,
+  only a name was accepted ("expected `for <name> in <expression>`").
+  A pattern that may not match, such as `Some(x)` or `0`, is refused
+  with a pointer to `match` and to a comprehension, which skips what
+  does not match; elements of the wrong shape are a type error ("this
+  'for' takes each element apart into 2 values, but the elements have
+  type Int"). The language server hovers, finds and renames the names,
+  the debugger shows them, and `-t pyking` prints the loop as written.
+  An uppercase loop variable is now reported at the name rather than
+  at the `for`.
 
 ### Fixed
 

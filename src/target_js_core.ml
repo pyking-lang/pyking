@@ -1905,7 +1905,8 @@ and translate_loop s scope =
          the loop's own test. *)
       let js_name, js_sequence, body_scope =
         match iterate with
-        | Some (ForIn (_, name, sequence, _)) ->
+        | Some (ForIn (_, name_target, sequence, _)) ->
+            let name = loop_name name_target in
             let js_sequence =
               walked_sequence info (translate_expr sequence scope) sequence scope true
             in

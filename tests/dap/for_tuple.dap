@@ -1,0 +1,17 @@
+# A `for` that takes each element apart shows the names it wrote, not
+# the one the compiler walks the elements under.
+launch for_tuple.pyk
+break for_tuple.pyk 3
+configure
+wait stopped
+stack
+scopes 1
+variables Environment
+continue
+wait stopped
+stack
+scopes 1
+variables Environment
+continue
+wait terminated
+disconnect

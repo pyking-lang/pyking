@@ -134,7 +134,7 @@ let rec children n =
       @ option_of (fun e -> NExpr e) default
   | NLoopIter iterate -> (
       match iterate with
-      | ForIn (_, _, sequence, _) -> [ NExpr sequence ]
+      | ForIn (_, element, sequence, _) -> [ NTarget element; NExpr sequence ]
       | WhileTest (_, condition, _) -> [ NExpr condition ])
   | NMatchCase (MatchCase (_, pattern, guard, body, _)) ->
       (NPattern pattern :: option_of (fun e -> NExpr e) guard) @ stmts_of body
@@ -230,7 +230,6 @@ let name_field n =
   | NPattern (PTyped (_, name, _, _)) -> Some name
   | NListRest (ListRest (_, name, _)) -> name
   | NTarget (TargetName (_, name, _)) -> Some name
-  | NLoopIter (ForIn (_, name, _, _)) -> Some name
   | NStmt (SVar (_, name, _, _, _))
   | NStmt (SMutate (_, name, _, _))
   | NStmt (SFunctionDef (_, name, _, _, _, _, _, _, _))

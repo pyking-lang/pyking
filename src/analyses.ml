@@ -354,8 +354,8 @@ and analyze_stmt s env =
         | Some target -> bind_target env target Loop_var
       in
       (match iterate with
-      | Some (ForIn (info, name, _, _)) ->
-          analyze_scope body (bind inner name Loop_var info)
+      | Some (ForIn (_, element, _, _)) ->
+          analyze_scope body (bind_target inner element Loop_var)
       | _ -> analyze_scope body inner);
       env
   | SIf (_, _, then_body, else_body, _) ->
@@ -774,10 +774,11 @@ and sym_param counter (Param (i, name, type_, default, s)) =
 
 and sym_loop_iter counter it =
   match it with
-  | ForIn (i, name, sequence, s) ->
+  | ForIn (i, element, sequence, s) ->
+      let element, counter = sym_target counter element in
       let sequence, counter = sym_expr counter sequence in
       let s, counter = assign s counter in
-      (ForIn (i, name, sequence, s), counter)
+      (ForIn (i, element, sequence, s), counter)
   | WhileTest (i, condition, s) ->
       let condition, counter = sym_expr counter condition in
       let s, counter = assign s counter in
@@ -1051,7 +1052,8 @@ and high_param (Param (_, _, type_, default, s)) =
 
 and high_loop_iter it =
   match it with
-  | ForIn (_, _, sequence, s) -> max s (high_expr sequence)
+  | ForIn (_, element, sequence, s) ->
+      max s (max (high_target element) (high_expr sequence))
   | WhileTest (_, condition, s) -> max s (high_expr condition)
 
 and high_case (MatchCase (_, pattern, guard, body, s)) =

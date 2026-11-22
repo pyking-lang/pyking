@@ -1,0 +1,4 @@
+'tests/fail_typecheck_for_tuple_uppercase.pyk' 7:8-7:12 Parsing error:
+  'Word' cannot be a loop variable: a name a program binds starts with
+  a lowercase letter, and one starting with an uppercase letter is a
+  type or a constructor

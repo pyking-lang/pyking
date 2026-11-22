@@ -869,7 +869,7 @@ let binds stmts names =
           (* A `for` binds its element name each turn, so it is a
              rebinding like any other. *)
           || (match iterate with
-             | Some (ForIn (_, name, _, _)) -> StringSet.mem name names
+             | Some (ForIn (_, element, _, _)) -> touches (target_names element)
              | _ -> false)
       | Walk.NStmt (SFunctionDef (_, name, params, _, _, _, _, _, _)) ->
           StringSet.mem name names || touches (List.map param_name params)

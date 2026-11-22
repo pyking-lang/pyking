@@ -1,0 +1,8 @@
+# A literal is a pattern that may not match, so it is no loop variable
+# either.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+for 0 in [0, 1]:
+    print("zero")

@@ -1701,12 +1701,30 @@ and parse_loop_tail eof loop_info target annotation init tokens =
     info -> [token] -> (loop_iter option, [token]) *)
 and parse_loop_iter eof tokens =
   match tokens with
-  | TokFor i :: TokIdent (_, name) :: TokIn _ :: rest ->
-      let sequence, rest = parse_expr eof rest in
-      check_plain_name i name "a loop variable";
-      (Some (ForIn (combine_info i (expr_info sequence), name, sequence, 0)), rest)
-  | TokFor i :: _ ->
-      raise (Parse_error (i, "expected `for <name> in <expression>`"))
+  | TokFor i :: rest -> (
+      (* A name, or a tuple of names taken apart as in `(n, s) = pair`:
+         the targets an `=` binding has, which match every element. A
+         pattern that can fail to match is a comprehension's, which skips
+         what it does not match; a statement would skip it silently. *)
+      match (try Some (parse_target eof rest) with Parse_error _ -> None) with
+      | Some (element, TokIn _ :: rest) ->
+          let rec plain target =
+            match target with
+            | TargetName (ni, name, _) -> check_plain_name ni name "a loop variable"
+            | TargetTuple (_, parts, _) -> List.iter plain parts
+          in
+          plain element;
+          let sequence, rest = parse_expr eof rest in
+          (Some (ForIn (combine_info i (expr_info sequence), element, sequence, 0)), rest)
+      | _ ->
+          raise
+            (Parse_error
+               ( i,
+                 "expected `for <name> in <expression>`, or a tuple of names \
+                  taken apart, as in `for (n, s) in pairs`. A pattern that \
+                  may not match, such as `Some(x)` or `0`, is not a loop \
+                  variable: 'match' each element in the loop's body, or \
+                  write a comprehension, which skips what does not match" )))
   | TokWhile i :: rest ->
       let condition, rest = parse_expr eof rest in
       ( Some (WhileTest (combine_info i (expr_info condition), condition, 0)),

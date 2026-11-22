@@ -4448,7 +4448,7 @@ and loop ctx acc s returning =
                the loop binds the same name over it. *)
             let shadowed plain =
               match (target, iterate) with
-              | _, Some (ForIn (_, element, _, _)) when mangle ctx element = plain -> true
+              | _, Some (ForIn (_, element_target, _, _)) when mangle ctx (loop_name element_target) = plain -> true
               | Some target, _ -> List.mem plain (pattern_names (target_pattern ctx target))
               | None, _ -> false
             in
@@ -4498,7 +4498,8 @@ and loop ctx acc s returning =
       let read = free o_body in
       let params, value, acc =
         match (iterate, remaining) with
-        | Some (ForIn (_, element, _, _)), Some index when walked_array <> None ->
+        | Some (ForIn (_, element_target, _, _)), Some index when walked_array <> None ->
+            let element = loop_name element_target in
             (* The second parameter is the index of the turn, and walking
                off the end is leaving the loop. *)
             let held = OVar (Option.get walked_array) in
@@ -4537,7 +4538,8 @@ and loop ctx acc s returning =
                          o_body,
                          false )) ),
               acc )
-        | Some (ForIn (_, element, _, _)), Some remaining ->
+        | Some (ForIn (_, element_target, _, _)), Some remaining ->
+            let element = loop_name element_target in
             (* Running out of sequence is leaving the loop, so the empty
                arm is worth what a `break` is worth. *)
             let sequence, acc = fresh_name ctx acc in

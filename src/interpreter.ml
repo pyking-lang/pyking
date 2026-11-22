@@ -2087,7 +2087,8 @@ let turn state loop =
   | Ok env ->
       let env, loop =
         match (loop_iterate loop, loop.walking, loop.remaining) with
-        | Some (ForIn (_, name, _, _)), Some (elements, i), _ ->
+        | Some (ForIn (_, name_target, _, _)), Some (elements, i), _ ->
+            let name = loop_name name_target in
             let item =
               match elements with
               | VArray a -> a.(i)
@@ -2099,7 +2100,8 @@ let turn state loop =
             (extend env name item, { loop with walking = Some (elements, i + 1) })
         (* Each turn binds the element afresh, and the loop keeps what is
            left for the next one. *)
-        | Some (ForIn (_, name, _, _)), None, first :: rest ->
+        | Some (ForIn (_, name_target, _, _)), None, first :: rest ->
+            let name = loop_name name_target in
             (extend env name first, { loop with remaining = rest })
         | _ -> (env, loop)
       in

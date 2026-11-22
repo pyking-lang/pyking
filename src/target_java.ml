@@ -2612,7 +2612,8 @@ and loop ctx st scope s =
       let fin = Turn this in
       let st = if List.length slots > 1 then need_tuple st (List.length slots) else st in
       (match iterate with
-      | Some (ForIn (_, element, sequence, _)) ->
+      | Some (ForIn (_, element_target, sequence, _)) ->
+          let element = loop_name element_target in
           let seq, st = expr ctx st scope sequence in
           let seq_t = type_of ctx scope sequence in
           let seq = walked seq_t seq in

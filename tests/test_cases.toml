@@ -3392,3 +3392,31 @@ modules = ["module_class_private_param_mod.pyk"]
 [[cases]]
 file = "fail_typecheck_private_pattern_other_module.pyk"
 modules = ["module_class_private_param_mod.pyk"]
+
+# A statement `for` taking each element apart.
+[[cases]]
+file = "for_tuple.pyk"
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it (for_tuple_nolist.pyk is this without them)" }
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "for_tuple_nolist.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "fail_typecheck_for_refutable.pyk"
+
+[[cases]]
+file = "fail_typecheck_for_literal.pyk"
+
+[[cases]]
+file = "fail_typecheck_for_tuple_not_tuple.pyk"
+
+[[cases]]
+file = "fail_typecheck_for_tuple_arity.pyk"
+
+[[cases]]
+file = "fail_typecheck_for_tuple_nested.pyk"
+
+[[cases]]
+file = "fail_typecheck_for_tuple_uppercase.pyk"

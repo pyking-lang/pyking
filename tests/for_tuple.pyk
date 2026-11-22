@@ -1,0 +1,78 @@
+# A statement `for` takes each element apart as an `=` binding would,
+# when its target is a tuple of names (PYKING.md, "`for`/`in` loops"):
+# with parentheses and without, nested, with `_`, in a loop carrying an
+# accumulator, with `break` and `continue` carrying one, over a
+# DynArray, in a function the tail-call pass rewrites, with a lambda
+# keeping each turn's names, and with a name the loop shadows. The
+# printed program writes the target back as it was written.
+
+use mutation
+
+pairs = [(1, "one"), (2, "two"), (3, "three")]
+
+for (n, word) in pairs:
+    print(n, word)
+
+for n, word in pairs:
+    print(word + string(n * n))
+
+for (_, (x, y)) in [("p", (1.5, 'c')), ("q", (2.5, 'd'))]:
+    print(x, y)
+
+
+def total(ps: [(Int, String)]) -> Int:
+    loop acc = 0 for (n, _) in ps:
+        acc + n
+
+
+def longest(ps: [(Int, String)]) -> String:
+    loop best = "" for (_, w) in ps:
+        if len(w) > len(best) then w else best
+
+
+def first_over(ps: [(Int, String)], limit: Int) -> String:
+    loop found = "none" for (n, w) in ps:
+        if n > limit: break w
+        found
+
+
+def skip_odd(ps: [(Int, String)]) -> Int:
+    loop acc = 0 for (n, _) in ps:
+        if n % 2 == 1: continue acc
+        acc + n * 10
+
+
+print(total(pairs), longest(pairs), first_over(pairs, 1), skip_odd(pairs))
+
+# A DynArray of tuples.
+grid = dynarray([(0, 0), (1, 2), (2, 4)])
+for (row, col) in grid:
+    print(row * col)
+
+# Each turn's names are kept by what is made in that turn.
+makers = dynarray()
+for (n, word) in pairs:
+    push(makers, lam k. word + string(n * k))
+for make in makers:
+    print(make(10))
+
+
+# In a function the tail-call pass turns into a loop.
+def count_down(ps: [(Int, String)], n: Int) -> Int:
+    if n == 0:
+        0
+    else:
+        var seen = 0
+        for (k, _) in ps:
+            if k <= n: seen += 1
+        seen + count_down(ps, n - 1)
+
+
+print(count_down(pairs, 3))
+
+# The loop's names shadow the outer ones over its body only.
+n = 100
+word = "outer"
+for (n, word) in [(7, "inner")]:
+    print(n, word)
+print(n, word)

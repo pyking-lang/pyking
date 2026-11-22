@@ -310,7 +310,8 @@ and field = Field of info * string option * typ option * expr option * int
    Desugar_args removes every default. *)
 
 and loop_iter =
-  | ForIn of info * string * expr * int (* for name in sequence *)
+  | ForIn of info * assign_target * expr * int
+      (* for name in sequence, or for (a, b) in sequence *)
   | WhileTest of info * expr * int (* while condition *)
 
 and match_case = MatchCase of info * pattern * expr option * stmt list * int
@@ -465,6 +466,17 @@ val case_body : match_case -> stmt list
 (** The guard of one case clause, where it has one.
     match_case -> expr option *)
 val case_guard : match_case -> expr option
+
+(** The name Elaborate gives the element a `for (a, b) in xs` walks,
+    from the target's symbol. int -> string *)
+val for_element_name : int -> string
+
+(** The one name a `for` binds after Elaborate, which lowers a tuple
+    target. assign_target -> string *)
+val loop_name : assign_target -> string
+
+(** Whether a name is one for_element_name made. string -> bool *)
+val is_for_element_name : string -> bool
 
 (** The `()` a bare `return` gives: an empty span just after the
     `return` token. info -> expr *)
