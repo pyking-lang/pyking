@@ -3318,6 +3318,20 @@ file = "fail_typecheck_objects_upcast_result_tuple_arity.pyk"
 file = "fail_typecheck_objects_upcast_result_return_element.pyk"
 
 [[cases]]
+file = "objects_upcast_comprehension.pyk"
+libs = ["option", "result"]
+excluded = { c = "a list needs a heap that is freed, which plain C has not: c23-gc compiles it" }
+
+[[cases]]
+file = "fail_typecheck_objects_upcast_comprehension_not_shape.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_upcast_comprehension_return.pyk"
+
+[[cases]]
+file = "fail_typecheck_objects_upcast_comprehension_made_earlier.pyk"
+
+[[cases]]
 file = "fail_typecheck_objects_upcast_unwritten.pyk"
 
 [[cases]]

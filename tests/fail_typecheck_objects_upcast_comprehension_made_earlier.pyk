@@ -1,0 +1,14 @@
+# Only a comprehension written where the [Shape] is wanted has the type
+# pushed into it: one made earlier is a [Dot], and the message says
+# where to write it.
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+dots = [Dot(k) for k in range(3)]
+shapes: [Shape] = dots

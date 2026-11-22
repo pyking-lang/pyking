@@ -1,0 +1,15 @@
+# A 'return' of a comprehension where [Shape] is the declared result:
+# what a turn gives that is no object at all is refused, naming it.
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot"
+
+def many(n: Int) -> [Shape]:
+    if n > 0:
+        return [k for k in range(n)]
+    []

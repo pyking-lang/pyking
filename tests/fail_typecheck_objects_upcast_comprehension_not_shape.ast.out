@@ -1,0 +1,2 @@
+'tests/fail_typecheck_objects_upcast_comprehension_not_shape.pyk'
+  16:19-16:25 Type error: this binding's value must be Shape, not Box

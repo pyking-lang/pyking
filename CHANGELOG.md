@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tuples and constructors (`Ok([self])`). An element that is not a
   `Shape` is named in the error, and giving back a `[Dot]` made earlier
   says why lists do not take subtypes.
+- A list comprehension written where a list of a supertype is wanted
+  takes objects below it: `xs: [Shape] = [Dot(k) for k in range(3)]`,
+  a function or method ending in or returning one, and one passed as an
+  argument. What each turn gives is upcast on its own, so
+  `[if k % 2 == 0 then Dot(k) else Line(k) for k in range(n)]` is a
+  `[Shape]` too. Before, it was refused with a hint to "annotate the
+  list where it is made", which a comprehension written there already
+  was; the hint now says to write the list or comprehension where the
+  `[Shape]` is wanted, or annotate it where it is made.
 
 ## [0.1.12] - 2026-11-15
 

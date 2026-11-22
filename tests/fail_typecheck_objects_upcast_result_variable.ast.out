@@ -1,4 +1,5 @@
 'tests/fail_typecheck_objects_upcast_result_variable.pyk' 15:4-15:8
   Type error: 'many' returns [Shape], but its body ends in a value of
   type [Dot]: a [Dot] is not a [Shape], since lists do not take
-  subtypes; annotate the list where it is made
+  subtypes; write the list or comprehension where the [Shape] is
+  wanted, or annotate it where it is made

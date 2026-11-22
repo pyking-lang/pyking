@@ -1,0 +1,62 @@
+# A comprehension written where a list of an interface is wanted has the
+# element type pushed into what each turn gives, which is upcast on its
+# own, as a list literal's elements are: an annotated binding, a
+# function's or method's result, a `return`, an argument, nested lists
+# and tuples, a constructor, an `if` filter, two `for` clauses, a tuple
+# pattern, and an element that is one class or another (PYKING.md,
+# "Where an object is seen as a supertype").
+use objects
+
+interface Shape:
+    def name(self) -> String
+
+class Dot(r: Int) implements Shape:
+    override def name(self) -> String:
+        "dot " + string(self.r)
+
+    def copies(self, n: Int) -> [Shape]:
+        [self for _ in range(n)]
+
+class Line(n: Int) implements Shape:
+    override def name(self) -> String:
+        "line " + string(self.n)
+
+def names(xs: [Shape]) -> [String]:
+    [x.name() for x in xs]
+
+def all(n: Int) -> [Shape]:
+    [Dot(k) for k in range(n)]
+
+def evens(n: Int) -> [Shape]:
+    return [Line(k) for k in range(n) if k % 2 == 0]
+
+def mixed(n: Int) -> [Shape]:
+    [if k % 2 == 0 then Dot(k) else Line(k) for k in range(n)]
+
+def grid() -> [[Shape]]:
+    [[Dot(i * 10 + j) for j in range(2)] for i in range(2)]
+
+def sized() -> [(Shape, Int)]:
+    [(Line(k), k * k) for k in range(1, 3)]
+
+def from_pairs(pairs: [(Int, String)]) -> [Shape]:
+    [if s == "dot" then Dot(n) else Line(n) for (n, s) in pairs]
+
+def crossed() -> [Shape]:
+    [Dot(a * b) for a in range(1, 3) for b in range(1, 3)]
+
+def wrapped(n: Int) -> Result([Shape], String):
+    if n < 0 then Error("negative") else Ok([Dot(k) for k in range(n)])
+
+xs: [Shape] = [Dot(k) for k in range(3)]
+print(xs[0].name(), names(xs))
+print(names(all(2)), names(evens(5)), names(mixed(4)))
+print([names(row) for row in grid()])
+print([(s.name(), k) for (s, k) in sized()])
+print(names(from_pairs([(1, "dot"), (2, "line")])))
+print(names(crossed()))
+print(names([Line(k) for k in range(2)]))
+match wrapped(2):
+    case Ok(ys): print(names(ys))
+    case Error(e): print(e)
+print(names(Dot(7).copies(2)), names(all(0)))

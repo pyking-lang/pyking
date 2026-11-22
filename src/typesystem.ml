@@ -2389,19 +2389,21 @@ let rec mentions_object store t =
 
 (** Whether a wanted type is pushed into an expression written where it
     is wanted (`check_wanted`), rather than the expression checked on its
-    own and then compared: a non-empty list or tuple, an `if`, or a
-    constructor given arguments. Every place that knows the type it
+    own and then compared: a non-empty list or tuple, a comprehension,
+    an `if`, or a constructor given arguments. Every place that knows the type it
     wants -- an annotated binding, an argument, the value a body ends
     in, a `return` -- asks this one question, so they take the same
     forms. expr -> bool *)
 let pushable = function
-  | EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EIf _ | EConstruct (_, _, _, _ :: _, _) -> true
+  | EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EListComp _ | EIf _ | EConstruct (_, _, _, _ :: _, _) -> true
   | _ -> false
 
-(** Whether an expression is a list or tuple written out, whose parts a
-    wanted type is pushed into one by one: where one does not fit, the
-    message names that part. expr -> bool *)
-let literal_collection = function EList (_, _ :: _, _) | ETuple (_, _ :: _, _) -> true | _ -> false
+(** Whether an expression is a list, tuple or comprehension written out,
+    whose parts a wanted type is pushed into one by one: where one does
+    not fit, the message names that part. expr -> bool *)
+let literal_collection = function
+  | EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EListComp _ -> true
+  | _ -> false
 
 (** Where a list of objects is given where a list of their supertype is
     wanted, why that is refused and what to do; "" otherwise.
@@ -2409,8 +2411,10 @@ let literal_collection = function EList (_, _ :: _, _) | ETuple (_, _ :: _, _) -
 let list_subtype_hint store wanted actual =
   match (prune wanted store, prune actual store) with
   | TList (_, w, _), TList (_, a, _) when is_object_type store w && is_object_type store a ->
-      Printf.sprintf ": a [%s] is not a [%s], since lists do not take subtypes; annotate the list where it is made"
-        (shown a store) (shown w store)
+      Printf.sprintf
+        ": a [%s] is not a [%s], since lists do not take subtypes; write the list or comprehension \
+         where the [%s] is wanted, or annotate it where it is made"
+        (shown a store) (shown w store) (shown w store)
   | _ -> ""
 
 (** Two method signatures agree: the same parameters, by name and type,
@@ -3631,13 +3635,7 @@ let argument_error ?(note = "") position actual expected arg store =
     | _ -> (actual, expected)
   in
   (* A list of objects where a list of their supertype is wanted. *)
-  let note =
-    match (prune actual store, prune expected store) with
-    | TList (_, a, _), TList (_, w, _) when note = "" && is_object_type store a && is_object_type store w ->
-        Printf.sprintf ": a [%s] is not a [%s], since lists do not take subtypes; annotate the list where it is made"
-          (shown a store) (shown w store)
-    | _ -> note
-  in
+  let note = if note = "" then list_subtype_hint store expected actual else note in
   Type_error
     ( info,
       Printf.sprintf "argument %d has type %s, but %s was expected%s" position
@@ -5702,7 +5700,8 @@ and check_binary e env store =
 
 (** The store in which `arg` is a `wanted`: one type, or an object seen as
     one of its supertypes (an upcast). Where `wanted` holds an object, a
-    list, tuple or `if` written here has it pushed into each part, so
+    list, comprehension, tuple or `if` written here has it pushed into
+    each part, so
     each element is upcast on its own. Raises Type_error naming `what`.
     expr -> typ -> string -> env -> store -> store *)
 and check_wanted arg wanted what env store =
@@ -5736,6 +5735,14 @@ and check_wanted arg wanted what env store =
               in
               record inner sym (zonk result inner)
           | _ -> check_plain_wanted arg wanted what env store)
+      | EListComp (info, body, clauses, sym), TList (_, element, _) ->
+          (* `[Dot(k) for k in range(n)]` where a [Shape] is wanted: the
+             clauses are checked as anywhere, and what each turn gives
+             is checked against the element type in the scope they
+             leave, so it is upcast on its own, as a list's element is. *)
+          let inner, store = check_clauses clauses env store in
+          let store = check_wanted body element what inner store in
+          record store sym (t_list info element)
       | EList (info, elements, sym), TList (_, element, _) ->
           let store = List.fold_left (fun store x -> check_wanted x element what env store) store elements in
           record store sym (t_list info element)
@@ -6924,7 +6931,7 @@ and check_arguments ?about args declared env store position =
           | ELambda _ when not lambdas -> store
           | ELambda _ -> check_seeded_argument ?about arg expected position env store
           | _ when lambdas -> store
-          | (EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EIf _) when mentions_object store expected ->
+          | (EList (_, _ :: _, _) | ETuple (_, _ :: _, _) | EListComp _ | EIf _) when mentions_object store expected ->
               check_wanted arg expected (Printf.sprintf "argument %d" position) env store
           | EConstruct (_, _, _, _ :: _, _) when mentions_object store expected -> (
               (* `f(Ok(Circle(1)))` with a `Result(Shape, String)`

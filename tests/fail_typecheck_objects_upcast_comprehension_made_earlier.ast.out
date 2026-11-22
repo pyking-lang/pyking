@@ -1,0 +1,5 @@
+'tests/fail_typecheck_objects_upcast_comprehension_made_earlier.pyk'
+  14:18-14:22 Type error: this binding's value must be [Shape], not
+  [Dot]: a [Dot] is not a [Shape], since lists do not take subtypes;
+  write the list or comprehension where the [Shape] is wanted, or
+  annotate it where it is made
