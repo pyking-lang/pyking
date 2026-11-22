@@ -1889,6 +1889,17 @@ and parse_statement eof tokens =
                     false ),
                 rest )
           | _ -> raise (Parse_error (here eof rest, "expected ':' after def header"))))
+  (* A bare `return`: nothing follows it on its own line, and no
+     indented value under it, so it gives `()`. The lexer emits no token
+     for a line ending, so the end of the line is read off the rows, as
+     for `break` (parse_jump_value). An indent after it is the value
+     written under it (bound_value), as after `=`. *)
+  | TokReturn i :: ((TokDedent _ :: _ | []) as rest) ->
+      (SReturn (i, bare_return_value i, 0), rest)
+  | TokReturn i :: (next :: _ as rest)
+    when (match next with TokIndent _ -> false | _ -> true)
+         && (token_info next).row1 <> i.row2 ->
+      (SReturn (i, bare_return_value i, 0), rest)
   | TokReturn i :: rest -> (
       (* `return` takes a bound value, not just an expression: the
          value-form `if`/`match` is allowed here as well as after `=`.
@@ -2562,19 +2573,44 @@ and check_nothing_indented tokens =
               nothing may be indented under it" ))
   | _ -> ()
 
-(** Raises Parse_error unless stmt is an expression statement. A block
-    written on its header's own line holds one *expression* and nothing
-    else. stmt -> () *)
+(** Raises Parse_error unless stmt may be a block written on its
+    header's own line: one expression, a `return`, `break` or `continue`
+    that fits on the line, or an update with `:=` (or `+=` and the other
+    compound forms) of a variable, an element, a field or a pointer's
+    target. A binding is refused -- its name would be gone again where
+    the line ends -- and so is anything that opens a block of its own.
+    stmt -> () *)
 and check_inline_value stmt =
   match stmt with
-  | SExprStmt _ -> ()
+  | SExprStmt _ | SReturn _ | SBreak _ | SContinue _ | SMutate _ | SSetIndex _
+  | SSetDeref _ | SSetField _ | SMutateTuple _ ->
+      ()
+  | SReturnStmt _ ->
+      raise
+        (Parse_error
+           ( stmt_info stmt,
+             Printf.sprintf
+               "a 'return' written on its header's own line ends with that \
+                line, but '%s' goes on over the lines below it; write it in \
+                an indented block instead"
+               (shorten (pprint_stmt default_config stmt 0)) ))
+  | SLet _ | SLetStmt _ | SVar _ ->
+      raise
+        (Parse_error
+           ( stmt_info stmt,
+             Printf.sprintf
+               "a binding written on its header's own line names something \
+                that is gone again where the line ends, so '%s' cannot be \
+                written there; write it in an indented block instead"
+               (shorten (pprint_stmt default_config stmt 0)) ))
   | _ ->
       raise
         (Parse_error
            ( stmt_info stmt,
              Printf.sprintf
                "a block written on its header's own line must be one \
-                expression, and '%s' is not; write it in an indented block \
+                expression, a 'return', 'break' or 'continue', or an update \
+                with ':=', and '%s' is not; write it in an indented block \
                 instead"
                (shorten (pprint_stmt default_config stmt 0)) ))
 

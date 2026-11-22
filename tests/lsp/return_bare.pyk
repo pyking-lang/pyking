@@ -1,0 +1,16 @@
+use mutation
+
+def report(n: Int) -> ():
+    if n < 0: return
+    print(n)
+
+
+def total(xs: [Int]) -> Int:
+    var sum = 0
+    for x in xs:
+        if x < 0: continue
+        sum += x
+    sum
+
+
+report(total([1, -2, 3]))

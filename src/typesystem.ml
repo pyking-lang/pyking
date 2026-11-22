@@ -347,8 +347,9 @@ let builtin_info = { file = "<builtin>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 
 let empty_info = { file = "<empty>"; row1 = 1; col1 = 0; row2 = 1; col2 = 0 }
 
 (** One `return` in the body being inferred, or the value its body ends
-    in: where it is written, and what it gives. *)
-type given = { given_info : info; given_type : typ }
+    in: where it is written, what it gives, and whether it is a `return`
+    with nothing after it, whose `()` an error then explains. *)
+type given = { given_info : info; given_type : typ; given_bare : bool }
 
 (** What the current inference has gathered: the `return`s the body
     being worked out has shown so far. *)
@@ -1361,11 +1362,14 @@ let with_signature store sym type_ =
 (** store gathering into a different frame. store -> frame -> store *)
 let with_frame store frame = { store with frame }
 
-(** store whose frame has seen a `return` at info giving type_.
-    store -> info -> typ -> store *)
-let returning store info type_ =
+(** store whose frame has seen a `return` at info giving type_; `bare`
+    when nothing was written after it. store -> info -> typ -> store *)
+let returning ?(bare = false) store info type_ =
   with_frame store
-    { returns = store.frame.returns @ [ { given_info = info; given_type = type_ } ] }
+    {
+      returns =
+        store.frame.returns @ [ { given_info = info; given_type = type_; given_bare = bare } ];
+    }
 
 (** store with what an inner check found out (environments, instances,
     solutions, and the result tables) merged in; frame and checking stay
@@ -3641,6 +3645,16 @@ let argument_error ?(note = "") position actual expected arg store =
       Printf.sprintf "argument %d has type %s, but %s was expected%s" position
         (printed_nested mine) (printed_nested theirs) note )
 
+(** What explains a `()` that a `return` with nothing after it gave, if
+    one of given is that `return`. [given] -> string *)
+let bare_note given =
+  match List.find_opt (fun g -> g.given_bare) given with
+  | Some g ->
+      Printf.sprintf
+        "; the 'return' on line %d has nothing after it, so it gives ()"
+        g.given_info.row1
+  | None -> ""
+
 (** The single type every way out of a body gives, and the store that
     makes them one. Each is unified with the ones before it, so a base
     case returning `[]` settles against a branch returning `[Int]`; two
@@ -3660,9 +3674,10 @@ let one_type given name store =
                    ( later.given_info,
                      Printf.sprintf
                        "'%s' gives %s on one path, but %s on this one; a \
-                        function has one return type"
+                        function has one return type%s"
                        name (shown worth store)
-                       (shown later.given_type store) )))
+                       (shown later.given_type store)
+                       (bare_note (first :: rest)) )))
         (first.given_type, store) rest
 
 (** Every metavariable still open in the types an environment binds.
@@ -4061,14 +4076,14 @@ let check_annotation ?(env = SMap.empty) ?(what = ("binding", "value")) annotati
 (** Checks a return's type against return_type, or -- while one is being
     worked out -- collects it into store's frame.
     typ option -> expected -> info -> store -> store *)
-let check_return actual return_type info store =
+let check_return ?(bare = false) actual return_type info store =
   match actual with
   (* `return loop: continue` -- the statement never falls through, so no
      value is ever returned here. *)
   | None -> store
   | Some actual -> (
       match return_type with
-      | Inferring -> returning store info actual
+      | Inferring -> returning ~bare store info actual
       | No_function -> store
       | Declared declared -> (
           match unify declared actual store with
@@ -4763,6 +4778,21 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
          without either being a special case. *)
       if return_type = No_function then
         raise (Type_error (info, "'return' outside a function"));
+      (* A bare `return` gives `()`, and has no value of its own to blame,
+         so what it gives is blamed on the `return` itself. *)
+      let bare = is_bare_return info e in
+      (match return_type with
+      | Declared declared when bare && not (is_unit (zonk declared store)) ->
+          raise
+            (Type_error
+               ( info,
+                 Printf.sprintf
+                   "a 'return' with nothing after it gives (), but this \
+                    function returns %s; write the value to return after \
+                    the 'return'"
+                   (shown declared store) ))
+      | _ -> ());
+      let at = if bare then info else expr_info e in
       let wanted =
         (* `return [self]` or `return Ok(Circle(1))` where the result
            type is written: as for the value a body ends in
@@ -4775,7 +4805,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
         | _ -> None
       in
       (match wanted with
-      | Some (actual, store) -> (Some actual, env, check_return (Some actual) return_type (expr_info e) store)
+      | Some (actual, store) -> (Some actual, env, check_return ~bare (Some actual) return_type at store)
       | None ->
           let actual, store = check_expr e env store in
           let store =
@@ -4784,7 +4814,7 @@ and check_stmt ?(discarded = false) statement env return_type acc_type store =
                 match coerced store (expr_sym e) declared actual with Some answer -> answer | None -> store)
             | _ -> store
           in
-          (Some actual, env, check_return (Some actual) return_type (expr_info e) store))
+          (Some actual, env, check_return ~bare (Some actual) return_type at store))
   | SClass (info, c, _) -> (Some (unit_type info), env, check_class info c env store)
   | SReturnStmt (info, inner, _) ->
       (* `return if c: ...` -- the same rule, against whatever the branch
@@ -7375,7 +7405,7 @@ and body_result node env store =
         let body = def_body node in
         let last = List.nth body (List.length body - 1) in
         collected
-        @ [ { given_info = stmt_info last; given_type = supplied } ]
+        @ [ { given_info = stmt_info last; given_type = supplied; given_bare = false } ]
   in
   let restored = with_frame ended { returns = store.frame.returns } in
   if collected = [] then (None, restored)

@@ -1,0 +1,89 @@
+# The statements a block on its header's own line may be besides an
+# expression (PYKING.md, "A block on its header's own line"): a `return`
+# with a value or without, `break` and `continue` with a value or
+# without, and an update of a variable, a tuple of them, an array's
+# element, a mutable struct's field and a pointer's target, with `:=`
+# and with a compound operator. Each means what it means indented.
+# No lists, so plain C runs it too.
+
+use mutation, pointers
+
+
+datatype Shape: Dot, Square(side: Int), Rect(w: Int, h: Int)
+
+
+def area(s: Shape) -> Int:
+    match s:
+        case Dot: return 0
+        case Square(side): return side * side
+        case Rect(w, h): w * h
+
+
+def sign(n: Int) -> Int:
+    if n < 0: return -1
+    else: return if n == 0 then 0 else 1
+
+
+def warn(n: Int) -> ():
+    if n >= 0: return
+    print("negative:", n)
+
+
+print(area(Dot), area(Square(3)), area(Rect(2, 5)))
+print(sign(-7), sign(0), sign(7))
+warn(4)
+warn(-4)
+
+# `break` and `continue`, bare and carrying the accumulator.
+var odd_sum = 0
+for i in range(10):
+    if i == 7: break
+    if i % 2 == 0: continue
+    odd_sum += i
+print(odd_sum)
+
+first_big = loop found = -1 for x in range(20):
+    if x * x > 50: break x
+    found
+print(first_big)
+
+skipped = loop total = 0 for x in range(6):
+    if x == 3: continue total
+    total + x
+print(skipped)
+
+# Updates: a variable, with `:=` and compound, and two at once.
+var fill = "none"
+var count = 0
+for key in range(4):
+    match key:
+        case 0: fill := "red"
+        case 1: count += 10
+        case 2: count *= 3
+        case _: fill := fill + "!"
+print(fill, count)
+
+var a = 1
+var b = 2
+if a < b: (a, b) := (b, a)
+print(a, b)
+
+# An array's element, a mutable struct's field, a pointer's target.
+cells = array([0, 0, 0])
+for i in range(3):
+    if i != 1: cells[i] := i + 5
+    else: cells[i] -= 1
+print(cells)
+
+mutable struct Point(x: Int, y: Int)
+
+pt = Point(1, 2)
+if pt.x < 5: pt.x := 50
+if pt.y > 0: pt.y += 1
+print(pt.x, pt.y)
+
+var target = 3
+p = &target
+if *p > 0: *p := 30
+if *p > 10: *p += 1
+print(target)

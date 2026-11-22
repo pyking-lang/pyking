@@ -592,6 +592,22 @@ let case_guard (MatchCase (_, _, g, _, _)) = g
 (** The body of one case clause. match_case -> [stmt] *)
 let case_body (MatchCase (_, _, _, b, _)) = b
 
+(** The `()` a bare `return` gives, written where nothing was: an empty
+    span just after the `return` token `info`, which is what tells it
+    from a `()` written out (PYKING.md, "`return` statements").
+    info -> expr *)
+let bare_return_value info =
+  ETuple ({ info with row1 = info.row2; col1 = info.col2 }, [], 0)
+
+(** Whether `e`, returned by a `return` spanning `info`, is the `()` a
+    bare `return` stands for rather than one written out.
+    info -> expr -> bool *)
+let is_bare_return info e =
+  match e with
+  | ETuple (u, [], _) ->
+      u.row1 = u.row2 && u.col1 = u.col2 && u.row2 = info.row2 && u.col2 = info.col2
+  | _ -> false
+
 (** The source span of one statement. stmt -> info *)
 let stmt_info s =
   match s with
@@ -1521,6 +1537,7 @@ and pprint_stmt_body cfg s level =
       match index_compound_parts s with
       | Some (op, right) -> Printf.sprintf "%s%s %s= %s" pad place op (pprint_expr cfg right 0)
       | None -> Printf.sprintf "%s%s := %s" pad place (pprint_expr cfg value 0))
+  | SReturn (info, expr, _) when is_bare_return info expr -> pad ^ "return"
   | SReturn (_, expr, _) ->
       Printf.sprintf "%sreturn %s" pad (pprint_expr cfg expr 0)
   | SReturnStmt (_, stmt, _) ->

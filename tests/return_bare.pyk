@@ -1,0 +1,85 @@
+# A `return` with nothing after it on its line gives `()`, as
+# `return ()` does (PYKING.md, "`return` statements"): in a function
+# whose result is inferred, one declared `-> ()`, a method, inside a
+# loop, inside an `if` and a `match` arm, on a header's own line, and as
+# the last line of a body. A value written under it, indented, is still
+# its value. The printed program writes it back bare. No lists, so
+# plain C runs it too.
+
+use mutation, objects
+
+
+def report(n: Int):
+    if n < 0:
+        return
+    print("got", n)
+
+
+def first_even(start: Int, stop: Int) -> ():
+    for x in range(start, stop):
+        if x % 2 == 0:
+            print("even", x)
+            return
+    print("no even")
+
+
+def countdown(n: Int) -> ():
+    var k = n
+    while true:
+        if k == 0: return
+        print(k)
+        k -= 1
+
+
+datatype Step: Stop, Go(n: Int)
+
+
+def walk(s: Step) -> ():
+    match s:
+        case Stop: return
+        case Go(n):
+            print("go", n)
+            return
+
+
+def written_out(n: Int) -> ():
+    if n > 0:
+        return ()
+    print("not positive")
+
+
+def at_the_end() -> ():
+    print("end")
+    return
+
+
+def indented(n: Int) -> Int:
+    return
+        n * 2
+
+
+class Counter(start: Int):
+    var count: Int = 0
+
+    def bump(self, by: Int) -> ():
+        if by <= 0:
+            return
+        self.count := self.count + by
+
+
+report(3)
+report(-3)
+first_even(3, 7)
+first_even(1, 2)
+countdown(2)
+walk(Stop)
+walk(Go(5))
+written_out(1)
+written_out(0)
+at_the_end()
+print(indented(21))
+c = Counter(0)
+c.bump(2)
+c.bump(-1)
+c.bump(3)
+print(c.count, report(1))

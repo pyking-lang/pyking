@@ -1,0 +1,4 @@
+'tests/fail_typecheck_return_bare_inferred.pyk' 10:11-10:16 Type
+  error: 'half' gives () on one path, but Int on this one; a function
+  has one return type; the 'return' on line 9 has nothing after it, so
+  it gives ()

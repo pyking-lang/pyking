@@ -466,6 +466,14 @@ val case_body : match_case -> stmt list
     match_case -> expr option *)
 val case_guard : match_case -> expr option
 
+(** The `()` a bare `return` gives: an empty span just after the
+    `return` token. info -> expr *)
+val bare_return_value : info -> expr
+
+(** Whether a `return` spanning info returns the `()` of a bare
+    `return`, rather than one written out. info -> expr -> bool *)
+val is_bare_return : info -> expr -> bool
+
 (** The source span of one statement. stmt -> info *)
 val stmt_info : stmt -> info
 

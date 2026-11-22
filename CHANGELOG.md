@@ -22,6 +22,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   server's quick fix for a wrong annotation offers the value's type for
   a `var` too, and a `var` written with a type but no value is refused
   at the type.
+- A `return` with nothing after it on its line returns `()`, as
+  `return ()` does: `if n < 0:` then `return` on the next line leaves a
+  function that gives nothing. Before, it was a parsing error blamed on
+  the line after it. In a function that returns a value, it is refused
+  at the `return` ("a 'return' with nothing after it gives (), but this
+  function returns Int"), and where a function's result is inferred,
+  the error names the bare `return`'s line. A value indented under a
+  `return` is still its value, and `-t pyking` prints a bare `return`
+  back as written.
+- A block on its header's own line may be a `return` (with a value or
+  bare), a `break` or `continue` (with a value or not), or an update:
+  `x := e`, `x += e`, `(a, b) := (b, a)`, `xs[i] := e`, `p.x := e` and
+  `*p := e`, as in `case Leaf: return 0` and `if i % 2 == 0: continue`.
+  Before, only an expression was. A binding there is still refused,
+  now with its own reason (its name would be gone with the line), as
+  is a header that opens a block of its own and a `return match` or
+  `return if` statement, which spans lines.
 
 ### Fixed
 

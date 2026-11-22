@@ -102,13 +102,15 @@ restriction of it, but these are genuinely new.
   `lambda x: x + 1`. See "Lambdas".
 - **A block on its header's own line**: any header ending in `:` may
   carry its block on that same line instead of indenting it, as long as
-  what it carries is one **expression** — `def add(a, b): a + b`,
+  what it carries is one line's worth: an **expression**, a `return`,
+  `break` or `continue`, or an update with `:=` — `def add(a, b): a + b`,
   `if n < 0: print("negative")`, `case 0: "zero"`,
+  `case Leaf: return 0`, `if x < 0: continue`,
   `for x in xs: print(x)`. Python allows something similar but wider:
-  any *simple* statement, and `;` to write several. Pyking's line holds
-  a value and nothing else, so nothing is ever hidden behind a ':' — no
-  `return`, no binding, no `:=` — and the line ends there, which is why
-  an `else` starts the next one. The two layouts are the same program:
+  any *simple* statement, and `;` to write several. Pyking refuses a
+  binding there, whose name would be gone again at the end of the line,
+  and anything that opens a block of its own; and the line ends there,
+  which is why an `else` starts the next one. The two layouts are the same program:
   `def add(a, b): a + b` is `def add(a, b):` followed by `a + b` on its
   own indented line, down to the AST, so nothing after the parser can
   tell which was written. That is what makes a definition short enough
@@ -423,8 +425,9 @@ Statements:
   extension; `debug` writes the way `print` does, where diagnostics go,
   and a program built in release mode has none of it (see "Builtins and I/O")
 - A block written on its header's own line (`def f(x): x * x`,
-  `if c: print(1)`, `case 0: "zero"`) — one expression, meaning exactly
-  what the indented form means
+  `if c: print(1)`, `case 0: "zero"`, `case A: return 0`) — one
+  expression, `return`, `break`, `continue` or `:=` update, meaning
+  exactly what the indented form means
 - Imports (`import m`, `import m as n`, `from m import a, b as c`) and
   exports (`public` in front of a `def`, a `def` signature line, a
   `datatype`, a `struct`, or an `=` binding) — Pyking extension; both belong to a module's top level,
@@ -2063,9 +2066,9 @@ print(average(4, 8))
 A body that is one expression may be written on the header's own line,
 after the `:` (see "A block on its header's own line" in the Grammar). It is the
 same body: one statement, in tail position, so it supplies the
-function's value exactly as an indented one does. A body that does
-anything else — returns, binds a name, branches as a statement — goes
-under the header, where it is plain.
+function's value exactly as an indented one does. A body that binds a
+name or branches as a statement goes under the header, where it is
+plain.
 
 ```pyking
 def average(a, b): (a + b) / 2
@@ -2367,6 +2370,37 @@ def first(x, y):
 
 print(first(1, 2))
 ```
+
+A `return` with nothing after it on its line returns `()`, exactly as
+`return ()` does, so it leaves a function that gives nothing — one
+declared `-> ()`, or one whose result is inferred and that gives `()` on
+every path:
+
+```pyking
+def report(n: Int) -> ():
+    if n < 0:
+        return
+    print("got", n)
+
+
+report(3)
+report(-3)
+```
+
+In a function that returns a value it is refused at the `return`,
+which has no value of its own to blame:
+
+```pyking error
+def half(n: Int) -> Int:
+    if n < 0:
+        return
+    n / 2
+```
+
+The value of a `return` starts on its own line, or is indented under
+it as after `=` (see "`if`/`match` statements as bound values"); a
+`return` followed by a line that is not indented under it is a bare
+one.
 
 ### Tail position
 
@@ -6514,9 +6548,10 @@ bracket or not at all.
 #### A block on its header's own line
 
 Any header ending in `:` may carry its block on that same line instead
-of indenting it, provided what it carries is **one expression**. Python
-allows something similar but wider — any *simple* statement, and `;` to
-write several; Pyking's line holds a value and nothing else.
+of indenting it, provided what it carries is **one line's worth**: an
+expression, a `return`, `break` or `continue`, or an update with `:=`.
+Python allows something similar but wider — any *simple* statement, and
+`;` to write several.
 
 ```pyking
 def square(x): x * x
@@ -6563,34 +6598,65 @@ line could carry. The clauses are always indented under it.
 
 ###### What may be written there
 
-An **expression**, and only an expression. A `return`, an `=` binding, a
-`:=` mutation, or a nested header is not one, and is refused where it
-stands:
+One statement that fits on the line:
 
-```
-'prog.pyk' 4:14-4:22 Parsing error: a block written on its header's
-  own line must be one expression, and 'return a' is not; write it in
-  an indented block instead
-```
-
-That is the whole point of the restriction. A line ending in `:` is a
-promise that a value follows; letting a statement follow instead would
-mean control flow and new names could hide behind a `:` at the end of a
-line, and every such line would have to be read to the end to find out
-what it did. So the value-producing forms stay on one line and
-everything else goes under its header:
+- an **expression** — the block's value, as it would be indented;
+- a **`return`**, with a value or bare (see "`return` statements");
+- a **`break`** or **`continue`**, with the accumulator it carries or
+  without (see "`loop` loops");
+- an **update**: `x := e`, `(a, b) := (b, a)`, `xs[i] := e`,
+  `p.x := e`, `*p := e`, and the compound forms `x += e` and the rest.
 
 ```pyking
-def first_positive(a, b):
-    if a > 0:
-        return a
-    b
+use mutation
+
+datatype Tree: Leaf, Node(left: Tree, value: Int, right: Tree)
+
+
+def total(t: Tree) -> Int:
+    match t:
+        case Leaf: return 0
+        case Node(l, v, r): total(l) + v + total(r)
+
+
+var odd = 0
+for i in range(10):
+    if i == 7: break
+    if i % 2 == 0: continue
+    odd += i
+print(total(Node(Leaf, 3, Node(Leaf, 4, Leaf))), odd)
 ```
 
+Each leaves the block or changes something that outlives it, so what
+it does is seen at once. Two kinds of statement are refused where they
+stand, with the reason:
+
+- **A binding**, `=` or `var`. The block ends with the line, and the
+  name with it, so it could never be used:
+
+  ```
+  'prog.pyk' 2:14-2:22 Parsing error: a binding written on its
+    header's own line names something that is gone again where the line
+    ends, so 'best = a' cannot be written there; write it in an
+    indented block instead
+  ```
+
+- **Anything that opens a block of its own**: a nested `if` or `match`
+  statement, a loop, a `def`, and `return` followed by a `match` or an
+  `if` statement, which goes on over the lines below it:
+
+  ```
+  'prog.pyk' 2:11-2:32 Parsing error: a block written on its header's
+    own line must be one expression, a 'return', 'break' or 'continue',
+    or an update with ':=', and 'for x in xs:' is not; write it in an
+    indented block instead
+  ```
+
 Note that a function ending in a value needs no `return` at all (see
-"Tail position"), so the shorthand is rarely what a one-line body wanted
-in the first place. And `if` written inline is the `if`/`then`/`else`
-*expression*, which is an expression like any other:
+"Tail position"), so a one-line `return` is mostly for leaving early —
+a `case` that is done, a guard at the top of a body. And `if` written
+inline is the `if`/`then`/`else` *expression*, which is an expression
+like any other:
 
 ```pyking
 def describe(n): if n < 0 then "negative" else "positive"
@@ -6721,11 +6787,13 @@ method      = [ "private" ] , [ "override" ] , [ "abstract" ] ,
               "def" , ident , "(" , "self" , { "," , param } , ")" , [ "->" , type ] ,
               [ ":" , block ] ;
 
-(* A block is indented under its header, or is the single expression
+(* A block is indented under its header, or is the single statement
    written on the header's own line -- which the EBNF cannot say, since
    it cannot see where a line ends; see the notes below. *)
 block       = INDENT , { statement } , DEDENT
-            | expr_stmt ;
+            | inline_stmt ;
+inline_stmt = expr_stmt | return_stmt | break_stmt | continue_stmt
+            | mutation ;
 
 statement   = function_def
             | function_sig
@@ -6786,7 +6854,9 @@ type_paren   = "(" , [ type , { "," , type } ,
              | "(" , type , ( "," , type )+ , [ "," ] , ")" ;
 type_var     = ? an ident beginning with a lowercase letter ? ;
 
-return_stmt = "return" , bound_value ;
+(* With nothing after it on its line, and nothing indented under it,
+   a `return` gives `()`. *)
+return_stmt = "return" , [ bound_value ] ;
 
 (* `for`, `while` and the accumulator loop are one construct with
    different halves written; every combination of them is a loop_stmt. *)
@@ -7397,21 +7467,25 @@ Notes that don't fall out of the grammar alone:
   span several lines. The continuation lines are part of the same
   statement and their own indentation means nothing; outside brackets,
   indentation means exactly what it did. See "Lines and continuation".
-- `block`'s bare-`expr_stmt` alternative is taken **only** when that
-  expression begins on the row the header's `:` ends on. The EBNF cannot
+- `block`'s `inline_stmt` alternative is taken **only** when that
+  statement begins on the row the header's `:` ends on. The EBNF cannot
   state this, for the same reason it cannot state "a statement starts a
   line of its own": the lexer emits no token for a line break, so both
   are checked in `src/parser.ml` against the positions the tokens
   already carry. A block that begins on the *next* line without being
   indented is therefore not an inline block but the error it always was
   (`expected an indented block`).
-- It is an `expr_stmt`, not a `statement`: only a value may be written
-  there. A `return`, a binding, a `:=`, or a nested header is refused
-  where it stands (`a block written on its header's own line must be
-  one expression, and 'return a' is not; write it in an indented block
-  instead`), so no line ever hides control flow or a new name behind
-  its `:`. An `if` written there is the `if_expr`, which is an
-  expression; the statement form is not.
+- It is an `inline_stmt`, not any `statement`. A binding is refused
+  where it stands (`a binding written on its header's own line names
+  something that is gone again where the line ends, ...`), and so is a
+  nested header (`a block written on its header's own line must be one
+  expression, a 'return', 'break' or 'continue', or an update with
+  ':=', and 'for x in xs:' is not; ...`), as is a `return` of a
+  `value_stmt`, which spans lines. An `if` written there is the
+  `if_expr`, which is an expression; the statement form is not.
+- A `return_stmt`'s `bound_value` is left out when the next token is
+  on a later row and not an `INDENT` — read off the rows, as `break`'s
+  and `continue`'s value is.
 - An inline block **ends its line**. Nothing may be indented under it
   (`a block written on its header's own line is the whole block, so
   nothing may be indented under it`), and nothing may continue the

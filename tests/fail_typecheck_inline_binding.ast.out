@@ -1,0 +1,4 @@
+'tests/fail_typecheck_inline_binding.pyk' 9:14-9:22 Parsing error: a
+  binding written on its header's own line names something that is
+  gone again where the line ends, so 'best = a' cannot be written
+  there; write it in an indented block instead

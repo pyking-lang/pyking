@@ -310,7 +310,8 @@ Around them:
   (`x = if c:`) or *returned* (`return match e:`), via
   `parse_bound_value`.
 - **`parse_block(tokens, header_info)`** — one block: `TokIndent`-
-  delimited, or the single *expression* written on the header's own
+  delimited, or the single statement (an expression, a `return`,
+  `break`, `continue` or `:=` update) written on the header's own
   line, which is why it is handed the `:` that opened it (PYKING.md, "A
   block on its header's own line"). Neither shape present is `expected
   an indented block`, which is also what tells the REPL an entry is

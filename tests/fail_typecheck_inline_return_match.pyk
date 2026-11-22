@@ -1,0 +1,15 @@
+# A `return` on its header's own line is one line long. `return match`
+# goes on over the lines of its clauses, so it is written under its
+# header instead.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def name_of(n: Int, short: Bool) -> String:
+    if short: return match n:
+        case 0: "0"
+        case _: "n"
+    "number"
+
+
+print(name_of(0, true))

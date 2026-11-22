@@ -986,6 +986,29 @@ file = "fail_typecheck_case_arrow.pyk"
 file = "fail_typecheck_inline_not_expression.pyk"
 
 [[cases]]
+file = "fail_typecheck_inline_binding.pyk"
+
+[[cases]]
+file = "fail_typecheck_inline_var.pyk"
+
+[[cases]]
+file = "fail_typecheck_inline_return_match.pyk"
+
+[[cases]]
+file = "inline_statements.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "return_bare.pyk"
+also = ["pyking_rerun"]
+
+[[cases]]
+file = "fail_typecheck_return_bare_declared.pyk"
+
+[[cases]]
+file = "fail_typecheck_return_bare_inferred.pyk"
+
+[[cases]]
 file = "fail_typecheck_inline_else_same_line.pyk"
 
 [[cases]]

@@ -285,7 +285,8 @@ which conversion to write.
 ### Functions
 
 `def` defines a function. Its value is its last expression, or what it
-`return`s, and a body of one expression can go on the header's line.
+`return`s (a bare `return` gives `()`), and a body of one expression
+or one `return` can go on the header's line.
 Parameters may have defaults and be passed by name. Where there are no
 annotations, the checker infers the most general type, so `twice` works
 for any function whose argument and result have the same type.

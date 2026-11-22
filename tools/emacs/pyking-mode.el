@@ -354,8 +354,9 @@ line to find an `=' or a `:' several lines down.")
   "Regexp matching a line that opens a `match_stmt', from its first word.
 Like `pyking--if-block-opener-regexp', this covers both the bare `match
 e:' header and the value form `target = match e:'. A `match' never sits
-in a header's own-line block -- only an expression may be written there
-(see \"A block on its header's own line\" in PYKING.md) -- so its header
+in a header's own-line block -- only an expression, a `return', `break',
+`continue' or `:=' update may be written there, and never a `match'
+statement (see \"A block on its header's own line\" in PYKING.md) -- so its header
 is always the line's own. There is no match *expression* to tell it
 apart from, so no trailing `:' is required here.")
 

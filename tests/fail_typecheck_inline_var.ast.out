@@ -1,0 +1,4 @@
+'tests/fail_typecheck_inline_var.pyk' 10:14-10:26 Parsing error: a
+  binding written on its header's own line names something that is
+  gone again where the line ends, so 'var seen = i' cannot be written
+  there; write it in an indented block instead

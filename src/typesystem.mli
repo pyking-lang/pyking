@@ -96,8 +96,9 @@ and argument =
           own parameters to the name and then these *)
 
 (** One `return` in the body being inferred, or the value its body ends
-    in: where it is written, and what it gives. *)
-type given = { given_info : info; given_type : typ }
+    in: where it is written, what it gives, and whether it is a `return`
+    with nothing after it. *)
+type given = { given_info : info; given_type : typ; given_bare : bool }
 
 (** What the current inference has gathered: the `return`s the body
     being worked out has shown so far. *)

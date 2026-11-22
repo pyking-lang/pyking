@@ -1,0 +1,11 @@
+# A `var` on its header's own line is refused as an `=` binding is: the
+# variable would be gone again where the line ends.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+use mutation
+
+for i in range(3):
+    if i > 1: var seen = i
+    print(i)

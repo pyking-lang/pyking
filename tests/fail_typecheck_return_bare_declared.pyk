@@ -1,0 +1,13 @@
+# A `return` with nothing after it gives (), so it cannot leave a
+# function declared to return a value. The error is at the `return`.
+#
+# This program is expected to be REFUSED. Its `.ast.out` holds the error
+# message, not a program's output.
+
+def half(n: Int) -> Int:
+    if n < 0:
+        return
+    n / 2
+
+
+print(half(8))

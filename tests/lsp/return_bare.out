@@ -1,0 +1,22 @@
+> initialize
+{"capabilities": {"codeActionProvider": {"codeActionKinds": ["quickfix"]}, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": true, "documentHighlightProvider": true, "documentSymbolProvider": true, "foldingRangeProvider": true, "hoverProvider": true, "positionEncoding": "utf-16", "referencesProvider": true, "renameProvider": {"prepareProvider": true}, "semanticTokensProvider": {"full": true, "legend": {"tokenModifiers": ["declaration", "readonly", "defaultLibrary"], "tokenTypes": ["namespace", "type", "enumMember", "function", "parameter", "variable", "property"]}}, "signatureHelpProvider": {"retriggerCharacters": ["="], "triggerCharacters": ["(", ","]}, "textDocumentSync": {"change": 1, "openClose": true, "save": {"includeText": false}}}, "serverInfo": {"name": "pyk lsp"}}
+> open return_bare.pyk
+> idle
+diagnostics $CASES/return_bare.pyk v1 []
+> hover return_bare.pyk 4:8
+{"contents": {"kind": "markdown", "value": "```pyking\nn: Int\n```"}, "range": {"end": {"character": 8, "line": 3}, "start": {"character": 7, "line": 3}}}
+> hover return_bare.pyk 4:17
+null
+> hover return_bare.pyk 11:12
+{"contents": {"kind": "markdown", "value": "```pyking\nx: Int\n```"}, "range": {"end": {"character": 12, "line": 10}, "start": {"character": 11, "line": 10}}}
+> hover return_bare.pyk 12:9
+{"contents": {"kind": "markdown", "value": "```pyking\nsum: Int\n```"}, "range": {"end": {"character": 11, "line": 11}, "start": {"character": 8, "line": 11}}}
+> request textDocument/semanticTokens/full {"textDocument": {"uri": "$URI(return_bare.pyk)"}}
+{"data": [2, 4, 6, 3, 1, 0, 7, 1, 4, 1, 1, 7, 1, 4, 0, 1, 4, 5, 3, 4, 0, 6, 1, 4, 0, 3, 4, 5, 3, 1, 0, 6, 2, 4, 1, 1, 8, 3, 5, 1, 1, 8, 1, 5, 3, 0, 5, 2, 4, 0, 1, 11, 1, 5, 2, 1, 8, 3, 5, 0, 0, 7, 1, 5, 2, 1, 4, 3, 5, 0, 3, 0, 6, 3, 0, 0, 7, 5, 3, 0]}
+> change return_bare.pyk
+> idle
+diagnostics $CASES/return_bare.pyk v2 [{"code": "Type error", "message": "a 'return' with nothing after it gives (), but this function returns Int; write the value to return after the 'return'", "range": {"end": {"character": 20, "line": 1}, "start": {"character": 14, "line": 1}}, "severity": 1, "source": "pyking"}]
+> shutdown
+null
+> exit
+> exit status 0

@@ -346,6 +346,14 @@ sense, "not parsing":
   follows it on its own line, read by `parse_tuple_or_expr` so a bare
   tuple works as it does in a loop header. A token on the next line, or
   an indent/dedent, means there is none.
+- **A bare `return`** is read the same way, in `parse_statement`: a
+  dedent, the end of the input, or a token on a later row means nothing
+  was written, and the statement is `return ()` with the `()` built by
+  `Syntax.bare_return_value` -- an empty span just after the keyword,
+  which `Syntax.is_bare_return` tells from a `()` written out, so the
+  printer writes it back bare and the checker blames the `return`
+  itself. An *indent* is still the value written under it, as after
+  `=` (`parse_bound_value`).
 - **`check_reachable`** — nothing may be written after a `break` or a
   `continue` in the same block, since nothing there can run. It is
   applied as each block is built, comparing the statement just parsed
@@ -375,15 +383,16 @@ sense, "not parsing":
 - **`on_header_line` / `check_inline_value` / `check_ends_line` /
   `check_nothing_indented`** — the other half of the same
   reconstruction, in `parse_block`: a block may be the single
-  *expression* written on its header's own line. "Own line" is again
+  statement written on its header's own line -- an expression, a
+  `return`, `break` or `continue`, or an update with `:=`. "Own line" is again
   read off the rows the tokens carry — the first token after the `:`
   starts on the row that `:` ends on (`on_header_line`). Deciding it
   there rather than by "is there a `TokIndent`?" is what keeps a block
   written on the *next* line without indentation the error it always
   was. The other three are what "one expression, and the line ends
-  there" means: `check_inline_value` refuses anything but an
-  `SExprStmt` (a `return`, a binding, a nested header), so nothing
-  hides behind a `:`; `check_ends_line` refuses an `else` that shares
+  there" means: `check_inline_value` refuses a binding (its name would
+  be gone with the line), a nested header, and a `return` of a
+  `match`/`if` statement, which spans lines; `check_ends_line` refuses an `else` that shares
   the line its block ended; `check_nothing_indented` refuses an
   indented block under one, which would belong to nothing. A second
   statement on the line is left to `check_own_line`, which already
