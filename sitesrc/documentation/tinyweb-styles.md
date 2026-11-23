@@ -3,7 +3,7 @@ title: Styling a tinyweb page
 description: The themes a tinyweb page can have, and how to change its buttons, labels, sliders and canvases.
 sidebar:
   label: Styling tinyweb
-  order: 11
+  order: 12
   group: tinyweb
 ---
 

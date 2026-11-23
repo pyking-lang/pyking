@@ -2,7 +2,7 @@
 title: Notebook
 description: Write Pyking notebooks in Markdown, with runnable cells, tasks, quizzes and points, and check them from the command line.
 sidebar:
-  order: 3
+  order: 7
   group: Tools
 ---
 

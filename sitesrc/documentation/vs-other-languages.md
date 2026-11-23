@@ -2,7 +2,7 @@
 title: Pyking vs. other languages
 description: Pyking compared with Python, JavaScript, C, Java and OCaml -- syntax, semantics, and what the compiler writes for each.
 sidebar:
-  order: 9
+  order: 2
   group: Language
 ---
 

@@ -2,7 +2,7 @@
 title: Playground
 description: Write, run, compile, debug and share Pyking programs in the browser, with nothing to install.
 sidebar:
-  order: 2
+  order: 6
   group: Tools
 ---
 

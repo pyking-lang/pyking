@@ -32,8 +32,8 @@ Functions:
     build_id(paths) -- a hash of the files under paths.
     version_build(public, paths, commit, date, version) -- moves the
         staged versioned files under v/<build>/, and writes version.json.
-    stage() -- fills build/ with the pages, the static files, the runtime
-        and the sidebar.
+    stage() -- fills build/ with the pages, the static files, the runtime,
+        the sidebar and the llms files for coding assistants.
     astro(command, args) -- runs Astro's own command line.
     main(argv) -- the command-line entry point.
 """
@@ -59,6 +59,7 @@ import playground  # noqa: E402
 import help as helpdoc  # noqa: E402
 import libdoc  # noqa: E402
 import tinywebdoc  # noqa: E402
+import aidoc  # noqa: E402
 
 # Where tinyweb's pages for other languages go, under Documentation.
 TINYWEB = "documentation/tinyweb"
@@ -71,6 +72,10 @@ PICTURES = REPO / "sitesrc" / "pics"
 STAGE = HERE / "build"
 MODULES = HERE / "node_modules"
 ASTRO = MODULES / "astro" / "bin" / "astro.mjs"
+
+# The site's address, for the links of llms.txt: what publish.py sets
+# for a release, and the site's own domain otherwise.
+SITE_URL = os.environ.get("PYKING_SITE_URL") or "https://pyking.org/"
 
 # Astro 7 needs this node or a later one.
 MINIMUM_NODE = (22, 12)
@@ -361,6 +366,10 @@ def stage():
                      library=STAGE / "content" / "libraries" / "tinyweb.md",
                      href=f"../../{TINYWEB}/")
     export_runtime(versioned / "runtime")
+    # For coding assistants, at the site's root, where tools look for
+    # them (llmstxt.org): llms.txt, llms-small.txt, llms-full.txt and
+    # llms/ (tools/help/aidoc.py). Their links are absolute.
+    aidoc.write_site(STAGE / "public", SITE_URL)
     # The left menu is the site's own (src/components/Sidebar.astro),
     # read from here; Starlight's `autogenerate` would find nothing, the
     # pages being staged outside src/content/docs/.

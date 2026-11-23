@@ -2,7 +2,7 @@
 title: Command line
 description: Every pyk command and its flags, where pyk compile writes, the library search path and the exit codes.
 sidebar:
-  order: 4
+  order: 8
   group: Tools
 ---
 
@@ -22,6 +22,7 @@ prints the version.
 | `pyk prog.pyk [-- args]` | Run the program with the interpreter. |
 | `pyk prog.pyk -t T [-- args]` | Compile it for target `T` and run it. |
 | `pyk compile prog.pyk` | Compile it (default target: `python`). `pyk c` is the same. |
+| `pyk check prog.pyk` | Check it and the modules it imports, and run nothing. |
 | `pyk repl` | Start the [REPL](/documentation/repl/). |
 | `pyk notebook book.md` | Serve a [notebook](/documentation/notebook/) and open it in the browser. |
 | `pyk playground` | Serve the [playground](/documentation/playground/) locally. |
@@ -32,6 +33,7 @@ prints the version.
 | `pyk lsp` | The language server, started by an [editor](/documentation/editors/). |
 | `pyk dap` | The debug adapter, started by an editor. |
 | `pyk plugins dir` | Build the interpreter's plugins for a directory of libraries. |
+| `pyk ai ...` | Set a project up for a [coding assistant](/documentation/ai/), and print the guide, the libraries and the reference for one. |
 
 Pyking is statically typed: every program is type-checked before it
 runs or compiles, and there is no flag to skip that.
@@ -185,6 +187,38 @@ code tab shows the same.
 compiled, so a release build writes nothing to standard error through
 `debug`. It applies to `pyk compile` only: the interpreter always runs
 a program as written.
+
+## `pyk check`
+
+```sh
+pyk check prog.pyk [-L DIR]... [-W...]
+```
+
+Reads the program and every module it imports, and checks them as
+running it would: the syntax, the names, the types and every `match`.
+It prints each error and warning, then `prog.pyk: no errors.` if there
+was no error, and runs nothing, so a program that would keep running,
+such as a tinyweb page, is checked too. It exits with 0 when there is
+no error and 1 when there is. What only one target refuses, as plain
+C refuses some programs, is found by `pyk compile -t T` instead.
+
+## `pyk ai`
+
+```sh
+pyk ai init [DIR]              # AGENTS.md, CLAUDE.md, PYKING-LLM.md
+pyk ai guide                   # print PYKING-LLM.md
+pyk ai lib [NAME[.ITEM]] [--full]
+pyk ai ref [WORDS]
+```
+
+For coding assistants. `pyk ai init` puts the files an assistant reads
+in a project, keeping an `AGENTS.md` or a `CLAUDE.md` already there.
+`pyk ai guide` prints the short guide to Pyking, `pyk ai lib` the
+standard library -- every library, one library short or in full, or one
+export -- and `pyk ai ref` the sections of the language reference whose
+titles hold the words given. Everything is Markdown on standard output.
+`pyk ai` on its own lists its forms. See
+[AI-assisted programming](/documentation/ai/).
 
 ## `pyk repl`
 

@@ -30,7 +30,8 @@ Functions:
     headings(text) -- a page's `##` headings, with their anchors.
     front_matter(text) -- a page's front matter, as a dictionary.
     write(directory) -- writes every page and index.json.
-    main(argv) -- the command-line entry point.
+    main(argv) -- the command-line entry point: the pages, and ai/,
+        what `pyk ai` reads (aidoc.py).
 """
 
 import json
@@ -44,6 +45,7 @@ REPO = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 
 import libdoc  # noqa: E402  (after sys.path, which is what finds it)
+import aidoc  # noqa: E402
 
 SOURCES = REPO / "sitesrc"
 LANGUAGE = REPO / "PYKING.md"
@@ -102,8 +104,10 @@ LANGUAGE_PAGES = [
      "Pyking's syntax: lexical structure, layout, the grammar in EBNF, and how it compares with Python."),
 ]
 # The sidebar order of the Language reference and of the Grammar, among
-# the Documentation pages of sitesrc/ (vs-other-languages.md is 9).
-REFERENCE_ORDER, GRAMMAR_ORDER = 8, 10
+# the Documentation pages of sitesrc/: the language comes first, the
+# reference opening the section (vs-other-languages.md is 2), then the
+# tools (4 to 11) and tinyweb (12).
+REFERENCE_ORDER, GRAMMAR_ORDER = 1, 3
 
 
 def front_matter(text):
@@ -314,8 +318,11 @@ def main(argv=None):
     for line in libdoc.problems(libdoc.read_modules(libdoc.LIB)):
         print("help: warning: " + line)
     index = write(directory)
+    # What `pyk ai` reads: the guide for coding assistants and the
+    # library as plain text, beside the pages but in no section.
+    aidoc.write(directory / "ai")
     count = sum(len(s["pages"]) for s in index["sections"])
-    print(f"help: {count} pages written into {directory}")
+    print(f"help: {count} pages written into {directory}, and ai/ for `pyk ai`")
 
 
 if __name__ == "__main__":

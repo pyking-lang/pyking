@@ -8,6 +8,7 @@ its own.
 ```sh
 python3 tools/help/help.py [DIRECTORY]   # write the pages (default share/help/)
 python3 tools/help/libdoc.py             # list what is undocumented in lib/
+python3 tools/help/aidoc.py [DIRECTORY]  # only the ai/ files (default share/help/ai/)
 make pykhelp                             # serve it (pyk pykhelp) and print a link
 ```
 
@@ -26,10 +27,12 @@ always there beside `share/pyking.js`, and every package ships it.
 | `documentation/*.md` | `sitesrc/documentation/`: Editors, Playground, Notebook, Command line, REPL, Compiler targets, Code on slides, Pyking vs. other languages, Styling tinyweb |
 | `libraries/*.md` | `lib/`, by `libdoc.py`: an overview and one page per module |
 | `index.json` | the sections, their pages in menu order, each page's `##` headings with their anchors and its sidebar group, and which pages the Help tab shows |
+| `ai/` | `aidoc.py`, for coding assistants, in no section: `PYKING-LLM.md` and `PYKING.md` as they are, `AGENTS.md` (from `agents-template.md`), and `lib/`, the standard library as plain text -- `NAME.md` each export's signature and first sentence, `NAME.full.md` everything, under `## name` -- per library and per submodule. `pyk ai` prints them (`src/ai_command.ml`), and the website publishes them as `llms.txt`, `llms-small.txt`, `llms-full.txt` and `llms/` |
 
 The sections and their order are `SECTIONS` in `help.py`. A page's
 `sidebar.group` front matter puts it under a heading of the left menu:
-Documentation has the groups Tools, Language and tinyweb. The Help tab
+Documentation has the groups Language, Tools and tinyweb, in that
+order. The Help tab
 shows Getting started, the Language group (the language reference,
 Pyking vs. other languages and the grammar) and the libraries. The
 website adds tinyweb's pages for other languages under Documentation

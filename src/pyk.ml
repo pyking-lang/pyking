@@ -203,6 +203,7 @@ let synopsis =
   "Usage: pyk [options] <filename> [-- args]   run it with the interpreter\n\
   \       pyk repl                             start the REPL\n\
   \       pyk compile [options] <filename>     compile it (alias: pyk c)\n\
+  \       pyk check [options] <filename>       check it, and run nothing\n\
   \       pyk notebook [--port N] [--mode M] <file.md>\n\
   \                                            open a notebook in the browser\n\
   \       pyk playground [--port N]            open the playground\n\
@@ -213,6 +214,7 @@ let synopsis =
   \       pyk example [<name>]                 list the examples, or save one\n\
   \       pyk highlight <file> [options]       colour code for slides: HTML, RTF\n\
   \                                            or text\n\
+  \       pyk ai [init|guide|lib|ref] ...      Pyking for coding assistants\n\
   \n\
    Options:\n\
   \  -t, --target <name>   compile for <name> (default: python); with\n\
@@ -445,7 +447,17 @@ let usage_full () =
      colours it, for a slide: HTML with every style inline, RTF or plain\n\
      text, with leading spaces as non-breaking spaces so a PDF keeps them.\n\
      <file> is a program or a notebook; `pyk highlight --help` lists its\n\
-     options."
+     options.\n\n\
+     `pyk check <file>` reads, checks and type-checks a program and the\n\
+     modules it imports, as running it would, prints its errors and\n\
+     warnings, and runs nothing: a quick check for an editor or a coding\n\
+     assistant, also for a program that would keep running, such as a\n\
+     tinyweb page. It exits with 0 where there is no error.\n\n\
+     `pyk ai` is for coding assistants: `pyk ai init` puts AGENTS.md,\n\
+     CLAUDE.md and PYKING-LLM.md, a short guide to Pyking, in a project;\n\
+     `pyk ai guide` prints the guide, `pyk ai lib [<name>]` the standard\n\
+     library and `pyk ai ref [<words>]` sections of the language\n\
+     reference, as plain text. `pyk ai` lists its forms."
     synopsis more_options (target_table ())
     (wrap ("An unversioned name is the family's default: " ^ alias_line () ^ ".")
     ^ "\n\n"
@@ -467,6 +479,7 @@ let commands =
     ("repl", "repl");
     ("compile", "compile");
     ("c", "compile");
+    ("check", "check");
     ("notebook", "notebook");
     ("playground", "playground");
     ("pykhelp", "pykhelp");
@@ -804,7 +817,7 @@ let parse_args argv =
       usage_error "--output names what --to-json, --to-markdown or --json-schema writes"
   | _ -> ());
   if options.arguments <> [] then
-    if command = "repl" || command = "lsp" || command = "dap" || command = "example" || web then
+    if command = "repl" || command = "lsp" || command = "dap" || command = "example" || command = "check" || web then
       usage_error
         (Printf.sprintf
            "everything after -- is passed to a program being run, and 'pyk %s' \
@@ -2561,6 +2574,12 @@ let run_command argv =
   else if options.command = "lsp" then command_lsp options
   else if options.command = "dap" then command_dap options
   else if options.command = "example" then command_example options
+  else if options.command = "check" then (
+    (* Everything the front end refuses is refused here, and its
+       warnings printed; nothing runs and nothing is written. *)
+    ignore (front_end options);
+    Printf.printf "%s: no errors.\n" (Option.get options.filename);
+    0)
   else if options.command = default_command && options.target_given then
     (* `pyk <file> -t <target>`: compiled into build/ and run from there,
        with nothing put beside it. *)
@@ -2581,6 +2600,7 @@ let main argv =
   try
     match argv with
     | "highlight" :: rest -> command_highlight rest
+    | "ai" :: rest -> Ai_command.run rest
     | _ -> run_command argv
   with
   | (Not_found | Invalid_argument _ | Failure _ | Assert_failure _ | Match_failure _) as error ->

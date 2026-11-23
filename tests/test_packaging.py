@@ -262,6 +262,14 @@ def check_stage(check, compiler):
             result = run([pyk, "hello.pyk"], work, env)
             check("and pyk still runs a program", result.stdout == HELLO_OUTPUT,
                   result.stdout + result.stderr)
+            result = run([pyk, "ai", "lib", "text.split"], work, env)
+            check("`pyk ai` reads the library's text from the package",
+                  result.returncode == 0 and "## split" in result.stdout,
+                  result.stdout + result.stderr)
+            result = run([pyk, "check", "hello.pyk"], work, env)
+            check("and `pyk check` checks a program",
+                  result.returncode == 0 and "no errors" in result.stdout,
+                  result.stdout + result.stderr)
         finally:
             shutil.rmtree(tree / "build", ignore_errors=True)
             for name in ["hello.pyk", "hello"]:

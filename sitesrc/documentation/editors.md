@@ -2,7 +2,7 @@
 title: Editors
 description: Set up your editor to use the Pyking language server, pyk lsp, and the Pyking debugger, pyk dap.
 sidebar:
-  order: 1
+  order: 4
   group: Tools
 ---
 

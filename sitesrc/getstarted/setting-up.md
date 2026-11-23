@@ -97,6 +97,10 @@ page.
 | [PyCharm and IntelliJ IDEA](/documentation/editors/#pycharm-and-intellij-idea) | yes, from the VS Code extension's grammar | yes, with LSP4IJ | yes, with LSP4IJ |
 | [Helix](/documentation/editors/#helix) | no | yes | yes, experimental |
 
+To have a coding assistant, such as opencode or Claude Code, write
+Pyking for you, run `pyk ai init` in your project: see
+[AI-assisted programming](/documentation/ai/).
+
 ### What the language server is
 
 The Language Server Protocol (LSP) is a standard way for an editor to

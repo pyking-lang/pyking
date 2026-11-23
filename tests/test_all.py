@@ -2,14 +2,14 @@
 """Runs every test suite and reports them together: what `make test`
 calls.
 
-The fourteen suites stay fourteen separate scripts, each runnable on its own --
+The fifteen suites stay fifteen separate scripts, each runnable on its own --
 this one sequences them, keeps their output intact, and adds the
 combined summary at the end. It runs *all* of them even when one fails,
-so a single broken case does not hide what the other thirteen would have
+so a single broken case does not hide what the other fourteen would have
 said, and exits non-zero if any did.
 
 `--target` narrows the program suite to one target or one family, and
-the other thirteen are skipped: none of them is a target, and none would
+the other fourteen are skipped: none of them is a target, and none would
 mean anything narrowed to one. `--suite` runs only the suites named,
 comma-separated (`--suite tinyweb`, `--suite repl,lsp`).
 
@@ -105,7 +105,7 @@ def _named(args):
 
 def suites(args):
     """The suites to run, in order: (name, script, arguments). The last
-    thirteen are skipped when a target was named, since none of them is a
+    fourteen are skipped when a target was named, since none of them is a
     target, and only those `--suite` names are run.
     {String: String} -> [(String, String, [String])]"""
     compiler = ["--compiler", args["--compiler"]] if "--compiler" in args else []
@@ -132,6 +132,7 @@ def suites(args):
         ("nbjson", "test_nbjson.py", compiler),
         ("nbverify", "test_nbverify.py", compiler),
         ("highlight", "test_highlight.py", compiler),
+        ("ai", "test_ai.py", compiler),
         ]
     if "--suite" in args:
         found = [entry for entry in found if entry[0] in _named(args)]

@@ -2,7 +2,7 @@
 title: Code on slides
 description: Colour Pyking code for a slide with pyk highlight, so it keeps its colours and stays text a reader can copy.
 sidebar:
-  order: 7
+  order: 11
   group: Tools
 ---
 

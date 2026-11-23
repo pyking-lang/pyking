@@ -77,6 +77,7 @@ and which module calls which.
 | [`json.ml`](#jsonml) | ~220 | JSON read and written. |
 | [`notebook_format.ml`](#notebook_formatml) | ~950 | A notebook's Markdown as JSON and back, character for character, and the JSON Schema the JSON follows. |
 | [`highlight.ml`](#highlightml) | ~640 | Pyking source coloured for a slide, as HTML with inline styles, RTF or text: `pyk highlight` and `pykHighlight`. |
+| [`ai_command.ml`](#ai_commandml) | ~400 | `pyk ai`: the guide for coding assistants, the library as plain text and sections of the reference, from `share/help/ai/`. |
 | [`pyk.ml`](#pykml) | ~780 | The driver: argv, stage sequencing, error reporting, the six commands. |
 | [`web/pyking_web.ml`](#webpyking_webml) | ~320 | The browser entry point: the same library compiled to JavaScript, for the playground and the notebook. |
 
@@ -2071,6 +2072,8 @@ pyk notebook <file.md>  serve a notebook (web_tools.ml)
 pyk playground          serve the playground (web_tools.ml)
 pyk serve [<dir>]       serve a directory's files (web_tools.ml)
 pyk highlight <file>    colour code for a slide (highlight.ml)
+pyk check <file>        check it, and run nothing
+pyk ai ...              Pyking for coding assistants (ai_command.ml)
 ```
 
 **Design, in depth:** [pyk.md](pyk.md).
@@ -2560,6 +2563,18 @@ installed in. The standard library's search path, the `iweb` target's
 `pyking.js` and `web_tools.ml` all ask it rather than reading
 `Sys.executable_name` themselves. In the executable, since it needs
 `unix`.
+
+## `ai_command.ml`
+
+**`pyk ai`**: what a coding assistant reads to write Pyking, printed
+on standard output, or put in a project by `pyk ai init`. It reads the
+files `tools/help/aidoc.py` wrote into `share/help/ai/` beside the
+executable, and works nothing out from `lib/` itself: `lib` cuts the
+`## name` sections out of a library's full page, `ref` the sections of
+`PYKING.md` whose titles hold every word (a heading inside a code block
+is not one), and `init` copies the guide and the `AGENTS.md` template
+into a project. In the executable, since it reads files. See
+[pyk.md](pyk.md), "`pyk ai`".
 
 ## `version.ml`
 

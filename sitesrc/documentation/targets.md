@@ -2,7 +2,7 @@
 title: Compiler targets
 description: What each Pyking compiler target writes, what it needs to run, what it supports, and how to implement a module in a target's own language.
 sidebar:
-  order: 6
+  order: 10
   group: Tools
 ---
 

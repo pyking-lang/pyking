@@ -35,9 +35,10 @@ Thirteen parts:
             menus list every page of every section, tinyweb's pages for
             other languages included; the Help tab's pages are among them;
             every menu has two levels, pages and their own pages, and
-            no heading that is not a page; Documentation lists the tools,
-            the language and tinyweb in that order, with the language
-            reference's pages under it.
+            no heading that is not a page; Documentation lists the
+            language, opening with the language reference, the tools and
+            tinyweb in that order, with the language reference's pages
+            under it.
   reference PYKING.md is the language reference: every `##` part of it
             is a page (help.py, LANGUAGE_PAGES), its sections the page's
             `##` sections, the Grammar a page of its own; every link to a
@@ -57,7 +58,8 @@ Thirteen parts:
             the pages load the scripts and the runtime from there and
             tell shell.js the build.
   cells     every runnable ```pyking block of the help's pages -- sitesrc/,
-            the language reference and the library pages: an `error`
+            the language reference and the library pages -- and of
+            PYKING-LLM.md, the guide for coding assistants: an `error`
             block must be refused, every other must run, with its
             ```stdin and ```args.
   excerpts  every compiled-code excerpt of the help's pages -- a
@@ -420,11 +422,12 @@ def check_sidebar():
                         and not any(entry.get("group") for entry in documentation)
                         else f"{labels}"))
         tops = [entry["link"] for entry in documentation]
-        wanted_order = ["/documentation/editors/", "/documentation/language/",
-                        "/documentation/grammar/", f"/{website.TINYWEB}/"]
-        results.append(("Documentation's menu lists the tools, then the language, "
-                        "then tinyweb",
-                        None if all(w in tops for w in wanted_order)
+        wanted_order = ["/documentation/language/", "/documentation/grammar/",
+                        "/documentation/editors/", "/documentation/ai/",
+                        f"/{website.TINYWEB}/"]
+        results.append(("Documentation's menu lists the language, with the reference "
+                        "first, then the tools, then tinyweb",
+                        None if all(w in tops for w in wanted_order) and tops[0] == wanted_order[0]
                         and [tops.index(w) for w in wanted_order]
                         == sorted(tops.index(w) for w in wanted_order)
                         else f"{tops}"))
@@ -763,6 +766,9 @@ def check_cells(compiler):
         generated = Path(directory) / "help"
         helpdoc.write(generated)
         pages = [(path.relative_to(generated), path) for path in sorted(generated.rglob("*.md"))]
+        # The guide for coding assistants is no page of the help, but is
+        # published (llms-small.txt) and printed (`pyk ai guide`).
+        pages.append((Path("PYKING-LLM.md"), REPO / "PYKING-LLM.md"))
         results = []
         count = 0
         for label, path in pages:

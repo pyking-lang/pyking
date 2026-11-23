@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Added
+
+- Pyking for coding assistants. `PYKING-LLM.md` is a short guide to
+  writing Pyking, about 5,000 tokens, for a language model that knows
+  Python -- small enough for a model running on your own machine: what
+  differs from Python, with an example of every construct, each run by
+  the tests. `pyk ai init` puts it in a project with an `AGENTS.md`
+  (read by opencode, Codex, Cursor and others) and a `CLAUDE.md` (read
+  by Claude Code), which tell the assistant to read the guide, check
+  every change and look libraries up. `pyk ai guide` prints the guide,
+  `pyk ai lib` the standard library as plain text -- every library,
+  one library's signatures, or one export in full with its example
+  (`pyk ai lib tinyweb.circle`) -- and `pyk ai ref WORDS` the sections
+  of the language reference whose titles hold the words.
+- `pyk check prog.pyk` checks a program and the modules it imports and
+  runs nothing: its errors and warnings, or `no errors`, and exit
+  status 0 or 1. It checks a tinyweb program too, which running would
+  leave serving its page.
+- The website publishes the same for tools that read documentation
+  from the web: `/llms.txt`, `/llms-small.txt` (the guide),
+  `/llms-full.txt` (the language reference) and `/llms/` (each library,
+  short and in full), and has a new page, "AI-assisted programming".
+
+### Changed
+
+- The website's Documentation section starts with the Language
+  reference, followed by "Pyking vs. other languages" and the Grammar,
+  then the tools and tinyweb.
+
 ## [0.1.13] - 2026-11-22
 
 ### Added

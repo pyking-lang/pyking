@@ -5,6 +5,7 @@ Usage error: 'unused-everything' names no warning: the warnings are
 Usage: pyk [options] <filename> [-- args]   run it with the interpreter
        pyk repl                             start the REPL
        pyk compile [options] <filename>     compile it (alias: pyk c)
+       pyk check [options] <filename>       check it, and run nothing
        pyk notebook [--port N] [--mode M] <file.md>
                                             open a notebook in the browser
        pyk playground [--port N]            open the playground
@@ -15,6 +16,7 @@ Usage: pyk [options] <filename> [-- args]   run it with the interpreter
        pyk example [<name>]                 list the examples, or save one
        pyk highlight <file> [options]       colour code for slides: HTML, RTF
                                             or text
+       pyk ai [init|guide|lib|ref] ...      Pyking for coding assistants
 
 Options:
   -t, --target <name>   compile for <name> (default: python); with

@@ -466,6 +466,32 @@ under node (`Web_tools.render_markdown`), so it reads as the notebook's
 page does. Every refusal is one line, `pyk highlight: ...`, status 1.
 See [source.md](source.md), "highlight.ml".
 
+## `pyk check`
+
+`pyk check FILE` runs `front_end` -- the same reading, checking and
+type-checking a run starts with, warnings included -- and then nothing:
+it prints `FILE: no errors.` and exits with 0, or the first error and
+1, as `front_end` reports it for every command. It takes the flags a
+front end reads (`-L`, `-W...`) and refuses arguments after `--`, since
+nothing runs to read them.
+
+## `pyk ai`
+
+`pyk ai` parses argv itself, as `pyk highlight` does: `main` hands it
+everything after the word, to `Ai_command.run` (`src/ai_command.ml`).
+It runs no front end. It prints files `make` wrote into
+`share/help/ai/` beside the executable (`tools/help/aidoc.py`) -- the
+short guide `PYKING-LLM.md`, the reference `PYKING.md`, the
+`AGENTS.md` template, and the library as plain text, `lib/NAME.md` and
+`lib/NAME.full.md` -- so it answers for the `pyk` it ships with, as
+`pyk pykhelp` does. `lib` finds a name as a library or submodule
+(`tinyweb.color`, or `color`), as `LIBRARY.ITEM` (the `## ITEM`
+sections of the full page, `::`-qualified overloads included), or as
+an export of any library; `ref` cuts the sections of `PYKING.md` whose
+titles hold every word, outside code blocks. `init` writes the guide
+over an older copy, but never writes over an `AGENTS.md` or a
+`CLAUDE.md`. Every refusal is one line, `pyk ai: ...`, status 1.
+
 ## `pyk lsp`: the language server's transport
 
 `pyk lsp` runs no front end of its own either: `command_lsp` reads

@@ -623,7 +623,9 @@ prints a link to the page itself.
 pyk [options] <filename>          run it with the interpreter
 pyk repl                          start the REPL
 pyk compile [options] <filename>  compile it (alias: pyk c)
+pyk check [options] <filename>    check it, and run nothing
 pyk plugins <dir>                 build the interpreter's library plugins
+pyk ai ...                        Pyking for coding assistants (ai_command.ml)
 ```
 
 `pyk` at the repository root is the compiled driver itself: `make`

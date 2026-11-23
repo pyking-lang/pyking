@@ -240,6 +240,10 @@ form:
 
 - **[PYKING.md](PYKING.md)** — the language: feature summary, full EBNF
   grammar, scoping rules, and a worked example for every construct.
+- **[PYKING-LLM.md](PYKING-LLM.md)** — the short guide for coding
+  assistants: how Pyking differs from Python, in about 5,000 tokens.
+  `pyk ai init` puts it in a project; see
+  [AI-assisted programming](sitesrc/documentation/ai.md).
 - **[docs/targets.md](docs/targets.md)** — the compiler targets: every
   one at a glance, which parts of the language each accepts, and links to
   a page per family ([Python](docs/target_python.md),

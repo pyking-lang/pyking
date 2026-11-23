@@ -47,19 +47,20 @@ Getting started
   2. Setting up Pyking
   3. Debugging
 Documentation
-  Tools
-    1. Editors                (kept)
-    2. Playground             (new)
-    3. Notebook               (new)
-    4. Command line           (new)
-    5. REPL                   (new)
-    6. Compiler targets       (new)
-    7. Code on slides         (kept, moved here)
   Language
-    8.  Language reference    (rewritten; a group of pages, see below)
-    9.  Pyking vs. other languages   (new; Python, JavaScript, C,
+    1. Language reference     (rewritten; a group of pages, see below)
+    2. Pyking vs. other languages    (new; Python, JavaScript, C,
                                       Java, OCaml)
-    10. Grammar               (new)
+    3. Grammar                (new)
+  Tools
+    4. Editors                (kept)
+    5. AI-assisted programming       (new; pyk ai and pyk check)
+    6. Playground             (new)
+    7. Notebook               (new)
+    8. Command line           (new)
+    9. REPL                   (new)
+    10. Compiler targets      (new)
+    11. Code on slides        (kept, moved here)
   tinyweb
     11. tinyweb in other languages   (kept, regrouped: C, Java,
                                       JavaScript, OCaml, Python)
@@ -68,10 +69,10 @@ Libraries                     (unchanged; generated from lib/)
 Playground                    (unchanged)
 ```
 
-The Tools / Language / tinyweb grouping above is the order of the pages,
+The Language / Tools / tinyweb grouping above is the order of the pages,
 not a level of the menu: the Documentation sidebar has two levels and
 no more. Every page above is a main entry, in bold and clickable; the
-Language reference's pages (8.1–8.16) and tinyweb's pages for other
+Language reference's pages and tinyweb's pages for other
 languages are sub-entries, listed smaller under their main page while
 it or one of them is open. A main page with no sub-pages lists its `##`
 headings under it while it is open; a sub-page's headings are not in
@@ -250,6 +251,11 @@ from simplest to fullest.
 
 ## Documentation
 
+The pages below keep the numbers this plan first gave them. The menu
+has since put the Language pages first, with the Language reference
+opening the section, and added "AI-assisted programming" after Editors:
+the tree above is the order the menu shows.
+
 ### Tools
 
 #### 1. Editors (kept)
@@ -259,6 +265,15 @@ from simplest to fullest.
   in Setting up. Keep the two consistent.
 - Move "The debugger" launch-option detail to the Debugging page and
   link to it from here, so it is written once.
+
+#### AI-assisted programming (new)
+
+`sitesrc/documentation/ai.md`. How to set up a coding assistant, also
+a small model on the reader's own machine, to write Pyking: `pyk ai
+init` and the three files it writes (`AGENTS.md`, `CLAUDE.md`,
+`PYKING-LLM.md`), what the assistant runs (`pyk check`, `pyk ai lib`,
+`pyk ai ref`), looking libraries up, advice for local models, and the
+`llms.txt` files the site publishes (tools/help/aidoc.py).
 
 #### 2. Playground (new)
 

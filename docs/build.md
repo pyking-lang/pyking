@@ -212,7 +212,8 @@ tools/playground/ its page
 tools/notebook/   its page, and check.js for test mode
 tools/help/       its page (assets/), and help.py, which writes share/help/
 share/pyking.js   the compiler, which every page loads
-share/help/       the help's pages, as Markdown, with index.json
+share/help/       the help's pages, as Markdown, with index.json, and
+                  ai/, what `pyk ai` prints (tools/help/aidoc.py)
 ```
 
 `src/web_tools.ml` says what each page serves -- directories beside the

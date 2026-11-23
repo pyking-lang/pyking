@@ -2,7 +2,7 @@
 title: REPL
 description: The Pyking REPL, pyk repl - entering code, what it shows, use and imports in a session, meta-commands, completion and history.
 sidebar:
-  order: 5
+  order: 9
   group: Tools
 ---
 
